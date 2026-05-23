@@ -5,7 +5,13 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
-import { PDFViewerModal } from '@/components/chat/PDFViewerModal';
+import dynamic from 'next/dynamic';
+
+// react-pdf uses browser-only APIs (canvas, PDF.js worker) — never SSR
+const PDFViewerModal = dynamic(
+  () => import('@/components/chat/PDFViewerModal').then(m => m.PDFViewerModal),
+  { ssr: false, loading: () => null },
+);
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
