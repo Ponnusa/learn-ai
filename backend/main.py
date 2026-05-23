@@ -13,6 +13,11 @@ from routers import auth, sessions, chat, videos, quizzes, uploads
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_pool()
+    # Auto-migrate new columns (safe to run on every startup)
+    from database import get_db
+    async with get_db() as db:
+        await db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
+        await db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT")
     yield
     await close_pool()
 

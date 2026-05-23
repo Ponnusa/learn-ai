@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     STRIPE_LEARNER_PRICE_ID: str = ""
     STRIPE_PRO_PRICE_ID: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
 
     class Config:
         env_file = ".env"
