@@ -1,0 +1,164 @@
+"""
+Assembles the final system prompt for each student.
+
+Structure:
+  base_prompt  (AnimLearn verbatim — NEVER modified)
+  + level_instruction  (deterministic from skill score)
+  + ai_modifier  (AI-written, stored per student in DB)
+  + misconception_reminders  (top 3 active)
+
+For anonymous sessions: base prompt only (no profile yet).
+"""
+from database import get_db
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BASE PROMPTS — copied verbatim from AnimLearn. Do NOT edit here.
+# If you improve a prompt in AnimLearn, copy the updated version here.
+# ─────────────────────────────────────────────────────────────────────────────
+
+CHAT_SYSTEM_PROMPT = """You are an expert educational AI tutor. Your role is to explain
+concepts clearly, accurately, and engagingly. You adapt your explanations to the student's
+level and always ensure deep understanding rather than surface-level coverage.
+
+When explaining concepts:
+- Start with intuition before formalism
+- Use concrete examples and analogies
+- Connect new ideas to what the student already knows
+- Highlight common misconceptions proactively
+- Use LaTeX for mathematical notation (wrap in $...$ or $$...$$)
+- Keep explanations focused — one key idea at a time
+
+After explaining, suggest 2-3 follow-up directions the student might explore.
+Format suggestions as a JSON array in your response metadata if asked.
+"""
+
+QUIZ_GENERATION_PROMPT = """You are an expert educational assessment designer.
+Generate high-quality multiple-choice questions that test deep understanding,
+not just memorization. Each question should:
+- Test a specific concept or skill
+- Have one clearly correct answer
+- Have plausible distractors that reflect common misconceptions
+- Include a detailed explanation for the correct answer
+
+Return valid JSON array of question objects."""
+
+VIDEO_TEACHING_PROMPT_TEMPLATE = """Create a clear educational animation that teaches
+the following concept to students:\n\n{concept}"""
+
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _score_to_instruction(score: int, subject: str) -> str:
+    """Deterministic level instruction from score band."""
+    if score < 25:
+        return (
+            f"The student is a true beginner in {subject} (score {score}/100). "
+            "Use only simple everyday language — no jargon without immediate explanation. "
+            "Lead with a relatable analogy before any theory. "
+            "Break every concept into small digestible steps. "
+            "Validate their understanding frequently. Never assume prior knowledge."
+        )
+    elif score < 45:
+        return (
+            f"The student is a lower-intermediate learner in {subject} (score {score}/100). "
+            "Introduce technical terms slowly, always defining them. "
+            "Use worked examples before formulas. "
+            "Check understanding with a brief question at the end of explanations."
+        )
+    elif score < 65:
+        return (
+            f"The student has solid intermediate knowledge of {subject} (score {score}/100). "
+            "Balance intuition with technical precision. "
+            "You can use standard terminology but verify understanding of advanced terms. "
+            "Offer both conceptual and mathematical views."
+        )
+    elif score < 82:
+        return (
+            f"The student is advanced in {subject} (score {score}/100). "
+            "Use precise technical language. Skip basic definitions. "
+            "Focus on deeper connections, edge cases, and 'why' — not just 'how'. "
+            "Challenge them with higher-order questions."
+        )
+    else:
+        return (
+            f"The student is at expert level in {subject} (score {score}/100). "
+            "Engage as a peer or near-peer. Discuss nuances, open problems, "
+            "and research-level connections. Minimal scaffolding needed."
+        )
+
+
+async def build_chat_prompt(
+    user_id: str | None,
+    subject: str | None,
+    language: str = "en",
+) -> str:
+    """
+    Returns the full system prompt for a chat response.
+    Always starts with the unchanged AnimLearn base.
+    Personalisation is appended — never replaces the base.
+    """
+    prompt = CHAT_SYSTEM_PROMPT
+
+    if language != "en":
+        prompt += f"\n\nRespond in {language}."
+
+    if not user_id:
+        return prompt  # anonymous: base only, full quality
+
+    async with get_db() as db:
+        profile = await db.fetchrow(
+            "SELECT * FROM student_profiles WHERE user_id = $1", user_id
+        )
+
+    if not profile:
+        return prompt  # new registered user, no profile yet
+
+    # ── Score-based level instruction ──────────────────────────────────────
+    score = (profile["skill_scores"] or {}).get(subject or "General", 50)
+    level_block = _score_to_instruction(score, subject or "this subject")
+
+    # ── AI-written personal modifier ───────────────────────────────────────
+    modifier = (profile["prompt_modifier"] or "").strip()
+
+    # ── Misconception reminders (top 3) ────────────────────────────────────
+    misconceptions = profile["known_misconceptions"] or []
+    misc_block = ""
+    if misconceptions:
+        items = "; ".join(misconceptions[:3])
+        misc_block = (
+            f"\nKnown misconceptions to proactively address when relevant: {items}."
+        )
+
+    personalisation = "\n\n--- STUDENT PERSONALISATION ---\n"
+    personalisation += level_block
+    if modifier:
+        personalisation += f"\n{modifier}"
+    personalisation += misc_block
+
+    return prompt + personalisation
+
+
+async def build_video_prompt(
+    concept_text: str,
+    user_id: str | None,
+    subject: str | None,
+) -> str:
+    """
+    Frames the concept for the Manim pipeline.
+    Adjusts depth hint based on student score — the pipeline itself is unchanged.
+    """
+    depth = "intermediate — balance visual intuition with key equations"
+
+    if user_id:
+        async with get_db() as db:
+            profile = await db.fetchrow(
+                "SELECT skill_scores FROM student_profiles WHERE user_id = $1", user_id
+            )
+        if profile:
+            score = (profile["skill_scores"] or {}).get(subject or "General", 50)
+            if score < 35:
+                depth = "introductory — use simple visuals, minimal notation, clear labels"
+            elif score >= 65:
+                depth = "advanced — include full derivation steps and precise notation"
+
+    return VIDEO_TEACHING_PROMPT_TEMPLATE.format(concept=concept_text[:2000])

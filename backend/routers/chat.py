@@ -1,0 +1,282 @@
+"""
+Chat router — conversation management + AI responses.
+Subject detection runs in parallel with main AI call (asyncio.gather).
+Profile update runs in background after every 5 messages.
+"""
+import asyncio
+import json
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
+from database import get_db
+from services.ai_router import openai_client, get_model
+from services.subject_detector import detect_subject
+from services.prompt_builder import build_chat_prompt, CHAT_SYSTEM_PROMPT
+from services.profile_updater import update_student_profile
+from services.tier_config import get_limit
+from services.scoring import score_signal
+
+router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+class ChatRequest(BaseModel):
+    message: str
+    conversation_id: str | None = None
+    image_url: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
+    language: str = "en"
+
+
+class ConversationCreateRequest(BaseModel):
+    user_id: str | None = None
+    session_id: str | None = None
+
+
+@router.post("/conversations")
+async def create_conversation(req: ConversationCreateRequest):
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            INSERT INTO conversations (user_id, session_id)
+            VALUES ($1, $2) RETURNING id, created_at
+        """, req.user_id, req.session_id)
+    return {"conversation_id": str(row["id"]), "created_at": row["created_at"]}
+
+
+@router.get("/conversations")
+async def list_conversations(user_id: str | None = None, session_id: str | None = None):
+    async with get_db() as db:
+        if user_id:
+            rows = await db.fetch("""
+                SELECT id, title, subject, subtopic, created_at, updated_at
+                FROM conversations WHERE user_id = $1
+                ORDER BY updated_at DESC LIMIT 50
+            """, user_id)
+        elif session_id:
+            rows = await db.fetch("""
+                SELECT id, title, subject, subtopic, created_at, updated_at
+                FROM conversations WHERE session_id = $1
+                ORDER BY updated_at DESC LIMIT 20
+            """, session_id)
+        else:
+            return []
+    return [dict(r) for r in rows]
+
+
+@router.get("/conversations/{conversation_id}/messages")
+async def get_messages(conversation_id: str):
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT id, role, content, content_type, metadata, created_at
+            FROM messages WHERE conversation_id = $1
+            ORDER BY created_at ASC
+        """, conversation_id)
+    return [dict(r) for r in rows]
+
+
+@router.post("/send")
+async def send_message(req: ChatRequest, bg: BackgroundTasks):
+    """
+    Main chat endpoint.
+    1. Check credits
+    2. Ensure conversation exists
+    3. Save user message
+    4. Run AI response + subject detection in parallel
+    5. Save AI reply
+    6. Update conversation title/subject if first message
+    7. Trigger profile update in background every 5 messages
+    """
+    # ── 1. Credit check ──────────────────────────────────────────────────────
+    await _check_message_credit(req.user_id, req.session_id)
+
+    async with get_db() as db:
+        # ── 2. Ensure conversation exists ────────────────────────────────────
+        conv_id = req.conversation_id
+        if not conv_id:
+            row = await db.fetchrow("""
+                INSERT INTO conversations (user_id, session_id)
+                VALUES ($1, $2) RETURNING id
+            """, req.user_id, req.session_id)
+            conv_id = str(row["id"])
+
+        # Get conversation context
+        conv = await db.fetchrow(
+            "SELECT subject, subtopic, title FROM conversations WHERE id = $1", conv_id
+        )
+        is_first_message = (conv["title"] is None)
+        subject = conv["subject"] if conv else None
+
+        # Get recent messages for context (last 12)
+        history = await db.fetch("""
+            SELECT role, content FROM messages
+            WHERE conversation_id = $1
+            ORDER BY created_at DESC LIMIT 12
+        """, conv_id)
+        history = list(reversed(history))
+
+        # ── 3. Save user message ─────────────────────────────────────────────
+        content_type = "image_url" if req.image_url else "text"
+        await db.execute("""
+            INSERT INTO messages (conversation_id, role, content, content_type)
+            VALUES ($1, 'user', $2, $3)
+        """, conv_id, req.message, content_type)
+
+        # Increment session counter
+        if req.session_id:
+            await db.execute("""
+                UPDATE anonymous_sessions SET msg_count = msg_count + 1 WHERE id = $1
+            """, req.session_id)
+
+    # ── 4. Build system prompt + detect subject in parallel ──────────────────
+    system_prompt_task = build_chat_prompt(req.user_id, subject, req.language)
+    subject_task = (
+        detect_subject(text=req.message, image_url=req.image_url)
+        if is_first_message or not subject
+        else asyncio.coroutine(lambda: {})()
+    )
+
+    system_prompt, subject_data = await asyncio.gather(
+        system_prompt_task,
+        subject_task,
+        return_exceptions=True,
+    )
+    if isinstance(system_prompt, Exception):
+        system_prompt = CHAT_SYSTEM_PROMPT
+    if isinstance(subject_data, Exception):
+        subject_data = {}
+
+    # ── 5. Call AI (GPT-4o or GPT-4o with vision) ────────────────────────────
+    messages = [{"role": "system", "content": system_prompt}]
+    for h in history:
+        messages.append({"role": h["role"], "content": h["content"]})
+
+    if req.image_url:
+        user_content = [
+            {"type": "image_url", "image_url": {"url": req.image_url}},
+            {"type": "text", "text": req.message},
+        ]
+    else:
+        user_content = req.message
+    messages.append({"role": "user", "content": user_content})
+
+    task = "chat_response_vision" if req.image_url else "chat_response"
+    ai_resp = await openai_client.chat.completions.create(
+        model=get_model(task),
+        messages=messages,
+        max_tokens=2048,
+        temperature=0.7,
+    )
+    reply_text = ai_resp.choices[0].message.content
+
+    # ── 6. Generate suggestion chips (background-ish, fast) ──────────────────
+    chips = await _generate_chips(reply_text, req.language)
+
+    # ── 7. Save AI reply + update conversation ───────────────────────────────
+    async with get_db() as db:
+        msg_row = await db.fetchrow("""
+            INSERT INTO messages (conversation_id, role, content, metadata)
+            VALUES ($1, 'assistant', $2, $3::jsonb) RETURNING id, created_at
+        """, conv_id, reply_text, json.dumps({"chips": chips, "subject": subject_data}))
+
+        msg_count_row = await db.fetchrow(
+            "SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = $1", conv_id
+        )
+        msg_count = msg_count_row["cnt"]
+
+        # Update conversation subject + title on first message
+        if is_first_message and subject_data.get("subject"):
+            title = await _generate_title(req.message, req.language)
+            await db.execute("""
+                UPDATE conversations
+                SET subject = $1, subtopic = $2, subject_confidence = $3,
+                    title = $4, updated_at = NOW()
+                WHERE id = $5
+            """, subject_data.get("subject"), subject_data.get("subtopic"),
+                subject_data.get("confidence"), title, conv_id)
+        else:
+            await db.execute(
+                "UPDATE conversations SET updated_at = NOW() WHERE id = $1", conv_id
+            )
+
+    # ── 8. Profile update every 5 messages (background) ─────────────────────
+    if req.user_id and msg_count % 5 == 0:
+        bg.add_task(
+            update_student_profile,
+            req.user_id, conv_id, subject_data.get("subject", "General")
+        )
+
+    return {
+        "conversation_id": conv_id,
+        "message_id": str(msg_row["id"]),
+        "reply": reply_text,
+        "chips": chips,
+        "subject": subject_data,
+    }
+
+
+async def _check_message_credit(user_id: str | None, session_id: str | None):
+    async with get_db() as db:
+        if user_id:
+            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1", user_id)
+            tier = user["tier"] if user else "free"
+            limit = await get_limit(tier, "messages_daily")
+            if limit == -1:
+                return
+            count = await db.fetchval("""
+                SELECT COUNT(*) FROM usage_events
+                WHERE user_id = $1 AND event_type = 'message_sent'
+                AND created_at > NOW() - INTERVAL '1 day'
+            """, user_id)
+            if count >= limit:
+                raise HTTPException(status_code=429, detail="Daily message limit reached")
+            await db.execute("""
+                INSERT INTO usage_events (user_id, event_type) VALUES ($1, 'message_sent')
+            """, user_id)
+        elif session_id:
+            row = await db.fetchrow(
+                "SELECT msg_count FROM anonymous_sessions WHERE id = $1", session_id
+            )
+            if not row:
+                raise HTTPException(status_code=404, detail="Session not found")
+            limit = await get_limit("anonymous", "messages_total")
+            if row["msg_count"] >= limit:
+                raise HTTPException(status_code=429, detail="session_limit_reached")
+
+
+async def _generate_chips(reply: str, language: str) -> list[str]:
+    """Generate 3 follow-up suggestion chips from AI reply."""
+    try:
+        resp = await openai_client.chat.completions.create(
+            model=get_model("suggestion_chips"),
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Based on this educational explanation, generate exactly 3 short follow-up "
+                    f"question suggestions (max 8 words each). Return JSON array only.\n\n{reply[:500]}"
+                ),
+            }],
+            max_tokens=120,
+            temperature=0.5,
+            response_format={"type": "json_object"},
+        )
+        data = json.loads(resp.choices[0].message.content)
+        chips = data.get("suggestions") or data.get("chips") or []
+        return chips[:3]
+    except Exception:
+        return []
+
+
+async def _generate_title(message: str, language: str) -> str:
+    """Generate a short conversation title from the first message."""
+    try:
+        resp = await openai_client.chat.completions.create(
+            model=get_model("title_generation"),
+            messages=[{
+                "role": "user",
+                "content": f"Generate a short title (max 5 words) for a conversation starting with: {message[:200]}. Return plain text only.",
+            }],
+            max_tokens=20,
+            temperature=0.3,
+        )
+        return resp.choices[0].message.content.strip().strip('"')
+    except Exception:
+        return message[:40]
