@@ -85,6 +85,13 @@ export default function HomePage() {
       if (e.message === 'session_limit_reached') {
         setSignupReason('session_limit');
         setShowSignup(true);
+      } else {
+        // Show error inline so the user knows something went wrong
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ **Something went wrong.** ${e.message && e.message !== 'Request failed' ? e.message : 'Please try again in a moment.'}`,
+        }]);
       }
     } finally {
       setLoading(false);
