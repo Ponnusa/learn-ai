@@ -2,7 +2,6 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Download, CheckCircle, XCircle, Loader } from 'lucide-react';
-import ReactPlayer from 'react-player';
 import { getVideoStatus } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -133,7 +132,12 @@ function VideosContent() {
         {isDone && videoUrl && (
           <div className="w-full max-w-3xl">
             <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl shadow-purple-500/10 mb-4">
-              <ReactPlayer url={videoUrl} width="100%" height="100%" controls playing />
+              <video
+                src={videoUrl}
+                controls
+                autoPlay
+                className="w-full h-full"
+              />
             </div>
             <div className="flex items-center justify-between">
               <p className="text-white/50 text-sm">✅ {t.video.ready}</p>
