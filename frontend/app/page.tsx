@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
@@ -136,9 +137,9 @@ export default function HomePage() {
     <div className="flex h-screen overflow-hidden">
       <Sidebar conversations={conversations} onNewChat={() => { setMessages([]); setConversationId(null); }} />
 
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 bg-[#0f0f0f]">
         <div className="flex-1 overflow-y-auto px-4 py-6">
-          <div className="max-w-3xl mx-auto">
+          <div className="max-w-2xl mx-auto">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-white text-2xl font-bold mb-6 shadow-lg shadow-purple-500/20">
@@ -149,7 +150,7 @@ export default function HomePage() {
                 <div className="flex flex-wrap gap-2 justify-center max-w-lg">
                   {t.chat.starterPrompts.map((p, i) => (
                     <button key={i} onClick={() => handleSend(p)}
-                      className="px-4 py-2 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 text-white/70 hover:text-white text-sm transition-colors">
+                      className="px-4 py-2.5 rounded-xl bg-[#1a1a1a] hover:bg-[#222] border border-white/10 hover:border-white/20 text-white/80 hover:text-white text-sm transition-all shadow-sm">
                       {p}
                     </button>
                   ))}
@@ -167,16 +168,7 @@ export default function HomePage() {
               ))
             )}
 
-            {loading && (
-              <div className="flex gap-3 mb-4">
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold shrink-0">AI</div>
-                <div className="flex items-center gap-1 pt-2">
-                  {[0,150,300].map(d => (
-                    <span key={d} className="w-2 h-2 bg-white/40 rounded-full animate-bounce" style={{ animationDelay: `${d}ms` }} />
-                  ))}
-                </div>
-              </div>
-            )}
+            {loading && <ThinkingIndicator />}
             <div ref={bottomRef} />
           </div>
         </div>

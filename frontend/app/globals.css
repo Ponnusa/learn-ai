@@ -1,26 +1,67 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #0f0f0f;
+  --foreground: #e4e4e7;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: Inter, Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ── Thinking indicator dot animation ───────────────────────────── */
+@keyframes thinking-dot {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30%            { opacity: 1;   transform: translateY(-4px); }
+}
+.thinking-dot { animation: thinking-dot 1.4s ease-in-out infinite; }
+
+/* ── AI message prose ───────────────────────────────────────────── */
+/* Explicit styles — Tailwind v4 prose-invert is unreliable on custom dark bg */
+.ai-content { color: #e4e4e7; font-size: 0.875rem; line-height: 1.75; }
+.ai-content p                { margin: 0.5rem 0; }
+.ai-content p:first-child    { margin-top: 0; }
+.ai-content p:last-child     { margin-bottom: 0; }
+.ai-content strong,
+.ai-content b                { color: #ffffff; font-weight: 600; }
+.ai-content em, .ai-content i{ color: #d4d4d8; }
+.ai-content h1               { color: #fff; font-size: 1.15rem; font-weight: 700; margin: 1.1rem 0 0.5rem; }
+.ai-content h2               { color: #fff; font-size: 1rem;    font-weight: 600; margin: 0.9rem 0 0.4rem; }
+.ai-content h3               { color: #fff; font-size: 0.9rem;  font-weight: 600; margin: 0.8rem 0 0.3rem; }
+.ai-content ul               { list-style: disc;    padding-left: 1.2rem; margin: 0.5rem 0; }
+.ai-content ol               { list-style: decimal; padding-left: 1.2rem; margin: 0.5rem 0; }
+.ai-content li               { margin: 0.2rem 0; color: #d4d4d8; }
+.ai-content code {
+  color: #c4b5fd;
+  background: rgba(139,92,246,0.13);
+  border: 1px solid rgba(139,92,246,0.22);
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  font-size: 0.82em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+.ai-content pre {
+  background: #090912;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+.ai-content pre code { background: none; border: none; padding: 0; color: #e4e4e7; font-size: 0.8rem; }
+.ai-content blockquote {
+  border-left: 3px solid rgba(139,92,246,0.55);
+  padding-left: 0.875rem;
+  color: #a1a1aa;
+  font-style: italic;
+  margin: 0.75rem 0;
+}
+.ai-content table  { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.82rem; }
+.ai-content th     { color: #fff; background: rgba(255,255,255,0.06); padding: 0.4rem 0.75rem; border: 1px solid rgba(255,255,255,0.1); text-align: left; }
+.ai-content td     { color: #d4d4d8; padding: 0.4rem 0.75rem; border: 1px solid rgba(255,255,255,0.07); }
+.ai-content hr     { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 1rem 0; }
+.ai-content .katex         { color: #e4e4e7 !important; }
+.ai-content .katex-display { margin: 0.75rem 0; overflow-x: auto; }
