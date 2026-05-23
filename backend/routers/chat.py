@@ -18,6 +18,11 @@ from services.scoring import score_signal
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
+async def _noop() -> dict:
+    """No-op coroutine — replaces the removed asyncio.coroutine() in Python 3.11+."""
+    return {}
+
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
@@ -131,7 +136,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     subject_task = (
         detect_subject(text=req.message, image_url=req.image_url)
         if is_first_message or not subject
-        else asyncio.coroutine(lambda: {})()
+        else _noop()
     )
 
     system_prompt, subject_data = await asyncio.gather(
