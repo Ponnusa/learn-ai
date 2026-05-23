@@ -16,6 +16,8 @@ interface Message {
   metadata?: {
     chips?: string[];
     subject?: { subject: string; subtopic: string; icon: string };
+    /** URL (R2 or base64 data URL) for a PDF region screenshot attached to this message */
+    imageUrl?: string;
   };
 }
 
@@ -45,13 +47,30 @@ export function MessageBubble({
 
   /* ── User bubble ──────────────────────────────────────────────── */
   if (isUser) {
+    const imageUrl = message.metadata?.imageUrl;
     return (
       <div className="flex justify-end mb-5">
         <div
-          className="max-w-[78%] rounded-2xl rounded-tr-sm px-4 py-3 text-sm leading-relaxed text-white font-medium shadow-md shadow-purple-900/30"
+          className="max-w-[78%] rounded-2xl rounded-tr-sm overflow-hidden shadow-md shadow-purple-900/30"
           style={{ background: 'linear-gradient(135deg,#7c3aed,#6d28d9)' }}
         >
-          {message.content}
+          {/* PDF region screenshot — shown above the text */}
+          {imageUrl && (
+            <div className="px-3 pt-3 pb-1">
+              <img
+                src={imageUrl}
+                alt="Selected PDF region"
+                className="rounded-xl max-h-56 w-auto object-contain border border-white/20 bg-black/20"
+                style={{ maxWidth: '100%' }}
+              />
+              <p className="text-white/50 text-[10px] mt-1.5 flex items-center gap-1">
+                <span>📄</span> PDF region
+              </p>
+            </div>
+          )}
+          <div className="px-4 py-3 text-sm leading-relaxed text-white font-medium">
+            {message.content}
+          </div>
         </div>
       </div>
     );

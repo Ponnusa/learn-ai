@@ -15,13 +15,13 @@ const PDFViewerModal = dynamic(
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz } from '@/lib/api';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile } from '@/lib/api';
 
 interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  metadata?: { chips?: string[]; subject?: any };
+  metadata?: { chips?: string[]; subject?: any; imageUrl?: string };
 }
 
 export default function HomePage() {
@@ -142,7 +142,7 @@ export default function HomePage() {
   }
 
   async function handlePdfAsk(question: string, context: { text?: string; imageDataUrl?: string }) {
-    setPdfFile(null); // close modal
+    setPdfFile(null); // close modal immediately
 
     if (!user && msgCount >= 8) {
       setSignupReason('session_limit');
@@ -150,24 +150,49 @@ export default function HomePage() {
       return;
     }
 
-    // Build the outgoing user message text
+    // ── Upload region image to R2 (falls back to base64 if R2 not configured) ─
+    let imageUrl: string | undefined;
+    let apiImageUrl: string | undefined;
+
+    if (context.imageDataUrl) {
+      try {
+        // Convert base64 data URL → File → upload to R2
+        const fetchRes  = await fetch(context.imageDataUrl);
+        const blob      = await fetchRes.blob();
+        const imgFile   = new File([blob], `pdf-region-${Date.now()}.png`, { type: 'image/png' });
+        const uploaded  = await uploadFile(imgFile, sessionId ?? undefined, user?.id, token ?? undefined) as { url: string };
+        imageUrl    = uploaded.url;   // persistent R2 URL shown in chat
+        apiImageUrl = uploaded.url;   // sent to OpenAI
+      } catch {
+        // R2 not configured or upload failed — use base64 as fallback
+        // base64 data URLs work fine with OpenAI vision, just won't persist
+        imageUrl    = context.imageDataUrl;
+        apiImageUrl = context.imageDataUrl;
+      }
+    }
+
+    // ── Build user message (text shown in bubble) ────────────────────────────
     const userText = context.text
       ? `${question}\n\n---\n*Context from PDF:*\n"${context.text}"`
       : question;
 
-    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: userText }]);
+    setMessages(prev => [...prev, {
+      id:       Date.now().toString(),
+      role:     'user',
+      content:  userText,
+      metadata: { imageUrl },          // shows image thumbnail in bubble
+    }]);
     setLoading(true);
     incrementMsg();
 
     try {
-      // Text context → append to message; image context → send as image_url (base64 data URL)
       const apiMessage = context.text
         ? `${question}\n\nContext from PDF:\n${context.text}`
         : question;
 
       const res = await sendMessage({
         message:         apiMessage,
-        image_url:       context.imageDataUrl ?? undefined,
+        image_url:       apiImageUrl,
         conversation_id: conversationId ?? undefined,
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
