@@ -5,6 +5,7 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
+import { PDFViewerModal } from '@/components/chat/PDFViewerModal';
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
@@ -25,6 +26,7 @@ export default function HomePage() {
   const [showSignup, setShowSignup]       = useState(false);
   const [signupReason, setSignupReason]   = useState<'session_limit' | 'soft_nudge'>('soft_nudge');
   const [conversations, setConversations] = useState<any[]>([]);
+  const [pdfFile, setPdfFile]             = useState<File | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }     = useTranslation();
@@ -133,6 +135,64 @@ export default function HomePage() {
     } catch (e) { console.error(e); }
   }
 
+  async function handlePdfAsk(question: string, context: { text?: string; imageDataUrl?: string }) {
+    setPdfFile(null); // close modal
+
+    if (!user && msgCount >= 8) {
+      setSignupReason('session_limit');
+      setShowSignup(true);
+      return;
+    }
+
+    // Build the outgoing user message text
+    const userText = context.text
+      ? `${question}\n\n---\n*Context from PDF:*\n"${context.text}"`
+      : question;
+
+    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: userText }]);
+    setLoading(true);
+    incrementMsg();
+
+    try {
+      // Text context → append to message; image context → send as image_url (base64 data URL)
+      const apiMessage = context.text
+        ? `${question}\n\nContext from PDF:\n${context.text}`
+        : question;
+
+      const res = await sendMessage({
+        message:         apiMessage,
+        image_url:       context.imageDataUrl ?? undefined,
+        conversation_id: conversationId ?? undefined,
+        user_id:         user?.id,
+        session_id:      sessionId ?? undefined,
+        language:        'en',
+      }, token ?? undefined);
+
+      setConversationId(res.conversation_id);
+      if (res.subject?.subject) setCurrentSubject(res.subject);
+
+      setMessages(prev => [...prev, {
+        id:       res.message_id,
+        role:     'assistant',
+        content:  res.reply,
+        metadata: { chips: res.chips, subject: res.subject },
+      }]);
+    } catch (e: any) {
+      if (e.message === 'session_limit_reached') {
+        setSignupReason('session_limit');
+        setShowSignup(true);
+      } else {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ **Something went wrong.** ${e.message && e.message !== 'Request failed' ? e.message : 'Please try again in a moment.'}`,
+        }]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar conversations={conversations} onNewChat={() => { setMessages([]); setConversationId(null); }} />
@@ -184,8 +244,16 @@ export default function HomePage() {
           </div>
         )}
 
-        <InputBar onSend={handleSend} loading={loading} />
+        <InputBar onSend={handleSend} onPdfOpen={f => setPdfFile(f)} loading={loading} />
       </main>
+
+      {pdfFile && (
+        <PDFViewerModal
+          file={pdfFile}
+          onClose={() => setPdfFile(null)}
+          onAsk={handlePdfAsk}
+        />
+      )}
 
       {showSignup && (
         <SignupModal

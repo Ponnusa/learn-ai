@@ -41,18 +41,34 @@ _CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-4-7")
 R2_BUCKET_NAME = settings.R2_BUCKET_NAME
 R2_PUBLIC_URL  = settings.R2_PUBLIC_URL
 
-r2_client = (
-    boto3.client(
-        "s3",
-        endpoint_url=f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
-        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
-        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
-        config=Config(signature_version="s3v4"),
-        region_name="auto",
-    )
-    if settings.R2_ACCOUNT_ID
-    else None
-)
+def _make_r2_client():
+    """Create R2 client — returns None (silently) if R2 is not configured or config is invalid."""
+    account_id = settings.R2_ACCOUNT_ID
+    if not account_id:
+        return None
+    # Cloudflare account IDs are 32-char hex strings — reject anything that
+    # looks like a key/secret accidentally pasted into the wrong env var.
+    import re as _re
+    if not _re.fullmatch(r'[a-fA-F0-9]{32}', account_id):
+        logger.warning(
+            "⚠️  R2_ACCOUNT_ID looks invalid (expected 32-char hex). "
+            "SVG asset caching disabled. Check your Railway env vars."
+        )
+        return None
+    try:
+        return boto3.client(
+            "s3",
+            endpoint_url=f"https://{account_id}.r2.cloudflarestorage.com",
+            aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+            aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+            config=Config(signature_version="s3v4"),
+            region_name="auto",
+        )
+    except Exception as e:
+        logger.warning(f"⚠️  Could not create R2 client — SVG caching disabled: {e}")
+        return None
+
+r2_client = _make_r2_client()
 
 # ── Cloud Run trigger config ──────────────────────────────────────────────────────────
 CLOUD_RUN_URL      = settings.CLOUD_RUN_VIDEO_URL

@@ -5,12 +5,13 @@ import { useTranslation } from '@/hooks/useTranslation';
 
 interface InputBarProps {
   onSend: (text: string, file?: File) => void;
+  onPdfOpen?: (file: File) => void;
   loading?: boolean;
   hasFile?: boolean;
   disabled?: boolean;
 }
 
-export function InputBar({ onSend, loading = false, hasFile = false, disabled = false }: InputBarProps) {
+export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, disabled = false }: InputBarProps) {
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -34,8 +35,12 @@ export function InputBar({ onSend, loading = false, hasFile = false, disabled = 
 
   function handleFile(f: File) {
     if (!f) return;
-    const ok = f.type.startsWith('image/') || f.type === 'application/pdf';
-    if (!ok) return;
+    if (f.type === 'application/pdf') {
+      // PDFs open in the viewer modal instead of being attached
+      onPdfOpen?.(f);
+      return;
+    }
+    if (!f.type.startsWith('image/')) return;
     setFile(f);
   }
 
