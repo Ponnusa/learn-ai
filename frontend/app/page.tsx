@@ -119,6 +119,8 @@ export default function HomePage() {
         session_id: sessionId ?? undefined,
         subject:   subject ?? currentSubject?.subject,
       }, token ?? undefined);
+      // Save questions to localStorage so the quiz page can read them
+      localStorage.setItem(`quiz_${res.quiz_id}`, JSON.stringify(res.questions));
       router.push(`/quiz/${res.quiz_id}`);
     } catch (e) { console.error(e); }
   }
