@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { X, Mail, Loader } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { sendMagicLink } from '@/lib/api';
@@ -18,6 +19,7 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
   const [error, setError] = useState('');
   const { t } = useTranslation();
   const { sessionId } = useSessionStore();
+  const router = useRouter();
 
   const isDismissible = reason === 'soft_nudge';
   const isHardGate    = reason === 'session_limit';
@@ -124,7 +126,13 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
               </button>
 
               <p className="text-center text-white/30 text-xs">
-                {t.auth.alreadyHaveAccount}
+                Already have an account?{' '}
+                <button
+                  onClick={() => router.push('/auth/login')}
+                  className="text-purple-400 hover:text-purple-300 underline"
+                >
+                  Sign in
+                </button>
               </p>
             </>
           ) : (

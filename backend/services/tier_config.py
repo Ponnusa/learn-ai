@@ -21,14 +21,30 @@ async def _refresh_tier_cache():
     _tier_ts = time.monotonic()
 
 
+_FALLBACK_LIMITS: dict[str, dict[str, int]] = {
+    "anonymous": {"messages_total": 8,  "quiz_total": 1,  "videos_total": 1,
+                  "quiz_questions_max": 3, "video_max_secs": 60},
+    "free":      {"messages_daily": 25, "quiz_daily": 5,  "videos_daily": 3,
+                  "quiz_questions_max": 5, "video_max_secs": 60},
+    "learner":   {"messages_daily": 100,"quiz_daily": -1, "videos_daily": 5,
+                  "quiz_questions_max": 10,"video_max_secs": 180},
+    "pro":       {"messages_daily": -1, "quiz_daily": -1, "videos_daily": 10,
+                  "quiz_questions_max": 15,"video_max_secs": 300},
+}
+
+
 async def get_limit(tier: str, feature: str) -> int:
     """
     Returns the int limit for (tier, feature).
     -1 means unlimited. 0 means not available.
+    Falls back to hardcoded defaults if the tier_config table is empty.
     """
     if time.monotonic() - _tier_ts > 300:
         await _refresh_tier_cache()
-    return _tier_cache.get(tier, {}).get(feature, 0)
+    val = _tier_cache.get(tier, {}).get(feature)
+    if val is None:
+        val = _FALLBACK_LIMITS.get(tier, {}).get(feature, 0)
+    return val
 
 
 # ── Feature flags cache ───────────────────────────────────────────────────────

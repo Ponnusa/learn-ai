@@ -36,7 +36,8 @@ export default function HomePage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }     = useTranslation();
-  const { sessionId, setSessionId, msgCount, user, token, incrementMsg } = useSessionStore();
+  const { sessionId, setSessionId, msgCount, user, token, incrementMsg,
+          activeConversationId, setActiveConversationId } = useSessionStore();
 
   // Init anonymous session
   useEffect(() => {
@@ -58,12 +59,25 @@ export default function HomePage() {
     }
   }, [user?.id, sessionId]);
 
+  // Restore the last active conversation after page navigation
+  useEffect(() => {
+    if (activeConversationId && !conversationId) {
+      handleConversationSelect(activeConversationId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId]);
+
   // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Soft nudge after 4th message
+  // Dismiss any signup modal the moment the user becomes logged-in
+  useEffect(() => {
+    if (user) setShowSignup(false);
+  }, [user]);
+
+  // Soft nudge after 4th message (anonymous only)
   useEffect(() => {
     if (!user && msgCount === 4) {
       setSignupReason('soft_nudge');
@@ -75,6 +89,7 @@ export default function HomePage() {
   async function handleConversationSelect(id: string) {
     if (id === conversationId) return;
     setConversationId(id);
+    setActiveConversationId(id);
     setMessages([]);
     try {
       const rows = await getMessages(id, token ?? undefined);
@@ -113,6 +128,7 @@ export default function HomePage() {
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);
+      setActiveConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
 
       // Add newly-created conversation to the sidebar list
@@ -137,9 +153,18 @@ export default function HomePage() {
         metadata: { chips: res.chips, subject: res.subject },
       }]);
     } catch (e: any) {
-      if (e.message === 'session_limit_reached') {
+      const isLimit = e.message === 'session_limit_reached' || e.message === 'Daily message limit reached';
+      if (isLimit && !user) {
+        // Anonymous user hit their limit — show the signup gate
         setSignupReason('session_limit');
         setShowSignup(true);
+      } else if (isLimit && user) {
+        // Logged-in user got a limit error — show inline, never block the UI
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ **Daily message limit reached.** You've used all your messages for today. Come back tomorrow or upgrade your plan.`,
+        }]);
       } else {
         // Show error inline so the user knows something went wrong
         setMessages(prev => [...prev, {
@@ -307,9 +332,16 @@ export default function HomePage() {
         metadata: { chips: res.chips, subject: res.subject },
       }]);
     } catch (e: any) {
-      if (e.message === 'session_limit_reached') {
+      const isLimit = e.message === 'session_limit_reached' || e.message === 'Daily message limit reached';
+      if (isLimit && !user) {
         setSignupReason('session_limit');
         setShowSignup(true);
+      } else if (isLimit && user) {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ **Daily message limit reached.** Come back tomorrow or upgrade your plan.`,
+        }]);
       } else {
         setMessages(prev => [...prev, {
           id: Date.now().toString(),
@@ -327,7 +359,7 @@ export default function HomePage() {
       <Sidebar
         conversations={conversations}
         selectedConversationId={conversationId ?? undefined}
-        onNewChat={() => { setMessages([]); setConversationId(null); }}
+        onNewChat={() => { setMessages([]); setConversationId(null); setActiveConversationId(null); }}
         onConversationSelect={handleConversationSelect}
       />
 
