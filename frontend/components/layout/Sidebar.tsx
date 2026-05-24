@@ -19,7 +19,9 @@ interface Conversation {
 
 interface SidebarProps {
   conversations?: Conversation[];
+  selectedConversationId?: string;
   onNewChat: () => void;
+  onConversationSelect?: (id: string) => void;
 }
 
 const SUBJECT_ICONS: Record<string, string> = {
@@ -30,7 +32,7 @@ const SUBJECT_ICONS: Record<string, string> = {
   Other: '📚',
 };
 
-export function Sidebar({ conversations = [], onNewChat }: SidebarProps) {
+export function Sidebar({ conversations = [], selectedConversationId, onNewChat, onConversationSelect }: SidebarProps) {
   const [expanded, setExpanded] = useState(true);
   const [search, setSearch] = useState('');
   const pathname = usePathname();
@@ -128,18 +130,18 @@ export function Sidebar({ conversations = [], onNewChat }: SidebarProps) {
                 <div key={key}>
                   <p className="px-3 py-1 text-white/30 text-[10px] uppercase tracking-widest">{label}</p>
                   {groups[key].map(c => (
-                    <Link
+                    <button
                       key={c.id}
-                      href={`/chat/${c.id}`}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors ${
-                        pathname === `/chat/${c.id}` ? 'bg-white/15' : ''
+                      onClick={() => onConversationSelect?.(c.id)}
+                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-left ${
+                        selectedConversationId === c.id ? 'bg-white/15' : ''
                       }`}
                     >
                       <span className="text-sm shrink-0">
                         {c.subject ? (SUBJECT_ICONS[c.subject] ?? '📚') : <MessageSquare size={13} className="text-white/40" />}
                       </span>
                       <span className="text-white/70 truncate">{c.title || 'New conversation'}</span>
-                    </Link>
+                    </button>
                   ))}
                 </div>
               )

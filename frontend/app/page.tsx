@@ -15,7 +15,7 @@ const PDFViewerModal = dynamic(
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile } from '@/lib/api';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, listConversations, getMessages } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -45,6 +45,19 @@ export default function HomePage() {
     }
   }, []);
 
+  // Load conversation list whenever auth state settles
+  useEffect(() => {
+    if (user?.id) {
+      listConversations(user.id, undefined, token ?? undefined)
+        .then(setConversations)
+        .catch(() => {});
+    } else if (sessionId) {
+      listConversations(undefined, sessionId)
+        .then(setConversations)
+        .catch(() => {});
+    }
+  }, [user?.id, sessionId]);
+
   // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -57,6 +70,24 @@ export default function HomePage() {
       setShowSignup(true);
     }
   }, [msgCount, user]);
+
+  // Load an existing conversation when clicked in the sidebar
+  async function handleConversationSelect(id: string) {
+    if (id === conversationId) return;
+    setConversationId(id);
+    setMessages([]);
+    try {
+      const rows = await getMessages(id, token ?? undefined);
+      setMessages(rows.map((m: any) => ({
+        id:       m.id,
+        role:     m.role as 'user' | 'assistant',
+        content:  m.content,
+        metadata: m.metadata ?? undefined,
+      })));
+      const conv = conversations.find(c => c.id === id);
+      if (conv?.subject) setCurrentSubject({ subject: conv.subject, subtopic: conv.subtopic });
+    } catch { /* silently ignore */ }
+  }
 
   async function handleSend(text: string, file?: File) {
     if (!text && !file) return;
@@ -83,6 +114,21 @@ export default function HomePage() {
 
       setConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
+
+      // Add newly-created conversation to the sidebar list
+      if (!conversationId) {
+        setConversations(prev => {
+          const exists = prev.some(c => c.id === res.conversation_id);
+          if (exists) return prev;
+          return [{
+            id:         res.conversation_id,
+            title:      text.slice(0, 60),
+            subject:    res.subject?.subject,
+            subtopic:   res.subject?.subtopic,
+            updated_at: new Date().toISOString(),
+          }, ...prev];
+        });
+      }
 
       setMessages(prev => [...prev, {
         id:       res.message_id,
@@ -202,6 +248,21 @@ export default function HomePage() {
       setConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
 
+      // Add newly-created conversation to the sidebar list (PDF ask)
+      if (!conversationId) {
+        setConversations(prev => {
+          const exists = prev.some(c => c.id === res.conversation_id);
+          if (exists) return prev;
+          return [{
+            id:         res.conversation_id,
+            title:      question.slice(0, 60),
+            subject:    res.subject?.subject,
+            subtopic:   res.subject?.subtopic,
+            updated_at: new Date().toISOString(),
+          }, ...prev];
+        });
+      }
+
       setMessages(prev => [...prev, {
         id:       res.message_id,
         role:     'assistant',
@@ -226,7 +287,12 @@ export default function HomePage() {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <Sidebar conversations={conversations} onNewChat={() => { setMessages([]); setConversationId(null); }} />
+      <Sidebar
+        conversations={conversations}
+        selectedConversationId={conversationId ?? undefined}
+        onNewChat={() => { setMessages([]); setConversationId(null); }}
+        onConversationSelect={handleConversationSelect}
+      />
 
       <main className="flex-1 flex flex-col min-w-0 bg-[#0f0f0f]">
         <div className="flex-1 overflow-y-auto px-4 py-6">
