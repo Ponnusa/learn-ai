@@ -7,9 +7,9 @@ import secrets
 import urllib.parse
 from datetime import datetime, timedelta
 
+import bcrypt
 import httpx
-from fastapi import APIRouter, HTTPException, Depends
-from passlib.context import CryptContext
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr
 from jose import jwt
 
@@ -18,7 +18,17 @@ from config import settings
 from services.scoring import init_profile
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except Exception:
+        return False
 
 # ── JWT helpers ───────────────────────────────────────────────────────────────
 
@@ -157,7 +167,7 @@ async def register(req: RegisterRequest):
     if len(req.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
 
-    hashed = pwd_context.hash(req.password)
+    hashed = _hash_password(req.password)
 
     # ── 1. Create user row ────────────────────────────────────────────────────
     async with get_db() as db:
@@ -192,7 +202,7 @@ async def login_password(req: PasswordLoginRequest):
 
     if not user or not user["password_hash"]:
         raise HTTPException(401, "Invalid email or password")
-    if not pwd_context.verify(req.password, user["password_hash"]):
+    if not _verify_password(req.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
 
     async with get_db() as db:
