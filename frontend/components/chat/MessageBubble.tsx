@@ -8,6 +8,7 @@ import { Copy, Check } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
+import { preprocessMath } from '@/lib/preprocessMath';
 
 interface Message {
   id: string;
@@ -99,7 +100,7 @@ export function MessageBubble({
           {/* Prose content — uses .ai-content from globals.css for reliable dark-mode colors */}
           <div className="ai-content">
             <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-              {message.content}
+              {preprocessMath(message.content)}
             </ReactMarkdown>
           </div>
 
