@@ -56,36 +56,40 @@ async def health():
 
 @app.get("/health/db")
 async def health_db():
-    """Check DB schema — shows whether auth columns and key tables exist."""
+    """Check DB schema — shows columns on users table and all public tables."""
     from database import get_db
-    result = {}
+    result: dict = {}
     async with get_db() as db:
-        # Check columns on users table
         cols = await db.fetch("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'users'
+            SELECT column_name, data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = 'users'
+            ORDER BY ordinal_position
         """)
         result["users_columns"] = [r["column_name"] for r in cols]
+        result["has_password_hash"] = "password_hash" in result["users_columns"]
+        result["has_google_id"]     = "google_id"     in result["users_columns"]
 
-        # Check key tables exist
         tables = await db.fetch("""
             SELECT table_name FROM information_schema.tables
-            WHERE table_schema = 'public'
+            WHERE table_schema = 'public' ORDER BY table_name
         """)
         result["tables"] = [r["table_name"] for r in tables]
+        result["has_student_profiles"] = "student_profiles" in result["tables"]
 
-        # Quick sanity: can we insert+rollback a test user?
+        # Test register INSERT inside a real transaction (rolled back)
         try:
-            await db.execute("SAVEPOINT health_check")
-            await db.execute(
-                "INSERT INTO users (email, password_hash) VALUES ('__health__@test.com', 'x')"
-            )
-            await db.execute("ROLLBACK TO SAVEPOINT health_check")
-            result["register_insert_ok"] = True
+            async with db.transaction():
+                await db.execute(
+                    "INSERT INTO users (email, password_hash) VALUES ($1, $2)",
+                    "__healthcheck__@learnai.internal", "x",
+                )
+                raise Exception("rollback")   # force rollback
         except Exception as exc:
-            await db.execute("ROLLBACK TO SAVEPOINT health_check")
-            result["register_insert_ok"] = False
-            result["register_insert_error"] = str(exc)
+            rolled_back = str(exc) == "rollback"
+            result["register_insert_ok"] = rolled_back
+            if not rolled_back:
+                result["register_insert_error"] = str(exc)
 
     return result
 
