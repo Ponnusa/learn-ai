@@ -98,6 +98,11 @@ export const getUserVideos = (userId: string, token?: string) =>
   get<any[]>(`/api/videos/user/${userId}`, token);
 
 // ── Quizzes ───────────────────────────────────────────────────────────────────
+export const getQuiz = (quizId: string, token?: string) =>
+  get<{ quiz_id: string; questions: any[]; subject?: string; completed: boolean }>(
+    `/api/quizzes/${quizId}`, token
+  );
+
 export const generateQuiz = (data: {
   topic: string;
   conversation_id?: string;

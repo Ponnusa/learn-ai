@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
-import { submitQuiz } from '@/lib/api';
+import { submitQuiz, getQuiz } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -44,17 +44,38 @@ export default function QuizPage() {
   const [results,          setResults]          = useState<QuizResult | null>(null);
   const [submitting,       setSubmitting]       = useState(false);
   const [notFound,         setNotFound]         = useState(false);
+  const [loadingQuiz,      setLoadingQuiz]      = useState(true);
 
-  // Questions are saved to localStorage by the chat page before navigation
+  // 1. Try localStorage (fast — data was written just before navigation).
+  // 2. Fall back to API (covers: new tab, mobile, localStorage cleared).
   useEffect(() => {
     if (!quizId) return;
+
     const stored = localStorage.getItem(`quiz_${quizId}`);
     if (stored) {
-      try { setQuestions(JSON.parse(stored)); }
-      catch { setNotFound(true); }
-    } else {
-      setNotFound(true);
+      try {
+        const parsed: Question[] = JSON.parse(stored);
+        if (parsed.length > 0) {
+          setQuestions(parsed);
+          setLoadingQuiz(false);
+          return;
+        }
+      } catch { /* fall through to API */ }
     }
+
+    // Fallback: fetch from backend
+    getQuiz(quizId, token ?? undefined)
+      .then(res => {
+        if (res.completed) {
+          setNotFound(true); // already submitted — don't allow re-take
+        } else if (!res.questions || res.questions.length === 0) {
+          setNotFound(true);
+        } else {
+          setQuestions(res.questions);
+        }
+      })
+      .catch(() => setNotFound(true))
+      .finally(() => setLoadingQuiz(false));
   }, [quizId]);
 
   const currentQ = questions[currentIdx];
@@ -127,7 +148,7 @@ export default function QuizPage() {
   }
 
   // ── Loading questions ──────────────────────────────────────────────────────
-  if (questions.length === 0) {
+  if (loadingQuiz) {
     return (
       <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />

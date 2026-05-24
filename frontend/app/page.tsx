@@ -173,18 +173,55 @@ export default function HomePage() {
   }
 
   async function handleTestYourself(content: string, subject?: string) {
+    // Show a "generating quiz…" indicator in the chat
+    const loadingId = Date.now().toString();
+    setMessages(prev => [...prev, {
+      id: loadingId,
+      role: 'assistant',
+      content: '✏️ Generating your quiz…',
+    }]);
+    setLoading(true);
+
     try {
       const res = await generateQuiz({
         topic: content.slice(0, 300),
         conversation_id: conversationId ?? undefined,
-        user_id:   user?.id,
-        session_id: sessionId ?? undefined,
-        subject:   subject ?? currentSubject?.subject,
+        user_id:         user?.id,
+        session_id:      sessionId ?? undefined,
+        subject:         subject ?? currentSubject?.subject,
       }, token ?? undefined);
-      // Save questions to localStorage so the quiz page can read them
+
+      // Remove the loading message
+      setMessages(prev => prev.filter(m => m.id !== loadingId));
+
+      if (!res.questions || res.questions.length === 0) {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: '⚠️ Quiz generation returned no questions. Please try again.',
+        }]);
+        return;
+      }
+
+      // Save questions to localStorage so the quiz page can read them quickly
       localStorage.setItem(`quiz_${res.quiz_id}`, JSON.stringify(res.questions));
       router.push(`/quiz/${res.quiz_id}`);
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      setMessages(prev => prev.filter(m => m.id !== loadingId));
+      const msg = e?.message;
+      if (msg === 'session_limit_reached' || msg === 'Daily quiz limit reached') {
+        setSignupReason('session_limit');
+        setShowSignup(true);
+      } else {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ **Couldn't generate quiz.** ${msg && msg !== 'Request failed' ? msg : 'Please try again in a moment.'}`,
+        }]);
+      }
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handlePdfAsk(question: string, context: { text?: string; imageDataUrl?: string }) {

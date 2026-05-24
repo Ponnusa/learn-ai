@@ -92,6 +92,23 @@ async def generate_quiz(req: QuizRequest):
     return {"quiz_id": str(row["id"]), "questions": questions}
 
 
+@router.get("/{quiz_id}")
+async def get_quiz(quiz_id: str):
+    """Fetch quiz questions by ID — used as fallback when localStorage is unavailable."""
+    async with get_db() as db:
+        quiz = await db.fetchrow(
+            "SELECT id, questions, subject, completed_at FROM quizzes WHERE id = $1", quiz_id
+        )
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    return {
+        "quiz_id":      str(quiz["id"]),
+        "questions":    quiz["questions"],
+        "subject":      quiz["subject"],
+        "completed":    quiz["completed_at"] is not None,
+    }
+
+
 @router.post("/{quiz_id}/submit")
 async def submit_quiz(quiz_id: str, req: SubmitRequest, bg: BackgroundTasks):
     async with get_db() as db:
