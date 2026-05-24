@@ -15,7 +15,7 @@ const PDFViewerModal = dynamic(
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, listConversations, getMessages } from '@/lib/api';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -25,19 +25,21 @@ interface Message {
 }
 
 export default function HomePage() {
-  const [messages, setMessages]           = useState<Message[]>([]);
-  const [loading, setLoading]             = useState(false);
+  const [messages, setMessages]             = useState<Message[]>([]);
+  const [loading, setLoading]               = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [currentSubject, setCurrentSubject] = useState<any>(null);
-  const [showSignup, setShowSignup]       = useState(false);
-  const [signupReason, setSignupReason]   = useState<'session_limit' | 'soft_nudge'>('soft_nudge');
-  const [conversations, setConversations] = useState<any[]>([]);
-  const [pdfFile, setPdfFile]             = useState<File | null>(null);
+  const [showSignup, setShowSignup]         = useState(false);
+  const [signupReason, setSignupReason]     = useState<'session_limit' | 'soft_nudge'>('soft_nudge');
+  const [pdfFile, setPdfFile]               = useState<File | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }     = useTranslation();
-  const { sessionId, setSessionId, msgCount, user, token, incrementMsg,
-          activeConversationId, setActiveConversationId } = useSessionStore();
+  const {
+    sessionId, setSessionId, msgCount, user, token, incrementMsg,
+    activeConversationId, setActiveConversationId,
+    conversations, setConversations, prependConversation,
+  } = useSessionStore();
 
   // Init anonymous session
   useEffect(() => {
@@ -45,19 +47,6 @@ export default function HomePage() {
       createSession().then(s => setSessionId(s.session_id)).catch(() => {});
     }
   }, []);
-
-  // Load conversation list whenever auth state settles
-  useEffect(() => {
-    if (user?.id) {
-      listConversations(user.id, undefined, token ?? undefined)
-        .then(setConversations)
-        .catch(() => {});
-    } else if (sessionId) {
-      listConversations(undefined, sessionId)
-        .then(setConversations)
-        .catch(() => {});
-    }
-  }, [user?.id, sessionId]);
 
   // Restore the last active conversation after page navigation
   useEffect(() => {
@@ -131,18 +120,14 @@ export default function HomePage() {
       setActiveConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
 
-      // Add newly-created conversation to the sidebar list
+      // Prepend newly-created conversation to the shared sidebar list
       if (!conversationId) {
-        setConversations(prev => {
-          const exists = prev.some(c => c.id === res.conversation_id);
-          if (exists) return prev;
-          return [{
-            id:         res.conversation_id,
-            title:      text.slice(0, 60),
-            subject:    res.subject?.subject,
-            subtopic:   res.subject?.subtopic,
-            updated_at: new Date().toISOString(),
-          }, ...prev];
+        prependConversation({
+          id:         res.conversation_id,
+          title:      text.slice(0, 60),
+          subject:    res.subject?.subject,
+          subtopic:   res.subject?.subtopic,
+          updated_at: new Date().toISOString(),
         });
       }
 
@@ -310,18 +295,14 @@ export default function HomePage() {
       setConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
 
-      // Add newly-created conversation to the sidebar list (PDF ask)
+      // Prepend newly-created conversation to the shared sidebar list (PDF ask)
       if (!conversationId) {
-        setConversations(prev => {
-          const exists = prev.some(c => c.id === res.conversation_id);
-          if (exists) return prev;
-          return [{
-            id:         res.conversation_id,
-            title:      question.slice(0, 60),
-            subject:    res.subject?.subject,
-            subtopic:   res.subject?.subtopic,
-            updated_at: new Date().toISOString(),
-          }, ...prev];
+        prependConversation({
+          id:         res.conversation_id,
+          title:      question.slice(0, 60),
+          subject:    res.subject?.subject,
+          subtopic:   res.subject?.subtopic,
+          updated_at: new Date().toISOString(),
         });
       }
 
@@ -357,7 +338,6 @@ export default function HomePage() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar
-        conversations={conversations}
         selectedConversationId={conversationId ?? undefined}
         onNewChat={() => { setMessages([]); setConversationId(null); setActiveConversationId(null); }}
         onConversationSelect={handleConversationSelect}

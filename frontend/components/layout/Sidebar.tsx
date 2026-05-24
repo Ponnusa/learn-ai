@@ -1,26 +1,21 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Video, BookOpen, BarChart2, Settings,
   Plus, ChevronRight, ChevronLeft, Search,
 } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
-
-interface Conversation {
-  id: string;
-  title: string;
-  subject?: string;
-  subtopic?: string;
-  updated_at: string;
-}
+import { listConversations } from '@/lib/api';
 
 interface SidebarProps {
-  conversations?: Conversation[];
+  /** ID of the currently-open conversation (highlights it in the list) */
   selectedConversationId?: string;
+  /** Called when the user clicks "+ New chat" */
   onNewChat: () => void;
+  /** Called when the user clicks a past conversation (only needed on the chat page) */
   onConversationSelect?: (id: string) => void;
 }
 
@@ -32,46 +27,69 @@ const SUBJECT_ICONS: Record<string, string> = {
   Other: '📚',
 };
 
-export function Sidebar({ conversations = [], selectedConversationId, onNewChat, onConversationSelect }: SidebarProps) {
+export function Sidebar({ selectedConversationId, onNewChat, onConversationSelect }: SidebarProps) {
   const [expanded, setExpanded] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search,   setSearch]   = useState('');
   const pathname = usePathname();
-  const { t } = useTranslation();
-  const { user } = useSessionStore();
+  const router   = useRouter();
+  const { t }    = useTranslation();
+  const {
+    user, token, sessionId,
+    conversations, setConversations,
+    activeConversationId,
+  } = useSessionStore();
 
-  const navItems = [
-    { icon: <Plus size={18} />,        label: t.sidebar.newChat,      onClick: onNewChat,  action: true },
-    { icon: <Video size={18} />,       label: t.sidebar.myVideos,     href: '/videos' },
-    { icon: <BookOpen size={18} />,    label: t.sidebar.studySets,    href: '/study' },
-    { icon: <BarChart2 size={18} />,   label: t.sidebar.progress,     href: '/progress' },
-    { icon: <Settings size={18} />,    label: t.sidebar.settings,     href: '/settings' },
-  ];
+  // ── Fetch / refresh conversation list whenever auth state changes ───────────
+  useEffect(() => {
+    if (user?.id) {
+      listConversations(user.id, undefined, token ?? undefined)
+        .then(setConversations)
+        .catch(() => {});
+    } else if (sessionId) {
+      listConversations(undefined, sessionId)
+        .then(setConversations)
+        .catch(() => {});
+    }
+  }, [user?.id, sessionId]);
+
+  // ── Clicking a conversation: navigate to home then load it ─────────────────
+  function handleConvClick(id: string) {
+    if (onConversationSelect) {
+      // We're already on the chat page — load inline
+      onConversationSelect(id);
+    } else {
+      // We're on another page — go home; home page will auto-restore via activeConversationId
+      useSessionStore.getState().setActiveConversationId(id);
+      router.push('/');
+    }
+  }
 
   const filtered = conversations.filter(c =>
     !search || c.title?.toLowerCase().includes(search.toLowerCase())
   );
 
   // Group by date
-  const now = new Date();
-  const todayStr = now.toDateString();
-  const yesterStr = new Date(now.setDate(now.getDate() - 1)).toDateString();
+  const now       = new Date();
+  const todayStr  = now.toDateString();
+  const yesterStr = new Date(Date.now() - 86400000).toDateString();
 
-  const groups: Record<string, Conversation[]> = { today: [], yesterday: [], week: [], older: [] };
+  const groups: Record<string, typeof conversations> = { today: [], yesterday: [], week: [], older: [] };
   for (const c of filtered) {
     const d = new Date(c.updated_at).toDateString();
-    if (d === todayStr)                                       groups.today.push(c);
-    else if (d === yesterStr)                                 groups.yesterday.push(c);
-    else if (Date.now() - new Date(c.updated_at).getTime() < 7 * 86400000) groups.week.push(c);
-    else                                                      groups.older.push(c);
+    if      (d === todayStr)                                                         groups.today.push(c);
+    else if (d === yesterStr)                                                        groups.yesterday.push(c);
+    else if (Date.now() - new Date(c.updated_at).getTime() < 7 * 86400000)         groups.week.push(c);
+    else                                                                             groups.older.push(c);
   }
 
+  const activeId = selectedConversationId ?? activeConversationId ?? undefined;
+
   return (
-    <aside className={`flex flex-col h-screen bg-[#0f0f0f] border-r border-white/10 transition-all duration-200 ${expanded ? 'w-64' : 'w-14'} shrink-0`}>
+    <aside className={`flex flex-col h-screen bg-[#0f0f0f] border-r border-white/10 transition-all duration-200 shrink-0 ${expanded ? 'w-64' : 'w-14'}`}>
+
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-4 border-b border-white/10">
-        {expanded && (
-          <span className="text-white font-bold text-sm tracking-wide">Learn-AI</span>
-        )}
+        {expanded && <span className="text-white font-bold text-sm tracking-wide">Learn-AI</span>}
         <button
           onClick={() => setExpanded(e => !e)}
           className="text-white/50 hover:text-white transition-colors ml-auto"
@@ -82,30 +100,34 @@ export function Sidebar({ conversations = [], selectedConversationId, onNewChat,
 
       {/* Nav items */}
       <nav className="px-2 py-2 space-y-1">
-        {navItems.map((item, i) => (
-          item.action ? (
-            <button
-              key={i}
-              onClick={item.onClick}
-              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-sm"
-            >
-              <span className="shrink-0">{item.icon}</span>
-              {expanded && <span>{item.label}</span>}
-            </button>
-          ) : (
-            <Link
-              key={i}
-              href={item.href!}
-              className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${
-                pathname === item.href
-                  ? 'bg-white/15 text-white'
-                  : 'text-white/70 hover:text-white hover:bg-white/10'
-              }`}
-            >
-              <span className="shrink-0">{item.icon}</span>
-              {expanded && <span>{item.label}</span>}
-            </Link>
-          )
+        {/* New chat */}
+        <button
+          onClick={onNewChat}
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors text-sm"
+        >
+          <span className="shrink-0"><Plus size={18} /></span>
+          {expanded && <span>{t.sidebar.newChat}</span>}
+        </button>
+
+        {/* Nav links */}
+        {[
+          { icon: <Video size={18} />,     label: t.sidebar.myVideos,  href: '/videos'   },
+          { icon: <BookOpen size={18} />,  label: t.sidebar.studySets, href: '/study'    },
+          { icon: <BarChart2 size={18} />, label: t.sidebar.progress,  href: '/progress' },
+          { icon: <Settings size={18} />,  label: t.sidebar.settings,  href: '/settings' },
+        ].map(({ icon, label, href }) => (
+          <Link
+            key={href}
+            href={href}
+            className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm ${
+              pathname === href
+                ? 'bg-white/15 text-white'
+                : 'text-white/70 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            <span className="shrink-0">{icon}</span>
+            {expanded && <span>{label}</span>}
+          </Link>
         ))}
       </nav>
 
@@ -125,27 +147,34 @@ export function Sidebar({ conversations = [], selectedConversationId, onNewChat,
           </div>
 
           <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-4 text-xs">
-            {Object.entries({ today: t.sidebar.today, yesterday: t.sidebar.yesterday, week: t.sidebar.lastWeek, older: t.sidebar.older }).map(([key, label]) => (
+            {Object.entries({
+              today:     t.sidebar.today,
+              yesterday: t.sidebar.yesterday,
+              week:      t.sidebar.lastWeek,
+              older:     t.sidebar.older,
+            }).map(([key, label]) =>
               groups[key].length > 0 && (
                 <div key={key}>
                   <p className="px-3 py-1 text-white/30 text-[10px] uppercase tracking-widest">{label}</p>
                   {groups[key].map(c => (
                     <button
                       key={c.id}
-                      onClick={() => onConversationSelect?.(c.id)}
+                      onClick={() => handleConvClick(c.id)}
                       className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/10 transition-colors text-left ${
-                        selectedConversationId === c.id ? 'bg-white/15' : ''
+                        activeId === c.id ? 'bg-white/15' : ''
                       }`}
                     >
                       <span className="text-sm shrink-0">
-                        {c.subject ? (SUBJECT_ICONS[c.subject] ?? '📚') : <MessageSquare size={13} className="text-white/40" />}
+                        {c.subject
+                          ? (SUBJECT_ICONS[c.subject] ?? '📚')
+                          : <MessageSquare size={13} className="text-white/40" />}
                       </span>
                       <span className="text-white/70 truncate">{c.title || 'New conversation'}</span>
                     </button>
                   ))}
                 </div>
               )
-            ))}
+            )}
             {filtered.length === 0 && (
               <p className="px-3 text-white/30">{t.sidebar.noConversations}</p>
             )}

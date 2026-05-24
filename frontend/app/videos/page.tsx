@@ -5,6 +5,7 @@ import { ArrowLeft, Download, CheckCircle, XCircle, Loader } from 'lucide-react'
 import { getVideoStatus } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { Sidebar } from '@/components/layout/Sidebar';
 
 const STEPS = [
   'Writing solution & script',
@@ -45,7 +46,6 @@ function VideosContent() {
           return;
         }
 
-        // Advance the step indicator (cycles through steps while waiting)
         setStepIdx(prev => (prev + 1) % STEPS.length);
         setTimeout(poll, 4000);
       } catch {
@@ -57,124 +57,118 @@ function VideosContent() {
     return () => { stopped = true; };
   }, [videoId]);
 
-  if (!videoId) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#0f0f0f]">
-        <p className="text-white/50">No video ID provided.</p>
-      </div>
-    );
-  }
-
   const isLoading = status === 'pending' || status === 'queued';
   const isDone    = status === 'complete' || status === 'completed';
   const isFailed  = status === 'failed';
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex flex-col">
-      {/* Top bar */}
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10">
-        <button onClick={() => router.push('/')} className="text-white/50 hover:text-white transition-colors">
-          <ArrowLeft size={20} />
-        </button>
-        <h1 className="text-white font-semibold">
-          {isDone ? t.video.ready : isFailed ? t.video.failed : t.video.generating}
-        </h1>
-      </div>
+    <div className="flex h-screen overflow-hidden">
+      <Sidebar onNewChat={() => router.push('/')} />
 
-      <div className="flex-1 flex items-center justify-center px-4 py-12">
-        {/* ── Loading state ── */}
-        {isLoading && (
-          <div className="text-center max-w-sm w-full">
-            {/* Spinner */}
-            <div className="w-20 h-20 mx-auto mb-8 relative">
-              <div className="w-20 h-20 rounded-full border-4 border-white/10" />
-              <div className="w-20 h-20 rounded-full border-4 border-purple-500 border-t-transparent absolute inset-0 animate-spin" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-white text-sm font-bold">
-                  L
+      <main className="flex-1 flex flex-col min-w-0 bg-[#0f0f0f]">
+        {/* Top bar */}
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10 shrink-0">
+          <button onClick={() => router.push('/')} className="text-white/50 hover:text-white transition-colors">
+            <ArrowLeft size={20} />
+          </button>
+          <h1 className="text-white font-semibold">
+            {isDone ? t.video.ready : isFailed ? t.video.failed : t.video.generating}
+          </h1>
+        </div>
+
+        <div className="flex-1 flex items-center justify-center px-4 py-12 overflow-y-auto">
+          {/* No video ID */}
+          {!videoId && (
+            <p className="text-white/50">No video ID provided.</p>
+          )}
+
+          {/* ── Loading state ── */}
+          {videoId && isLoading && (
+            <div className="text-center max-w-sm w-full">
+              <div className="w-20 h-20 mx-auto mb-8 relative">
+                <div className="w-20 h-20 rounded-full border-4 border-white/10" />
+                <div className="w-20 h-20 rounded-full border-4 border-purple-500 border-t-transparent absolute inset-0 animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-white text-sm font-bold">
+                    L
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <h2 className="text-white text-xl font-semibold mb-2">{t.video.generating}</h2>
-            <p className="text-white/50 text-sm mb-8">{t.video.generatingDesc}</p>
+              <h2 className="text-white text-xl font-semibold mb-2">{t.video.generating}</h2>
+              <p className="text-white/50 text-sm mb-8">{t.video.generatingDesc}</p>
 
-            {/* Step indicators */}
-            <div className="space-y-3 text-left">
-              {STEPS.map((step, i) => {
-                const done    = i < stepIdx;
-                const active  = i === stepIdx;
-                return (
-                  <div key={i} className="flex items-center gap-3">
-                    <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
-                      done   ? 'bg-green-500' :
-                      active ? 'bg-purple-500 animate-pulse' :
-                               'bg-white/10'
-                    }`}>
-                      {done   && <CheckCircle size={12} className="text-white" />}
-                      {active && <Loader size={10} className="text-white animate-spin" />}
+              <div className="space-y-3 text-left">
+                {STEPS.map((step, i) => {
+                  const done   = i < stepIdx;
+                  const active = i === stepIdx;
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
+                        done   ? 'bg-green-500' :
+                        active ? 'bg-purple-500 animate-pulse' :
+                                 'bg-white/10'
+                      }`}>
+                        {done   && <CheckCircle size={12} className="text-white" />}
+                        {active && <Loader size={10} className="text-white animate-spin" />}
+                      </div>
+                      <span className={`text-sm transition-colors ${
+                        done   ? 'text-white/50 line-through' :
+                        active ? 'text-white' :
+                                 'text-white/25'
+                      }`}>
+                        {step}
+                      </span>
                     </div>
-                    <span className={`text-sm transition-colors ${
-                      done   ? 'text-white/50 line-through' :
-                      active ? 'text-white' :
-                               'text-white/25'
-                    }`}>
-                      {step}
-                    </span>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ── Done — show player ── */}
-        {isDone && videoUrl && (
-          <div className="w-full max-w-3xl">
-            <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl shadow-purple-500/10 mb-4">
-              <video
-                src={videoUrl}
-                controls
-                autoPlay
-                className="w-full h-full"
-              />
+          {/* ── Done — show player ── */}
+          {videoId && isDone && videoUrl && (
+            <div className="w-full max-w-3xl">
+              <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl shadow-purple-500/10 mb-4">
+                <video src={videoUrl} controls autoPlay className="w-full h-full" />
+              </div>
+              <div className="flex items-center justify-between">
+                <p className="text-white/50 text-sm">✅ {t.video.ready}</p>
+                <a
+                  href={videoUrl}
+                  download
+                  className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/15 rounded-xl text-white text-sm transition-colors"
+                >
+                  <Download size={14} />
+                  {t.download}
+                </a>
+              </div>
             </div>
-            <div className="flex items-center justify-between">
-              <p className="text-white/50 text-sm">✅ {t.video.ready}</p>
-              <a
-                href={videoUrl}
-                download
-                className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/15 rounded-xl text-white text-sm transition-colors"
+          )}
+
+          {videoId && isDone && !videoUrl && (
+            <div className="text-center">
+              <CheckCircle size={48} className="text-green-400 mx-auto mb-4" />
+              <p className="text-white font-semibold">Video ready — loading player…</p>
+            </div>
+          )}
+
+          {/* ── Failed ── */}
+          {videoId && isFailed && (
+            <div className="text-center max-w-sm">
+              <XCircle size={48} className="text-red-400 mx-auto mb-4" />
+              <h2 className="text-white font-semibold mb-2">{t.video.failed}</h2>
+              <p className="text-white/50 text-sm mb-6">{error ?? t.video.failedDesc}</p>
+              <button
+                onClick={() => router.push('/')}
+                className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-colors"
               >
-                <Download size={14} />
-                {t.download}
-              </a>
+                {t.back}
+              </button>
             </div>
-          </div>
-        )}
-
-        {isDone && !videoUrl && (
-          <div className="text-center">
-            <CheckCircle size={48} className="text-green-400 mx-auto mb-4" />
-            <p className="text-white font-semibold">Video ready — loading player…</p>
-          </div>
-        )}
-
-        {/* ── Failed ── */}
-        {isFailed && (
-          <div className="text-center max-w-sm">
-            <XCircle size={48} className="text-red-400 mx-auto mb-4" />
-            <h2 className="text-white font-semibold mb-2">{t.video.failed}</h2>
-            <p className="text-white/50 text-sm mb-6">{error ?? t.video.failedDesc}</p>
-            <button
-              onClick={() => router.push('/')}
-              className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-colors"
-            >
-              {t.back}
-            </button>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
