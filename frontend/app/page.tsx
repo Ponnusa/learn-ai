@@ -219,9 +219,18 @@ export default function HomePage() {
     } catch (e: any) {
       setMessages(prev => prev.filter(m => m.id !== loadingId));
       const msg = e?.message;
-      if (msg === 'session_limit_reached' || msg === 'Daily quiz limit reached') {
+      const isLimit = msg === 'session_limit_reached' || msg === 'Daily quiz limit reached';
+      if (isLimit && !user) {
+        // Anonymous user hit their limit — show the signup gate
         setSignupReason('session_limit');
         setShowSignup(true);
+      } else if (isLimit && user) {
+        // Logged-in user — show inline, never block the UI with the non-dismissible modal
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: `⚠️ **Daily quiz limit reached.** You've used all your quizzes for today. Come back tomorrow or upgrade your plan.`,
+        }]);
       } else {
         setMessages(prev => [...prev, {
           id: Date.now().toString(),
