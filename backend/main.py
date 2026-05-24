@@ -14,10 +14,19 @@ from routers import auth, sessions, chat, videos, quizzes, uploads
 async def lifespan(app: FastAPI):
     await init_pool()
     # Auto-migrate new columns (safe to run on every startup)
+    import logging
+    _log = logging.getLogger("startup")
     from database import get_db
     async with get_db() as db:
-        await db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT")
-        await db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT")
+        for sql in [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT",
+        ]:
+            try:
+                await db.execute(sql)
+                _log.info("Migration OK: %s", sql[:60])
+            except Exception as exc:
+                _log.error("Migration FAILED: %s — %s", sql[:60], exc)
     yield
     await close_pool()
 
@@ -43,6 +52,42 @@ app.include_router(uploads.router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/health/db")
+async def health_db():
+    """Check DB schema — shows whether auth columns and key tables exist."""
+    from database import get_db
+    result = {}
+    async with get_db() as db:
+        # Check columns on users table
+        cols = await db.fetch("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'users'
+        """)
+        result["users_columns"] = [r["column_name"] for r in cols]
+
+        # Check key tables exist
+        tables = await db.fetch("""
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public'
+        """)
+        result["tables"] = [r["table_name"] for r in tables]
+
+        # Quick sanity: can we insert+rollback a test user?
+        try:
+            await db.execute("SAVEPOINT health_check")
+            await db.execute(
+                "INSERT INTO users (email, password_hash) VALUES ('__health__@test.com', 'x')"
+            )
+            await db.execute("ROLLBACK TO SAVEPOINT health_check")
+            result["register_insert_ok"] = True
+        except Exception as exc:
+            await db.execute("ROLLBACK TO SAVEPOINT health_check")
+            result["register_insert_ok"] = False
+            result["register_insert_error"] = str(exc)
+
+    return result
 
 
 @app.get("/health/r2")

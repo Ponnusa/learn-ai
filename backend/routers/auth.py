@@ -151,22 +151,34 @@ class PasswordLoginRequest(BaseModel):
 
 @router.post("/register")
 async def register(req: RegisterRequest):
+    import logging
+    log = logging.getLogger(__name__)
+
     if len(req.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
 
     hashed = pwd_context.hash(req.password)
 
+    # ── 1. Create user row ────────────────────────────────────────────────────
     async with get_db() as db:
         existing = await db.fetchrow("SELECT id FROM users WHERE email = $1", req.email)
         if existing:
             raise HTTPException(409, "An account with this email already exists")
 
-        user = await db.fetchrow("""
-            INSERT INTO users (email, name, password_hash, knowledge_level)
-            VALUES ($1, $2, $3, $4) RETURNING id, email, name, tier
-        """, req.email, req.name, hashed, req.knowledge_level)
+        try:
+            user = await db.fetchrow("""
+                INSERT INTO users (email, name, password_hash, knowledge_level)
+                VALUES ($1, $2, $3, $4) RETURNING id, email, name, tier
+            """, req.email, req.name, hashed, req.knowledge_level)
+        except Exception as exc:
+            log.exception("register INSERT failed: %s", exc)
+            raise HTTPException(500, f"Registration failed: {exc}")
 
+    # ── 2. Init skill profile (separate connection, non-fatal if it fails) ────
+    try:
         await init_profile(str(user["id"]), req.knowledge_level)
+    except Exception as exc:
+        log.warning("init_profile failed for %s (non-fatal): %s", user["id"], exc)
 
     return _user_response(user, create_jwt(str(user["id"])))
 
