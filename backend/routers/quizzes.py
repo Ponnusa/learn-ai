@@ -161,6 +161,13 @@ async def submit_quiz(quiz_id: str, req: SubmitRequest, bg: BackgroundTasks):
         raise HTTPException(status_code=404, detail="Quiz not found")
 
     questions = quiz["questions"]
+    # Unwrap double-encoded JSONB string (quiz generated during bad codec window)
+    if isinstance(questions, str):
+        try:
+            questions = json.loads(questions)
+        except Exception:
+            pass
+
     correct = sum(
         1 for i, q in enumerate(questions)
         if req.answers.get(str(i)) == q["correct"]
