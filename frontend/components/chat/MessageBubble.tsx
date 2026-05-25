@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -9,6 +10,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
+import { getQuiz } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -19,7 +21,80 @@ interface Message {
     subject?: { subject: string; subtopic: string; icon: string };
     /** URL (R2 or base64 data URL) for a PDF region screenshot attached to this message */
     imageUrl?: string;
+    /** Quiz card — present when this message is a generated quiz */
+    quiz_id?: string;
+    quiz_topic?: string;
+    num_questions?: number;
   };
+}
+
+/* ── Quiz card ──────────────────────────────────────────────────────────────── */
+function QuizCard({ quizId, topic, numQuestions }: { quizId: string; topic: string; numQuestions?: number }) {
+  const router = useRouter();
+  const [quizStatus, setQuizStatus] = useState<{
+    completed: boolean;
+    score?: number | null;
+    max_score?: number | null;
+  } | null>(null);
+
+  useEffect(() => {
+    getQuiz(quizId)
+      .then(d => setQuizStatus({ completed: d.completed, score: d.score, max_score: d.max_score }))
+      .catch(() => setQuizStatus({ completed: false }));
+  }, [quizId]);
+
+  const pct =
+    quizStatus?.score != null && quizStatus?.max_score
+      ? Math.round((quizStatus.score / quizStatus.max_score) * 100)
+      : null;
+
+  return (
+    <div className="rounded-xl border border-indigo-500/25 bg-indigo-950/20 px-4 py-3.5 space-y-3">
+      {/* Header */}
+      <div className="flex items-start gap-3">
+        <span className="text-xl mt-0.5">📝</span>
+        <div>
+          <p className="text-white/85 text-sm font-semibold leading-snug">{topic}</p>
+          {numQuestions != null && (
+            <p className="text-white/40 text-xs mt-0.5">{numQuestions} questions</p>
+          )}
+        </div>
+      </div>
+
+      {/* Status + CTA */}
+      {quizStatus === null ? (
+        /* loading state — tiny spinner */
+        <div className="w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin ml-8" />
+      ) : quizStatus.completed && pct !== null ? (
+        /* completed */
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-white/70">
+            ✅ Score:{' '}
+            <span className="text-white font-semibold">
+              {quizStatus.score} / {quizStatus.max_score}
+            </span>
+            <span className="text-white/40 ml-1.5">({pct}%)</span>
+          </span>
+          <button
+            onClick={() => router.push(`/quiz/${quizId}`)}
+            className="text-xs px-3 py-1.5 rounded-lg bg-white/8 hover:bg-white/14 text-white/70 hover:text-white
+                       border border-white/10 transition-all"
+          >
+            Review →
+          </button>
+        </div>
+      ) : (
+        /* not started */
+        <button
+          onClick={() => router.push(`/quiz/${quizId}`)}
+          className="text-sm px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium
+                     transition-all flex items-center gap-2 w-fit"
+        >
+          Start Quiz <span aria-hidden>→</span>
+        </button>
+      )}
+    </div>
+  );
 }
 
 interface MessageBubbleProps {
@@ -97,14 +172,24 @@ export function MessageBubble({
         {/* Message card */}
         <div className="rounded-2xl rounded-tl-sm bg-[#1a1a1a] border border-white/[0.09]
                         shadow-lg shadow-black/30 px-5 py-4">
-          {/* Prose content — uses .ai-content from globals.css for reliable dark-mode colors */}
-          <div className="ai-content">
-            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-              {preprocessMath(message.content)}
-            </ReactMarkdown>
-          </div>
+          {/* Quiz card — replaces prose when this message is a generated quiz */}
+          {message.metadata?.quiz_id ? (
+            <QuizCard
+              quizId={message.metadata.quiz_id}
+              topic={message.metadata.quiz_topic ?? message.content}
+              numQuestions={message.metadata.num_questions}
+            />
+          ) : (
+            /* Prose content — uses .ai-content from globals.css for reliable dark-mode colors */
+            <div className="ai-content">
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                {preprocessMath(message.content)}
+              </ReactMarkdown>
+            </div>
+          )}
 
-          {/* Divider */}
+          {/* Divider — hide action bar for quiz card messages */}
+          {!message.metadata?.quiz_id && (
           <div className="mt-4 pt-3 border-t border-white/[0.06]">
             {/* Primary actions */}
             <div className="flex flex-wrap gap-2 items-center">
@@ -173,6 +258,7 @@ export function MessageBubble({
               </button>
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>

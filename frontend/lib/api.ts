@@ -99,7 +99,7 @@ export const getUserVideos = (userId: string, token?: string) =>
 
 // ── Quizzes ───────────────────────────────────────────────────────────────────
 export const getQuiz = (quizId: string, token?: string) =>
-  get<{ quiz_id: string; questions: any[]; subject?: string; completed: boolean }>(
+  get<{ quiz_id: string; questions: any[]; subject?: string; completed: boolean; score?: number | null; max_score?: number | null }>(
     `/api/quizzes/${quizId}`, token
   );
 
@@ -111,7 +111,7 @@ export const generateQuiz = (data: {
   subject?: string;
   language?: string;
   num_questions?: number;
-}, token?: string) => post<{ quiz_id: string; questions: any[] }>('/api/quizzes/generate', data, token);
+}, token?: string) => post<{ quiz_id: string; questions: any[]; message_id?: string | null }>('/api/quizzes/generate', data, token);
 
 export const submitQuiz = (quizId: string, answers: Record<string, number>, userId?: string, token?: string) =>
   post<{ correct: number; total: number; score_pct: number; results: any[]; passed: boolean }>(

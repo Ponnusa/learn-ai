@@ -75,7 +75,7 @@ async def generate_quiz(req: QuizRequest):
     data = json.loads(resp.choices[0].message.content)
     questions = data.get("questions", [])[:n_questions]
 
-    # ── Save quiz record ──────────────────────────────────────────────────────
+    # ── Save quiz record + quiz-card message (all in one transaction) ────────
     async with get_db() as db:
         row = await db.fetchrow("""
             INSERT INTO quizzes (conversation_id, user_id, session_id, subject, questions)
@@ -83,29 +83,56 @@ async def generate_quiz(req: QuizRequest):
         """, req.conversation_id, req.user_id, req.session_id, req.subject,
             json.dumps(questions))
 
-        if req.session_id:
+        quiz_id = str(row["id"])
+
+        # Record credit AFTER successful generation (not before)
+        if req.user_id:
+            await db.execute(
+                "INSERT INTO usage_events (user_id, event_type) VALUES ($1, 'quiz_taken')",
+                req.user_id,
+            )
+        elif req.session_id:
             await db.execute(
                 "UPDATE anonymous_sessions SET quiz_count = quiz_count + 1 WHERE id = $1",
-                req.session_id
+                req.session_id,
             )
 
-    return {"quiz_id": str(row["id"]), "questions": questions}
+        # Save a quiz-card assistant message so the card persists in chat history
+        quiz_msg_id = None
+        if req.conversation_id:
+            display_topic = req.subject or req.topic[:60]
+            msg_row = await db.fetchrow("""
+                INSERT INTO messages (conversation_id, role, content, metadata)
+                VALUES ($1, 'assistant', $2, $3::jsonb) RETURNING id
+            """, req.conversation_id,
+                f"Quiz: {display_topic}",
+                json.dumps({
+                    "quiz_id":       quiz_id,
+                    "quiz_topic":    display_topic,
+                    "num_questions": len(questions),
+                }))
+            quiz_msg_id = str(msg_row["id"])
+
+    return {"quiz_id": quiz_id, "questions": questions, "message_id": quiz_msg_id}
 
 
 @router.get("/{quiz_id}")
 async def get_quiz(quiz_id: str):
-    """Fetch quiz questions by ID — used as fallback when localStorage is unavailable."""
+    """Fetch quiz questions + completion status by ID."""
     async with get_db() as db:
         quiz = await db.fetchrow(
-            "SELECT id, questions, subject, completed_at FROM quizzes WHERE id = $1", quiz_id
+            "SELECT id, questions, subject, completed_at, score, max_score FROM quizzes WHERE id = $1",
+            quiz_id,
         )
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     return {
-        "quiz_id":      str(quiz["id"]),
-        "questions":    quiz["questions"],
-        "subject":      quiz["subject"],
-        "completed":    quiz["completed_at"] is not None,
+        "quiz_id":    str(quiz["id"]),
+        "questions":  quiz["questions"],
+        "subject":    quiz["subject"],
+        "completed":  quiz["completed_at"] is not None,
+        "score":      quiz["score"],
+        "max_score":  quiz["max_score"],
     }
 
 
@@ -172,9 +199,7 @@ async def _check_quiz_credit(user_id: str | None, session_id: str | None, tier: 
             """, user_id)
             if count >= limit:
                 raise HTTPException(status_code=429, detail="Daily quiz limit reached")
-            await db.execute(
-                "INSERT INTO usage_events (user_id, event_type) VALUES ($1, 'quiz_taken')", user_id
-            )
+            # INSERT moved to generate_quiz (after successful generation)
         elif session_id:
             row = await db.fetchrow(
                 "SELECT quiz_count FROM anonymous_sessions WHERE id = $1", session_id

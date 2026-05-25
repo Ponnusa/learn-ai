@@ -21,7 +21,14 @@ interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  metadata?: { chips?: string[]; subject?: any; imageUrl?: string };
+  metadata?: {
+    chips?: string[];
+    subject?: any;
+    imageUrl?: string;
+    quiz_id?: string;
+    quiz_topic?: string;
+    num_questions?: number;
+  };
 }
 
 export default function HomePage() {
@@ -183,6 +190,8 @@ export default function HomePage() {
   }
 
   async function handleTestYourself(content: string, subject?: string) {
+    if (!user && msgCount >= 8) { setSignupReason('session_limit'); setShowSignup(true); return; }
+
     // Show a "generating quiz…" indicator in the chat
     const loadingId = Date.now().toString();
     setMessages(prev => [...prev, {
@@ -194,49 +203,53 @@ export default function HomePage() {
 
     try {
       const res = await generateQuiz({
-        topic: content.slice(0, 300),
+        topic:           content.slice(0, 300),
         conversation_id: conversationId ?? undefined,
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
         subject:         subject ?? currentSubject?.subject,
       }, token ?? undefined);
 
-      // Remove the loading message
-      setMessages(prev => prev.filter(m => m.id !== loadingId));
-
       if (!res.questions || res.questions.length === 0) {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          role: 'assistant',
+        setMessages(prev => prev.map(m => m.id === loadingId ? {
+          id: loadingId, role: 'assistant',
           content: '⚠️ Quiz generation returned no questions. Please try again.',
-        }]);
+        } : m));
         return;
       }
 
-      // Save questions to localStorage so the quiz page can read them quickly
+      // Save to localStorage so the quiz page has a fast path
       localStorage.setItem(`quiz_${res.quiz_id}`, JSON.stringify(res.questions));
-      router.push(`/quiz/${res.quiz_id}`);
+
+      // Replace loading bubble with a persistent quiz card
+      const displayTopic = subject ?? currentSubject?.subject ?? content.slice(0, 60);
+      setMessages(prev => prev.map(m => m.id === loadingId ? {
+        id:       res.message_id ?? loadingId,   // use DB message id when available
+        role:     'assistant',
+        content:  `Quiz: ${displayTopic}`,
+        metadata: {
+          quiz_id:       res.quiz_id,
+          quiz_topic:    displayTopic,
+          num_questions: res.questions.length,
+        },
+      } : m));
     } catch (e: any) {
-      setMessages(prev => prev.filter(m => m.id !== loadingId));
       const msg = e?.message;
       const isLimit = msg === 'session_limit_reached' || msg === 'Daily quiz limit reached';
       if (isLimit && !user) {
-        // Anonymous user hit their limit — show the signup gate
+        setMessages(prev => prev.filter(m => m.id !== loadingId));
         setSignupReason('session_limit');
         setShowSignup(true);
       } else if (isLimit && user) {
-        // Logged-in user — show inline, never block the UI with the non-dismissible modal
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          role: 'assistant',
+        setMessages(prev => prev.map(m => m.id === loadingId ? {
+          id: loadingId, role: 'assistant',
           content: `⚠️ **Daily quiz limit reached.** You've used all your quizzes for today. Come back tomorrow or upgrade your plan.`,
-        }]);
+        } : m));
       } else {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          role: 'assistant',
+        setMessages(prev => prev.map(m => m.id === loadingId ? {
+          id: loadingId, role: 'assistant',
           content: `⚠️ **Couldn't generate quiz.** ${msg && msg !== 'Request failed' ? msg : 'Please try again in a moment.'}`,
-        }]);
+        } : m));
       }
     } finally {
       setLoading(false);
