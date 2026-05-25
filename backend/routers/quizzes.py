@@ -130,14 +130,24 @@ async def get_quiz(quiz_id: str):
         )
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
+
+    def _unwrap(v):
+        """If asyncpg decoded a double-encoded JSONB string, unwrap one level."""
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return v
+        return v
+
     return {
         "quiz_id":      str(quiz["id"]),
-        "questions":    quiz["questions"],
+        "questions":    _unwrap(quiz["questions"]),
         "subject":      quiz["subject"],
         "completed":    quiz["completed_at"] is not None,
         "score":        quiz["score"],
         "max_score":    quiz["max_score"],
-        "user_answers": quiz["user_answers"] or {},   # {str(i): answer_index}
+        "user_answers": _unwrap(quiz["user_answers"]) or {},
     }
 
 

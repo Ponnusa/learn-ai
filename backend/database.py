@@ -23,15 +23,21 @@ async def _register_codecs(conn: asyncpg.Connection) -> None:
     not the ``jsonb`` OID (3802), so the encoder below is never called
     for those writes — PostgreSQL handles the cast itself.
     """
+    # Encoder: if the caller already called json.dumps() and passed a str,
+    # send it as-is (no double-encoding). If they passed a raw dict/list,
+    # encode it. Decoder: always parse the JSON text back to a Python object.
+    def _json_encoder(v):
+        return v if isinstance(v, str) else json.dumps(v)
+
     await conn.set_type_codec(
         "jsonb",
-        encoder=json.dumps,
+        encoder=_json_encoder,
         decoder=json.loads,
         schema="pg_catalog",
     )
     await conn.set_type_codec(
         "json",
-        encoder=json.dumps,
+        encoder=_json_encoder,
         decoder=json.loads,
         schema="pg_catalog",
     )
