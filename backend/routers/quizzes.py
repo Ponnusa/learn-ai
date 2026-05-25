@@ -125,18 +125,19 @@ async def get_quiz(quiz_id: str):
     """Fetch quiz questions + completion status by ID."""
     async with get_db() as db:
         quiz = await db.fetchrow(
-            "SELECT id, questions, subject, completed_at, score, max_score FROM quizzes WHERE id = $1",
+            "SELECT id, questions, subject, completed_at, score, max_score, user_answers FROM quizzes WHERE id = $1",
             quiz_id,
         )
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     return {
-        "quiz_id":    str(quiz["id"]),
-        "questions":  quiz["questions"],
-        "subject":    quiz["subject"],
-        "completed":  quiz["completed_at"] is not None,
-        "score":      quiz["score"],
-        "max_score":  quiz["max_score"],
+        "quiz_id":      str(quiz["id"]),
+        "questions":    quiz["questions"],
+        "subject":      quiz["subject"],
+        "completed":    quiz["completed_at"] is not None,
+        "score":        quiz["score"],
+        "max_score":    quiz["max_score"],
+        "user_answers": quiz["user_answers"] or {},   # {str(i): answer_index}
     }
 
 

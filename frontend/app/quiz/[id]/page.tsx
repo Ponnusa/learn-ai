@@ -67,8 +67,29 @@ export default function QuizPage() {
     getQuiz(quizId, token ?? undefined)
       .then(res => {
         if (res.completed) {
-          // Already submitted — go back to chat where the quiz card shows the score
-          router.replace('/');
+          // Quiz already submitted — reconstruct the results screen from stored answers
+          const qs          = res.questions ?? [];
+          const userAnswers = res.user_answers ?? {};
+          const correct     = res.score     ?? 0;
+          const total       = res.max_score ?? qs.length;
+          setQuestions(qs);
+          setResults({
+            correct,
+            total,
+            score_pct: total > 0 ? Math.round((correct / total) * 100) : 0,
+            passed:    total > 0 && (correct / total) >= 0.7,
+            results: qs.map((q: any, i: number) => {
+              const userAns = userAnswers[String(i)] ?? -1;
+              return {
+                question:    q.q,
+                options:     q.options,
+                correct:     q.correct,
+                user_answer: userAns,
+                is_correct:  userAns === q.correct,
+                explanation: q.explanation ?? '',
+              };
+            }),
+          });
           return;
         }
         if (!res.questions || res.questions.length === 0) {
