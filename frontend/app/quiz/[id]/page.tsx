@@ -79,13 +79,16 @@ export default function QuizPage() {
             score_pct: total > 0 ? Math.round((correct / total) * 100) : 0,
             passed:    total > 0 && (correct / total) >= 0.7,
             results: qs.map((q: any, i: number) => {
-              const userAns = userAnswers[String(i)] ?? -1;
+              // Coerce to Number — DB/AI may store correct as string "2" or int 2
+              const qCorrect = Number(q.correct);
+              const rawAns   = userAnswers[String(i)];
+              const userAns  = rawAns != null ? Number(rawAns) : -1;
               return {
                 question:    q.q,
                 options:     q.options,
-                correct:     q.correct,
+                correct:     qCorrect,
                 user_answer: userAns,
-                is_correct:  userAns === q.correct,
+                is_correct:  userAns !== -1 && userAns === qCorrect,
                 explanation: q.explanation ?? '',
               };
             }),
@@ -124,24 +127,28 @@ export default function QuizPage() {
         setResults(res);
         localStorage.removeItem(`quiz_${quizId}`);
       } catch {
-        // Compute results locally as fallback
-        const correct = Object.entries(newAnswers).filter(
-          ([i, ans]) => ans === questions[Number(i)]?.correct
-        ).length;
+        // Compute results locally as fallback (coerce types for safety)
         const total   = questions.length;
+        const localResults = questions.map((q, i) => {
+          const qCorrect = Number(q.correct);
+          const rawAns   = newAnswers[String(i)];
+          const userAns  = rawAns != null ? Number(rawAns) : -1;
+          return {
+            question:    q.q,
+            options:     q.options,
+            correct:     qCorrect,
+            user_answer: userAns,
+            is_correct:  userAns !== -1 && userAns === qCorrect,
+            explanation: q.explanation ?? '',
+          };
+        });
+        const correct = localResults.filter(r => r.is_correct).length;
         setResults({
           correct,
           total,
           score_pct: Math.round((correct / total) * 100),
           passed: (correct / total) >= 0.7,
-          results: questions.map((q, i) => ({
-            question:    q.q,
-            options:     q.options,
-            correct:     q.correct,
-            user_answer: newAnswers[String(i)] ?? -1,
-            is_correct:  newAnswers[String(i)] === q.correct,
-            explanation: q.explanation ?? '',
-          })),
+          results: localResults,
         });
         localStorage.removeItem(`quiz_${quizId}`);
       } finally {
@@ -220,9 +227,9 @@ export default function QuizPage() {
                     <div
                       key={j}
                       className={`text-xs px-3 py-1.5 rounded-lg ${
-                        j === r.correct
+                        j === Number(r.correct)
                           ? 'bg-green-500/20 text-green-300'
-                          : j === r.user_answer && !r.is_correct
+                          : j === Number(r.user_answer) && !r.is_correct
                           ? 'bg-red-500/20 text-red-300'
                           : 'text-white/30'
                       }`}
