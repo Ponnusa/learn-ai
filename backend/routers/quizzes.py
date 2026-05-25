@@ -75,7 +75,7 @@ async def generate_quiz(req: QuizRequest):
     data = json.loads(resp.choices[0].message.content)
     questions = data.get("questions", [])[:n_questions]
 
-    # ── Save quiz record + quiz-card message (all in one transaction) ────────
+    # ── Save quiz + credit (must succeed — quiz doesn't exist until this runs) ──
     async with get_db() as db:
         row = await db.fetchrow("""
             INSERT INTO quizzes (conversation_id, user_id, session_id, subject, questions)
@@ -97,21 +97,25 @@ async def generate_quiz(req: QuizRequest):
                 req.session_id,
             )
 
-        # Save a quiz-card assistant message so the card persists in chat history
-        quiz_msg_id = None
-        if req.conversation_id:
+    # ── Save quiz-card message (non-critical — a failure here must NOT 500) ───
+    quiz_msg_id = None
+    if req.conversation_id:
+        try:
             display_topic = req.subject or req.topic[:60]
-            msg_row = await db.fetchrow("""
-                INSERT INTO messages (conversation_id, role, content, metadata)
-                VALUES ($1, 'assistant', $2, $3::jsonb) RETURNING id
-            """, req.conversation_id,
-                f"Quiz: {display_topic}",
-                json.dumps({
-                    "quiz_id":       quiz_id,
-                    "quiz_topic":    display_topic,
-                    "num_questions": len(questions),
-                }))
+            async with get_db() as db:
+                msg_row = await db.fetchrow("""
+                    INSERT INTO messages (conversation_id, role, content, metadata)
+                    VALUES ($1, 'assistant', $2, $3::jsonb) RETURNING id
+                """, req.conversation_id,
+                    f"Quiz: {display_topic}",
+                    json.dumps({
+                        "quiz_id":       quiz_id,
+                        "quiz_topic":    display_topic,
+                        "num_questions": len(questions),
+                    }))
             quiz_msg_id = str(msg_row["id"])
+        except Exception:
+            pass  # quiz still works; card just won't persist in chat history
 
     return {"quiz_id": quiz_id, "questions": questions, "message_id": quiz_msg_id}
 

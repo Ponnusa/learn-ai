@@ -67,8 +67,11 @@ export default function QuizPage() {
     getQuiz(quizId, token ?? undefined)
       .then(res => {
         if (res.completed) {
-          setNotFound(true); // already submitted — don't allow re-take
-        } else if (!res.questions || res.questions.length === 0) {
+          // Already submitted — go back to chat where the quiz card shows the score
+          router.replace('/');
+          return;
+        }
+        if (!res.questions || res.questions.length === 0) {
           setNotFound(true);
         } else {
           setQuestions(res.questions);

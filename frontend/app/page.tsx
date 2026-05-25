@@ -89,12 +89,20 @@ export default function HomePage() {
     setMessages([]);
     try {
       const rows = await getMessages(id, token ?? undefined);
-      setMessages(rows.map((m: any) => ({
-        id:       m.id,
-        role:     m.role as 'user' | 'assistant',
-        content:  m.content,
-        metadata: m.metadata ?? undefined,
-      })));
+      setMessages(rows.map((m: any) => {
+        // asyncpg returns JSONB as raw strings in some configurations —
+        // parse defensively so metadata is always a plain object.
+        let meta = m.metadata;
+        if (typeof meta === 'string') {
+          try { meta = JSON.parse(meta); } catch { meta = undefined; }
+        }
+        return {
+          id:       m.id,
+          role:     m.role as 'user' | 'assistant',
+          content:  m.content,
+          metadata: meta ?? undefined,
+        };
+      }));
       const conv = conversations.find(c => c.id === id);
       if (conv?.subject) setCurrentSubject({ subject: conv.subject, subtopic: conv.subtopic });
     } catch { /* silently ignore */ }

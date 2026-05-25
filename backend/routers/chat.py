@@ -75,7 +75,25 @@ async def get_messages(conversation_id: str):
             FROM messages WHERE conversation_id = $1
             ORDER BY created_at ASC
         """, conversation_id)
-    return [dict(r) for r in rows]
+    # asyncpg returns JSONB columns as raw strings — parse them so the
+    # frontend receives proper JSON objects (not escaped string literals)
+    result = []
+    for r in rows:
+        meta = r["metadata"]
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        result.append({
+            "id":           str(r["id"]),
+            "role":         r["role"],
+            "content":      r["content"],
+            "content_type": r["content_type"],
+            "metadata":     meta or {},
+            "created_at":   r["created_at"].isoformat() if r["created_at"] else None,
+        })
+    return result
 
 
 @router.post("/send")
