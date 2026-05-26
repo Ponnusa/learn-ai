@@ -69,6 +69,22 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
     return {"supported": True, "video_id": video_id, "status": "pending"}
 
 
+@router.get("/conversation/{conversation_id}")
+async def get_conversation_videos(conversation_id: str):
+    """
+    Returns all videos linked to messages in a conversation.
+    Used by the frontend to restore inline video status cards after page refresh.
+    """
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT id, message_id, status, video_url, error_message
+            FROM videos
+            WHERE conversation_id = $1 AND message_id IS NOT NULL
+            ORDER BY created_at DESC
+        """, conversation_id)
+    return [dict(r) for r in rows]
+
+
 @router.get("/{video_id}/status")
 async def get_video_status(video_id: int):
     async with get_db() as db:

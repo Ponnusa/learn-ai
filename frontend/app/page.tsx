@@ -15,7 +15,7 @@ const PDFViewerModal = dynamic(
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages } from '@/lib/api';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -89,9 +89,14 @@ export default function HomePage() {
     setConversationId(id);
     setActiveConversationId(id);
     setMessages([]);
+    setVideoByMsgId({});
     try {
-      const rows = await getMessages(id, token ?? undefined);
-      setMessages(rows.map((m: any) => {
+      const [rows, videos] = await Promise.all([
+        getMessages(id, token ?? undefined),
+        getConversationVideos(id, token ?? undefined).catch(() => []),
+      ]);
+
+      const loadedMessages = rows.map((m: any) => {
         // asyncpg returns JSONB as raw strings in some configurations —
         // parse defensively so metadata is always a plain object.
         let meta = m.metadata;
@@ -104,7 +109,24 @@ export default function HomePage() {
           content:  m.content,
           metadata: meta ?? undefined,
         };
-      }));
+      });
+      setMessages(loadedMessages);
+
+      // Restore video status cards from DB (message_id → video_id)
+      const restored: Record<string, number> = {};
+      for (const v of videos) {
+        if (v.message_id) restored[v.message_id] = v.id;
+      }
+      // Also check localStorage for videos created in this session (message_id not yet in DB for brand-new ones)
+      for (const m of loadedMessages) {
+        if (m.role !== 'assistant') continue;
+        try {
+          const stored = localStorage.getItem(`learnai_video_${m.id}`);
+          if (stored && !restored[m.id]) restored[m.id] = Number(stored);
+        } catch {}
+      }
+      if (Object.keys(restored).length > 0) setVideoByMsgId(restored);
+
       const conv = conversations.find(c => c.id === id);
       if (conv?.subject) setCurrentSubject({ subject: conv.subject, subtopic: conv.subtopic });
     } catch { /* silently ignore */ }
@@ -184,11 +206,12 @@ export default function HomePage() {
     if (!user && msgCount >= 8) { setSignupReason('session_limit'); setShowSignup(true); return; }
     try {
       const res = await generateVideo({
-        prompt: content,
+        prompt:          content,
         conversation_id: conversationId ?? undefined,
-        user_id:   user?.id,
-        session_id: sessionId ?? undefined,
-        subject:   subject ?? currentSubject?.subject,
+        message_id:      messageId,          // ← link video to the AI message in DB
+        user_id:         user?.id,
+        session_id:      sessionId ?? undefined,
+        subject:         subject ?? currentSubject?.subject,
       }, token ?? undefined);
 
       if (!res.supported) {
@@ -197,8 +220,10 @@ export default function HomePage() {
       }
 
       if (messageId && res.video_id) {
-        // Show inline status card on the originating message — no navigation
+        // Show inline status card — no navigation
         setVideoByMsgId(prev => ({ ...prev, [messageId]: res.video_id! }));
+        // Persist to localStorage so the card survives page refresh
+        try { localStorage.setItem(`learnai_video_${messageId}`, String(res.video_id)); } catch {}
       } else if (res.video_id) {
         // Fallback: no message context, navigate to /videos
         router.push(`/videos?id=${res.video_id}`);

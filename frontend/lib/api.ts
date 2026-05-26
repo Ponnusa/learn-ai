@@ -97,6 +97,11 @@ export const getVideoStatus = (videoId: number, token?: string) =>
 export const getUserVideos = (userId: string, token?: string) =>
   get<any[]>(`/api/videos/user/${userId}`, token);
 
+export const getConversationVideos = (conversationId: string, token?: string) =>
+  get<{ id: number; message_id: string; status: string; video_url?: string }[]>(
+    `/api/videos/conversation/${conversationId}`, token
+  );
+
 // ── Quizzes ───────────────────────────────────────────────────────────────────
 export const getQuiz = (quizId: string, token?: string) =>
   get<{
