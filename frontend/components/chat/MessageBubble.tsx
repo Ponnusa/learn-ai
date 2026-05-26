@@ -5,12 +5,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, CheckCircle, Loader, Play, XCircle } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
-import { getQuiz } from '@/lib/api';
+import { getQuiz, getVideoStatus } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -93,6 +93,128 @@ function QuizCard({ quizId, topic, numQuestions }: { quizId: string; topic: stri
   );
 }
 
+/* ── Video status card ──────────────────────────────────────────────────────── */
+const VIDEO_STEPS = [
+  'Writing solution & script',
+  'Planning animation',
+  'Generating Manim code',
+  'Rendering video',
+];
+
+function VideoStatusCard({ videoId, token }: { videoId: number; token?: string }) {
+  const router = useRouter();
+  const [status,   setStatus]   = useState<string>('pending');
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [stepIdx,  setStepIdx]  = useState(0);
+
+  useEffect(() => {
+    let stopped = false;
+
+    async function poll() {
+      try {
+        const data = await getVideoStatus(videoId, token);
+        if (stopped) return;
+        setStatus(data.status);
+        if (data.status === 'complete' || data.status === 'completed') {
+          setVideoUrl(data.video_url ?? null);
+          return; // stop polling
+        }
+        if (data.status === 'failed') return; // stop polling
+        setStepIdx(prev => (prev + 1) % VIDEO_STEPS.length);
+        setTimeout(poll, 4000);
+      } catch {
+        if (!stopped) setTimeout(poll, 8000); // back-off on error
+      }
+    }
+
+    poll();
+    return () => { stopped = true; };
+  }, [videoId]);
+
+  const isDone   = status === 'complete' || status === 'completed';
+  const isFailed = status === 'failed';
+
+  /* Done */
+  if (isDone) {
+    return (
+      <div className="rounded-xl border border-purple-500/25 bg-purple-500/5 px-4 py-3.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-purple-600/20 flex items-center justify-center shrink-0">
+              <Play size={14} className="text-[var(--purple)] ml-0.5" />
+            </div>
+            <div>
+              <p className="text-[var(--tx2)] text-sm font-semibold">Video ready!</p>
+              <p className="text-[var(--tx7)] text-[10px]">Your animation has been generated</p>
+            </div>
+          </div>
+          <button
+            onClick={() => router.push(`/videos?id=${videoId}`)}
+            className="shrink-0 text-xs px-3 py-1.5 rounded-lg
+                       bg-purple-600 hover:bg-purple-500 text-white font-medium
+                       transition-colors flex items-center gap-1.5"
+          >
+            Watch <span aria-hidden>→</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /* Failed */
+  if (isFailed) {
+    return (
+      <div className="rounded-xl border border-[var(--wrong-bd)] bg-[var(--wrong-bg)] px-4 py-3 flex items-center gap-2.5">
+        <XCircle size={16} className="text-[var(--red)] shrink-0" />
+        <div>
+          <p className="text-[var(--tx2)] text-sm font-medium">Video generation failed</p>
+          <p className="text-[var(--tx7)] text-[10px] mt-0.5">Try again from the chat</p>
+        </div>
+      </div>
+    );
+  }
+
+  /* In progress */
+  return (
+    <div className="rounded-xl border border-purple-500/20 bg-purple-500/5 px-4 py-3.5">
+      {/* Header */}
+      <div className="flex items-center gap-2.5 mb-3">
+        <div className="w-3.5 h-3.5 rounded-full bg-purple-500 animate-pulse shrink-0" />
+        <p className="text-[var(--tx2)] text-sm font-semibold">Generating video…</p>
+        <span className="ml-auto text-[var(--tx8)] text-[10px]">this takes ~2 min</span>
+      </div>
+
+      {/* Steps */}
+      <div className="space-y-1.5 ml-1">
+        {VIDEO_STEPS.map((step, i) => {
+          const done   = i < stepIdx;
+          const active = i === stepIdx;
+          return (
+            <div key={i} className="flex items-center gap-2">
+              <div className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 transition-all ${
+                done   ? 'bg-green-500' :
+                active ? 'bg-purple-500 animate-pulse' :
+                         'bg-[var(--ov3)]'
+              }`}>
+                {done   && <CheckCircle size={9} className="text-white" />}
+                {active && <Loader size={8} className="text-white animate-spin" />}
+              </div>
+              <span className={`text-xs transition-colors ${
+                done   ? 'text-[var(--tx8)] line-through' :
+                active ? 'text-[var(--tx2)]' :
+                         'text-[var(--tx9)]'
+              }`}>
+                {step}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ── MessageBubble ──────────────────────────────────────────────────────────── */
 interface MessageBubbleProps {
   message: Message;
   onChipClick?: (chip: string) => void;
@@ -100,10 +222,15 @@ interface MessageBubbleProps {
   onTestYourself?: (content: string, subject?: string) => void;
   onSimplify?: () => void;
   onGoDeeper?: () => void;
+  /** Set when video generation has been triggered for this message */
+  videoId?: number;
+  /** Auth token forwarded to VideoStatusCard for polling */
+  token?: string;
 }
 
 export function MessageBubble({
   message, onChipClick, onMakeVisual, onTestYourself, onSimplify, onGoDeeper,
+  videoId, token,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const { t } = useTranslation();
@@ -181,12 +308,22 @@ export function MessageBubble({
 
           {!message.metadata?.quiz_id && (
             <div className="mt-4 pt-3 border-t border-[var(--bd2)]">
+              {/* Video status card — shown when generation is in progress or done */}
+              {videoId != null && (
+                <div className="mb-3">
+                  <VideoStatusCard videoId={videoId} token={token} />
+                </div>
+              )}
+
               {/* Primary actions */}
               <div className="flex flex-wrap gap-2 items-center">
-                <MakeVisualButton
-                  subject={subject?.subject ?? null}
-                  onClick={() => onMakeVisual?.(message.content, subject?.subject)}
-                />
+                {/* Show Make Visual button only when no video is pending/done for this message */}
+                {videoId == null && (
+                  <MakeVisualButton
+                    subject={subject?.subject ?? null}
+                    onClick={() => onMakeVisual?.(message.content, subject?.subject)}
+                  />
+                )}
                 <button
                   onClick={() => onTestYourself?.(message.content, subject?.subject)}
                   className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all

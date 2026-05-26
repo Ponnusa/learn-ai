@@ -39,6 +39,8 @@ export default function HomePage() {
   const [showSignup, setShowSignup]         = useState(false);
   const [signupReason, setSignupReason]     = useState<'session_limit' | 'soft_nudge'>('soft_nudge');
   const [pdfFile, setPdfFile]               = useState<File | null>(null);
+  /** Maps message ID → video ID so we can show inline status per message */
+  const [videoByMsgId, setVideoByMsgId]     = useState<Record<string, number>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }     = useTranslation();
@@ -178,7 +180,7 @@ export default function HomePage() {
     }
   }
 
-  async function handleMakeVisual(content: string, subject?: string) {
+  async function handleMakeVisual(content: string, subject?: string, messageId?: string) {
     if (!user && msgCount >= 8) { setSignupReason('session_limit'); setShowSignup(true); return; }
     try {
       const res = await generateVideo({
@@ -193,7 +195,14 @@ export default function HomePage() {
         setMessages(prev => [...prev, { id: Date.now().toString(), role: 'assistant', content: `🎬 ${res.message}` }]);
         return;
       }
-      router.push(`/videos?id=${res.video_id}`);
+
+      if (messageId && res.video_id) {
+        // Show inline status card on the originating message — no navigation
+        setVideoByMsgId(prev => ({ ...prev, [messageId]: res.video_id! }));
+      } else if (res.video_id) {
+        // Fallback: no message context, navigate to /videos
+        router.push(`/videos?id=${res.video_id}`);
+      }
     } catch (e) { console.error(e); }
   }
 
@@ -397,10 +406,12 @@ export default function HomePage() {
               messages.map(msg => (
                 <MessageBubble key={msg.id} message={msg}
                   onChipClick={handleSend}
-                  onMakeVisual={handleMakeVisual}
+                  onMakeVisual={(content, subject) => handleMakeVisual(content, subject, msg.id)}
                   onTestYourself={handleTestYourself}
                   onSimplify={() => handleSend('Can you simplify that explanation?')}
                   onGoDeeper={() => handleSend('Can you go deeper on that?')}
+                  videoId={videoByMsgId[msg.id]}
+                  token={token ?? undefined}
                 />
               ))
             )}
