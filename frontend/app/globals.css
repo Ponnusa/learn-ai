@@ -12,6 +12,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* ── Hide scrollbar, keep scroll functionality ──────────────────── */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
 /* ── Thinking indicator dot animation ───────────────────────────── */
 @keyframes thinking-dot {
   0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }

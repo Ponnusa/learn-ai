@@ -374,7 +374,8 @@ export default function HomePage() {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-[#0f0f0f]">
-        <div className="flex-1 overflow-y-auto px-4 py-6">
+        {/* pt-14 on mobile = clears the floating hamburger button */}
+        <div className="flex-1 overflow-y-auto no-scrollbar px-4 pt-14 pb-6 md:py-6">
           <div className="max-w-2xl mx-auto">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">

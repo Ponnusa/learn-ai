@@ -17,7 +17,7 @@ export default function ProgressPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar onNewChat={() => router.push('/')} />
-      <main className="flex-1 overflow-y-auto bg-[#0f0f0f] p-8">
+      <main className="flex-1 overflow-y-auto no-scrollbar bg-[#0f0f0f] p-8">
         <div className="max-w-2xl mx-auto">
           <div className="flex items-center gap-3 mb-8">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-600 to-emerald-600 flex items-center justify-center shadow-lg shadow-green-500/20">

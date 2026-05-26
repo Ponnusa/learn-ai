@@ -47,7 +47,7 @@ export default function SettingsPage() {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar onNewChat={() => router.push('/')} />
-      <main className="flex-1 overflow-y-auto bg-[#0f0f0f] p-8">
+      <main className="flex-1 overflow-y-auto no-scrollbar bg-[#0f0f0f] p-8">
         <div className="max-w-xl mx-auto">
 
           <div className="flex items-center gap-3 mb-8">
