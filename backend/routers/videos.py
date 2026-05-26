@@ -90,7 +90,8 @@ async def get_video_status(video_id: int):
     async with get_db() as db:
         row = await db.fetchrow("""
             SELECT id, status, video_url, thumbnail_url, error_message,
-                   duration_secs, max_duration, created_at
+                   duration_secs, max_duration, created_at,
+                   transcript_markdown, verified_solution
             FROM videos WHERE id = $1
         """, video_id)
     if not row:

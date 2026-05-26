@@ -90,9 +90,14 @@ export const generateVideo = (data: {
 );
 
 export const getVideoStatus = (videoId: number, token?: string) =>
-  get<{ id: number; status: string; video_url?: string; error_message?: string }>(
-    `/api/videos/${videoId}/status`, token
-  );
+  get<{
+    id: number;
+    status: string;
+    video_url?: string;
+    error_message?: string;
+    transcript_markdown?: string;
+    verified_solution?: string;
+  }>(`/api/videos/${videoId}/status`, token);
 
 export const getUserVideos = (userId: string, token?: string) =>
   get<any[]>(`/api/videos/user/${userId}`, token);
