@@ -373,7 +373,7 @@ export default function HomePage() {
         onConversationSelect={handleConversationSelect}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 bg-[#0f0f0f]">
+      <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg)]">
         {/* pt-14 on mobile = clears the floating hamburger button */}
         <div className="flex-1 overflow-y-auto no-scrollbar px-4 pt-14 pb-6 md:py-6">
           <div className="max-w-2xl mx-auto">
@@ -382,12 +382,12 @@ export default function HomePage() {
                 <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-white text-2xl font-bold mb-6 shadow-lg shadow-purple-500/20">
                   L
                 </div>
-                <h1 className="text-2xl font-bold text-white mb-2">{t.chat.welcomeTitle}</h1>
-                <p className="text-white/50 text-sm mb-8">{t.chat.welcomeSubtitle}</p>
+                <h1 className="text-2xl font-bold text-[var(--tx1)] mb-2">{t.chat.welcomeTitle}</h1>
+                <p className="text-[var(--tx5)] text-sm mb-8">{t.chat.welcomeSubtitle}</p>
                 <div className="flex flex-wrap gap-2 justify-center max-w-lg">
                   {t.chat.starterPrompts.map((p, i) => (
                     <button key={i} onClick={() => handleSend(p)}
-                      className="px-4 py-2.5 rounded-xl bg-[#1a1a1a] hover:bg-[#222] border border-white/10 hover:border-white/20 text-white/80 hover:text-white text-sm transition-all shadow-sm">
+                      className="px-4 py-2.5 rounded-xl bg-[var(--surface)] hover:bg-[var(--ov4)] border border-[var(--bd)] hover:border-[var(--bd2)] text-[var(--tx2)] hover:text-[var(--tx1)] text-sm transition-all shadow-sm">
                       {p}
                     </button>
                   ))}
@@ -412,10 +412,10 @@ export default function HomePage() {
 
         {/* Credit warning */}
         {!user && msgCount >= 6 && (
-          <div className="text-center py-2 text-xs text-amber-400/80 bg-amber-400/5 border-t border-amber-400/10">
+          <div className="text-center py-2 text-xs text-[var(--amber)] bg-amber-500/5 border-t border-amber-500/10">
             {t.credits.messagesLeft.replace('{n}', String(8 - msgCount))}
             {' · '}
-            <button onClick={() => setShowSignup(true)} className="underline hover:text-amber-300">
+            <button onClick={() => setShowSignup(true)} className="underline">
               {t.credits.upgradeToKeepLearning}
             </button>
           </div>

@@ -19,9 +19,7 @@ interface Message {
   metadata?: {
     chips?: string[];
     subject?: { subject: string; subtopic: string; icon: string };
-    /** URL (R2 or base64 data URL) for a PDF region screenshot attached to this message */
     imageUrl?: string;
-    /** Quiz card — present when this message is a generated quiz */
     quiz_id?: string;
     quiz_topic?: string;
     num_questions?: number;
@@ -49,42 +47,40 @@ function QuizCard({ quizId, topic, numQuestions }: { quizId: string; topic: stri
       : null;
 
   return (
-    <div className="rounded-xl border border-indigo-500/25 bg-indigo-950/20 px-4 py-3.5 space-y-3">
+    <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5 px-4 py-3.5 space-y-3">
       {/* Header */}
       <div className="flex items-start gap-3">
         <span className="text-xl mt-0.5">📝</span>
         <div>
-          <p className="text-white/85 text-sm font-semibold leading-snug">{topic}</p>
+          <p className="text-[var(--tx2)] text-sm font-semibold leading-snug">{topic}</p>
           {numQuestions != null && (
-            <p className="text-white/40 text-xs mt-0.5">{numQuestions} questions</p>
+            <p className="text-[var(--tx6)] text-xs mt-0.5">{numQuestions} questions</p>
           )}
         </div>
       </div>
 
       {/* Status + CTA */}
       {quizStatus === null ? (
-        /* loading state — tiny spinner */
-        <div className="w-4 h-4 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin ml-8" />
+        <div className="w-4 h-4 border-2 border-[var(--indigo)] border-t-transparent rounded-full animate-spin ml-8 opacity-50" />
       ) : quizStatus.completed && pct !== null ? (
-        /* completed */
         <div className="flex items-center justify-between">
-          <span className="text-sm text-white/70">
+          <span className="text-sm text-[var(--tx3)]">
             ✅ Score:{' '}
-            <span className="text-white font-semibold">
+            <span className="text-[var(--tx1)] font-semibold">
               {quizStatus.score} / {quizStatus.max_score}
             </span>
-            <span className="text-white/40 ml-1.5">({pct}%)</span>
+            <span className="text-[var(--tx6)] ml-1.5">({pct}%)</span>
           </span>
           <button
             onClick={() => router.push(`/quiz/${quizId}`)}
-            className="text-xs px-3 py-1.5 rounded-lg bg-white/8 hover:bg-white/14 text-white/70 hover:text-white
-                       border border-white/10 transition-all"
+            className="text-xs px-3 py-1.5 rounded-lg bg-[var(--ov2)] hover:bg-[var(--ov4)]
+                       text-[var(--tx3)] hover:text-[var(--tx1)]
+                       border border-[var(--bd)] transition-all"
           >
             Review →
           </button>
         </div>
       ) : (
-        /* not started */
         <button
           onClick={() => router.push(`/quiz/${quizId}`)}
           className="text-sm px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium
@@ -127,10 +123,9 @@ export function MessageBubble({
     return (
       <div className="flex justify-end mb-5">
         <div
-          className="max-w-[78%] rounded-2xl rounded-tr-sm overflow-hidden shadow-md shadow-purple-900/30"
+          className="max-w-[78%] rounded-2xl rounded-tr-sm overflow-hidden shadow-md shadow-purple-900/20"
           style={{ background: 'linear-gradient(135deg,#7c3aed,#6d28d9)' }}
         >
-          {/* PDF region screenshot — shown above the text */}
           {imageUrl && (
             <div className="px-3 pt-3 pb-1">
               <img
@@ -162,17 +157,14 @@ export function MessageBubble({
       </div>
 
       <div className="flex-1 min-w-0">
-        {/* Subject badge */}
         {subject?.subject && (
           <div className="mb-2">
             <SubjectBadge subject={subject.subject} subtopic={subject.subtopic} />
           </div>
         )}
 
-        {/* Message card */}
-        <div className="rounded-2xl rounded-tl-sm bg-[#1a1a1a] border border-white/[0.09]
-                        shadow-lg shadow-black/30 px-5 py-4">
-          {/* Quiz card — replaces prose when this message is a generated quiz */}
+        <div className="rounded-2xl rounded-tl-sm bg-[var(--surface)] border border-[var(--bd)]
+                        shadow-lg shadow-black/10 px-5 py-4">
           {message.metadata?.quiz_id ? (
             <QuizCard
               quizId={message.metadata.quiz_id}
@@ -180,7 +172,6 @@ export function MessageBubble({
               numQuestions={message.metadata.num_questions}
             />
           ) : (
-            /* Prose content — uses .ai-content from globals.css for reliable dark-mode colors */
             <div className="ai-content">
               <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
                 {preprocessMath(message.content)}
@@ -188,76 +179,73 @@ export function MessageBubble({
             </div>
           )}
 
-          {/* Divider — hide action bar for quiz card messages */}
           {!message.metadata?.quiz_id && (
-          <div className="mt-4 pt-3 border-t border-white/[0.06]">
-            {/* Primary actions */}
-            <div className="flex flex-wrap gap-2 items-center">
-              <MakeVisualButton
-                subject={subject?.subject ?? null}
-                onClick={() => onMakeVisual?.(message.content, subject?.subject)}
-              />
-              <button
-                onClick={() => onTestYourself?.(message.content, subject?.subject)}
-                className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
-                           bg-indigo-600/20 hover:bg-indigo-600/35 text-indigo-300 hover:text-indigo-200
-                           border border-indigo-500/25"
-              >
-                ✏️ Quiz me
-              </button>
-
-              {/* Copy — pushed to right */}
-              <button
-                onClick={copy}
-                title="Copy"
-                className="ml-auto text-white/25 hover:text-white/60 transition-colors p-1 rounded-lg hover:bg-white/5"
-              >
-                {copied
-                  ? <Check size={14} className="text-green-400" />
-                  : <Copy size={14} />}
-              </button>
-            </div>
-
-            {/* Suggestion chips */}
-            <div className="mt-3 flex flex-wrap gap-2">
-              {aiChips.map((chip, i) => (
+            <div className="mt-4 pt-3 border-t border-[var(--bd2)]">
+              {/* Primary actions */}
+              <div className="flex flex-wrap gap-2 items-center">
+                <MakeVisualButton
+                  subject={subject?.subject ?? null}
+                  onClick={() => onMakeVisual?.(message.content, subject?.subject)}
+                />
                 <button
-                  key={i}
-                  onClick={() => onChipClick?.(chip)}
-                  className="text-xs px-3 py-1.5 rounded-full transition-all
-                             border border-white/10 hover:border-white/25
-                             text-white/55 hover:text-white/90 hover:bg-white/5"
+                  onClick={() => onTestYourself?.(message.content, subject?.subject)}
+                  className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
+                             bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
+                             border border-indigo-500/20"
                 >
-                  {chip}
+                  ✏️ Quiz me
                 </button>
-              ))}
-              {/* Always-shown example chip */}
-              <button
-                onClick={() => onChipClick?.('Give me a concrete real-world example of this')}
-                className="text-xs px-3 py-1.5 rounded-full transition-all
-                           border border-amber-500/20 hover:border-amber-500/40
-                           text-amber-400/70 hover:text-amber-300"
-              >
-                💡 Show me an example
-              </button>
-            </div>
 
-            {/* Tertiary actions */}
-            <div className="mt-3 flex gap-4">
-              <button
-                onClick={onSimplify}
-                className="text-[11px] text-white/30 hover:text-white/60 transition-colors flex items-center gap-1"
-              >
-                <span>↓</span> {t.chat.simplify}
-              </button>
-              <button
-                onClick={onGoDeeper}
-                className="text-[11px] text-white/30 hover:text-white/60 transition-colors flex items-center gap-1"
-              >
-                <span>↑</span> {t.chat.goDeeper}
-              </button>
+                <button
+                  onClick={copy}
+                  title="Copy"
+                  className="ml-auto text-[var(--txa)] hover:text-[var(--tx4)] transition-colors p-1 rounded-lg hover:bg-[var(--ov1)]"
+                >
+                  {copied
+                    ? <Check size={14} className="text-[var(--green)]" />
+                    : <Copy size={14} />}
+                </button>
+              </div>
+
+              {/* Suggestion chips */}
+              <div className="mt-3 flex flex-wrap gap-2">
+                {aiChips.map((chip, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onChipClick?.(chip)}
+                    className="text-xs px-3 py-1.5 rounded-full transition-all
+                               border border-[var(--bd)] hover:border-[var(--bd2)]
+                               text-[var(--tx5)] hover:text-[var(--tx2)] hover:bg-[var(--ov1)]"
+                  >
+                    {chip}
+                  </button>
+                ))}
+                <button
+                  onClick={() => onChipClick?.('Give me a concrete real-world example of this')}
+                  className="text-xs px-3 py-1.5 rounded-full transition-all
+                             border border-amber-500/20 hover:border-amber-500/35
+                             text-[var(--amber)] hover:text-[var(--amber)]"
+                >
+                  💡 Show me an example
+                </button>
+              </div>
+
+              {/* Tertiary actions */}
+              <div className="mt-3 flex gap-4">
+                <button
+                  onClick={onSimplify}
+                  className="text-[11px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
+                >
+                  <span>↓</span> {t.chat.simplify}
+                </button>
+                <button
+                  onClick={onGoDeeper}
+                  className="text-[11px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
+                >
+                  <span>↑</span> {t.chat.goDeeper}
+                </button>
+              </div>
             </div>
-          </div>
           )}
         </div>
       </div>

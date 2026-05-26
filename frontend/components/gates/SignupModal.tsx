@@ -9,7 +9,7 @@ import { useSessionStore } from '@/store/sessionStore';
 interface Props {
   reason?: 'session_limit' | 'daily_limit' | 'soft_nudge' | 'video_gate';
   onClose?: () => void;
-  savedItems?: string[];  // ["Conversation about Newton's Laws", "1 video generated"]
+  savedItems?: string[];
 }
 
 export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }: Props) {
@@ -22,7 +22,6 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
   const router = useRouter();
 
   const isDismissible = reason === 'soft_nudge';
-  const isHardGate    = reason === 'session_limit';
 
   async function handleSend() {
     if (!email.trim()) return;
@@ -54,15 +53,15 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-      <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl w-full max-w-md shadow-2xl">
+      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl w-full max-w-md shadow-2xl">
         {/* Header */}
         <div className="flex items-start justify-between p-6 pb-0">
           <div>
-            <h2 className="text-white font-bold text-lg">{headlines[reason]}</h2>
-            <p className="text-white/50 text-sm mt-1">{subtitles[reason]}</p>
+            <h2 className="text-[var(--tx1)] font-bold text-lg">{headlines[reason]}</h2>
+            <p className="text-[var(--tx5)] text-sm mt-1">{subtitles[reason]}</p>
           </div>
           {isDismissible && onClose && (
-            <button onClick={onClose} className="text-white/30 hover:text-white ml-4 mt-0.5">
+            <button onClick={onClose} className="text-[var(--tx8)] hover:text-[var(--tx1)] ml-4 mt-0.5">
               <X size={18} />
             </button>
           )}
@@ -70,11 +69,11 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
 
         {/* Saved items */}
         {savedItems.length > 0 && (
-          <div className="mx-6 mt-4 bg-white/5 rounded-xl p-4 space-y-1.5">
-            <p className="text-white/40 text-xs uppercase tracking-widest mb-2">{t.credits.whatYouGet}</p>
+          <div className="mx-6 mt-4 bg-[var(--ov1)] rounded-xl p-4 space-y-1.5">
+            <p className="text-[var(--tx6)] text-xs uppercase tracking-widest mb-2">{t.credits.whatYouGet}</p>
             {savedItems.map((item, i) => (
-              <div key={i} className="flex items-center gap-2 text-sm text-white/70">
-                <span className="text-green-400">✓</span>
+              <div key={i} className="flex items-center gap-2 text-sm text-[var(--tx3)]">
+                <span className="text-[var(--green)]">✓</span>
                 <span>{item}</span>
               </div>
             ))}
@@ -86,15 +85,15 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
           {!sent ? (
             <>
               <div className="flex gap-2">
-                <div className="flex-1 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
-                  <Mail size={16} className="text-white/30 shrink-0" />
+                <div className="flex-1 flex items-center gap-2 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-4 py-3">
+                  <Mail size={16} className="text-[var(--tx8)] shrink-0" />
                   <input
                     type="email"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleSend()}
                     placeholder={t.auth.emailPlaceholder}
-                    className="bg-transparent text-white placeholder-white/30 outline-none text-sm flex-1"
+                    className="bg-transparent text-[var(--tx1)] t-ph outline-none text-sm flex-1"
                   />
                 </div>
                 <button
@@ -107,15 +106,15 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
                 </button>
               </div>
 
-              {error && <p className="text-red-400 text-xs">{error}</p>}
+              {error && <p className="text-[var(--red)] text-xs">{error}</p>}
 
               <div className="flex items-center gap-3">
-                <div className="flex-1 h-px bg-white/10" />
-                <span className="text-white/30 text-xs">{t.auth.orContinueWith}</span>
-                <div className="flex-1 h-px bg-white/10" />
+                <div className="flex-1 h-px bg-[var(--bd)]" />
+                <span className="text-[var(--tx8)] text-xs">{t.auth.orContinueWith}</span>
+                <div className="flex-1 h-px bg-[var(--bd)]" />
               </div>
 
-              <button className="w-full flex items-center justify-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-3 text-white/80 text-sm transition-colors">
+              <button className="w-full flex items-center justify-center gap-3 bg-[var(--ov1)] hover:bg-[var(--ov3)] border border-[var(--bd)] rounded-xl px-4 py-3 text-[var(--tx3)] text-sm transition-colors">
                 <svg width="16" height="16" viewBox="0 0 48 48">
                   <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
                   <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
@@ -125,11 +124,11 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
                 {t.auth.continueWithGoogle}
               </button>
 
-              <p className="text-center text-white/30 text-xs">
+              <p className="text-center text-[var(--tx8)] text-xs">
                 Already have an account?{' '}
                 <button
                   onClick={() => router.push('/auth/login')}
-                  className="text-purple-400 hover:text-purple-300 underline"
+                  className="text-[var(--purple)] hover:underline"
                 >
                   Sign in
                 </button>
@@ -138,8 +137,8 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
           ) : (
             <div className="text-center py-4">
               <div className="text-4xl mb-3">📬</div>
-              <p className="text-white font-medium">{t.auth.magicLinkSent}</p>
-              <p className="text-white/50 text-sm mt-1">{t.auth.checkEmail}</p>
+              <p className="text-[var(--tx1)] font-medium">{t.auth.magicLinkSent}</p>
+              <p className="text-[var(--tx5)] text-sm mt-1">{t.auth.checkEmail}</p>
             </div>
           )}
         </div>

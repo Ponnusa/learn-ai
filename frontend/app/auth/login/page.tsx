@@ -7,25 +7,24 @@ import { useSessionStore } from '@/store/sessionStore';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Method = 'magic' | 'password';
+type Method  = 'magic' | 'password';
 type PwdMode = 'signin' | 'register';
 
 export default function LoginPage() {
   const router = useRouter();
   const { setUser, sessionId } = useSessionStore();
 
-  const [method,    setMethod]    = useState<Method>('magic');
-  const [pwdMode,   setPwdMode]   = useState<PwdMode>('signin');
-  const [email,     setEmail]     = useState('');
-  const [password,  setPassword]  = useState('');
-  const [name,      setName]      = useState('');
-  const [showPwd,   setShowPwd]   = useState(false);
-  const [loading,   setLoading]   = useState(false);
+  const [method,        setMethod]        = useState<Method>('magic');
+  const [pwdMode,       setPwdMode]       = useState<PwdMode>('signin');
+  const [email,         setEmail]         = useState('');
+  const [password,      setPassword]      = useState('');
+  const [name,          setName]          = useState('');
+  const [showPwd,       setShowPwd]       = useState(false);
+  const [loading,       setLoading]       = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [error,     setError]     = useState('');
-  const [magicSent, setMagicSent] = useState(false);
+  const [error,         setError]         = useState('');
+  const [magicSent,     setMagicSent]     = useState(false);
 
-  // ── Magic link ──────────────────────────────────────────────────────────────
   async function handleMagicLink(e: React.FormEvent) {
     e.preventDefault();
     if (!email) return;
@@ -40,7 +39,6 @@ export default function LoginPage() {
     }
   }
 
-  // ── Password sign-in / register ─────────────────────────────────────────────
   async function handlePassword(e: React.FormEvent) {
     e.preventDefault();
     if (!email || !password) return;
@@ -68,14 +66,12 @@ export default function LoginPage() {
     }
   }
 
-  // ── Google OAuth ────────────────────────────────────────────────────────────
   async function handleGoogle() {
     setGoogleLoading(true); setError('');
     try {
       const res  = await fetch(`${API_BASE}/api/auth/google`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Google login not available');
-      // Store state for CSRF check in callback page
       sessionStorage.setItem('oauth_state', data.state);
       window.location.href = data.url;
     } catch (err: any) {
@@ -84,20 +80,20 @@ export default function LoginPage() {
     }
   }
 
-  // ── Magic-sent confirmation ─────────────────────────────────────────────────
+  /* ── Magic-sent confirmation ─────────────────────────────────────── */
   if (magicSent) {
     return (
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center p-4">
+      <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4">
         <div className="text-center max-w-sm">
-          <CheckCircle size={48} className="text-green-400 mx-auto mb-4" />
-          <h2 className="text-white text-xl font-bold mb-2">Check your inbox</h2>
-          <p className="text-white/50 text-sm mb-6">
-            We sent a sign-in link to <span className="text-white/80">{email}</span>.
+          <CheckCircle size={48} className="text-[var(--green)] mx-auto mb-4" />
+          <h2 className="text-[var(--tx1)] text-xl font-bold mb-2">Check your inbox</h2>
+          <p className="text-[var(--tx5)] text-sm mb-6">
+            We sent a sign-in link to <span className="text-[var(--tx2)]">{email}</span>.
             It expires in 15 minutes.
           </p>
           <button
             onClick={() => setMagicSent(false)}
-            className="text-purple-400 hover:text-purple-300 text-sm underline"
+            className="text-[var(--purple)] hover:underline text-sm"
           >
             Use a different email
           </button>
@@ -107,7 +103,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
 
         {/* Logo */}
@@ -115,20 +111,20 @@ export default function LoginPage() {
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4 shadow-lg shadow-purple-500/20">
             L
           </div>
-          <h1 className="text-white text-xl font-bold">Sign in to Learn-AI</h1>
-          <p className="text-white/40 text-sm mt-1">Continue your learning journey</p>
+          <h1 className="text-[var(--tx1)] text-xl font-bold">Sign in to Learn-AI</h1>
+          <p className="text-[var(--tx6)] text-sm mt-1">Continue your learning journey</p>
         </div>
 
         {/* Card */}
-        <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 shadow-xl">
+        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-6 shadow-xl shadow-black/10">
 
           {/* Google button */}
           <button
             onClick={handleGoogle}
             disabled={googleLoading}
-            className="w-full flex items-center justify-center gap-3 py-2.5 rounded-xl border border-white/15
-                       bg-white/5 hover:bg-white/10 text-white text-sm font-medium transition-all
-                       disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-3 py-2.5 rounded-xl
+                       border border-[var(--bd)] bg-[var(--ov1)] hover:bg-[var(--ov3)]
+                       text-[var(--tx2)] text-sm font-medium transition-all disabled:opacity-50"
           >
             {googleLoading ? (
               <Loader2 size={16} className="animate-spin" />
@@ -145,13 +141,13 @@ export default function LoginPage() {
 
           {/* Divider */}
           <div className="flex items-center gap-3 my-5">
-            <div className="flex-1 h-px bg-white/10" />
-            <span className="text-white/30 text-xs">or</span>
-            <div className="flex-1 h-px bg-white/10" />
+            <div className="flex-1 h-px bg-[var(--bd)]" />
+            <span className="text-[var(--tx8)] text-xs">or</span>
+            <div className="flex-1 h-px bg-[var(--bd)]" />
           </div>
 
           {/* Method tabs */}
-          <div className="flex rounded-xl bg-white/5 p-1 mb-5">
+          <div className="flex rounded-xl bg-[var(--input)] p-1 mb-5">
             {(['magic', 'password'] as Method[]).map(m => (
               <button
                 key={m}
@@ -159,7 +155,7 @@ export default function LoginPage() {
                 className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${
                   method === m
                     ? 'bg-purple-600 text-white shadow'
-                    : 'text-white/40 hover:text-white/70'
+                    : 'text-[var(--tx6)] hover:text-[var(--tx2)]'
                 }`}
               >
                 {m === 'magic' ? '✉️ Magic link' : '🔑 Password'}
@@ -171,17 +167,19 @@ export default function LoginPage() {
           {method === 'magic' && (
             <form onSubmit={handleMagicLink} className="space-y-3">
               <div className="relative">
-                <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--tx8)]" />
                 <input
                   type="email" value={email} onChange={e => setEmail(e.target.value)}
                   placeholder="you@example.com" required
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/25 outline-none focus:border-purple-500/60 transition-colors"
+                  className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl pl-9 pr-4 py-2.5
+                             text-sm text-[var(--tx1)] t-ph outline-none focus:border-purple-500/60 transition-colors"
                 />
               </div>
-              {error && <p className="text-red-400 text-xs">{error}</p>}
+              {error && <p className="text-[var(--red)] text-xs">{error}</p>}
               <button
                 type="submit" disabled={loading || !email}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all disabled:opacity-40"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl
+                           bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all disabled:opacity-40"
               >
                 {loading ? <Loader2 size={15} className="animate-spin" /> : <>Send magic link <ArrowRight size={14} /></>}
               </button>
@@ -191,58 +189,61 @@ export default function LoginPage() {
           {/* Password form */}
           {method === 'password' && (
             <form onSubmit={handlePassword} className="space-y-3">
-              {/* Register mode: name field */}
               {pwdMode === 'register' && (
                 <div className="relative">
-                  <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                  <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--tx8)]" />
                   <input
                     type="text" value={name} onChange={e => setName(e.target.value)}
                     placeholder="Your name (optional)"
-                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/25 outline-none focus:border-purple-500/60 transition-colors"
+                    className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl pl-9 pr-4 py-2.5
+                               text-sm text-[var(--tx1)] t-ph outline-none focus:border-purple-500/60 transition-colors"
                   />
                 </div>
               )}
 
               <div className="relative">
-                <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--tx8)]" />
                 <input
                   type="email" value={email} onChange={e => setEmail(e.target.value)}
                   placeholder="you@example.com" required
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-white/25 outline-none focus:border-purple-500/60 transition-colors"
+                  className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl pl-9 pr-4 py-2.5
+                             text-sm text-[var(--tx1)] t-ph outline-none focus:border-purple-500/60 transition-colors"
                 />
               </div>
 
               <div className="relative">
-                <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                <Lock size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--tx8)]" />
                 <input
                   type={showPwd ? 'text' : 'password'} value={password}
                   onChange={e => setPassword(e.target.value)}
                   placeholder={pwdMode === 'register' ? 'Create password (min 8 chars)' : 'Password'}
                   required
-                  className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-10 py-2.5 text-sm text-white placeholder-white/25 outline-none focus:border-purple-500/60 transition-colors"
+                  className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl pl-9 pr-10 py-2.5
+                             text-sm text-[var(--tx1)] t-ph outline-none focus:border-purple-500/60 transition-colors"
                 />
                 <button type="button" onClick={() => setShowPwd(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--tx8)] hover:text-[var(--tx3)]">
                   {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
 
-              {error && <p className="text-red-400 text-xs">{error}</p>}
+              {error && <p className="text-[var(--red)] text-xs">{error}</p>}
 
               <button
                 type="submit" disabled={loading || !email || !password}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all disabled:opacity-40"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl
+                           bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all disabled:opacity-40"
               >
                 {loading
                   ? <Loader2 size={15} className="animate-spin" />
                   : pwdMode === 'signin' ? 'Sign in' : 'Create account'}
               </button>
 
-              <p className="text-center text-xs text-white/35">
+              <p className="text-center text-xs text-[var(--tx7)]">
                 {pwdMode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
                 <button type="button"
                   onClick={() => { setPwdMode(m => m === 'signin' ? 'register' : 'signin'); setError(''); }}
-                  className="text-purple-400 hover:text-purple-300 underline">
+                  className="text-[var(--purple)] hover:underline">
                   {pwdMode === 'signin' ? 'Create one' : 'Sign in'}
                 </button>
               </p>
@@ -250,7 +251,7 @@ export default function LoginPage() {
           )}
         </div>
 
-        <p className="text-center text-white/20 text-xs mt-6">
+        <p className="text-center text-[var(--txa)] text-xs mt-6">
           By signing in you agree to our Terms of Service
         </p>
       </div>

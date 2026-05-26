@@ -3,7 +3,6 @@ import { useTranslation } from '@/hooks/useTranslation';
 
 const VIDEO_SUPPORTED  = ['Mathematics', 'Physics', 'Chemistry'];
 const COMING_SOON      = ['Computer Science', 'Biology', 'Engineering', 'Economics', 'Psychology', 'Medicine & Health', 'Music'];
-// Others: hide button completely
 
 type VideoSupport = 'supported' | 'coming_soon' | 'not_planned' | 'unknown';
 
@@ -30,7 +29,7 @@ export function MakeVisualButton({ subject, onClick }: Props) {
       <button
         disabled
         title={subject ? t.video.comingSoonForSubject.replace('{subject}', subject) : t.video.comingSoonForSubject}
-        className="text-xs px-3 py-1.5 rounded-lg bg-white/5 text-white/30 cursor-not-allowed flex items-center gap-1.5"
+        className="text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] text-[var(--tx9)] cursor-not-allowed flex items-center gap-1.5"
       >
         🎬 {t.video.comingSoonForSubject.replace('{subject}', subject ?? '')}
       </button>
@@ -40,7 +39,9 @@ export function MakeVisualButton({ subject, onClick }: Props) {
   return (
     <button
       onClick={onClick}
-      className="text-xs px-3 py-1.5 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 hover:text-purple-200 transition-colors flex items-center gap-1.5 border border-purple-500/30"
+      className="text-xs px-3 py-1.5 rounded-lg bg-purple-600/25 hover:bg-purple-600/40
+                 text-[var(--purple)] hover:text-[var(--purple)]
+                 transition-colors flex items-center gap-1.5 border border-purple-500/25"
     >
       {t.chat.makeItVisual}
     </button>

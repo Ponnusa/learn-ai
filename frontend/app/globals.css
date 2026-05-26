@@ -1,20 +1,130 @@
 @import "tailwindcss";
 
-:root {
-  --background: #0f0f0f;
-  --foreground: #e4e4e7;
+/* ═══════════════════════════════════════════════════════════════════
+   THEME TOKENS
+   All structural + accent colours live here.
+   Components use  bg-[var(--bg)], text-[var(--tx1)]  etc.
+   The anti-flash script in layout.tsx sets data-theme on <html>
+   before paint so there is never a flash of wrong colours.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Dark (default / fallback) */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Backgrounds */
+  --bg:        #0f0f0f;
+  --surface:   #1a1a1a;
+  --input:     #1e1e1e;
+
+  /* Borders */
+  --bd:        rgba(255,255,255,0.10);
+  --bd2:       rgba(255,255,255,0.07);
+  --bd3:       rgba(255,255,255,0.04);
+
+  /* Overlays / hover fills */
+  --ov1:       rgba(255,255,255,0.05);
+  --ov2:       rgba(255,255,255,0.08);
+  --ov3:       rgba(255,255,255,0.10);
+  --ov4:       rgba(255,255,255,0.15);
+
+  /* Text hierarchy */
+  --tx1:       #ffffff;
+  --tx2:       rgba(255,255,255,0.80);
+  --tx3:       rgba(255,255,255,0.70);
+  --tx4:       rgba(255,255,255,0.60);
+  --tx5:       rgba(255,255,255,0.50);
+  --tx6:       rgba(255,255,255,0.40);
+  --tx7:       rgba(255,255,255,0.35);
+  --tx8:       rgba(255,255,255,0.30);
+  --tx9:       rgba(255,255,255,0.25);
+  --txa:       rgba(255,255,255,0.20);
+
+  /* Accent text — readable on dark surfaces */
+  --purple:    #c084fc;   /* purple-400  */
+  --indigo:    #818cf8;   /* indigo-400  */
+  --blue:      #60a5fa;   /* blue-400    */
+  --amber:     #fbbf24;   /* amber-400   */
+  --green:     #4ade80;   /* green-400   */
+  --red:       #f87171;   /* red-400     */
+
+  /* Quiz result panels */
+  --correct-bg: rgba(34,197,94,0.07);
+  --correct-bd: rgba(34,197,94,0.28);
+  --wrong-bg:   rgba(239,68,68,0.07);
+  --wrong-bd:   rgba(239,68,68,0.28);
+
+  /* Code blocks */
+  --code-color:  #c4b5fd;
+  --code-bg:     rgba(139,92,246,0.13);
+  --code-bd:     rgba(139,92,246,0.22);
+  --pre-bg:      #090912;
+  --pre-text:    #e4e4e7;
 }
 
+/* Light */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg:        #f7f7f8;
+  --surface:   #ffffff;
+  --input:     #efefef;
+
+  --bd:        rgba(0,0,0,0.12);
+  --bd2:       rgba(0,0,0,0.08);
+  --bd3:       rgba(0,0,0,0.05);
+
+  --ov1:       rgba(0,0,0,0.04);
+  --ov2:       rgba(0,0,0,0.05);
+  --ov3:       rgba(0,0,0,0.07);
+  --ov4:       rgba(0,0,0,0.10);
+
+  --tx1:       #0f0f0f;
+  --tx2:       rgba(0,0,0,0.85);
+  --tx3:       rgba(0,0,0,0.70);
+  --tx4:       rgba(0,0,0,0.60);
+  --tx5:       rgba(0,0,0,0.50);
+  --tx6:       rgba(0,0,0,0.42);
+  --tx7:       rgba(0,0,0,0.38);
+  --tx8:       rgba(0,0,0,0.35);
+  --tx9:       rgba(0,0,0,0.30);
+  --txa:       rgba(0,0,0,0.25);
+
+  /* Accent text — darker for readability on light surfaces */
+  --purple:    #9333ea;   /* purple-600  */
+  --indigo:    #4f46e5;   /* indigo-600  */
+  --blue:      #2563eb;   /* blue-600    */
+  --amber:     #d97706;   /* amber-600   */
+  --green:     #16a34a;   /* green-600   */
+  --red:       #dc2626;   /* red-600     */
+
+  --correct-bg: rgba(22,163,74,0.08);
+  --correct-bd: rgba(22,163,74,0.32);
+  --wrong-bg:   rgba(220,38,38,0.08);
+  --wrong-bd:   rgba(220,38,38,0.32);
+
+  --code-color: #7c3aed;
+  --code-bg:    rgba(109,40,217,0.09);
+  --code-bd:    rgba(109,40,217,0.18);
+  --pre-bg:     #f5f3ff;
+  --pre-text:   #1f1235;
+}
+
+/* ── Base ───────────────────────────────────────────────────────── */
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--tx1);
   font-family: Inter, Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── Hide scrollbar, keep scroll functionality ──────────────────── */
+/* ── Scrollbar hide ─────────────────────────────────────────────── */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Placeholder helper ─────────────────────────────────────────── */
+.t-ph::placeholder { color: var(--tx8); opacity: 1; }
 
 /* ── Thinking indicator dot animation ───────────────────────────── */
 @keyframes thinking-dot {
@@ -23,49 +133,57 @@ body {
 }
 .thinking-dot { animation: thinking-dot 1.4s ease-in-out infinite; }
 
+/* ── Fade-in for ThinkingIndicator phase label ───────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 /* ── AI message prose ───────────────────────────────────────────── */
-/* Explicit styles — Tailwind v4 prose-invert is unreliable on custom dark bg */
-.ai-content { color: #e4e4e7; font-size: 0.875rem; line-height: 1.75; }
+.ai-content { color: var(--tx2); font-size: 0.875rem; line-height: 1.75; }
 .ai-content p                { margin: 0.5rem 0; }
 .ai-content p:first-child    { margin-top: 0; }
 .ai-content p:last-child     { margin-bottom: 0; }
 .ai-content strong,
-.ai-content b                { color: #ffffff; font-weight: 600; }
-.ai-content em, .ai-content i{ color: #d4d4d8; }
-.ai-content h1               { color: #fff; font-size: 1.15rem; font-weight: 700; margin: 1.1rem 0 0.5rem; }
-.ai-content h2               { color: #fff; font-size: 1rem;    font-weight: 600; margin: 0.9rem 0 0.4rem; }
-.ai-content h3               { color: #fff; font-size: 0.9rem;  font-weight: 600; margin: 0.8rem 0 0.3rem; }
+.ai-content b                { color: var(--tx1); font-weight: 600; }
+.ai-content em, .ai-content i{ color: var(--tx3); }
+.ai-content h1               { color: var(--tx1); font-size: 1.15rem; font-weight: 700; margin: 1.1rem 0 0.5rem; }
+.ai-content h2               { color: var(--tx1); font-size: 1rem;    font-weight: 600; margin: 0.9rem 0 0.4rem; }
+.ai-content h3               { color: var(--tx1); font-size: 0.9rem;  font-weight: 600; margin: 0.8rem 0 0.3rem; }
 .ai-content ul               { list-style: disc;    padding-left: 1.2rem; margin: 0.5rem 0; }
 .ai-content ol               { list-style: decimal; padding-left: 1.2rem; margin: 0.5rem 0; }
-.ai-content li               { margin: 0.2rem 0; color: #d4d4d8; }
+.ai-content li               { margin: 0.2rem 0; color: var(--tx3); }
 .ai-content code {
-  color: #c4b5fd;
-  background: rgba(139,92,246,0.13);
-  border: 1px solid rgba(139,92,246,0.22);
+  color:      var(--code-color);
+  background: var(--code-bg);
+  border:     1px solid var(--code-bd);
   padding: 0.1em 0.4em;
   border-radius: 4px;
   font-size: 0.82em;
   font-family: 'JetBrains Mono', 'Fira Code', monospace;
 }
 .ai-content pre {
-  background: #090912;
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--pre-bg);
+  border: 1px solid var(--bd);
   border-radius: 10px;
   padding: 1rem;
   overflow-x: auto;
   margin: 0.75rem 0;
 }
-.ai-content pre code { background: none; border: none; padding: 0; color: #e4e4e7; font-size: 0.8rem; }
+.ai-content pre code {
+  background: none; border: none; padding: 0;
+  color: var(--pre-text); font-size: 0.8rem;
+}
 .ai-content blockquote {
   border-left: 3px solid rgba(139,92,246,0.55);
   padding-left: 0.875rem;
-  color: #a1a1aa;
+  color: var(--tx5);
   font-style: italic;
   margin: 0.75rem 0;
 }
 .ai-content table  { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.82rem; }
-.ai-content th     { color: #fff; background: rgba(255,255,255,0.06); padding: 0.4rem 0.75rem; border: 1px solid rgba(255,255,255,0.1); text-align: left; }
-.ai-content td     { color: #d4d4d8; padding: 0.4rem 0.75rem; border: 1px solid rgba(255,255,255,0.07); }
-.ai-content hr     { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 1rem 0; }
-.ai-content .katex         { color: #e4e4e7 !important; }
+.ai-content th     { color: var(--tx1); background: var(--ov2); padding: 0.4rem 0.75rem; border: 1px solid var(--bd); text-align: left; }
+.ai-content td     { color: var(--tx3); padding: 0.4rem 0.75rem; border: 1px solid var(--bd2); }
+.ai-content hr     { border: none; border-top: 1px solid var(--bd); margin: 1rem 0; }
+.ai-content .katex         { color: var(--tx2) !important; }
 .ai-content .katex-display { margin: 0.75rem 0; overflow-x: auto; }

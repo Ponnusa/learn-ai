@@ -27,8 +27,8 @@ export function ThinkingIndicator() {
       </div>
 
       {/* Thinking card */}
-      <div className="flex items-center gap-3 bg-[#1a1a1a] border border-white/[0.09]
-                      rounded-2xl rounded-tl-sm px-4 py-3 shadow-lg shadow-black/20">
+      <div className="flex items-center gap-3 bg-[var(--surface)] border border-[var(--bd)]
+                      rounded-2xl rounded-tl-sm px-4 py-3 shadow-lg shadow-black/10">
         {/* Bouncing dots */}
         <div className="flex gap-1.5 items-center">
           {[0, 200, 400].map((delay, i) => (
@@ -43,16 +43,12 @@ export function ThinkingIndicator() {
         {/* Phase label — fades between states */}
         <span
           key={phase}
-          className="text-white/50 text-sm"
+          className="text-[var(--tx5)] text-sm"
           style={{ animation: 'fadeIn 0.4s ease' }}
         >
           {PHASES[phase]}
         </span>
       </div>
-
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
-      `}</style>
     </div>
   );
 }

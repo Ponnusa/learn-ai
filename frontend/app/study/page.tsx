@@ -1,20 +1,20 @@
 'use client';
-import { BookOpen, Plus, Search } from 'lucide-react';
+import { BookOpen, Plus } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { useRouter } from 'next/navigation';
 
 export default function StudyPage() {
   const router = useRouter();
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
-      <main className="flex-1 flex flex-col items-center justify-center bg-[#0f0f0f] p-8">
+      <main className="flex-1 flex flex-col items-center justify-center bg-[var(--bg)] p-8">
         <div className="text-center max-w-md">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center mx-auto mb-6 shadow-lg shadow-indigo-500/20">
             <BookOpen size={28} className="text-white" />
           </div>
-          <h1 className="text-white text-2xl font-bold mb-2">Study Sets</h1>
-          <p className="text-white/40 text-sm mb-8">
+          <h1 className="text-[var(--tx1)] text-2xl font-bold mb-2">Study Sets</h1>
+          <p className="text-[var(--tx6)] text-sm mb-8">
             Save key concepts from your conversations into study sets.<br />
             Coming soon — keep chatting to build your library.
           </p>

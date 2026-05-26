@@ -34,9 +34,7 @@ function VideosContent() {
       try {
         const data = await getVideoStatus(Number(videoId), token ?? undefined);
         if (stopped) return;
-
         setStatus(data.status);
-
         if (data.status === 'complete' || data.status === 'completed') {
           setVideoUrl(data.video_url ?? null);
           return;
@@ -45,7 +43,6 @@ function VideosContent() {
           setError(data.error_message ?? t.errors.videoFailed);
           return;
         }
-
         setStepIdx(prev => (prev + 1) % STEPS.length);
         setTimeout(poll, 4000);
       } catch {
@@ -62,31 +59,30 @@ function VideosContent() {
   const isFailed  = status === 'failed';
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
 
-      <main className="flex-1 flex flex-col min-w-0 bg-[#0f0f0f]">
+      <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg)]">
         {/* Top bar */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-white/10 shrink-0">
-          <button onClick={() => router.push('/')} className="text-white/50 hover:text-white transition-colors">
+        <div className="flex items-center gap-3 px-4 py-4 border-b border-[var(--bd)] shrink-0">
+          <button onClick={() => router.push('/')} className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors">
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-white font-semibold">
+          <h1 className="text-[var(--tx1)] font-semibold">
             {isDone ? t.video.ready : isFailed ? t.video.failed : t.video.generating}
           </h1>
         </div>
 
-        <div className="flex-1 flex items-center justify-center px-4 py-12 overflow-y-auto">
-          {/* No video ID */}
+        <div className="flex-1 flex items-center justify-center px-4 py-12 overflow-y-auto no-scrollbar">
           {!videoId && (
-            <p className="text-white/50">No video ID provided.</p>
+            <p className="text-[var(--tx5)]">No video ID provided.</p>
           )}
 
-          {/* ── Loading state ── */}
+          {/* Loading state */}
           {videoId && isLoading && (
             <div className="text-center max-w-sm w-full">
               <div className="w-20 h-20 mx-auto mb-8 relative">
-                <div className="w-20 h-20 rounded-full border-4 border-white/10" />
+                <div className="w-20 h-20 rounded-full border-4 border-[var(--bd)]" />
                 <div className="w-20 h-20 rounded-full border-4 border-purple-500 border-t-transparent absolute inset-0 animate-spin" />
                 <div className="absolute inset-0 flex items-center justify-center">
                   <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-white text-sm font-bold">
@@ -94,10 +90,8 @@ function VideosContent() {
                   </div>
                 </div>
               </div>
-
-              <h2 className="text-white text-xl font-semibold mb-2">{t.video.generating}</h2>
-              <p className="text-white/50 text-sm mb-8">{t.video.generatingDesc}</p>
-
+              <h2 className="text-[var(--tx1)] text-xl font-semibold mb-2">{t.video.generating}</h2>
+              <p className="text-[var(--tx5)] text-sm mb-8">{t.video.generatingDesc}</p>
               <div className="space-y-3 text-left">
                 {STEPS.map((step, i) => {
                   const done   = i < stepIdx;
@@ -107,15 +101,15 @@ function VideosContent() {
                       <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
                         done   ? 'bg-green-500' :
                         active ? 'bg-purple-500 animate-pulse' :
-                                 'bg-white/10'
+                                 'bg-[var(--ov3)]'
                       }`}>
                         {done   && <CheckCircle size={12} className="text-white" />}
                         {active && <Loader size={10} className="text-white animate-spin" />}
                       </div>
                       <span className={`text-sm transition-colors ${
-                        done   ? 'text-white/50 line-through' :
-                        active ? 'text-white' :
-                                 'text-white/25'
+                        done   ? 'text-[var(--tx6)] line-through' :
+                        active ? 'text-[var(--tx1)]' :
+                                 'text-[var(--tx9)]'
                       }`}>
                         {step}
                       </span>
@@ -126,18 +120,18 @@ function VideosContent() {
             </div>
           )}
 
-          {/* ── Done — show player ── */}
+          {/* Done — video player */}
           {videoId && isDone && videoUrl && (
             <div className="w-full max-w-3xl">
               <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl shadow-purple-500/10 mb-4">
                 <video src={videoUrl} controls autoPlay className="w-full h-full" />
               </div>
               <div className="flex items-center justify-between">
-                <p className="text-white/50 text-sm">✅ {t.video.ready}</p>
+                <p className="text-[var(--tx5)] text-sm">✅ {t.video.ready}</p>
                 <a
                   href={videoUrl}
                   download
-                  className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/15 rounded-xl text-white text-sm transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-[var(--ov3)] hover:bg-[var(--ov4)] rounded-xl text-[var(--tx2)] text-sm transition-colors"
                 >
                   <Download size={14} />
                   {t.download}
@@ -148,17 +142,17 @@ function VideosContent() {
 
           {videoId && isDone && !videoUrl && (
             <div className="text-center">
-              <CheckCircle size={48} className="text-green-400 mx-auto mb-4" />
-              <p className="text-white font-semibold">Video ready — loading player…</p>
+              <CheckCircle size={48} className="text-[var(--green)] mx-auto mb-4" />
+              <p className="text-[var(--tx1)] font-semibold">Video ready — loading player…</p>
             </div>
           )}
 
-          {/* ── Failed ── */}
+          {/* Failed */}
           {videoId && isFailed && (
             <div className="text-center max-w-sm">
-              <XCircle size={48} className="text-red-400 mx-auto mb-4" />
-              <h2 className="text-white font-semibold mb-2">{t.video.failed}</h2>
-              <p className="text-white/50 text-sm mb-6">{error ?? t.video.failedDesc}</p>
+              <XCircle size={48} className="text-[var(--red)] mx-auto mb-4" />
+              <h2 className="text-[var(--tx1)] font-semibold mb-2">{t.video.failed}</h2>
+              <p className="text-[var(--tx5)] text-sm mb-6">{error ?? t.video.failedDesc}</p>
               <button
                 onClick={() => router.push('/')}
                 className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-colors"
@@ -176,7 +170,7 @@ function VideosContent() {
 export default function VideosPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-[#0f0f0f] flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
       </div>
     }>

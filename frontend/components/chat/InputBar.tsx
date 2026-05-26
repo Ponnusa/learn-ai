@@ -1,6 +1,6 @@
 'use client';
 import { useRef, useState, KeyboardEvent } from 'react';
-import { Send, Paperclip, Image, X } from 'lucide-react';
+import { Send, Paperclip, X } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 
 interface InputBarProps {
@@ -36,7 +36,6 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
   function handleFile(f: File) {
     if (!f) return;
     if (f.type === 'application/pdf') {
-      // PDFs open in the viewer modal instead of being attached
       onPdfOpen?.(f);
       return;
     }
@@ -53,12 +52,12 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
 
   return (
     <div className="px-4 pb-4 pt-2">
-      {/* Dropped file preview */}
+      {/* File preview */}
       {file && (
-        <div className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2 mb-2 text-sm text-white/80">
-          <Paperclip size={14} className="text-purple-400" />
+        <div className="flex items-center gap-2 bg-[var(--ov3)] rounded-lg px-3 py-2 mb-2 text-sm text-[var(--tx3)]">
+          <Paperclip size={14} className="text-[var(--purple)]" />
           <span className="truncate flex-1">{file.name}</span>
-          <button onClick={() => setFile(null)} className="text-white/40 hover:text-white">
+          <button onClick={() => setFile(null)} className="text-[var(--tx6)] hover:text-[var(--tx1)]">
             <X size={14} />
           </button>
         </div>
@@ -68,11 +67,11 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        className={`flex items-end gap-2 bg-[#1e1e1e] border rounded-2xl px-4 py-3 transition-colors ${
-          dragOver ? 'border-purple-500' : 'border-white/10 focus-within:border-white/30'
+        className={`flex items-end gap-2 bg-[var(--input)] border rounded-2xl px-4 py-3 transition-colors ${
+          dragOver ? 'border-purple-500' : 'border-[var(--bd)] focus-within:border-[var(--bd2)]'
         }`}
       >
-        {/* Attach buttons */}
+        {/* Attach button */}
         <input
           ref={fileRef}
           type="file"
@@ -82,7 +81,7 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
         />
         <button
           onClick={() => fileRef.current?.click()}
-          className="text-white/40 hover:text-white/80 transition-colors shrink-0 pb-0.5"
+          className="text-[var(--tx6)] hover:text-[var(--tx2)] transition-colors shrink-0 pb-0.5"
           title="Attach PDF or image"
         >
           <Paperclip size={18} />
@@ -97,7 +96,7 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
           placeholder={file ? t.chat.placeholderWithFile : t.chat.placeholder}
           disabled={disabled || loading}
           rows={1}
-          className="flex-1 bg-transparent text-white placeholder-white/30 outline-none resize-none text-sm leading-6 max-h-40 overflow-y-auto"
+          className="flex-1 bg-transparent text-[var(--tx1)] t-ph outline-none resize-none text-sm leading-6 max-h-40 overflow-y-auto no-scrollbar"
           style={{ minHeight: '24px' }}
         />
 
@@ -108,14 +107,14 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
           className={`shrink-0 pb-0.5 transition-colors ${
             text.trim() || file
               ? 'text-purple-400 hover:text-purple-300'
-              : 'text-white/20 cursor-not-allowed'
+              : 'text-[var(--txa)] cursor-not-allowed'
           }`}
         >
           <Send size={18} />
         </button>
       </div>
 
-      <p className="text-center text-white/20 text-[10px] mt-2">
+      <p className="text-center text-[var(--txa)] text-[10px] mt-2">
         Learn-AI can make mistakes — verify important information.
       </p>
     </div>

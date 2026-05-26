@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m 'fix: load and display conversation history from DB *)",
+      "Bash(git commit -m 'fix: quiz generation errors visible + robust quiz page loading *)"
+    ]
+  }
+}
