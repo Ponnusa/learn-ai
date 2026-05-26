@@ -1520,7 +1520,6 @@ MANDATORY RULES:
             _claude_sync.messages.create,
             model=_CLAUDE_MODEL,
             max_tokens=2000,
-            temperature=0.3,
             messages=[{"role": "user", "content": storyboard_prompt}]
         )
         storyboard_text = storyboard_response.content[0].text.strip()
@@ -1650,7 +1649,6 @@ Each [BEAT] in the narration script = one voiceover block. Follow the script.
                 model=_CLAUDE_MODEL,
                 max_tokens=16000,
                 system=system_prompt,
-                temperature=0.2,
                 messages=[{"role": "user", "content": full_prompt}]
             ) as stream:
                 message = stream.get_final_message()
@@ -1806,7 +1804,6 @@ CODE TO REVIEW:
             _claude_sync.messages.create,
             model=_CLAUDE_MODEL,
             max_tokens=16000,
-            temperature=0.1,
             messages=[{"role": "user", "content": critic_prompt}]
         )
         critic_text = critic_response.content[0].text.strip()
