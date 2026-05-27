@@ -85,8 +85,8 @@ function VideosContent() {
                 <div className="w-20 h-20 rounded-full border-4 border-[var(--bd)]" />
                 <div className="w-20 h-20 rounded-full border-4 border-purple-500 border-t-transparent absolute inset-0 animate-spin" />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-white text-sm font-bold">
-                    L
+                  <div className="w-9 h-9 rounded-xl overflow-hidden shadow-md">
+                    <img src="/logo.png" alt="Learn-AI" className="w-full h-full object-cover" />
                   </div>
                 </div>
               </div>

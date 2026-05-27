@@ -108,8 +108,8 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4 shadow-lg shadow-purple-500/20">
-            L
+          <div className="w-16 h-16 rounded-2xl overflow-hidden mx-auto mb-4 shadow-xl shadow-black/20">
+            <img src="/logo.png" alt="Learn-AI" className="w-full h-full object-cover" />
           </div>
           <h1 className="text-[var(--tx1)] text-xl font-bold">Sign in to Learn-AI</h1>
           <p className="text-[var(--tx6)] text-sm mt-1">Continue your learning journey</p>
