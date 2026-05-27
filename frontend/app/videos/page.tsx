@@ -85,9 +85,7 @@ function VideosContent() {
                 <div className="w-20 h-20 rounded-full border-4 border-[var(--bd)]" />
                 <div className="w-20 h-20 rounded-full border-4 border-purple-500 border-t-transparent absolute inset-0 animate-spin" />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-9 h-9 rounded-xl overflow-hidden shadow-md">
-                    <img src="/logo.png" alt="Learn-AI" className="w-full h-full object-cover" />
-                  </div>
+                  <img src="/logo-36.png" alt="Learn-AI" className="w-9 h-9 object-contain" />
                 </div>
               </div>
               <h2 className="text-[var(--tx1)] text-xl font-semibold mb-2">{t.video.generating}</h2>

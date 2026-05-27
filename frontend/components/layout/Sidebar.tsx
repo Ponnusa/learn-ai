@@ -182,7 +182,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
           {/* Logo */}
           <div className="flex items-center justify-center h-14 border-b border-[var(--bd)] shrink-0">
             <div className="w-9 h-9 rounded-xl overflow-hidden shrink-0 shadow-md shadow-black/20">
-              <img src="/logo.png" alt="Learn-AI" className="w-full h-full object-cover" />
+              <img src="/logo-36.png" alt="Learn-AI" className="w-full h-full object-contain" />
             </div>
           </div>
 
