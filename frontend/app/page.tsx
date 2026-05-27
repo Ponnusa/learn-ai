@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
 import dynamic from 'next/dynamic';
 
@@ -412,21 +413,7 @@ export default function HomePage() {
         <div className="flex-1 overflow-y-auto no-scrollbar px-4 pt-14 pb-6 md:py-6">
           <div className="max-w-2xl mx-auto">
             {messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center text-white text-2xl font-bold mb-6 shadow-lg shadow-purple-500/20">
-                  L
-                </div>
-                <h1 className="text-2xl font-bold text-[var(--tx1)] mb-2">{t.chat.welcomeTitle}</h1>
-                <p className="text-[var(--tx5)] text-sm mb-8">{t.chat.welcomeSubtitle}</p>
-                <div className="flex flex-wrap gap-2 justify-center max-w-lg">
-                  {t.chat.starterPrompts.map((p, i) => (
-                    <button key={i} onClick={() => handleSend(p)}
-                      className="px-4 py-2.5 rounded-xl bg-[var(--surface)] hover:bg-[var(--ov4)] border border-[var(--bd)] hover:border-[var(--bd2)] text-[var(--tx2)] hover:text-[var(--tx1)] text-sm transition-all shadow-sm">
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <WelcomeScreen user={user} onSend={handleSend} />
             ) : (
               messages.map(msg => (
                 <MessageBubble key={msg.id} message={msg}
