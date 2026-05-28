@@ -539,7 +539,53 @@ COLOR CODING (consistent):
 - Titles: WHITE  |  Equations: YELLOW  |  Highlights: RED
 - Diagrams: BLUE and GREEN  |  Labels: WHITE or LIGHT_GRAY  |  Arrows: YELLOW or ORANGE
 
-5. Colors (STRICT)
+5. SETUP BLOCK — MANDATORY, NO EXCEPTIONS
+
+construct() MUST follow this two-phase structure:
+
+    def construct(self):
+        self.set_speech_service(...)
+
+        # ══ PHASE 1: SETUP — define EVERY object before ANY animation ══
+        title         = Text("...", ...)
+        subtitle_var  = Text("...", ...)
+        formula       = MathTex(r"...", ...)
+        arrow         = Arrow(LEFT, RIGHT, ...)
+        diagram_group = VGroup(rect, label, arrow)
+        # ─ ALL objects used in ANY voiceover block below must exist here ─
+
+        # ══ PHASE 2: ANIMATIONS — ordered voiceover beats ══
+        with self.voiceover(text="...") as tracker:
+            sub = self.show_subtitle("...")
+            self.play(FadeIn(title))
+            self.wait(max(0.1, tracker.duration - 0.5))
+        self.play(FadeOut(sub))
+        ...
+
+CRITICAL RULES FOR THE SETUP BLOCK:
+- Every variable referenced inside ANY self.play(), self.add(), VGroup(),
+  AnimationGroup(), FadeIn(), FadeOut(), GrowArrow(), Indicate(), etc.
+  MUST be assigned in the SETUP BLOCK above the first voiceover block.
+- NEVER define an object for the first time inside a voiceover block.
+  If you write `foo = Circle()` inside beat 3, beat 1 cannot use it.
+- Assemble VGroups in the SETUP BLOCK, not inside animation beats.
+- Objects that depend on other objects (e.g. steam that needs cup_top_pos)
+  must both be defined in the SETUP BLOCK in dependency order.
+
+BANNED — these patterns cause NameError at render time:
+❌  with self.voiceover(...):
+        my_arrow = Arrow(...)   # ← defining here means later beats crash
+        self.play(GrowArrow(my_arrow))
+
+❌  self.play(FadeIn(cup))          # ← cup was never assigned above
+
+CORRECT — define everything first, then animate:
+✅  cup = VGroup(body, handle, saucer)   # in SETUP BLOCK
+    ...
+    with self.voiceover(...):
+        self.play(FadeIn(cup))           # ← safe: cup already exists
+
+6. Colors (STRICT)
 Use ONLY: RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK, WHITE, BLACK, GRAY, GREY
 
 ══════════════════════════════════════════════════════════════════
@@ -658,6 +704,17 @@ Before outputting, verify:
 ✔ Normal force direction is perpendicular to surface
 ✔ No static text dumps — every block has motion/animation
 ✔ Screen never has >5 elements simultaneously
+
+UNDEFINED VARIABLE CHECK (MANDATORY — run mentally before output):
+✔ A two-phase structure exists: SETUP BLOCK first, then animation beats
+✔ Every name passed to self.play(), FadeIn(), FadeOut(), GrowArrow(),
+  VGroup(), AnimationGroup(), Indicate(), Circumscribe(), etc. is
+  ALREADY ASSIGNED in the SETUP BLOCK above the first voiceover block
+✔ No object is defined for the first time inside a voiceover block
+✔ VGroups are assembled from parts that are all defined above them
+✔ If you use cup, steam_lines, crystal_dots, diagram_group, laws_summary,
+  final_cup, or ANY composite object — it is built in the SETUP BLOCK
+✔ Zero NameErrors would occur if Python executed the code top-to-bottom
 
 ══════════════════════════════════════════════════════════════════
 OUTPUT FORMAT (STRICT)
@@ -1791,6 +1848,28 @@ ANIMATION QUALITY CHECKLIST — check each item:
         dash = DashedLine(_s, _e, ...)
 
 11. NEGATIVE WAIT DURATION: Replace self.wait(tracker.duration - X) with self.wait(max(0.1, tracker.duration - X))
+
+12. UNDEFINED VARIABLES (CRITICAL — most common crash cause):
+    Scan every name passed to self.play(), FadeIn(), FadeOut(), GrowArrow(),
+    VGroup(), AnimationGroup(), Indicate(), Circumscribe(), MoveAlongPath(), etc.
+    Each name MUST be assigned BEFORE the first `with self.voiceover(...)` block.
+
+    Steps to check:
+    a) Find the first `with self.voiceover(` line.
+    b) For every animation call from that point on, list all names used.
+    c) Verify each name appears as `name = ...` ABOVE the first voiceover block.
+    d) Any missing name → add its definition in the SETUP BLOCK at the top of construct().
+
+    Common patterns that cause NameError:
+    - Object defined inside one voiceover beat, referenced in a later beat
+    - VGroup assembled from parts that are not yet defined
+    - Composite objects (cup, steam_lines, diagram_group, laws_summary,
+      crystal_dots, final_cup, etc.) used in animations but never built
+    - make_steam / helper functions defined AFTER the point where their
+      result is used
+
+    Fix: Insert a SETUP BLOCK at the top of construct() (after set_speech_service)
+    that assigns ALL missing objects before the first voiceover block.
 
 IMPORTANT: Only fix real problems. Do NOT restructure. Return ONLY the corrected Python code (no markdown fences).
 If the code is already good, return it unchanged.
