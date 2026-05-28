@@ -1726,6 +1726,313 @@ def extract_scene_name(code: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────
+# TWO-PASS CODE GENERATION — setup block first, animation beats second
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+_PHASE2_SENTINEL = "# ═══ PHASE 2: ANIMATIONS START HERE ═══"
+
+
+def _build_svg_section_for_prompt(svg_urls: dict) -> str:
+    """Build the SVG assets section string for inclusion in prompts."""
+    if not svg_urls:
+        return ""
+    svg_lines = "\n".join(
+        f'  - {name}: get_svg("{name}", "{url}", height=0.8)'
+        for name, url in svg_urls.items()
+    )
+    object_bindings = "\n".join(
+        f'  - Any {name.replace("_", " ")} → MUST be get_svg("{name}", "{url}", height=0.8)'
+        for name, url in svg_urls.items()
+    )
+    return f"""
+══════════════════════════════════
+AVAILABLE SVG ASSETS — MANDATORY USAGE
+══════════════════════════════════
+A helper function get_svg(name, url, height) is already defined at the top of the script.
+
+OBJECT → SVG BINDING (NO EXCEPTIONS):
+{object_bindings}
+
+You MUST NOT draw any of the above objects using Rectangle(), Circle(), Polygon(), or any
+other Manim primitive. The SVG IS the object.
+
+EXACT CALL SYNTAX:
+{svg_lines}
+"""
+
+
+def _extract_setup_names(setup_code: str) -> set:
+    """Extract variable names assigned inside construct() from the setup block code."""
+    names: set = set()
+    try:
+        tree = _ast_module.parse(setup_code)
+        for node in _ast_module.walk(tree):
+            if isinstance(node, _ast_module.FunctionDef) and node.name == "construct":
+                for stmt in node.body:
+                    if isinstance(stmt, _ast_module.Assign):
+                        for t in stmt.targets:
+                            if isinstance(t, _ast_module.Name):
+                                names.add(t.id)
+                    elif isinstance(stmt, _ast_module.AugAssign):
+                        if isinstance(stmt.target, _ast_module.Name):
+                            names.add(stmt.target.id)
+                    elif isinstance(stmt, _ast_module.AnnAssign):
+                        if isinstance(stmt.target, _ast_module.Name):
+                            names.add(stmt.target.id)
+    except Exception:
+        pass
+    return names
+
+
+def _assemble_two_pass_code(setup_code: str, beats_code: str) -> str:
+    """Concatenate setup block + animation beats at the PHASE 2 sentinel."""
+    if _PHASE2_SENTINEL in setup_code:
+        idx = setup_code.index(_PHASE2_SENTINEL) + len(_PHASE2_SENTINEL)
+        # Keep any trailing content after the sentinel (shouldn't be any, but be safe)
+        return setup_code[:idx] + "\n" + beats_code + setup_code[idx:]
+    logger.warning("⚠️  PHASE 2 sentinel not found in setup block — concatenating directly")
+    return setup_code + "\n\n" + beats_code
+
+
+def _generate_setup_block_pass(
+    verified_solution: str,
+    video_script: str,
+    storyboard_text: str,
+    subject: str,
+    language: str,
+    duration: int,
+    aspect_ratio: str,
+    svg_urls: dict,
+    system_prompt: str,
+) -> str:
+    """
+    Pass 2a: Generate ONLY the setup block — imports, class definition,
+    show_subtitle method, set_speech_service, and ALL Manim object definitions.
+    Ends with the _PHASE2_SENTINEL comment. No animations included.
+    """
+    tts_import, tts_block = get_tts_prompt_blocks()
+    tts_service_line = tts_block.strip().splitlines()[0]
+    svg_section = _build_svg_section_for_prompt(svg_urls)
+
+    prompt = f"""⚠️  YOUR ONLY TASK: Generate the SETUP BLOCK. No animations.
+
+OUTPUT: A complete Python file that ends at (and including) the PHASE 2 sentinel.
+
+REQUIRED STRUCTURE:
+```
+from manim import *
+from manim_voiceover import VoiceoverScene
+{tts_import}
+import numpy as np
+
+class SomeName(VoiceoverScene):
+    def show_subtitle(self, text, duration=None):
+        import textwrap
+        wrapped = "\\n".join(textwrap.wrap(text, width=60))
+        subtitle = Text(wrapped, font_size=18, color=WHITE, line_spacing=1.2).to_edge(DOWN, buff=0.3)
+        self.play(FadeIn(subtitle))
+        if duration:
+            self.wait(duration)
+        return subtitle
+
+    def construct(self):
+        {tts_service_line}
+
+        # ═══ PHASE 1: SETUP — define EVERY object before any animation ═══
+        background = Rectangle(...)   # ← example
+        # ... define ALL objects across ALL scenes here ...
+
+        self.add(background)
+        {_PHASE2_SENTINEL}
+```
+
+CRITICAL SETUP RULES:
+1. Study EVERY scene in the storyboard and define EVERY Manim object mentioned
+2. ALL objects must be defined here — not inside voiceover beats
+3. ValueTracker + DecimalNumber pairs: include .add_updater() lambda in setup
+4. VGroups: define sub-parts first, then assemble the VGroup from them
+5. Composite objects (step panels, answer boxes, velocity displays): build fully here
+6. Every object must have explicit positioning — no objects left at ORIGIN by default
+7. self.add() only for background/grid; all other objects are added inside beats
+
+DO NOT INCLUDE:
+- Any `with self.voiceover(text=...):` blocks
+- Any `self.play()` calls (only `self.add()` for initial scene setup is OK)
+- Any animation logic of any kind
+
+STORYBOARD (read EVERY scene — define EVERY object mentioned):
+{storyboard_text}
+
+{svg_section}
+
+ASPECT RATIO: {aspect_ratio}  |  LANGUAGE: {language}  |  DURATION: {duration}s  |  SUBJECT: {subject}
+
+VERIFIED SOLUTION (formula values and variable names — use these exactly):
+{verified_solution[:700]}
+
+Output ONLY valid Python code. No markdown fences. No explanation.
+LAST LINE MUST BE EXACTLY (8 spaces indent):
+        {_PHASE2_SENTINEL}
+"""
+
+    _stream_delays = [5, 15, 45, 135]
+    message = None
+    for _attempt, _delay in enumerate(_stream_delays[:4], 1):
+        try:
+            with _claude_sync.messages.stream(
+                model=_CLAUDE_MODEL,
+                max_tokens=8000,
+                system=system_prompt,
+                messages=[{"role": "user", "content": prompt}]
+            ) as stream:
+                message = stream.get_final_message()
+            break
+        except Exception as _exc:
+            _err = str(_exc)
+            if ("overloaded_error" in _err or "overloaded" in _err.lower() or "529" in _err) and _attempt < 4:
+                logger.warning(f"Claude overloaded (setup block attempt {_attempt}/4) — retrying in {_delay}s")
+                time.sleep(_delay)
+            else:
+                raise
+    if message is None:
+        raise RuntimeError("Setup block generation failed after all retries")
+
+    if message.stop_reason == "max_tokens":
+        logger.warning("⚠️  Setup block hit max_tokens — object definitions may be incomplete")
+
+    setup_code = message.content[0].text.strip()
+    for fence in ("```python", "```"):
+        if setup_code.startswith(fence):
+            setup_code = setup_code[len(fence):].strip()
+    if setup_code.endswith("```"):
+        setup_code = setup_code[:-3].strip()
+
+    if _PHASE2_SENTINEL not in setup_code:
+        logger.warning("⚠️  PHASE 2 sentinel missing from setup block — appending it")
+        setup_code += f"\n        {_PHASE2_SENTINEL}"
+
+    n_defined = len(_extract_setup_names(setup_code))
+    logger.info(f"✅ Setup block: {len(setup_code)} chars, {n_defined} objects defined")
+    return setup_code
+
+
+def _generate_animation_beats_pass(
+    setup_code: str,
+    verified_solution: str,
+    video_script: str,
+    storyboard_text: str,
+    subject: str,
+    language: str,
+    duration: int,
+    aspect_ratio: str,
+    svg_urls: dict,
+    system_prompt: str,
+) -> str:
+    """
+    Pass 2b: Generate ONLY the animation beats (with self.voiceover(): blocks).
+    Receives the complete setup block as context so it knows every defined variable.
+    Returns indented code (8 spaces) to be appended after the sentinel.
+    """
+    defined_names = _extract_setup_names(setup_code)
+    names_list = ", ".join(sorted(defined_names)) if defined_names else "(see setup block above)"
+    svg_section = _build_svg_section_for_prompt(svg_urls)
+
+    narration_section = ""
+    if video_script and re.search(r'\[BEAT:', video_script):
+        narration_section = f"""
+══════════════════════════════════
+NARRATION SCRIPT — USE AS VOICEOVER TEXT VERBATIM
+══════════════════════════════════
+Each [BEAT: ...] → one `with self.voiceover(text="..."):` block.
+Narration AFTER the [BEAT] tag → verbatim voiceover text.
+
+{video_script}
+"""
+
+    prompt = f"""⚠️  YOUR ONLY TASK: Generate the ANIMATION BEATS — `with self.voiceover():` blocks ONLY.
+
+The setup block below is COMPLETE. Every Manim object is already defined and positioned.
+
+━━━ SETUP BLOCK (reference — do NOT repeat any of this in your output) ━━━
+```python
+{setup_code}
+```
+━━━ END SETUP BLOCK ━━━
+
+PRE-DEFINED VARIABLES available for animation:
+{names_list}
+
+YOUR OUTPUT: Only the animation beats, indented 8 spaces (inside construct()).
+
+BEAT STRUCTURE — every voiceover block MUST have all of these:
+1. `        with self.voiceover(text="...") as tracker:`
+2. `            sub = self.show_subtitle("Same narration text")`
+3. `            self.play(...)` — at least one real animation (not just self.wait)
+4. `            self.wait(max(0.1, tracker.duration - 0.5))`
+5. After the `with` block: `        self.play(FadeOut(sub))`
+
+VARIABLE RULES:
+✅ Use pre-defined variables by name — they exist and are already positioned
+✅ `sub` (subtitle) — local temp var, create fresh in each beat
+✅ Short temp vars inside lambdas / list comprehensions are fine
+❌ DO NOT create new Manim objects (Rectangle, Text, Arrow, VGroup, etc.) inside beats
+❌ DO NOT write imports, class definition, show_subtitle, construct() header, or setup code
+❌ DO NOT redefine any setup variable
+
+STORYBOARD (implement each scene in the listed order):
+{storyboard_text}
+
+{narration_section}
+
+{svg_section}
+
+VERIFIED SOLUTION (use values AS-IS — do not change any number):
+{verified_solution[:500]}
+
+ASPECT RATIO: {aspect_ratio}  |  LANGUAGE: {language}  |  DURATION: {duration}s  |  SUBJECT: {subject}
+
+Output ONLY animation beats, indented 8 spaces.
+Start directly with: `        with self.voiceover(`
+No markdown fences. No imports. No class. No setup code.
+"""
+
+    _stream_delays = [5, 15, 45, 135]
+    message = None
+    for _attempt, _delay in enumerate(_stream_delays[:4], 1):
+        try:
+            with _claude_sync.messages.stream(
+                model=_CLAUDE_MODEL,
+                max_tokens=16000,
+                system=system_prompt,
+                messages=[{"role": "user", "content": prompt}]
+            ) as stream:
+                message = stream.get_final_message()
+            break
+        except Exception as _exc:
+            _err = str(_exc)
+            if ("overloaded_error" in _err or "overloaded" in _err.lower() or "529" in _err) and _attempt < 4:
+                logger.warning(f"Claude overloaded (animation beats attempt {_attempt}/4) — retrying in {_delay}s")
+                time.sleep(_delay)
+            else:
+                raise
+    if message is None:
+        raise RuntimeError("Animation beats generation failed after all retries")
+
+    if message.stop_reason == "max_tokens":
+        logger.warning("⚠️  Animation beats hit max_tokens — response may be truncated")
+
+    beats_code = message.content[0].text.strip()
+    for fence in ("```python", "```"):
+        if beats_code.startswith(fence):
+            beats_code = beats_code[len(fence):].strip()
+    if beats_code.endswith("```"):
+        beats_code = beats_code[:-3].strip()
+
+    logger.info(f"✅ Animation beats: {len(beats_code)} chars")
+    return beats_code
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────
 # FULL MANIM PIPELINE — synchronous inner function (adapted from AnimLearn verbatim)
 # ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -1786,7 +2093,8 @@ def _generate_manim_code_enhanced_sync(
       Stage 1   — GPT-4o verified solution  (skipped when _solution_data provided)
       Stage 1.5 — SVG planning + generation
       Stage 1.75 — Animation storyboard (Claude)
-      Stage 2   — Claude Manim code generation (streaming)
+      Stage 2a  — Claude setup block: all Manim object definitions (no animations)
+      Stage 2b  — Claude animation beats: voiceover blocks using pre-defined objects
       Stage 3   — Critic loop (Claude)
       Post      — AST undefined-name check + fix pass + syntax check
     """
@@ -1796,12 +2104,14 @@ def _generate_manim_code_enhanced_sync(
         transcript_markdown = _solution_data.get("transcript_markdown", "")
         video_script        = _solution_data.get("video_script") or transcript_markdown
         promptSubject       = _solution_data.get("subject", "general")
+        promptTags          = _solution_data.get("tags", [])
     else:
         sol = _generate_solution_sync(prompt, language, duration)
         verified_solution   = sol["verified_solution"]
         transcript_markdown = sol["transcript_markdown"]
         video_script        = sol["video_script"]
         promptSubject       = sol["subject"]
+        promptTags          = sol.get("tags", [])
 
     # ─── Stage 1.5 — SVG planning + generation ────────────────────────────────
     svg_list = plan_svg_assets(verified_solution, promptSubject)
@@ -1898,181 +2208,50 @@ MANDATORY RULES:
         logger.warning(f"⚠️ Storyboard generation failed (non-fatal): {sb_err}")
         storyboard_text = ""
 
-    # ─── Stage 2 — Claude Manim code generation ───────────────────────────────
-    language_instructions = {
-        "fi": "Generate code with Finnish voiceover text explaining concepts in Finnish.",
-        "en": "Generate code with English voiceover text explaining concepts in English.",
-        "sv": "Generate code with Swedish voiceover text explaining concepts in Swedish.",
-    }
-    duration_guidance = {
-        30:  "Create a SHORT animation (30 seconds) with 2-3 voiceover blocks.",
-        60:  "Create a MEDIUM animation (1 minute) with 4-5 voiceover blocks.",
-        120: "Create a DETAILED animation (2 minutes) with 7-9 voiceover blocks.",
-        180: "Create a COMPREHENSIVE animation (3 minutes) with 10-12 voiceover blocks.",
-        300: "Create an IN-DEPTH animation (5 minutes) with 15-20 voiceover blocks.",
-    }
-    aspect_ratio_instructions = {
-        "16:9": "TARGET_ASPECT_RATIO: 16:9 (Landscape)\nIf drawing diagrams: Use SIDE-BY-SIDE layout (diagram LEFT, formulas RIGHT)\nFont size: 28-32",
-        "9:16": "TARGET_ASPECT_RATIO: 9:16 (Portrait)\nIf drawing diagrams: Use TOP-BOTTOM layout (diagram TOP, formulas BOTTOM)\nKeep diagram compact horizontally. Font size: 24-28",
-        "1:1":  "TARGET_ASPECT_RATIO: 1:1 (Square)\nIf drawing diagrams: Use TOP-BOTTOM layout. Font size: 26-30",
-        "4:5":  "TARGET_ASPECT_RATIO: 4:5 (Portrait)\nIf drawing diagrams: Use COMPACT TOP-BOTTOM layout. Font size: 24-26",
-    }
-    closest_duration = min(duration_guidance.keys(), key=lambda x: abs(x - duration))
-
-    svg_section = ""
-    if svg_urls:
-        svg_lines = "\n".join(
-            f'  - {name}: get_svg("{name}", "{url}", height=0.8)'
-            for name, url in svg_urls.items()
-        )
-        object_bindings = "\n".join(
-            f'  - Any {name.replace("_", " ")} in this scene → MUST be get_svg("{name}", "{url}", height=0.8)'
-            for name, url in svg_urls.items()
-        )
-        svg_section = f"""
-══════════════════════════════════
-AVAILABLE SVG ASSETS — MANDATORY USAGE
-══════════════════════════════════
-A helper function get_svg(name, url, height) is already defined at the top of the script.
-
-OBJECT → SVG BINDING (NO EXCEPTIONS):
-{object_bindings}
-
-You MUST NOT draw any of the above objects using Rectangle(), Circle(), Polygon(), or any
-other Manim primitive. The SVG IS the object. Using a primitive instead is a critical bug.
-
-EXACT CALL SYNTAX:
-{svg_lines}
-
-get_svg() usage rules:
-- Call: obj = get_svg("name", "url", height=X)
-- height: 0.4–0.6 small details, 0.7–1.0 medium objects, 1.2–1.8 large focal elements
-- SVGs are white stroke on transparent — they render correctly on dark scenes
-"""
-
-    storyboard_section = ""
-    if storyboard_text:
-        storyboard_section = f"""
-══════════════════════════════════
-ANIMATION STORYBOARD (MANDATORY — FOLLOW THIS SCENE-BY-SCENE PLAN)
-══════════════════════════════════
-{storyboard_text}
-
-STORYBOARD IMPLEMENTATION RULES:
-- Implement each beat in order — do not skip or merge beats
-- Use the exact Manim objects, animations, and force directions described
-- Every motion beat must use MoveAlongPath or .animate.move_to()
-- Every force arrow beat must use GrowArrow() and arrows must shift() with the object
-══════════════════════════════════
-"""
-
-    narration_section = ""
-    beat_markers_in_script = re.findall(r'\[BEAT:[^\]]+\]', video_script)
-    if beat_markers_in_script and video_script:
-        narration_section = f"""
-══════════════════════════════════
-NARRATION SCRIPT (MANDATORY — USE AS VOICEOVER TEXT VERBATIM)
-══════════════════════════════════
-Each [BEAT: ...] → one `with self.voiceover(text="..."):` block.
-Narration text AFTER the [BEAT] tag → verbatim voiceover text.
-Emotion tags guide HOW to animate each beat.
-
-SCRIPT:
-{video_script}
-══════════════════════════════════
-"""
-
-    full_prompt = f"""
-⚠️  WRITE THE SETUP BLOCK FIRST — before any other construct() code:
-
-    def construct(self):
-        self.set_speech_service(...)
-        # ═══ SETUP BLOCK — EVERY object defined here before first voiceover ═══
-        background = Rectangle(width=15, height=9, fill_color="#0d0d1a", ...)
-        title      = Text("...", font_size=36, color=WHITE)
-        formula    = MathTex(r"...", font_size=32, color=YELLOW)
-        arrow      = Arrow(LEFT * 2, RIGHT * 2, color=YELLOW, buff=0)
-        # ... ALL names you pass to self.play/add/FadeIn/GrowArrow/VGroup ...
-        # ═══════════════════════════════════════════════════════════════════
-        self.add(background)
-        with self.voiceover(...):        ← animations start here
-            self.play(FadeIn(title))     ← safe: title already defined above
-
-Any name used in an animation that is NOT assigned in the SETUP BLOCK = NameError crash.
-
-You are given a VERIFIED AND CORRECT solution and a narration script below.
-
-YOU MUST:
-- Implement the animation beats from the narration script in order
-- Use the narration text VERBATIM as voiceover text (do not paraphrase)
-- NOT change any formulas or numerical values
-- NOT re-derive or re-solve the problem
-
-TARGET VIDEO DURATION: {duration} seconds
-{language_instructions.get(language, language_instructions['en'])}
-
-ASPECT RATIO LAYOUT RULES
-{aspect_ratio_instructions.get(aspect_ratio, aspect_ratio_instructions['16:9'])}
-{svg_section}{storyboard_section}{narration_section}
-══════════════════════════════════
-VERIFIED SOLUTION (DO NOT MODIFY)
-══════════════════════════════════
-
-{verified_solution}
-
-══════════════════════════════════
-Convert the above into a Manim animation following ALL system rules.
-Each [BEAT] in the narration script = one voiceover block. Follow the script.
-"""
-
+    # ─── Stage 2 — Two-pass code generation ──────────────────────────────────
+    # Pass 2a: SETUP BLOCK — generate all object definitions (no animations)
+    # Pass 2b: ANIMATION BEATS — generate voiceover blocks using pre-defined objects
+    # This eliminates NameErrors from objects referenced before they are defined.
     system_prompt = _build_system_prompt(promptSubject, aspect_ratio, language)
 
-    # Streaming with retry on overload
-    _stream_delays = [5, 15, 45, 135]
-    message = None
-    for _attempt, _delay in enumerate(_stream_delays[:4], 1):
-        try:
-            with _claude_sync.messages.stream(
-                model=_CLAUDE_MODEL,
-                max_tokens=16000,
-                system=system_prompt,
-                messages=[{"role": "user", "content": full_prompt}]
-            ) as stream:
-                message = stream.get_final_message()
-            break
-        except Exception as _exc:
-            _err = str(_exc)
-            if ('overloaded_error' in _err or 'overloaded' in _err.lower() or '529' in _err) and _attempt < 4:
-                logger.warning(f"Claude overloaded during generation (attempt {_attempt}/4) — retrying in {_delay}s")
-                time.sleep(_delay)
-            else:
-                raise
-    if message is None:
-        raise RuntimeError("Claude generation failed after all retries")
+    logger.info("[pipeline] Stage 2a: Generating setup block")
+    setup_code = _generate_setup_block_pass(
+        verified_solution=verified_solution,
+        video_script=video_script,
+        storyboard_text=storyboard_text,
+        subject=promptSubject,
+        language=language,
+        duration=duration,
+        aspect_ratio=aspect_ratio,
+        svg_urls=svg_urls,
+        system_prompt=system_prompt,
+    )
 
-    response_text = message.content[0].text.strip()
-    if message.stop_reason == "max_tokens":
-        logger.warning("⚠️ Claude hit max_tokens limit — response may be truncated")
+    logger.info("[pipeline] Stage 2b: Generating animation beats")
+    beats_code = _generate_animation_beats_pass(
+        setup_code=setup_code,
+        verified_solution=verified_solution,
+        video_script=video_script,
+        storyboard_text=storyboard_text,
+        subject=promptSubject,
+        language=language,
+        duration=duration,
+        aspect_ratio=aspect_ratio,
+        svg_urls=svg_urls,
+        system_prompt=system_prompt,
+    )
+
+    response_text = _assemble_two_pass_code(setup_code, beats_code)
+    logger.info(f"[pipeline] Two-pass assembly: {len(response_text)} chars")
 
     response_text = fix_molecular_layout(response_text, aspect_ratio)
     logger.info(f"✅ Layout fixer applied for {aspect_ratio}")
 
-    # Split code and metadata
-    if "###METADATA###" in response_text:
-        code_part, metadata_part = response_text.split("###METADATA###", 1)
-        code = code_part.strip()
-        try:
-            metadata = json.loads(metadata_part.strip())
-            subject          = metadata.get("subject", "general")
-            tags             = metadata.get("tags", [])
-            estimated_duration = metadata.get("estimated_duration", duration)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse metadata, using defaults")
-            subject, tags, estimated_duration = "general", [], duration
-    else:
-        logger.warning("No metadata found in response, using defaults")
-        code = response_text
-        subject, tags, estimated_duration = "general", [], duration
+    # Two-pass output has no ###METADATA### — use Stage 1 values directly
+    code             = response_text
+    subject          = promptSubject
+    tags             = promptTags
+    estimated_duration = duration
 
     # Strip markdown fences
     if code.startswith("```python"):
