@@ -5,10 +5,13 @@ When a prompt is improved in AnimLearn, sync it here.
 
 Public API (imported by routers/videos.py):
   generate_manim_code_enhanced(prompt, language, duration, aspect_ratio) → async dict
+  generate_solution_only(prompt, language, duration)                      → async dict
+  generate_manim_from_solution(solution_data, language, duration, ar)    → async dict
   fix_manim_colors(code)       → str
   ensure_numpy_import(code)    → str
   _trigger_video_generation(video_id, svg_urls) → None (fire-and-forget)
 """
+import ast as _ast_module
 import os
 import re
 import json
@@ -77,6 +80,218 @@ RAILWAY_CALL_TOKEN = settings.CLOUD_RUN_SECRET
 # ─────────────────────────────────────────────────────────────────────────────────────
 # RETRY WRAPPER
 # ─────────────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# AST UNDEFINED-NAME CHECKER
+# Catches variables used in animations that were never assigned — the #1 crash cause.
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+_MANIM_GLOBALS: frozenset = frozenset({
+    # directions
+    'UP','DOWN','LEFT','RIGHT','ORIGIN','IN','OUT','UR','UL','DR','DL',
+    # colors
+    'WHITE','BLACK','RED','BLUE','GREEN','YELLOW','ORANGE','PURPLE','PINK',
+    'GRAY','GREY','DARK_BLUE','DARK_BROWN','DARK_GRAY','DARK_GREY',
+    'LIGHT_GRAY','LIGHT_GREY','LIGHT_BROWN','LIGHT_PINK',
+    'BLUE_A','BLUE_B','BLUE_C','BLUE_D','BLUE_E',
+    'GREEN_A','GREEN_B','GREEN_C','GREEN_D','GREEN_E',
+    'RED_A','RED_B','RED_C','RED_D','RED_E',
+    'GRAY_A','GRAY_B','GRAY_C','GRAY_D','GRAY_E',
+    'TEAL','TEAL_A','TEAL_B','TEAL_C','TEAL_D','TEAL_E',
+    'GOLD','GOLD_A','GOLD_B','GOLD_C','GOLD_D','GOLD_E',
+    'MAROON','MAROON_A','MAROON_B','MAROON_C','MAROON_D','MAROON_E',
+    'PURPLE_A','PURPLE_B','PURPLE_C',
+    # math
+    'PI','TAU','DEGREES','INF',
+    'np',
+    # Manim mobjects
+    'Text','MathTex','Tex','MarkupText','Paragraph','BulletedList',
+    'Circle','Rectangle','Square','Ellipse','Triangle','Polygon','RoundedRectangle',
+    'Line','DashedLine','Arrow','DoubleArrow','CurvedArrow','TangentLine',
+    'Arc','AnnularSector','Sector','Annulus','ArcBetweenPoints','CubicBezier',
+    'ParametricFunction','FunctionGraph',
+    'Dot','LabeledDot','SmallDot',
+    'VGroup','Group','VDict','always_redraw',
+    'NumberLine','Axes','ThreeDAxes','PolarPlane','ComplexPlane',
+    'Brace','BraceLabel','BraceBetweenPoints',
+    'SurroundingRectangle','BackgroundRectangle','Cross','Checkmark',
+    'SVGMobject','ImageMobject',
+    'ValueTracker','DecimalNumber','Integer','Variable',
+    'MathTable','Table','MobjectTable',
+    # animations
+    'FadeIn','FadeOut','FadeTransform','FadeTransformPieces',
+    'Write','Create','Uncreate','DrawBorderThenFill','ShowIncreasingSubsets',
+    'GrowArrow','GrowFromCenter','GrowFromEdge','GrowFromPoint','SpinInFromNothing',
+    'Transform','ReplacementTransform','TransformFromCopy','TransformMatchingTex',
+    'AnimationGroup','LaggedStart','LaggedStartMap','Succession',
+    'Indicate','Circumscribe','Flash','ShowPassingFlash',
+    'MoveAlongPath','Rotate','Homotopy',
+    'ApplyMethod','ApplyFunction','UpdateFromFunc','UpdateFromAlphaFunc',
+    # rate functions
+    'smooth','linear','there_and_back','rush_into','rush_from',
+    'running_start','double_smooth',
+    # builtins
+    'True','False','None','self',
+    'range','len','print','str','int','float','bool',
+    'list','dict','tuple','set','max','min','abs','sum','round',
+    'enumerate','zip','map','filter','sorted','reversed',
+    'isinstance','hasattr','getattr','setattr','type','any','all',
+    # common scene helpers
+    'get_svg','show_subtitle','tracker','sub',
+    'np','textwrap','os','math','tempfile',
+    # short loop vars
+    'i','j','k','x','y','z','n','t','r','_',
+})
+
+
+def find_undefined_in_construct(code: str) -> list:
+    """
+    AST-scan construct() for Name(Load) nodes whose id is never assigned
+    inside construct() and is not a known Manim global / builtin.
+    Returns sorted list of likely-undefined names.
+    """
+    try:
+        tree = _ast_module.parse(code)
+    except SyntaxError:
+        return []
+
+    # Collect module-level names (imports, top-level functions/classes/assignments)
+    module_names: set = set(_MANIM_GLOBALS)
+    for node in tree.body:
+        if isinstance(node, _ast_module.FunctionDef):
+            module_names.add(node.name)
+        elif isinstance(node, _ast_module.ClassDef):
+            module_names.add(node.name)
+            for item in node.body:
+                if isinstance(item, _ast_module.FunctionDef):
+                    module_names.add(item.name)
+        elif isinstance(node, _ast_module.Assign):
+            for t in node.targets:
+                if isinstance(t, _ast_module.Name):
+                    module_names.add(t.id)
+        elif isinstance(node, _ast_module.Import):
+            for alias in node.names:
+                module_names.add(alias.asname or alias.name.split('.')[0])
+        elif isinstance(node, _ast_module.ImportFrom):
+            for alias in node.names:
+                if alias.name != '*':
+                    module_names.add(alias.asname or alias.name)
+
+    # Find construct()
+    construct_node = None
+    for node in _ast_module.walk(tree):
+        if isinstance(node, _ast_module.FunctionDef) and node.name == 'construct':
+            construct_node = node
+            break
+    if not construct_node:
+        return []
+
+    # Collect every name ASSIGNED anywhere in construct()
+    assigned: set = set(module_names)
+    for node in _ast_module.walk(construct_node):
+        if isinstance(node, _ast_module.Assign):
+            for t in node.targets:
+                if isinstance(t, _ast_module.Name):
+                    assigned.add(t.id)
+                elif isinstance(t, _ast_module.Tuple):
+                    for elt in t.elts:
+                        if isinstance(elt, _ast_module.Name):
+                            assigned.add(elt.id)
+        elif isinstance(node, _ast_module.AugAssign):
+            if isinstance(node.target, _ast_module.Name):
+                assigned.add(node.target.id)
+        elif isinstance(node, _ast_module.For):
+            tgt = node.target
+            if isinstance(tgt, _ast_module.Name):
+                assigned.add(tgt.id)
+            elif isinstance(tgt, _ast_module.Tuple):
+                for elt in tgt.elts:
+                    if isinstance(elt, _ast_module.Name):
+                        assigned.add(elt.id)
+        elif isinstance(node, _ast_module.With):
+            for item in node.items:
+                if item.optional_vars and isinstance(item.optional_vars, _ast_module.Name):
+                    assigned.add(item.optional_vars.id)
+        elif isinstance(node, (_ast_module.ListComp, _ast_module.SetComp,
+                                _ast_module.GeneratorExp, _ast_module.DictComp)):
+            for gen in node.generators:
+                if isinstance(gen.target, _ast_module.Name):
+                    assigned.add(gen.target.id)
+
+    # Find all Load-context names that are not in assigned set
+    undefined = []
+    seen: set = set()
+    for node in _ast_module.walk(construct_node):
+        if isinstance(node, _ast_module.Name) and isinstance(node.ctx, _ast_module.Load):
+            name = node.id
+            if name not in assigned and name not in seen and len(name) >= 2:
+                undefined.append(name)
+                seen.add(name)
+
+    return sorted(undefined)
+
+
+def fix_missing_definitions_pass(code: str, undefined: list) -> str:
+    """
+    Targeted Claude pass: given a list of undefined names, ask Claude to
+    insert only their definitions in the SETUP BLOCK. No other changes.
+    """
+    if not undefined:
+        return code
+    names_str = ', '.join(f'`{n}`' for n in undefined[:20])   # cap at 20
+    logger.info(f"🔧 Running targeted fix pass for: {names_str}")
+    fix_prompt = f"""The Manim code below will crash with NameError because these variables are used
+in animations but never defined: {names_str}
+
+YOUR ONLY TASK:
+1. Find `def construct(self):` and the `self.set_speech_service(...)` line inside it.
+2. Immediately after set_speech_service, insert a SETUP BLOCK that defines ALL of: {names_str}
+3. Infer the correct Manim object type for each name from how it is used in the animation code.
+4. Do NOT change any animation code — only add definitions.
+5. Return the COMPLETE corrected Python file.
+
+DEFINITION RULES:
+- background / bg       → Rectangle(width=15, height=9, fill_color="#0d0d1a", fill_opacity=1, stroke_width=0)
+- grid_lines            → VGroup of Line objects covering the scene
+- Names ending _svg     → replace with appropriate Manim primitives (no SVGMobject)
+- Names ending _card    → Rectangle with fill_color and stroke_color
+- Names ending _formula → MathTex(r"...", font_size=30, color=YELLOW)
+- Names ending _text    → Text("...", font_size=26, color=WHITE)
+- Names ending _arrow   → Arrow(LEFT*2, RIGHT*2, color=YELLOW, buff=0)
+- Names ending _label   → Text("...", font_size=20, color=WHITE)
+- Names ending _lines / _dots / _group → VGroup of appropriate sub-objects
+- Any composite (cup, car_shape, etc.) → VGroup assembled from Polygon/Rectangle/Circle parts
+
+CODE:
+```python
+{code}
+```"""
+
+    try:
+        response = claude_with_retry(
+            _claude_sync.messages.create,
+            model=_CLAUDE_MODEL,
+            max_tokens=16000,
+            messages=[{"role": "user", "content": fix_prompt}],
+        )
+        fixed = response.content[0].text.strip()
+        for fence in ("```python", "```"):
+            if fixed.startswith(fence):
+                fixed = fixed[len(fence):].strip()
+        if fixed.endswith("```"):
+            fixed = fixed[:-3].strip()
+        try:
+            _ast_module.parse(fixed)
+        except SyntaxError as e:
+            logger.warning(f"⚠️  Fix pass produced invalid syntax — keeping original: {e}")
+            return code
+        if len(fixed) > 200:
+            logger.info(f"✅ Fix pass applied ({len(fixed)} chars)")
+            return fixed
+    except Exception as e:
+        logger.warning(f"⚠️  Fix pass failed (non-fatal): {e}")
+    return code
+
 
 def claude_with_retry(fn, *args, max_retries=4, **kwargs):
     """Retry on overloaded_error / HTTP 529 with exponential back-off: 5s, 15s, 45s, 135s."""
@@ -356,6 +571,44 @@ Output ONLY valid JSON. No preamble, no markdown code blocks, just the JSON obje
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 _ULTIMATE_SYSTEM_PROMPT_TEMPLATE = r"""You are an expert Manim educational animation code generator with MANDATORY voiceover support.
+══════════════════════════════════════════════════════════════════
+⚠️  NON-NEGOTIABLE REQUIREMENT — READ BEFORE ANYTHING ELSE
+══════════════════════════════════════════════════════════════════
+
+EVERY construct() MUST follow this exact two-phase structure:
+
+    def construct(self):
+        self.set_speech_service(...)
+
+        # ═══ PHASE 1: SETUP — define ALL objects here, before any voiceover ═══
+        background  = Rectangle(width=15, height=9, fill_color="#0d0d1a", ...)
+        grid_lines  = VGroup(Line(...), Line(...), ...)
+        title       = Text("...", font_size=36, color=WHITE)
+        formula     = MathTex(r"F = ma", font_size=32, color=YELLOW)
+        car_body    = Rectangle(...)
+        car_wheel   = Circle(...)
+        car_shape   = VGroup(car_body, car_wheel)
+        blur_lines  = VGroup(Line(...), ...)
+        # ... EVERY name you will pass to self.play(), self.add(),
+        # FadeIn(), FadeOut(), GrowArrow(), Indicate(), VGroup(), etc.
+        # MUST be assigned here — no exceptions.
+        # ═══ END PHASE 1 ══════════════════════════════════════════════════
+
+        self.add(background, grid_lines)   # safe — both defined above
+
+        # ═══ PHASE 2: ANIMATIONS — ordered voiceover beats ════════════════
+        with self.voiceover(text="...") as tracker:
+            sub = self.show_subtitle("...")
+            self.play(FadeIn(title))        # safe — title defined above
+            self.wait(max(0.1, tracker.duration - 0.5))
+        self.play(FadeOut(sub))
+
+WHAT KILLS THE RENDER (NameError — do NOT do these):
+❌  self.add(background, grid_lines)           # background never assigned
+❌  with self.voiceover(...):
+        car = VGroup(body, wheel)              # defined inside beat → crash
+❌  self.play(FadeIn(blur_lines))              # blur_lines never assigned
+
 ══════════════════════════════════════════════════════════════════
 ROLE OVERRIDE — READ CAREFULLY
 ══════════════════════════════════════════════════════════════════
@@ -1448,22 +1701,15 @@ def extract_scene_name(code: str) -> str:
 # FULL MANIM PIPELINE — synchronous inner function (adapted from AnimLearn verbatim)
 # ─────────────────────────────────────────────────────────────────────────────────────
 
-def _generate_manim_code_enhanced_sync(
+def _generate_solution_sync(
     prompt: str,
     language: str = "en",
     duration: int = 60,
-    aspect_ratio: str = "16:9",
 ) -> dict:
     """
-    Full AnimLearn pipeline (synchronous):
-      Stage 1  — GPT-4o verified solution
-      Stage 1.5 — SVG planning + generation
-      Stage 1.75 — Animation storyboard (Claude)
-      Stage 2  — Claude Manim code generation (streaming)
-      Stage 3  — Critic loop (Claude)
-      Post     — inject helpers, syntax check, extract scene name
+    Stage 1 only — GPT-4o solution + transcript.
+    Returns solution_data dict (no Manim code).
     """
-    # ─── Stage 1 — GPT-4o solution ────────────────────────────────────────────
     verified_solution_raw = generate_verified_solution(
         problem=prompt, language=language, duration=duration
     )
@@ -1473,22 +1719,61 @@ def _generate_manim_code_enhanced_sync(
         cleaned = re.sub(r"^```\s*",     "", cleaned)
         cleaned = re.sub(r"\s*```$",     "", cleaned).strip()
         try:
-            verified_solution_data = json.loads(cleaned)
+            data = json.loads(cleaned)
         except json.JSONDecodeError:
             logger.warning("⚠️  GPT solution JSON parse failed — wrapping as plain text")
-            verified_solution_data = {
+            data = {
                 "structured_solution": cleaned,
                 "transcript_markdown": cleaned,
                 "subject": "general",
                 "tags": [],
             }
     else:
-        verified_solution_data = verified_solution_raw if isinstance(verified_solution_raw, dict) else {}
+        data = verified_solution_raw if isinstance(verified_solution_raw, dict) else {}
 
-    verified_solution   = verified_solution_data.get("structured_solution") or verified_solution_data.get("solution", "")
-    transcript_markdown = verified_solution_data.get("transcript_markdown") or verified_solution
-    video_script        = verified_solution_data.get("video_script") or transcript_markdown
-    promptSubject       = verified_solution_data.get("subject", "general")
+    verified_solution   = data.get("structured_solution") or data.get("solution", "")
+    transcript_markdown = data.get("transcript_markdown") or verified_solution
+    video_script        = data.get("video_script") or transcript_markdown
+    subject             = data.get("subject", "general")
+    tags                = data.get("tags", [])
+
+    return {
+        "verified_solution":   verified_solution,
+        "transcript_markdown": transcript_markdown,
+        "video_script":        video_script,
+        "subject":             subject,
+        "tags":                tags,
+    }
+
+
+def _generate_manim_code_enhanced_sync(
+    prompt: str,
+    language: str = "en",
+    duration: int = 60,
+    aspect_ratio: str = "16:9",
+    _solution_data: Optional[dict] = None,   # injected for retry path (skips Stage 1)
+) -> dict:
+    """
+    Full AnimLearn pipeline (synchronous):
+      Stage 1   — GPT-4o verified solution  (skipped when _solution_data provided)
+      Stage 1.5 — SVG planning + generation
+      Stage 1.75 — Animation storyboard (Claude)
+      Stage 2   — Claude Manim code generation (streaming)
+      Stage 3   — Critic loop (Claude)
+      Post      — AST undefined-name check + fix pass + syntax check
+    """
+    # ─── Stage 1 — GPT-4o solution (or use injected solution for retry) ──────
+    if _solution_data is not None:
+        verified_solution   = _solution_data.get("verified_solution", "")
+        transcript_markdown = _solution_data.get("transcript_markdown", "")
+        video_script        = _solution_data.get("video_script") or transcript_markdown
+        promptSubject       = _solution_data.get("subject", "general")
+    else:
+        sol = _generate_solution_sync(prompt, language, duration)
+        verified_solution   = sol["verified_solution"]
+        transcript_markdown = sol["transcript_markdown"]
+        video_script        = sol["video_script"]
+        promptSubject       = sol["subject"]
 
     # ─── Stage 1.5 — SVG planning + generation ────────────────────────────────
     svg_list = plan_svg_assets(verified_solution, promptSubject)
@@ -1670,6 +1955,23 @@ SCRIPT:
 """
 
     full_prompt = f"""
+⚠️  WRITE THE SETUP BLOCK FIRST — before any other construct() code:
+
+    def construct(self):
+        self.set_speech_service(...)
+        # ═══ SETUP BLOCK — EVERY object defined here before first voiceover ═══
+        background = Rectangle(width=15, height=9, fill_color="#0d0d1a", ...)
+        title      = Text("...", font_size=36, color=WHITE)
+        formula    = MathTex(r"...", font_size=32, color=YELLOW)
+        arrow      = Arrow(LEFT * 2, RIGHT * 2, color=YELLOW, buff=0)
+        # ... ALL names you pass to self.play/add/FadeIn/GrowArrow/VGroup ...
+        # ═══════════════════════════════════════════════════════════════════
+        self.add(background)
+        with self.voiceover(...):        ← animations start here
+            self.play(FadeIn(title))     ← safe: title already defined above
+
+Any name used in an animation that is NOT assigned in the SETUP BLOCK = NameError crash.
+
 You are given a VERIFIED AND CORRECT solution and a narration script below.
 
 YOU MUST:
@@ -1909,6 +2211,27 @@ CODE TO REVIEW:
     code = fix_manim_colors(code)
     code = ensure_numpy_import(code)
 
+    # ─── AST undefined-name check + targeted fix pass ─────────────────────
+    try:
+        undefined = find_undefined_in_construct(code)
+        if undefined:
+            logger.warning(f"⚠️  Undefined names in construct(): {undefined}")
+            code = fix_missing_definitions_pass(code, undefined)
+            # Re-apply patches after fix
+            code = re.sub(r'VGroup\(\s*\*\s*self\.mobjects\s*\)', 'Group(*self.mobjects)', code)
+            code = fix_manim_colors(code)
+            code = ensure_numpy_import(code)
+            # Verify fix actually resolved the issues
+            still_undefined = find_undefined_in_construct(code)
+            if still_undefined:
+                logger.warning(f"⚠️  Still undefined after fix pass: {still_undefined}")
+            else:
+                logger.info("✅ All undefined names resolved by fix pass")
+        else:
+            logger.info("✅ AST check passed — no undefined names in construct()")
+    except Exception as undef_err:
+        logger.warning(f"⚠️  AST undefined-name check failed (non-fatal): {undef_err}")
+
     # Inject helpers inline (after critic so critic sees compact code)
     code = inject_helpers_inline(code)
 
@@ -1977,3 +2300,37 @@ def trigger_cloud_run_vm(video_id: int, svg_urls: dict = None):
 
 # Alias used by routers/videos.py
 _trigger_video_generation = trigger_cloud_run_vm
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# SPLIT-PIPELINE PUBLIC API  (used by retry endpoint)
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+async def generate_solution_only(
+    prompt: str,
+    language: str = "en",
+    duration: int = 60,
+) -> dict:
+    """
+    Async wrapper for Stage 1 only (GPT-4o solution + transcript).
+    Returns solution_data dict — no Manim code generated.
+    """
+    return await asyncio.to_thread(_generate_solution_sync, prompt, language, duration)
+
+
+async def generate_manim_from_solution(
+    solution_data: dict,
+    language: str = "en",
+    duration: int = 60,
+    aspect_ratio: str = "16:9",
+) -> dict:
+    """
+    Async wrapper for Stage 2+ only (SVG → storyboard → Manim → critic → AST fix).
+    Skips Stage 1 (GPT-4o) — uses pre-computed solution_data from generate_solution_only().
+    """
+    return await asyncio.to_thread(
+        _generate_manim_code_enhanced_sync,
+        "",            # prompt unused when _solution_data is provided
+        language, duration, aspect_ratio,
+        solution_data,
+    )

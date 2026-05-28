@@ -97,10 +97,25 @@ export const getVideoStatus = (videoId: number, token?: string) =>
     error_message?: string;
     transcript_markdown?: string;
     verified_solution?: string;
+    prompt?: string;
   }>(`/api/videos/${videoId}/status`, token);
 
+export const retryVideoManim = (videoId: number, token?: string) =>
+  post<{ status: string; video_id: number }>(
+    `/api/videos/${videoId}/retry-manim`, {}, token
+  );
+
 export const getUserVideos = (userId: string, token?: string) =>
-  get<any[]>(`/api/videos/user/${userId}`, token);
+  get<{
+    id: number;
+    status: string;
+    video_url?: string;
+    prompt?: string;
+    subject?: string;
+    duration_secs?: number;
+    created_at: string;
+    transcript_markdown?: string;
+  }[]>(`/api/videos/user/${userId}`, token);
 
 export const getConversationVideos = (conversationId: string, token?: string) =>
   get<{ id: number; message_id: string; status: string; video_url?: string }[]>(

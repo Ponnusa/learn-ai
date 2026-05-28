@@ -2,6 +2,11 @@
 Video generation router.
 Checks subject support via feature_flags table.
 Full AnimLearn pipeline — no compromise on quality.
+
+Pipeline is split into two phases so the transcript is always saved,
+even when Manim code generation fails:
+  Phase 1 → GPT-4o solution + transcript  → status: transcript_ready
+  Phase 2 → Claude Manim code + critic    → status: queued  (or failed)
 """
 import json
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -9,7 +14,14 @@ from pydantic import BaseModel
 from database import get_db
 from services.tier_config import get_limit, video_supported_for
 from services.prompt_builder import build_video_prompt
-from services.manim import generate_manim_code_enhanced, fix_manim_colors, ensure_numpy_import, _trigger_video_generation
+from services.manim import (
+    generate_manim_code_enhanced,
+    generate_solution_only,
+    generate_manim_from_solution,
+    fix_manim_colors,
+    ensure_numpy_import,
+    _trigger_video_generation,
+)
 
 router = APIRouter(prefix="/api/videos", tags=["videos"])
 
@@ -60,13 +72,63 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
 
     video_id = video["id"]
 
-    # ── 4. Run full AnimLearn pipeline in background ─────────────────────────
+    # ── 4. Run pipeline in background (Phase 1 → Phase 2) ───────────────────
     bg.add_task(
         _generate_video_bg,
         video_id, req.prompt, req.user_id, req.subject, req.language, req.aspect_ratio
     )
 
     return {"supported": True, "video_id": video_id, "status": "pending"}
+
+
+@router.post("/{video_id}/retry-manim")
+async def retry_video_manim(video_id: int, bg: BackgroundTasks):
+    """
+    Re-run Manim code generation (Phase 2) using the already-saved transcript.
+    Skips GPT-4o (Phase 1) — only retries the Manim/Claude/critic part.
+    Requires transcript_markdown + verified_solution to already exist in DB.
+    """
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT verified_solution, transcript_markdown, language, aspect_ratio, max_duration
+            FROM videos WHERE id = $1
+        """, video_id)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    if not row["verified_solution"]:
+        raise HTTPException(
+            status_code=400,
+            detail="No transcript saved — please regenerate the full video instead.",
+        )
+
+    # Reset to pending so the frontend polls again
+    async with get_db() as db:
+        await db.execute("""
+            UPDATE videos
+            SET status = 'pending', error_message = NULL,
+                generated_code = NULL, updated_at = NOW()
+            WHERE id = $1
+        """, video_id)
+
+    solution_data = {
+        "verified_solution":   row["verified_solution"],
+        "transcript_markdown": row["transcript_markdown"] or "",
+        "video_script":        row["transcript_markdown"] or "",
+        "subject":             "general",
+        "tags":                [],
+    }
+
+    bg.add_task(
+        _retry_manim_bg,
+        video_id, solution_data,
+        row["language"] or "en",
+        row["aspect_ratio"] or "16:9",
+        row["max_duration"] or 60,
+    )
+
+    return {"status": "pending", "video_id": video_id}
 
 
 @router.get("/conversation/{conversation_id}")
@@ -91,7 +153,7 @@ async def get_video_status(video_id: int):
         row = await db.fetchrow("""
             SELECT id, status, video_url, thumbnail_url, error_message,
                    duration_secs, max_duration, created_at,
-                   transcript_markdown, verified_solution
+                   transcript_markdown, verified_solution, prompt
             FROM videos WHERE id = $1
         """, video_id)
     if not row:
@@ -104,12 +166,16 @@ async def get_user_videos(user_id: str):
     async with get_db() as db:
         rows = await db.fetch("""
             SELECT id, status, video_url, thumbnail_url, prompt, subject,
-                   duration_secs, created_at
+                   duration_secs, created_at, transcript_markdown
             FROM videos WHERE user_id = $1
             ORDER BY created_at DESC LIMIT 50
         """, user_id)
     return [dict(r) for r in rows]
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BACKGROUND TASKS
+# ─────────────────────────────────────────────────────────────────────────────
 
 async def _generate_video_bg(
     video_id: int,
@@ -120,32 +186,50 @@ async def _generate_video_bg(
     aspect_ratio: str,
 ):
     """
-    Full AnimLearn pipeline — verbatim.
-    transcript → SVG → Manim code → critic loop → Cloud Run trigger
+    Two-phase pipeline:
+    Phase 1 — GPT-4o solution → saves transcript immediately so it's never lost.
+    Phase 2 — Claude Manim code → queues for rendering.
+    If Phase 2 fails, video is 'failed' but transcript is already in the DB.
     """
+    # ── Phase 1: solution + transcript ──────────────────────────────────────
     try:
-        # Build depth-adjusted prompt based on student profile
         teaching_prompt = await build_video_prompt(prompt, user_id, subject)
+        solution_data   = await generate_solution_only(teaching_prompt, language, 60)
 
-        # Full pipeline — copied from AnimLearn (no changes)
-        code_data = await generate_manim_code_enhanced(
-            teaching_prompt, language, 60, aspect_ratio
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos
+                SET transcript_markdown = $1, verified_solution = $2,
+                    status = 'transcript_ready', updated_at = NOW()
+                WHERE id = $3
+            """, solution_data["transcript_markdown"],
+                solution_data["verified_solution"], video_id)
+
+    except Exception as e:
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
+                WHERE id = $2
+            """, f"Transcript generation failed: {e}", video_id)
+        return
+
+    # ── Phase 2: Manim code generation ──────────────────────────────────────
+    try:
+        code_data = await generate_manim_from_solution(
+            solution_data, language, 60, aspect_ratio
         )
-        code = fix_manim_colors(code_data["code"])
-        code = ensure_numpy_import(code)
-        svg_urls          = code_data.get("svg_urls") or {}
-        transcript        = code_data.get("transcript_markdown", "")
-        verified_solution = code_data.get("verified_solution", "")
+        code     = fix_manim_colors(code_data["code"])
+        code     = ensure_numpy_import(code)
+        svg_urls = code_data.get("svg_urls") or {}
 
         async with get_db() as db:
             await db.execute("""
                 UPDATE videos
                 SET generated_code = $1, scene_name = $2, status = 'queued',
-                    transcript_markdown = $3, verified_solution = $4,
-                    svg_urls = $5::jsonb, updated_at = NOW()
-                WHERE id = $6
+                    svg_urls = $3::jsonb, updated_at = NOW()
+                WHERE id = $4
             """, code, code_data.get("scene_name", "MainScene"),
-                transcript, verified_solution, json.dumps(svg_urls), video_id)
+                json.dumps(svg_urls), video_id)
 
         _trigger_video_generation(video_id, svg_urls)
 
@@ -154,7 +238,42 @@ async def _generate_video_bg(
             await db.execute("""
                 UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
                 WHERE id = $2
-            """, str(e), video_id)
+            """, f"Manim code generation failed: {e}", video_id)
+
+
+async def _retry_manim_bg(
+    video_id: int,
+    solution_data: dict,
+    language: str,
+    aspect_ratio: str,
+    duration: int,
+):
+    """Phase 2 only — used by the retry endpoint."""
+    try:
+        code_data = await generate_manim_from_solution(
+            solution_data, language, duration, aspect_ratio
+        )
+        code     = fix_manim_colors(code_data["code"])
+        code     = ensure_numpy_import(code)
+        svg_urls = code_data.get("svg_urls") or {}
+
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos
+                SET generated_code = $1, scene_name = $2, status = 'queued',
+                    svg_urls = $3::jsonb, error_message = NULL, updated_at = NOW()
+                WHERE id = $4
+            """, code, code_data.get("scene_name", "MainScene"),
+                json.dumps(svg_urls), video_id)
+
+        _trigger_video_generation(video_id, svg_urls)
+
+    except Exception as e:
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
+                WHERE id = $2
+            """, f"Manim retry failed: {e}", video_id)
 
 
 async def _check_video_credit(user_id: str | None, session_id: str | None, tier: str):
