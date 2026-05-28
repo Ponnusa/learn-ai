@@ -8,6 +8,7 @@ even when Manim code generation fails:
   Phase 1 → GPT-4o solution + transcript  → status: transcript_ready
   Phase 2 → Claude Manim code + critic    → status: queued  (or failed)
 """
+import asyncio
 import json
 import logging
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -238,8 +239,9 @@ async def _generate_video_bg(
     # ── Phase 2: Manim code generation ──────────────────────────────────────
     _log.info(f"[pipeline] video {video_id}: starting Phase 2 (Manim generation)")
     try:
-        code_data = await generate_manim_from_solution(
-            solution_data, language, 60, aspect_ratio
+        code_data = await asyncio.wait_for(
+            generate_manim_from_solution(solution_data, language, 60, aspect_ratio),
+            timeout=900,
         )
         code     = fix_manim_colors(code_data["code"])
         code     = ensure_numpy_import(code)
@@ -257,6 +259,18 @@ async def _generate_video_bg(
         _log.info(f"[pipeline] video {video_id}: Phase 2 done → queued, triggering render")
         _trigger_video_generation(video_id, svg_urls)
 
+    except asyncio.TimeoutError:
+        _log.error(f"[pipeline] video {video_id}: Phase 2 timed out after 15 min")
+        try:
+            async with get_db() as db:
+                await db.execute("""
+                    UPDATE videos SET status = 'failed',
+                        error_message = 'Manim generation timed out — please retry',
+                        updated_at = NOW()
+                    WHERE id = $1
+                """, video_id)
+        except Exception as _db_err:
+            _log.error(f"[pipeline] video {video_id}: also failed to write timeout error — {_db_err}")
     except Exception as e:
         _log.error(f"[pipeline] video {video_id}: Phase 2 failed — {e}", exc_info=True)
         try:
@@ -292,8 +306,11 @@ async def _retry_manim_bg(
         _log.warning(f"[retry] video {video_id}: could not set transcript_ready — {_db_err}")
 
     try:
-        code_data = await generate_manim_from_solution(
-            solution_data, language, duration, aspect_ratio
+        # Hard 15-minute deadline — each Claude call has a 120 s SDK timeout,
+        # so 5 calls × 2 min = 10 min worst case; 15 min gives extra headroom.
+        code_data = await asyncio.wait_for(
+            generate_manim_from_solution(solution_data, language, duration, aspect_ratio),
+            timeout=900,
         )
         code     = fix_manim_colors(code_data["code"])
         code     = ensure_numpy_import(code)
@@ -311,6 +328,18 @@ async def _retry_manim_bg(
         _log.info(f"[retry] video {video_id}: Manim code generated, triggering render")
         _trigger_video_generation(video_id, svg_urls)
 
+    except asyncio.TimeoutError:
+        _log.error(f"[retry] video {video_id}: Manim generation timed out after 15 min")
+        try:
+            async with get_db() as db:
+                await db.execute("""
+                    UPDATE videos SET status = 'failed',
+                        error_message = 'Manim generation timed out — please retry',
+                        updated_at = NOW()
+                    WHERE id = $1
+                """, video_id)
+        except Exception as _db_err:
+            _log.error(f"[retry] video {video_id}: also failed to write timeout error — {_db_err}")
     except Exception as e:
         _log.error(f"[retry] video {video_id}: Manim generation failed — {e}", exc_info=True)
         try:

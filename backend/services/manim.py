@@ -34,8 +34,16 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 # ── Synchronous AI clients (Manim pipeline is CPU/IO-bound, runs via asyncio.to_thread) ─
-_claude_sync = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-_openai_sync = _openai_module.OpenAI(api_key=settings.OPENAI_API_KEY)
+# Timeout: 120 s per request so hung calls fail fast and surface as 'failed'
+# rather than keeping the video stuck at 'transcript_ready' for 10+ minutes.
+_claude_sync = anthropic.Anthropic(
+    api_key=settings.ANTHROPIC_API_KEY,
+    timeout=120.0,
+)
+_openai_sync = _openai_module.OpenAI(
+    api_key=settings.OPENAI_API_KEY,
+    timeout=120.0,
+)
 
 # ── Model for Manim code generation (same tier as AnimLearn) ─────────────────────────
 _CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-4-7")
