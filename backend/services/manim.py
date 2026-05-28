@@ -194,37 +194,57 @@ def find_undefined_in_construct(code: str) -> list:
     if not construct_node:
         return []
 
-    # Collect every name ASSIGNED anywhere in construct()
+    # Collect every name ASSIGNED in construct() — but DO NOT recurse into
+    # `with` block bodies.  Variables assigned inside `with self.voiceover():`
+    # are NOT visible before that block runs; treating them as "assigned"
+    # caused the checker to miss NameErrors like `background not defined`
+    # when the model put setup objects inside a voiceover beat instead of
+    # the mandatory SETUP BLOCK above the first voiceover.
     assigned: set = set(module_names)
-    for node in _ast_module.walk(construct_node):
-        if isinstance(node, _ast_module.Assign):
-            for t in node.targets:
-                if isinstance(t, _ast_module.Name):
-                    assigned.add(t.id)
-                elif isinstance(t, _ast_module.Tuple):
-                    for elt in t.elts:
+
+    def _collect_assigned(stmts: list) -> None:
+        for stmt in stmts:
+            if isinstance(stmt, _ast_module.Assign):
+                for t in stmt.targets:
+                    if isinstance(t, _ast_module.Name):
+                        assigned.add(t.id)
+                    elif isinstance(t, _ast_module.Tuple):
+                        for elt in t.elts:
+                            if isinstance(elt, _ast_module.Name):
+                                assigned.add(elt.id)
+            elif isinstance(stmt, _ast_module.AugAssign):
+                if isinstance(stmt.target, _ast_module.Name):
+                    assigned.add(stmt.target.id)
+            elif isinstance(stmt, _ast_module.AnnAssign):
+                if isinstance(stmt.target, _ast_module.Name):
+                    assigned.add(stmt.target.id)
+            elif isinstance(stmt, _ast_module.For):
+                # Collect loop variable, recurse into body
+                tgt = stmt.target
+                if isinstance(tgt, _ast_module.Name):
+                    assigned.add(tgt.id)
+                elif isinstance(tgt, _ast_module.Tuple):
+                    for elt in tgt.elts:
                         if isinstance(elt, _ast_module.Name):
                             assigned.add(elt.id)
-        elif isinstance(node, _ast_module.AugAssign):
-            if isinstance(node.target, _ast_module.Name):
-                assigned.add(node.target.id)
-        elif isinstance(node, _ast_module.For):
-            tgt = node.target
-            if isinstance(tgt, _ast_module.Name):
-                assigned.add(tgt.id)
-            elif isinstance(tgt, _ast_module.Tuple):
-                for elt in tgt.elts:
-                    if isinstance(elt, _ast_module.Name):
-                        assigned.add(elt.id)
-        elif isinstance(node, _ast_module.With):
-            for item in node.items:
-                if item.optional_vars and isinstance(item.optional_vars, _ast_module.Name):
-                    assigned.add(item.optional_vars.id)
-        elif isinstance(node, (_ast_module.ListComp, _ast_module.SetComp,
-                                _ast_module.GeneratorExp, _ast_module.DictComp)):
-            for gen in node.generators:
-                if isinstance(gen.target, _ast_module.Name):
-                    assigned.add(gen.target.id)
+                _collect_assigned(stmt.body)
+            elif isinstance(stmt, _ast_module.If):
+                _collect_assigned(stmt.body)
+                _collect_assigned(stmt.orelse)
+            elif isinstance(stmt, _ast_module.With):
+                # Only collect the `as <var>` context variable (e.g. `tracker`).
+                # *** DO NOT recurse into stmt.body ***
+                # Assignments inside a `with` block (voiceover beats) are not
+                # valid definitions for code that runs before the `with` block.
+                for item in stmt.items:
+                    if item.optional_vars and isinstance(item.optional_vars, _ast_module.Name):
+                        assigned.add(item.optional_vars.id)
+            elif isinstance(stmt, _ast_module.Try):
+                _collect_assigned(stmt.body)
+                _collect_assigned(stmt.orelse)
+                _collect_assigned(stmt.finalbody if stmt.finalbody else [])
+
+    _collect_assigned(construct_node.body)
 
     # Find all Load-context names that are not in assigned set
     undefined = []
