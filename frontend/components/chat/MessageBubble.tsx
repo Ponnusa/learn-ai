@@ -5,12 +5,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Copy, Check, CheckCircle, Loader, Play, XCircle, X, FileText } from 'lucide-react';
+import { Copy, Check, CheckCircle, Loader, Play, XCircle, X, FileText, RefreshCw } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
-import { getQuiz, getVideoStatus } from '@/lib/api';
+import { getQuiz, getVideoStatus, retryVideoManim } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -200,6 +200,8 @@ function VideoStatusCard({ videoId, token }: { videoId: number; token?: string }
   const [transcript, setTranscript] = useState<string | null>(null);
   const [solution,   setSolution]   = useState<string | null>(null);
   const [showModal,  setShowModal]  = useState(false);
+  const [retrying,   setRetrying]   = useState(false);
+  const [retryTick,  setRetryTick]  = useState(0);   // increment to restart poll
 
   const closeModal = useCallback(() => setShowModal(false), []);
 
@@ -211,25 +213,39 @@ function VideoStatusCard({ videoId, token }: { videoId: number; token?: string }
         const data = await getVideoStatus(videoId, token);
         if (stopped) return;
         setStatus(data.status);
-        // Capture transcript / solution whenever they arrive (could come before video is done)
         if (data.transcript_markdown) setTranscript(data.transcript_markdown);
         if (data.verified_solution)   setSolution(data.verified_solution);
 
         if (data.status === 'complete' || data.status === 'completed') {
           setVideoUrl(data.video_url ?? null);
-          return; // stop polling
+          return;
         }
-        if (data.status === 'failed') return; // stop polling
+        if (data.status === 'failed') return;
         setStepIdx(prev => (prev + 1) % VIDEO_STEPS.length);
         setTimeout(poll, 4000);
       } catch {
-        if (!stopped) setTimeout(poll, 8000); // back-off on error
+        if (!stopped) setTimeout(poll, 8000);
       }
     }
 
     poll();
     return () => { stopped = true; };
-  }, [videoId]);
+  }, [videoId, retryTick]);   // retryTick re-triggers poll after retry
+
+  async function handleRetry() {
+    setRetrying(true);
+    setStatus('pending');
+    setStepIdx(0);
+    setVideoUrl(null);
+    try {
+      await retryVideoManim(videoId, token);
+      setRetryTick(t => t + 1);   // restart polling loop
+    } catch {
+      setStatus('failed');
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   const isDone   = status === 'complete' || status === 'completed';
   const isFailed = status === 'failed';
@@ -291,13 +307,39 @@ function VideoStatusCard({ videoId, token }: { videoId: number; token?: string }
   /* Failed */
   if (isFailed) {
     return (
-      <div className="rounded-xl border border-[var(--wrong-bd)] bg-[var(--wrong-bg)] px-4 py-3 flex items-center gap-2.5">
-        <XCircle size={16} className="text-[var(--red)] shrink-0" />
-        <div>
-          <p className="text-[var(--tx2)] text-sm font-medium">Video generation failed</p>
-          <p className="text-[var(--tx7)] text-[10px] mt-0.5">Try again from the chat</p>
+      <>
+        <div className="rounded-xl border border-[var(--wrong-bd)] bg-[var(--wrong-bg)] px-4 py-3 space-y-2.5">
+          <div className="flex items-center gap-2.5">
+            <XCircle size={15} className="text-[var(--red)] shrink-0" />
+            <p className="text-[var(--tx2)] text-sm font-medium">Video generation failed</p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Retry */}
+            <button
+              onClick={handleRetry}
+              disabled={retrying}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg
+                         bg-purple-600 hover:bg-purple-500 disabled:opacity-50
+                         text-white font-medium transition-colors"
+            >
+              <RefreshCw size={11} className={retrying ? 'animate-spin' : ''} />
+              {retrying ? 'Retrying…' : transcript ? 'Retry Video' : 'Regenerate'}
+            </button>
+
+            {/* Transcript — only when available */}
+            {transcriptBtn}
+          </div>
         </div>
-      </div>
+
+        {showModal && transcript && (
+          <TranscriptModal
+            transcript={transcript}
+            solution={solution ?? undefined}
+            onClose={closeModal}
+          />
+        )}
+      </>
     );
   }
 

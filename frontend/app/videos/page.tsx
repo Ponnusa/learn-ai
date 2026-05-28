@@ -1,14 +1,19 @@
 'use client';
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import {
   ArrowLeft, Download, CheckCircle, XCircle, Loader,
-  RefreshCw, BookOpen, ChevronDown, ChevronUp, Play,
+  RefreshCw, FileText, X, Play,
 } from 'lucide-react';
 import { getVideoStatus, retryVideoManim, getUserVideos, getSessionVideos } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Sidebar } from '@/components/layout/Sidebar';
+import { preprocessMath } from '@/lib/preprocessMath';
 
 const STEPS = [
   'Writing solution & script',
@@ -16,45 +21,91 @@ const STEPS = [
   'Generating Manim code',
   'Rendering video',
 ];
-
 const LOADING_STATUSES = new Set(['pending', 'queued', 'transcript_ready', 'rendering']);
 const DONE_STATUSES    = new Set(['complete', 'completed']);
 
-// ── Transcript panel ──────────────────────────────────────────────────────────
-function TranscriptPanel({ markdown }: { markdown: string }) {
-  const [open, setOpen] = useState(false);
-  if (!markdown) return null;
+// ── Transcript modal (with full math / chemistry rendering) ──────────────────
+function TranscriptModal({
+  markdown, onClose,
+}: { markdown: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   return (
-    <div className="w-full rounded-2xl border border-[var(--bd)] overflow-hidden mt-4">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-5 py-3 bg-[var(--ov3)] hover:bg-[var(--ov4)] transition-colors"
-      >
-        <span className="flex items-center gap-2 text-[var(--tx2)] text-sm font-medium">
-          <BookOpen size={14} />
-          Solution &amp; Transcript
-        </span>
-        {open
-          ? <ChevronUp size={14} className="text-[var(--tx5)]" />
-          : <ChevronDown size={14} className="text-[var(--tx5)]" />}
-      </button>
-      {open && (
-        <div className="px-5 py-4 text-[var(--tx3)] text-sm leading-relaxed whitespace-pre-wrap
-                        bg-[var(--bg2)] border-t border-[var(--bd)] max-h-80 overflow-y-auto no-scrollbar">
-          {markdown}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl
+                      w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl shadow-black/40">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--bd)] shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-purple-600/20 flex items-center justify-center">
+              <FileText size={13} className="text-purple-400" />
+            </div>
+            <h2 className="text-[var(--tx1)] font-semibold text-sm">Solution &amp; Transcript</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-7 h-7 flex items-center justify-center rounded-lg
+                       text-[var(--tx6)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)] transition-colors"
+            aria-label="Close"
+          >
+            <X size={15} />
+          </button>
         </div>
-      )}
+
+        {/* Body — full math support */}
+        <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-5">
+          <div className="ai-content text-sm leading-relaxed">
+            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+              {preprocessMath(markdown)}
+            </ReactMarkdown>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t border-[var(--bd)] shrink-0 flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 text-xs rounded-lg bg-[var(--ov3)] hover:bg-[var(--ov4)]
+                       text-[var(--tx2)] transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
+  );
+}
+
+// ── Small transcript button (shared) ─────────────────────────────────────────
+function TranscriptButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg
+                 bg-[var(--ov2)] hover:bg-[var(--ov4)]
+                 text-[var(--tx4)] hover:text-[var(--tx1)]
+                 border border-[var(--bd)] transition-all"
+    >
+      <FileText size={11} />
+      Solution &amp; Transcript
+    </button>
   );
 }
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    completed: 'text-green-400',  complete: 'text-green-400',
-    failed:    'text-red-400',
-    queued:    'text-yellow-400', rendering: 'text-yellow-400',
-    pending:   'text-[var(--tx5)]',
+    completed: 'text-green-400', complete: 'text-green-400',
+    failed: 'text-red-400',
+    queued: 'text-yellow-400', rendering: 'text-yellow-400',
+    pending: 'text-[var(--tx5)]',
     transcript_ready: 'text-blue-400',
   };
   return (
@@ -64,15 +115,17 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-// ── Video card in the list ────────────────────────────────────────────────────
+// ── Video card in the sidebar list ───────────────────────────────────────────
 function VideoCard({ v, active, onClick }: { v: any; active: boolean; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
       className={`w-full text-left flex gap-3 px-3 py-2.5 rounded-xl transition-colors
-        ${active ? 'bg-purple-500/15 border border-purple-500/30' : 'hover:bg-[var(--ov3)] border border-transparent'}`}
+        ${active
+          ? 'bg-purple-500/15 border border-purple-500/30'
+          : 'hover:bg-[var(--ov3)] border border-transparent'
+        }`}
     >
-      {/* Thumbnail */}
       <div className="w-20 h-12 rounded-lg overflow-hidden bg-[var(--ov3)] flex-shrink-0 flex items-center justify-center">
         {v.video_url
           ? <video src={v.video_url} className="w-full h-full object-cover" muted playsInline />
@@ -83,7 +136,6 @@ function VideoCard({ v, active, onClick }: { v: any; active: boolean; onClick: (
               : <XCircle size={14} className="text-red-400" />
         }
       </div>
-
       <div className="flex-1 min-w-0">
         <p className="text-[var(--tx2)] text-xs font-medium truncate leading-snug">
           {v.prompt || 'Untitled'}
@@ -99,10 +151,8 @@ function VideoCard({ v, active, onClick }: { v: any; active: boolean; onClick: (
   );
 }
 
-// ── Videos list (shown when no videoId, or as side panel) ────────────────────
-function VideosList({
-  videos, currentId, onSelect, loading,
-}: {
+// ── Videos list ───────────────────────────────────────────────────────────────
+function VideosList({ videos, currentId, onSelect, loading }: {
   videos: any[]; currentId: number | null; onSelect: (id: number) => void; loading: boolean;
 }) {
   if (loading) return (
@@ -111,9 +161,9 @@ function VideosList({
     </div>
   );
   if (!videos.length) return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-3 px-6 text-center">
+    <div className="flex-1 flex flex-col items-center justify-center gap-2 px-6 text-center">
       <p className="text-[var(--tx5)] text-sm">No videos yet.</p>
-      <p className="text-[var(--tx6)] text-xs">Generate a video from the chat to see it here.</p>
+      <p className="text-[var(--tx6)] text-xs">Generate a video from chat to see it here.</p>
     </div>
   );
   return (
@@ -127,28 +177,31 @@ function VideosList({
 
 // ── Main content ──────────────────────────────────────────────────────────────
 function VideosContent() {
-  const searchParams              = useSearchParams();
-  const router                    = useRouter();
-  const { t }                     = useTranslation();
+  const searchParams               = useSearchParams();
+  const router                     = useRouter();
+  const { t }                      = useTranslation();
   const { token, user, sessionId } = useSessionStore();
 
   const rawId   = searchParams.get('id');
   const videoId = rawId ? Number(rawId) : null;
 
-  // Current video state
+  // Current video
   const [status,     setStatus]     = useState('pending');
   const [videoUrl,   setVideoUrl]   = useState<string | null>(null);
   const [error,      setError]      = useState<string | null>(null);
   const [stepIdx,    setStepIdx]    = useState(0);
   const [transcript, setTranscript] = useState<string | null>(null);
-  const [prompt,     setPrompt]     = useState<string | null>(null);
   const [retrying,   setRetrying]   = useState(false);
+  const [showModal,  setShowModal]  = useState(false);
+  const [retryTick,  setRetryTick]  = useState(0);
 
   // Videos list
-  const [videos,       setVideos]       = useState<any[]>([]);
+  const [videos,        setVideos]        = useState<any[]>([]);
   const [videosLoading, setVideosLoading] = useState(true);
 
-  // ── Poll current video ────────────────────────────────────────────────────
+  const closeModal = useCallback(() => setShowModal(false), []);
+
+  // Poll current video
   useEffect(() => {
     if (!videoId) return;
     let stopped = false;
@@ -159,10 +212,9 @@ function VideosContent() {
         if (stopped) return;
         setStatus(data.status);
         if (data.transcript_markdown) setTranscript(data.transcript_markdown);
-        if (data.prompt)              setPrompt(data.prompt);
 
-        if (DONE_STATUSES.has(data.status))     { setVideoUrl(data.video_url ?? null); return; }
-        if (data.status === 'failed')           { setError(data.error_message ?? t.errors.videoFailed); return; }
+        if (DONE_STATUSES.has(data.status)) { setVideoUrl(data.video_url ?? null); return; }
+        if (data.status === 'failed')       { setError(data.error_message ?? t.errors.videoFailed); return; }
 
         setStepIdx(prev => (prev + 1) % STEPS.length);
         setTimeout(poll, 4000);
@@ -170,12 +222,11 @@ function VideosContent() {
         if (!stopped) setError(t.errors.generic);
       }
     }
-
     poll();
     return () => { stopped = true; };
-  }, [videoId]);
+  }, [videoId, retryTick]);
 
-  // ── Load all videos ───────────────────────────────────────────────────────
+  // Load videos list
   useEffect(() => {
     setVideosLoading(true);
     const load = user?.id
@@ -183,21 +234,16 @@ function VideosContent() {
       : sessionId
         ? getSessionVideos(sessionId)
         : Promise.resolve([]);
-
-    load
-      .then(rows => { setVideos(rows); setVideosLoading(false); })
-      .catch(() => setVideosLoading(false));
+    load.then(r => { setVideos(r); setVideosLoading(false); }).catch(() => setVideosLoading(false));
   }, [user?.id, sessionId]);
 
-  // Also refresh the list after a retry so the status updates
-  function refreshVideos() {
+  function refreshList() {
     const load = user?.id
       ? getUserVideos(user.id, token ?? undefined)
       : sessionId ? getSessionVideos(sessionId) : Promise.resolve([]);
     load.then(setVideos).catch(() => {});
   }
 
-  // ── Retry handler ─────────────────────────────────────────────────────────
   async function handleRetry() {
     if (!videoId) return;
     setRetrying(true);
@@ -207,27 +253,11 @@ function VideosContent() {
     setVideoUrl(null);
     try {
       await retryVideoManim(videoId, token ?? undefined);
-      refreshVideos();
-      // Restart polling loop
-      let stopped = false;
-      async function poll() {
-        try {
-          const data = await getVideoStatus(videoId!, token ?? undefined);
-          if (stopped) return;
-          setStatus(data.status);
-          if (data.transcript_markdown) setTranscript(data.transcript_markdown);
-          if (DONE_STATUSES.has(data.status))   { setVideoUrl(data.video_url ?? null); setRetrying(false); refreshVideos(); return; }
-          if (data.status === 'failed')         { setError(data.error_message ?? t.errors.videoFailed); setRetrying(false); return; }
-          setStepIdx(prev => (prev + 1) % STEPS.length);
-          setTimeout(poll, 4000);
-        } catch {
-          if (!stopped) { setError(t.errors.generic); setRetrying(false); }
-        }
-      }
-      poll();
-      return () => { stopped = true; };
+      refreshList();
+      setRetryTick(n => n + 1);
     } catch (e: any) {
       setError(e.message ?? 'Retry failed');
+    } finally {
       setRetrying(false);
     }
   }
@@ -236,7 +266,7 @@ function VideosContent() {
   const isDone    = DONE_STATUSES.has(status);
   const isFailed  = status === 'failed';
 
-  // ── No specific video: show full videos list ──────────────────────────────
+  // ── No specific video → full list ────────────────────────────────────────
   if (!videoId) {
     return (
       <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
@@ -248,24 +278,22 @@ function VideosContent() {
             </button>
             <h1 className="text-[var(--tx1)] font-semibold">My Videos</h1>
           </div>
-          <VideosList
-            videos={videos} currentId={null} loading={videosLoading}
-            onSelect={id => router.push(`/videos?id=${id}`)}
-          />
+          <VideosList videos={videos} currentId={null} loading={videosLoading}
+            onSelect={id => router.push(`/videos?id=${id}`)} />
         </main>
       </div>
     );
   }
 
-  // ── Specific video view + side panel ─────────────────────────────────────
+  // ── Specific video + sidebar ──────────────────────────────────────────────
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
 
       <main className="flex-1 flex min-w-0 overflow-hidden">
-        {/* ── Left: current video ── */}
+
+        {/* Left: video detail */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Top bar */}
           <div className="flex items-center gap-3 px-4 py-4 border-b border-[var(--bd)] shrink-0">
             <button onClick={() => router.push('/videos')} className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors">
               <ArrowLeft size={20} />
@@ -292,43 +320,44 @@ function VideosContent() {
                   <p className="text-[var(--tx5)] text-sm mb-8">{t.video.generatingDesc}</p>
                   <div className="space-y-3 text-left">
                     {STEPS.map((step, i) => {
-                      const done   = i < stepIdx;
-                      const active = i === stepIdx;
+                      const done = i < stepIdx, active = i === stepIdx;
                       return (
                         <div key={i} className="flex items-center gap-3">
-                          <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-all ${
-                            done   ? 'bg-green-500' :
-                            active ? 'bg-purple-500 animate-pulse' : 'bg-[var(--ov3)]'
-                          }`}>
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            done ? 'bg-green-500' : active ? 'bg-purple-500 animate-pulse' : 'bg-[var(--ov3)]'}`}>
                             {done   && <CheckCircle size={12} className="text-white" />}
                             {active && <Loader size={10} className="text-white animate-spin" />}
                           </div>
-                          <span className={`text-sm transition-colors ${
-                            done   ? 'text-[var(--tx6)] line-through' :
-                            active ? 'text-[var(--tx1)]' : 'text-[var(--tx9)]'
-                          }`}>{step}</span>
+                          <span className={`text-sm ${done ? 'text-[var(--tx6)] line-through' : active ? 'text-[var(--tx1)]' : 'text-[var(--tx9)]'}`}>
+                            {step}
+                          </span>
                         </div>
                       );
                     })}
                   </div>
-                  {transcript && <TranscriptPanel markdown={transcript} />}
+                  {/* Transcript available early (Phase 1 done, Phase 2 in progress) */}
+                  {transcript && (
+                    <div className="mt-8">
+                      <TranscriptButton onClick={() => setShowModal(true)} />
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Done — video player */}
+              {/* Done */}
               {isDone && videoUrl && (
                 <div className="w-full max-w-3xl">
                   <div className="aspect-video rounded-2xl overflow-hidden bg-black shadow-2xl shadow-purple-500/10 mb-4">
                     <video src={videoUrl} controls autoPlay className="w-full h-full" />
                   </div>
-                  <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center justify-between mb-3">
                     <p className="text-[var(--tx5)] text-sm">✅ {t.video.ready}</p>
                     <a href={videoUrl} download
                       className="flex items-center gap-2 px-4 py-2 bg-[var(--ov3)] hover:bg-[var(--ov4)] rounded-xl text-[var(--tx2)] text-sm transition-colors">
                       <Download size={14} /> {t.download}
                     </a>
                   </div>
-                  {transcript && <TranscriptPanel markdown={transcript} />}
+                  {transcript && <TranscriptButton onClick={() => setShowModal(true)} />}
                 </div>
               )}
 
@@ -336,29 +365,21 @@ function VideosContent() {
                 <div className="text-center flex flex-col items-center gap-4">
                   <CheckCircle size={48} className="text-green-400" />
                   <p className="text-[var(--tx1)] font-semibold">Video ready — loading player…</p>
-                  {transcript && <TranscriptPanel markdown={transcript} />}
+                  {transcript && <TranscriptButton onClick={() => setShowModal(true)} />}
                 </div>
               )}
 
               {/* Failed */}
               {isFailed && (
-                <div className="text-center max-w-md flex flex-col items-center gap-4">
+                <div className="text-center max-w-md flex flex-col items-center gap-5">
                   <XCircle size={48} className="text-red-400" />
                   <h2 className="text-[var(--tx1)] font-semibold">{t.video.failed}</h2>
-
-                  {prompt && (
-                    <p className="text-[var(--tx5)] text-sm bg-[var(--ov3)] rounded-xl px-4 py-2 w-full text-left">
-                      <span className="text-[var(--tx6)] text-xs block mb-1">Topic</span>
-                      {prompt}
-                    </p>
-                  )}
 
                   {error && (
                     <p className="text-[var(--tx5)] text-sm">{error}</p>
                   )}
 
                   <div className="flex gap-3 flex-wrap justify-center">
-                    {/* Retry always available — endpoint handles whether to reuse transcript or run full pipeline */}
                     <button
                       onClick={handleRetry}
                       disabled={retrying}
@@ -369,37 +390,36 @@ function VideosContent() {
                       {retrying ? 'Retrying…' : transcript ? 'Retry Video Generation' : 'Regenerate Video'}
                     </button>
 
-                    <button
-                      onClick={() => router.push('/')}
-                      className="px-5 py-2.5 bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx2)] text-sm rounded-xl transition-colors"
-                    >
+                    <button onClick={() => router.push('/')}
+                      className="px-5 py-2.5 bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx2)] text-sm rounded-xl transition-colors">
                       {t.back}
                     </button>
                   </div>
 
-                  {/* Transcript shown even on failure */}
                   {transcript
-                    ? <TranscriptPanel markdown={transcript} />
-                    : <p className="text-[var(--tx6)] text-xs">Transcript will be regenerated automatically on retry.</p>
+                    ? <TranscriptButton onClick={() => setShowModal(true)} />
+                    : <p className="text-[var(--tx6)] text-xs">Solution will be regenerated automatically on retry.</p>
                   }
                 </div>
               )}
-
             </div>
           </div>
         </div>
 
-        {/* ── Right: videos list panel (always visible) ── */}
+        {/* Right: videos list */}
         <aside className="w-64 border-l border-[var(--bd)] flex flex-col overflow-hidden shrink-0">
           <div className="px-4 py-3 border-b border-[var(--bd)]">
             <p className="text-[var(--tx2)] text-sm font-semibold">My Videos</p>
           </div>
-          <VideosList
-            videos={videos} currentId={videoId} loading={videosLoading}
-            onSelect={id => router.push(`/videos?id=${id}`)}
-          />
+          <VideosList videos={videos} currentId={videoId} loading={videosLoading}
+            onSelect={id => router.push(`/videos?id=${id}`)} />
         </aside>
       </main>
+
+      {/* Modal */}
+      {showModal && transcript && (
+        <TranscriptModal markdown={transcript} onClose={closeModal} />
+      )}
     </div>
   );
 }
