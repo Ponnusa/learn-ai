@@ -186,11 +186,22 @@ function TranscriptModal({
 
 /* ── Video status card ──────────────────────────────────────────────────────── */
 const VIDEO_STEPS = [
-  'Writing solution & script',
-  'Planning animation',
-  'Generating Manim code',
-  'Rendering video',
+  'Writing solution & script',   // pending
+  'Generating Manim animation',  // transcript_ready
+  'Queued for rendering',        // queued
+  'Rendering video',             // rendering
 ];
+
+/** Map the exact backend status string to a step index (0-based). */
+function statusToStepIdx(status: string): number {
+  switch (status) {
+    case 'pending':          return 0;
+    case 'transcript_ready': return 1;
+    case 'queued':           return 2;
+    case 'rendering':        return 3;
+    default:                 return 0;
+  }
+}
 
 function VideoStatusCard({ videoId, token }: { videoId: number; token?: string }) {
   const router = useRouter();
@@ -221,7 +232,7 @@ function VideoStatusCard({ videoId, token }: { videoId: number; token?: string }
           return;
         }
         if (data.status === 'failed') return;
-        setStepIdx(prev => (prev + 1) % VIDEO_STEPS.length);
+        setStepIdx(statusToStepIdx(data.status));
         setTimeout(poll, 4000);
       } catch {
         if (!stopped) setTimeout(poll, 8000);

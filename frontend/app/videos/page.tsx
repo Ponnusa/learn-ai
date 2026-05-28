@@ -16,12 +16,23 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { preprocessMath } from '@/lib/preprocessMath';
 
 const STEPS = [
-  'Writing solution & script',
-  'Planning animation',
-  'Generating Manim code',
-  'Rendering video',
+  'Writing solution & script',   // pending
+  'Generating Manim animation',  // transcript_ready
+  'Queued for rendering',        // queued
+  'Rendering video',             // rendering
 ];
 const LOADING_STATUSES = new Set(['pending', 'queued', 'transcript_ready', 'rendering']);
+
+/** Map the exact backend status string to a step index (0-based). */
+function statusToStepIdx(status: string): number {
+  switch (status) {
+    case 'pending':          return 0;
+    case 'transcript_ready': return 1;
+    case 'queued':           return 2;
+    case 'rendering':        return 3;
+    default:                 return 0;
+  }
+}
 const DONE_STATUSES    = new Set(['complete', 'completed']);
 
 // ── Transcript modal (with full math / chemistry rendering) ──────────────────
@@ -216,7 +227,7 @@ function VideosContent() {
         if (DONE_STATUSES.has(data.status)) { setVideoUrl(data.video_url ?? null); return; }
         if (data.status === 'failed')       { setError(data.error_message ?? t.errors.videoFailed); return; }
 
-        setStepIdx(prev => (prev + 1) % STEPS.length);
+        setStepIdx(statusToStepIdx(data.status));
         setTimeout(poll, 4000);
       } catch {
         if (!stopped) setError(t.errors.generic);
