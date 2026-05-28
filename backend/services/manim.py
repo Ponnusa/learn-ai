@@ -1784,11 +1784,60 @@ def _extract_setup_names(setup_code: str) -> set:
     return names
 
 
+def _normalize_beats_indent(beats_code: str) -> str:
+    """
+    Ensure animation beats are indented at 8 spaces (inside construct()).
+    Claude sometimes outputs at 4 spaces (function body) or 0 spaces (module level).
+    Detects the base indent of the first non-empty, non-comment line and shifts
+    everything so the base lands at 8 spaces.
+    """
+    lines = beats_code.split('\n')
+    # Find base indent from the first real code line
+    base = None
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped and not stripped.startswith('#'):
+            base = len(line) - len(stripped)
+            break
+    if base is None or base == 8:
+        return beats_code  # already correct or empty
+    delta = 8 - base
+    result = []
+    for line in lines:
+        if not line.strip():
+            result.append('')
+        else:
+            cur = len(line) - len(line.lstrip())
+            new_indent = max(0, cur + delta)
+            result.append(' ' * new_indent + line.lstrip())
+    logger.info(f"🔧 Beats indentation normalized: {base} → 8 spaces")
+    return '\n'.join(result)
+
+
+def _strip_critic_prose(text: str) -> str:
+    """
+    Remove leading prose lines from a critic response so only Python code remains.
+    The critic sometimes opens with an em-dash explanation or a sentence before the code.
+    Scans for the first line that looks like the start of a Python file.
+    """
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        s = line.strip()
+        if (s.startswith('from ') or s.startswith('import ')
+                or s.startswith('class ') or s.startswith('def ')
+                or (s.startswith('#') and i < 5)):
+            if i > 0:
+                logger.info(f"🔧 Critic: stripped {i} leading prose line(s)")
+                return '\n'.join(lines[i:])
+            return text
+    return text
+
+
 def _assemble_two_pass_code(setup_code: str, beats_code: str) -> str:
-    """Concatenate setup block + animation beats at the PHASE 2 sentinel."""
+    """Normalize beats indentation then splice them into the setup block at the sentinel."""
+    beats_code = _normalize_beats_indent(beats_code)
     if _PHASE2_SENTINEL in setup_code:
         idx = setup_code.index(_PHASE2_SENTINEL) + len(_PHASE2_SENTINEL)
-        # Keep any trailing content after the sentinel (shouldn't be any, but be safe)
         return setup_code[:idx] + "\n" + beats_code + setup_code[idx:]
     logger.warning("⚠️  PHASE 2 sentinel not found in setup block — concatenating directly")
     return setup_code + "\n\n" + beats_code
@@ -2401,6 +2450,7 @@ CODE TO REVIEW:
             critic_text = critic_text[3:].strip()
         if critic_text.endswith("```"):
             critic_text = critic_text[:-3].strip()
+        critic_text = _strip_critic_prose(critic_text)
         try:
             compile(critic_text, "<critic>", "exec")
             if len(critic_text) > 100:
