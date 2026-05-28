@@ -284,7 +284,7 @@ function VideosContent() {
         <Sidebar onNewChat={() => router.push('/')} />
         <main className="flex-1 flex flex-col min-w-0">
           <div className="flex items-center gap-3 px-4 py-4 border-b border-[var(--bd)] shrink-0">
-            <button onClick={() => router.push('/')} className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors">
+            <button onClick={() => router.back()} className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors">
               <ArrowLeft size={20} />
             </button>
             <h1 className="text-[var(--tx1)] font-semibold">My Videos</h1>
@@ -306,7 +306,7 @@ function VideosContent() {
         {/* Left: video detail */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex items-center gap-3 px-4 py-4 border-b border-[var(--bd)] shrink-0">
-            <button onClick={() => router.push('/videos')} className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors">
+            <button onClick={() => router.back()} className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors">
               <ArrowLeft size={20} />
             </button>
             <h1 className="text-[var(--tx1)] font-semibold flex-1">
@@ -401,7 +401,7 @@ function VideosContent() {
                       {retrying ? 'Retrying…' : transcript ? 'Retry Video Generation' : 'Regenerate Video'}
                     </button>
 
-                    <button onClick={() => router.push('/')}
+                    <button onClick={() => router.back()}
                       className="px-5 py-2.5 bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx2)] text-sm rounded-xl transition-colors">
                       {t.back}
                     </button>
