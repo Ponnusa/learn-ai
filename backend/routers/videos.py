@@ -9,6 +9,7 @@ even when Manim code generation fails:
   Phase 2 → Claude Manim code + critic    → status: queued  (or failed)
 """
 import json
+import logging
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from database import get_db
@@ -117,7 +118,7 @@ async def retry_video_manim(video_id: int, bg: BackgroundTasks):
             "verified_solution":   row["verified_solution"],
             "transcript_markdown": row["transcript_markdown"] or "",
             "video_script":        row["transcript_markdown"] or "",
-            "subject":             "general",
+            "subject":             row["subject"] or "general",   # use real subject, not "general"
             "tags":                [],
         }
         bg.add_task(_retry_manim_bg, video_id, solution_data, lang, ar, max_dur)
@@ -203,6 +204,9 @@ async def _generate_video_bg(
     Phase 2 — Claude Manim code → queues for rendering.
     If Phase 2 fails, video is 'failed' but transcript is already in the DB.
     """
+    _log = logging.getLogger(__name__)
+    _log.info(f"[pipeline] video {video_id}: starting full pipeline (Phase 1 + 2)")
+
     # ── Phase 1: solution + transcript ──────────────────────────────────────
     try:
         teaching_prompt = await build_video_prompt(prompt, user_id, subject)
@@ -217,15 +221,22 @@ async def _generate_video_bg(
             """, solution_data["transcript_markdown"],
                 solution_data["verified_solution"], video_id)
 
+        _log.info(f"[pipeline] video {video_id}: Phase 1 done → transcript_ready")
+
     except Exception as e:
-        async with get_db() as db:
-            await db.execute("""
-                UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
-                WHERE id = $2
-            """, f"Transcript generation failed: {e}", video_id)
+        _log.error(f"[pipeline] video {video_id}: Phase 1 failed — {e}", exc_info=True)
+        try:
+            async with get_db() as db:
+                await db.execute("""
+                    UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
+                    WHERE id = $2
+                """, f"Transcript generation failed: {e}", video_id)
+        except Exception as _db_err:
+            _log.error(f"[pipeline] video {video_id}: also failed to write Phase 1 error — {_db_err}")
         return
 
     # ── Phase 2: Manim code generation ──────────────────────────────────────
+    _log.info(f"[pipeline] video {video_id}: starting Phase 2 (Manim generation)")
     try:
         code_data = await generate_manim_from_solution(
             solution_data, language, 60, aspect_ratio
@@ -243,14 +254,19 @@ async def _generate_video_bg(
             """, code, code_data.get("scene_name", "MainScene"),
                 json.dumps(svg_urls), video_id)
 
+        _log.info(f"[pipeline] video {video_id}: Phase 2 done → queued, triggering render")
         _trigger_video_generation(video_id, svg_urls)
 
     except Exception as e:
-        async with get_db() as db:
-            await db.execute("""
-                UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
-                WHERE id = $2
-            """, f"Manim code generation failed: {e}", video_id)
+        _log.error(f"[pipeline] video {video_id}: Phase 2 failed — {e}", exc_info=True)
+        try:
+            async with get_db() as db:
+                await db.execute("""
+                    UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
+                    WHERE id = $2
+                """, f"Manim code generation failed: {e}", video_id)
+        except Exception as _db_err:
+            _log.error(f"[pipeline] video {video_id}: also failed to write Phase 2 error — {_db_err}")
 
 
 async def _retry_manim_bg(
@@ -261,6 +277,20 @@ async def _retry_manim_bg(
     duration: int,
 ):
     """Phase 2 only — used by the retry endpoint."""
+    _log = logging.getLogger(__name__)
+    _log.info(f"[retry] video {video_id}: starting Phase 2 (Manim generation)")
+
+    # ── Immediately mark transcript_ready so the UI shows the correct step ──
+    # (The transcript is already in the DB; we're only regenerating the Manim code.)
+    try:
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos SET status = 'transcript_ready', updated_at = NOW()
+                WHERE id = $1
+            """, video_id)
+    except Exception as _db_err:
+        _log.warning(f"[retry] video {video_id}: could not set transcript_ready — {_db_err}")
+
     try:
         code_data = await generate_manim_from_solution(
             solution_data, language, duration, aspect_ratio
@@ -278,14 +308,19 @@ async def _retry_manim_bg(
             """, code, code_data.get("scene_name", "MainScene"),
                 json.dumps(svg_urls), video_id)
 
+        _log.info(f"[retry] video {video_id}: Manim code generated, triggering render")
         _trigger_video_generation(video_id, svg_urls)
 
     except Exception as e:
-        async with get_db() as db:
-            await db.execute("""
-                UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
-                WHERE id = $2
-            """, f"Manim retry failed: {e}", video_id)
+        _log.error(f"[retry] video {video_id}: Manim generation failed — {e}", exc_info=True)
+        try:
+            async with get_db() as db:
+                await db.execute("""
+                    UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
+                    WHERE id = $2
+                """, f"Manim retry failed: {e}", video_id)
+        except Exception as _db_err2:
+            _log.error(f"[retry] video {video_id}: also failed to write error to DB — {_db_err2}")
 
 
 async def _check_video_credit(user_id: str | None, session_id: str | None, tier: str):
