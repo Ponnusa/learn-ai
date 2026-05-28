@@ -105,6 +105,18 @@ export const retryVideoManim = (videoId: number, token?: string) =>
     `/api/videos/${videoId}/retry-manim`, {}, token
   );
 
+export const getSessionVideos = (sessionId: string) =>
+  get<{
+    id: number;
+    status: string;
+    video_url?: string;
+    prompt?: string;
+    subject?: string;
+    duration_secs?: number;
+    created_at: string;
+    transcript_markdown?: string;
+  }[]>(`/api/videos/session/${sessionId}`);
+
 export const getUserVideos = (userId: string, token?: string) =>
   get<{
     id: number;

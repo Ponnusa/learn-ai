@@ -84,24 +84,19 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
 @router.post("/{video_id}/retry-manim")
 async def retry_video_manim(video_id: int, bg: BackgroundTasks):
     """
-    Re-run Manim code generation (Phase 2) using the already-saved transcript.
-    Skips GPT-4o (Phase 1) — only retries the Manim/Claude/critic part.
-    Requires transcript_markdown + verified_solution to already exist in DB.
+    Retry a failed video.
+    - If verified_solution exists → Phase 2 only (skips GPT-4o, faster).
+    - If not             → full pipeline using the saved prompt.
     """
     async with get_db() as db:
         row = await db.fetchrow("""
-            SELECT verified_solution, transcript_markdown, language, aspect_ratio, max_duration
+            SELECT verified_solution, transcript_markdown, language, aspect_ratio,
+                   max_duration, prompt, user_id, subject
             FROM videos WHERE id = $1
         """, video_id)
 
     if not row:
         raise HTTPException(status_code=404, detail="Video not found")
-
-    if not row["verified_solution"]:
-        raise HTTPException(
-            status_code=400,
-            detail="No transcript saved — please regenerate the full video instead.",
-        )
 
     # Reset to pending so the frontend polls again
     async with get_db() as db:
@@ -112,21 +107,25 @@ async def retry_video_manim(video_id: int, bg: BackgroundTasks):
             WHERE id = $1
         """, video_id)
 
-    solution_data = {
-        "verified_solution":   row["verified_solution"],
-        "transcript_markdown": row["transcript_markdown"] or "",
-        "video_script":        row["transcript_markdown"] or "",
-        "subject":             "general",
-        "tags":                [],
-    }
+    lang        = row["language"]     or "en"
+    ar          = row["aspect_ratio"] or "16:9"
+    max_dur     = row["max_duration"] or 60
 
-    bg.add_task(
-        _retry_manim_bg,
-        video_id, solution_data,
-        row["language"] or "en",
-        row["aspect_ratio"] or "16:9",
-        row["max_duration"] or 60,
-    )
+    if row["verified_solution"]:
+        # Fast path — skip GPT-4o
+        solution_data = {
+            "verified_solution":   row["verified_solution"],
+            "transcript_markdown": row["transcript_markdown"] or "",
+            "video_script":        row["transcript_markdown"] or "",
+            "subject":             "general",
+            "tags":                [],
+        }
+        bg.add_task(_retry_manim_bg, video_id, solution_data, lang, ar, max_dur)
+    else:
+        # No transcript yet — run the full pipeline from the saved prompt
+        prompt = row["prompt"] or ""
+        uid    = str(row["user_id"]) if row["user_id"] else None
+        bg.add_task(_generate_video_bg, video_id, prompt, uid, row["subject"], lang, ar)
 
     return {"status": "pending", "video_id": video_id}
 
@@ -167,9 +166,22 @@ async def get_user_videos(user_id: str):
         rows = await db.fetch("""
             SELECT id, status, video_url, thumbnail_url, prompt, subject,
                    duration_secs, created_at, transcript_markdown
-            FROM videos WHERE user_id = $1
+            FROM videos WHERE user_id = $1::uuid
             ORDER BY created_at DESC LIMIT 50
         """, user_id)
+    return [dict(r) for r in rows]
+
+
+@router.get("/session/{session_id}")
+async def get_session_videos(session_id: str):
+    """Videos for anonymous sessions (no user account)."""
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT id, status, video_url, thumbnail_url, prompt, subject,
+                   duration_secs, created_at, transcript_markdown
+            FROM videos WHERE session_id = $1::uuid
+            ORDER BY created_at DESC LIMIT 50
+        """, session_id)
     return [dict(r) for r in rows]
 
 
