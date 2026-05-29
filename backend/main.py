@@ -22,6 +22,8 @@ async def lifespan(app: FastAPI):
             # ── existing columns ─────────────────────────────────────────────
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT",
+            # ── StudySet conversation link ────────────────────────────────────
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS study_set_id UUID REFERENCES study_sets(id) ON DELETE SET NULL",
             # ── StudySets: patch old stub schema from 001_initial.sql ────────
             # study_sets — add columns missing from the 001 stub
             "ALTER TABLE study_sets ADD COLUMN IF NOT EXISTS session_id  UUID",

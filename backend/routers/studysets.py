@@ -37,8 +37,11 @@ class CreateStudySetRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    concept_name: str | None = None  # set when student clicks a concept → seeds intro
-    history: list[dict] = []         # [{role, content}, ...]
+    concept_name: str | None = None      # set when student clicks a concept → seeds intro
+    conversation_id: str | None = None   # None on first message; subsequent messages pass it back
+    user_id: str | None = None
+    session_id: str | None = None
+    history: list[dict] = []             # [{role, content}, ...] — last N turns from frontend
 
 
 class ReviewRequest(BaseModel):
@@ -223,7 +226,11 @@ async def upload_material(
 
 @router.post("/{study_set_id}/chat")
 async def chat_with_studyset(study_set_id: str, req: ChatRequest):
-    """Answer questions grounded strictly in the study set's material."""
+    """
+    Grounded chat — answers are strictly from the study material.
+    Creates a persisted conversation on first message; all turns are
+    saved to messages table so history survives page refreshes.
+    """
     async with get_db() as db:
         ss = await db.fetchrow(
             "SELECT title, subject, summary FROM study_sets WHERE id = $1::uuid",
@@ -242,7 +249,35 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
     if not mat_rows:
         raise HTTPException(400, "No processed material yet — please wait for processing to finish")
 
-    # Build context (truncate to ~60 000 chars to leave room for conversation)
+    # ── 1. Get or create conversation ────────────────────────────────────────
+    conv_id = req.conversation_id
+    if not conv_id:
+        # First message — create a new conversation tagged to this study set
+        title = (
+            f"{req.concept_name} — {ss['title']}"
+            if req.concept_name
+            else f"{ss['title']} — Study Chat"
+        )
+        async with get_db() as db:
+            conv = await db.fetchrow(
+                """INSERT INTO conversations
+                     (user_id, session_id, title, subject, study_set_id)
+                   VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid)
+                   RETURNING id""",
+                req.user_id, req.session_id,
+                title, ss["subject"], study_set_id,
+            )
+        conv_id = str(conv["id"])
+
+    # ── 2. Save user message ──────────────────────────────────────────────────
+    async with get_db() as db:
+        user_msg = await db.fetchrow(
+            """INSERT INTO messages (conversation_id, role, content)
+               VALUES ($1::uuid, 'user', $2) RETURNING id""",
+            conv_id, req.message,
+        )
+
+    # ── 3. Build AI prompt ────────────────────────────────────────────────────
     full_text = "\n\n".join(r["raw_text"] or "" for r in mat_rows if r["raw_text"])
     context   = full_text[:60_000]
 
@@ -257,11 +292,11 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
         "--- END OF MATERIAL ---"
     )
 
-    messages = [{"role": "system", "content": system_prompt}]
+    ai_messages = [{"role": "system", "content": system_prompt}]
     for h in req.history[-10:]:
-        messages.append({"role": h["role"], "content": h["content"]})
+        ai_messages.append({"role": h["role"], "content": h["content"]})
 
-    # When a concept is clicked with no prior history, inject a focused intro prompt
+    # Concept-seeded intro: structured lesson format
     if req.concept_name and not req.history:
         user_content = (
             f'Give me a thorough lesson on "{req.concept_name}" based on the study material. '
@@ -275,23 +310,58 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
     else:
         user_content = req.message
 
-    messages.append({"role": "user", "content": user_content})
+    ai_messages.append({"role": "user", "content": user_content})
 
+    # ── 4. Call AI ────────────────────────────────────────────────────────────
     from openai import AsyncOpenAI
     client = AsyncOpenAI()
     response = await client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=messages,
+        messages=ai_messages,
         max_tokens=1000,
         temperature=0.3,
     )
-
     reply = response.choices[0].message.content
 
-    # Action chips — always offered after every AI response
+    # ── 5. Save AI reply ──────────────────────────────────────────────────────
+    async with get_db() as db:
+        ai_msg = await db.fetchrow(
+            """INSERT INTO messages (conversation_id, role, content)
+               VALUES ($1::uuid, 'assistant', $2) RETURNING id""",
+            conv_id, reply,
+        )
+
     chips = ["Quiz me on this", "Create a video", "Give me an example", "Explain differently"]
 
-    return {"reply": reply, "chips": chips}
+    return {
+        "reply":           reply,
+        "chips":           chips,
+        "conversation_id": conv_id,
+        "message_id":      str(ai_msg["id"]),
+    }
+
+
+@router.get("/{study_set_id}/conversations")
+async def get_studyset_conversations(study_set_id: str):
+    """List all conversations linked to this study set, with counts."""
+    async with get_db() as db:
+        rows = await db.fetch(
+            """SELECT
+                 c.id, c.title, c.created_at,
+                 COUNT(DISTINCT m.id) FILTER (WHERE m.role = 'user') AS message_count,
+                 COUNT(DISTINCT v.id)                                 AS video_count,
+                 COUNT(DISTINCT q.id)                                 AS quiz_count
+               FROM conversations c
+               LEFT JOIN messages m ON m.conversation_id = c.id
+               LEFT JOIN videos   v ON v.conversation_id = c.id
+               LEFT JOIN quizzes  q ON q.conversation_id = c.id
+               WHERE c.study_set_id = $1::uuid
+               GROUP BY c.id
+               ORDER BY c.created_at DESC
+               LIMIT 30""",
+            study_set_id,
+        )
+    return [dict(r) for r in rows]
 
 
 @router.post("/{study_set_id}/cards/{card_id}/review")

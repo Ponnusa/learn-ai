@@ -329,9 +329,11 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                         }`}
                       >
                         <span className="text-sm shrink-0 mt-0.5 leading-none">
-                          {c.subject
-                            ? (SUBJECT_ICONS[c.subject] ?? '📚')
-                            : <MessageSquare size={12} className="text-[var(--tx6)] mt-0.5" />}
+                          {c.study_set_id
+                            ? <BookOpen size={12} className="text-indigo-400 mt-0.5" />
+                            : c.subject
+                              ? (SUBJECT_ICONS[c.subject] ?? '📚')
+                              : <MessageSquare size={12} className="text-[var(--tx6)] mt-0.5" />}
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-[var(--tx2)] truncate text-xs leading-snug">

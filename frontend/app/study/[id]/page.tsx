@@ -6,14 +6,14 @@ import {
   ArrowLeft, Upload, Loader, LayoutGrid, MessageSquare,
   ChevronRight, ChevronLeft, CheckCircle, RefreshCw,
   FileText, AlertCircle, Send, BookOpen, HelpCircle,
-  Lightbulb, Repeat2, Video,
+  Lightbulb, Repeat2, Video, ExternalLink, Clock,
 } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
 import {
   getStudySet, uploadStudyMaterial, chatWithStudySet, reviewStudyCard,
-  generateQuiz, generateVideo,
-  StudySetDetail, StudyFlashcard,
+  generateQuiz, generateVideo, getStudySetConversations, getMessages,
+  StudySetDetail, StudyFlashcard, StudySetConversation,
 } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -99,15 +99,39 @@ function UploadZone({ studySetId, onUploaded }: { studySetId: string; onUploaded
   );
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function formatDate(iso: string) {
+  const d = new Date(iso);
+  const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  if (diff < 7)  return `${diff}d ago`;
+  return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+}
+
 // ─── Overview tab ─────────────────────────────────────────────────────────────
 
 function OverviewTab({
-  ss, onRefresh, onConceptChat,
+  ss, onRefresh, onConceptChat, onLoadConversation,
 }: {
   ss: StudySetDetail;
   onRefresh: () => void;
   onConceptChat: (conceptName: string) => void;
+  onLoadConversation: (conv: StudySetConversation) => void;
 }) {
+  const { token } = useSessionStore();
+  const [convs,     setConvs]     = useState<StudySetConversation[]>([]);
+  const [convsLoad, setConvsLoad] = useState(false);
+
+  useEffect(() => {
+    if (ss.status !== 'ready') return;
+    setConvsLoad(true);
+    getStudySetConversations(ss.id, token ?? undefined)
+      .then(r => { setConvs(r); setConvsLoad(false); })
+      .catch(()  => setConvsLoad(false));
+  }, [ss.id, ss.status]);
+
   return (
     <div className="space-y-6">
       <ProcessingBanner status={ss.status} />
@@ -148,6 +172,44 @@ function OverviewTab({
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Past conversations */}
+      {(convsLoad || convs.length > 0) && (
+        <div className="space-y-2">
+          <p className="text-[var(--tx5)] text-xs font-semibold uppercase tracking-wide">
+            Chat History · {convs.length}
+          </p>
+          {convsLoad ? (
+            <div className="flex items-center gap-2 py-3 text-[var(--tx6)] text-xs">
+              <Loader size={12} className="animate-spin" /> Loading…
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {convs.map(c => (
+                <button key={c.id} onClick={() => onLoadConversation(c)}
+                  className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl
+                             bg-[var(--surface)] border border-[var(--bd)]
+                             hover:border-indigo-500/30 hover:bg-indigo-500/5 transition-colors group">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20
+                                  flex items-center justify-center shrink-0">
+                    <MessageSquare size={14} className="text-indigo-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[var(--tx2)] text-sm font-medium truncate">{c.title}</p>
+                    <div className="flex items-center gap-2.5 mt-0.5 text-[var(--tx6)] text-xs">
+                      <span className="flex items-center gap-1"><Clock size={10} /> {formatDate(c.created_at)}</span>
+                      {c.message_count > 0 && <span>{c.message_count} msg</span>}
+                      {c.quiz_count   > 0 && <span>· {c.quiz_count} quiz</span>}
+                      {c.video_count  > 0 && <span>· {c.video_count} video</span>}
+                    </div>
+                  </div>
+                  <ExternalLink size={13} className="text-[var(--tx6)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -354,26 +416,57 @@ function ChatTab({
   ss,
   seedConcept,
   onSeedConsumed,
+  loadConversation,
 }: {
   ss: StudySetDetail;
   seedConcept: string | null;
   onSeedConsumed: () => void;
+  loadConversation: StudySetConversation | null;
 }) {
-  const { user, token }           = useSessionStore();
-  const router                    = useRouter();
-  const [messages, setMessages]   = useState<ChatMsg[]>([]);
-  const [input,    setInput]      = useState('');
-  const [loading,  setLoading]    = useState(false);
-  const [quizzing, setQuizzing]   = useState(false);
-  const [videoing, setVideoing]   = useState(false);
-  const bottomRef                 = useRef<HTMLDivElement>(null);
-  const seededRef                 = useRef(false);
+  const { user, token, sessionId }  = useSessionStore();
+  const router                      = useRouter();
+  const [messages,   setMessages]   = useState<ChatMsg[]>([]);
+  const [input,      setInput]      = useState('');
+  const [loading,    setLoading]    = useState(false);
+  const [histLoading,setHistLoading]= useState(false);
+  const [quizzing,   setQuizzing]   = useState(false);
+  const [videoing,   setVideoing]   = useState(false);
+  const [convId,     setConvId]     = useState<string | null>(null);
+  const [lastMsgId,  setLastMsgId]  = useState<string | null>(null);
+  const bottomRef                   = useRef<HTMLDivElement>(null);
+  const seededRef                   = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, loading]);
 
-  // Auto-fire intro when a concept is seeded
+  // Load saved conversation when user clicks one from Overview
+  useEffect(() => {
+    if (!loadConversation) return;
+    seededRef.current = true; // prevent seed from firing over loaded history
+    setConvId(loadConversation.id);
+    setMessages([]);
+    setHistLoading(true);
+    getMessages(loadConversation.id, token ?? undefined)
+      .then(rows => {
+        const loaded: ChatMsg[] = rows.map(r => ({
+          role:    r.role as 'user' | 'assistant',
+          content: r.content,
+          // only add chips to the last assistant message
+        }));
+        // Re-attach chips to last assistant message
+        const lastAi = [...loaded].reverse().findIndex(m => m.role === 'assistant');
+        if (lastAi !== -1) {
+          const idx = loaded.length - 1 - lastAi;
+          loaded[idx] = { ...loaded[idx], chips: ['Quiz me on this', 'Create a video', 'Give me an example', 'Explain differently'] };
+        }
+        setMessages(loaded);
+        setHistLoading(false);
+      })
+      .catch(() => setHistLoading(false));
+  }, [loadConversation?.id]);
+
+  // Auto-fire concept intro
   useEffect(() => {
     if (!seedConcept || seededRef.current || ss.status !== 'ready') return;
     seededRef.current = true;
@@ -390,10 +483,14 @@ function ChatTab({
     setLoading(true);
     try {
       const history = messages.slice(-10).map(m => ({ role: m.role, content: m.content }));
-      const { reply, chips } = await chatWithStudySet(
-        ss.id, text, history, token ?? undefined, conceptName,
+      const res = await chatWithStudySet(
+        ss.id, text, history, token ?? undefined,
+        conceptName, convId ?? undefined,
+        user?.id, sessionId || undefined,
       );
-      setMessages(prev => [...prev, { role: 'assistant', content: reply, chips }]);
+      setConvId(res.conversation_id);
+      setLastMsgId(res.message_id);
+      setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips: res.chips }]);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Something went wrong. Please try again.' }]);
     } finally {
@@ -408,49 +505,46 @@ function ChatTab({
     await fireMessage(text);
   }
 
+  // Topic for quiz/video: last user message or seeded concept or study set title
+  function currentTopic() {
+    return (
+      seedConcept
+      || messages.filter(m => m.role === 'user').slice(-1)[0]?.content
+      || ss.title
+    );
+  }
+
   async function handleChip(chip: string) {
     if (chip === 'Quiz me on this') {
-      // Generate a quiz on the last concept / topic discussed
       setQuizzing(true);
       try {
-        const topic = seedConcept
-          || messages.filter(m => m.role === 'user').slice(-1)[0]?.content
-          || ss.title;
         const res = await generateQuiz({
-          topic,
-          user_id:    user?.id,
-          session_id: !user?.id ? undefined : undefined,
-          subject:    ss.subject || undefined,
+          topic:           currentTopic(),
+          conversation_id: convId ?? undefined,
+          user_id:         user?.id,
+          subject:         ss.subject || undefined,
         }, token ?? undefined);
         router.push(`/quiz/${res.quiz_id}`);
-      } catch {
-        setQuizzing(false);
-      }
+      } catch { setQuizzing(false); }
       return;
     }
 
     if (chip === 'Create a video') {
       setVideoing(true);
       try {
-        const prompt = seedConcept
-          || messages.filter(m => m.role === 'user').slice(-1)[0]?.content
-          || ss.title;
         const res = await generateVideo({
-          prompt,
-          user_id:    user?.id,
-          session_id: !user?.id ? undefined : undefined,
-          subject:    ss.subject || undefined,
+          prompt:          currentTopic(),
+          conversation_id: convId ?? undefined,
+          message_id:      lastMsgId ?? undefined,
+          user_id:         user?.id,
+          subject:         ss.subject || undefined,
         }, token ?? undefined);
-        if (res.supported && res.video_id) {
-          router.push(`/videos?id=${res.video_id}`);
-        }
-      } catch {
-        setVideoing(false);
-      }
+        if (res.supported && res.video_id) router.push(`/videos?id=${res.video_id}`);
+        else setVideoing(false);
+      } catch { setVideoing(false); }
       return;
     }
 
-    // Text chips — send as a follow-up message
     await fireMessage(chip);
   }
 
@@ -466,7 +560,12 @@ function ChatTab({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 pb-4">
-        {messages.length === 0 && !notReady && (
+        {histLoading && (
+          <div className="flex items-center justify-center py-12 gap-2 text-[var(--tx6)] text-sm">
+            <Loader size={16} className="animate-spin" /> Loading conversation…
+          </div>
+        )}
+        {!histLoading && messages.length === 0 && !notReady && (
           <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
             <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20
                             flex items-center justify-center">
@@ -552,10 +651,11 @@ export default function StudySetPage() {
   const { token } = useSessionStore();
   const id        = params.id as string;
 
-  const [ss,           setSs]           = useState<StudySetDetail | null>(null);
-  const [loading,      setLoading]      = useState(true);
-  const [tab,          setTab]          = useState<Tab>('overview');
-  const [seedConcept,  setSeedConcept]  = useState<string | null>(null);
+  const [ss,              setSs]              = useState<StudySetDetail | null>(null);
+  const [loading,         setLoading]         = useState(true);
+  const [tab,             setTab]             = useState<Tab>('overview');
+  const [seedConcept,     setSeedConcept]     = useState<string | null>(null);
+  const [loadConversation,setLoadConversation]= useState<StudySetConversation | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -583,7 +683,14 @@ export default function StudySetPage() {
   function handleUploaded() { load().then(() => startPoll()); }
 
   function handleConceptChat(conceptName: string) {
+    setLoadConversation(null);
     setSeedConcept(conceptName);
+    setTab('chat');
+  }
+
+  function handleLoadConversation(conv: StudySetConversation) {
+    setSeedConcept(null);
+    setLoadConversation(conv);
     setTab('chat');
   }
 
@@ -659,7 +766,12 @@ export default function StudySetPage() {
         {/* Content */}
         <div className="flex-1 overflow-y-auto no-scrollbar px-4 sm:px-6 py-6">
           {tab === 'overview'   && (
-            <OverviewTab ss={ss} onRefresh={handleUploaded} onConceptChat={handleConceptChat} />
+            <OverviewTab
+              ss={ss}
+              onRefresh={handleUploaded}
+              onConceptChat={handleConceptChat}
+              onLoadConversation={handleLoadConversation}
+            />
           )}
           {tab === 'flashcards' && <FlashcardsTab ss={ss} />}
           {tab === 'chat'       && (
@@ -667,6 +779,7 @@ export default function StudySetPage() {
               ss={ss}
               seedConcept={seedConcept}
               onSeedConsumed={() => setSeedConcept(null)}
+              loadConversation={loadConversation}
             />
           )}
         </div>

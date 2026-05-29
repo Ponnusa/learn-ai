@@ -244,12 +244,30 @@ export const chatWithStudySet = (
   history: {role: string; content: string}[],
   token?: string,
   conceptName?: string,
+  conversationId?: string,
+  userId?: string,
+  sessionId?: string,
 ) =>
-  post<{ reply: string; chips: string[] }>(
+  post<{ reply: string; chips: string[]; conversation_id: string; message_id: string }>(
     `/api/studysets/${id}/chat`,
-    { message, history, concept_name: conceptName ?? null },
+    {
+      message,
+      history,
+      concept_name:    conceptName    ?? null,
+      conversation_id: conversationId ?? null,
+      user_id:         userId         ?? null,
+      session_id:      sessionId      ?? null,
+    },
     token,
   );
+
+export type StudySetConversation = {
+  id: string; title: string; created_at: string;
+  message_count: number; video_count: number; quiz_count: number;
+};
+
+export const getStudySetConversations = (studySetId: string, token?: string) =>
+  get<StudySetConversation[]>(`/api/studysets/${studySetId}/conversations`, token);
 
 export const reviewStudyCard = (studySetId: string, cardId: string, userId: string, rating: number, token?: string) =>
   post<{ ok: boolean }>(`/api/studysets/${studySetId}/cards/${cardId}/review`, { user_id: userId, rating }, token);
