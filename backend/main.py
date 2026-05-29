@@ -22,21 +22,20 @@ async def lifespan(app: FastAPI):
             # ── existing columns ─────────────────────────────────────────────
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT",
-            # ── StudySets ────────────────────────────────────────────────────
-            """
-            CREATE TABLE IF NOT EXISTS study_sets (
-                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                user_id      UUID REFERENCES users(id) ON DELETE CASCADE,
-                session_id   UUID,
-                title        TEXT NOT NULL,
-                subject      TEXT,
-                description  TEXT,
-                summary      TEXT,
-                status       TEXT NOT NULL DEFAULT 'empty',
-                created_at   TIMESTAMPTZ DEFAULT NOW(),
-                updated_at   TIMESTAMPTZ DEFAULT NOW()
-            )
-            """,
+            # ── StudySets: patch old stub schema from 001_initial.sql ────────
+            # study_sets — add columns missing from the 001 stub
+            "ALTER TABLE study_sets ADD COLUMN IF NOT EXISTS session_id  UUID",
+            "ALTER TABLE study_sets ADD COLUMN IF NOT EXISTS description TEXT",
+            "ALTER TABLE study_sets ADD COLUMN IF NOT EXISTS summary     TEXT",
+            "ALTER TABLE study_sets ADD COLUMN IF NOT EXISTS status      TEXT NOT NULL DEFAULT 'empty'",
+            "ALTER TABLE study_sets ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMPTZ DEFAULT NOW()",
+            # study_concepts — old stub used 'title' instead of 'name'
+            "ALTER TABLE study_concepts ADD COLUMN IF NOT EXISTS name        TEXT",
+            "ALTER TABLE study_concepts ADD COLUMN IF NOT EXISTS definition  TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE study_concepts ADD COLUMN IF NOT EXISTS order_index INT NOT NULL DEFAULT 0",
+            # backfill name from title for any old rows
+            "UPDATE study_concepts SET name = title WHERE name IS NULL AND title IS NOT NULL",
+            # ── StudySets: create new tables that didn't exist in 001 ─────────
             """
             CREATE TABLE IF NOT EXISTS study_materials (
                 id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -48,17 +47,6 @@ async def lifespan(app: FastAPI):
                 char_count   INT,
                 status       TEXT NOT NULL DEFAULT 'pending',
                 error_msg    TEXT,
-                created_at   TIMESTAMPTZ DEFAULT NOW()
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS study_concepts (
-                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                study_set_id UUID NOT NULL REFERENCES study_sets(id) ON DELETE CASCADE,
-                name         TEXT NOT NULL,
-                definition   TEXT NOT NULL DEFAULT '',
-                explanation  TEXT,
-                order_index  INT NOT NULL DEFAULT 0,
                 created_at   TIMESTAMPTZ DEFAULT NOW()
             )
             """,

@@ -165,6 +165,7 @@ async def process_material_bg(
     try:
         async with get_db() as db:
             # Concepts
+            logger.info("[studyset] %s: saving %d concepts", study_set_id, len(concepts))
             for i, c in enumerate(concepts):
                 await db.execute(
                     """INSERT INTO study_concepts
@@ -178,6 +179,7 @@ async def process_material_bg(
                 )
 
             # Flashcards
+            logger.info("[studyset] %s: saving %d flashcards", study_set_id, len(flashcards))
             for i, f in enumerate(flashcards):
                 await db.execute(
                     """INSERT INTO study_flashcards
@@ -204,7 +206,9 @@ async def process_material_bg(
         logger.info("[studyset] %s: ready ✓", study_set_id)
 
     except Exception as exc:
-        logger.error("[studyset] DB save failed for %s: %s", study_set_id, exc)
+        logger.error("[studyset] DB save failed for %s: %s — %r", study_set_id, exc, exc)
+        import traceback
+        logger.error("[studyset] traceback: %s", traceback.format_exc())
         await _mark_failed(material_id, study_set_id, f"DB save failed: {exc}")
 
 
