@@ -113,19 +113,28 @@ export default function HomePage() {
       });
       setMessages(loadedMessages);
 
-      // Restore video status cards from DB (message_id → video_id)
+      // Restore inline video cards — two sources merged:
+      // 1. DB: getConversationVideos (message_id → video id)
+      // 2. localStorage: written at video-creation time, survives refresh
       const restored: Record<string, number> = {};
+
+      // Source 1 — DB (only entries where message_id is non-null)
       for (const v of videos) {
-        if (v.message_id) restored[v.message_id] = v.id;
+        if (v.message_id) restored[String(v.message_id)] = v.id;
       }
-      // Also check localStorage for videos created in this session (message_id not yet in DB for brand-new ones)
+
+      // Source 2 — localStorage (covers missing ::uuid cast era + anonymous users)
       for (const m of loadedMessages) {
         if (m.role !== 'assistant') continue;
         try {
           const stored = localStorage.getItem(`learnai_video_${m.id}`);
-          if (stored && !restored[m.id]) restored[m.id] = Number(stored);
+          if (stored) {
+            const vid = Number(stored);
+            if (vid && !restored[m.id]) restored[m.id] = vid;
+          }
         } catch {}
       }
+
       if (Object.keys(restored).length > 0) setVideoByMsgId(restored);
 
       const conv = conversations.find(c => c.id === id);

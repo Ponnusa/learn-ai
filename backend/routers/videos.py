@@ -142,7 +142,7 @@ async def get_conversation_videos(conversation_id: str):
         rows = await db.fetch("""
             SELECT id, message_id, status, video_url, error_message
             FROM videos
-            WHERE conversation_id = $1 AND message_id IS NOT NULL
+            WHERE conversation_id = $1::uuid
             ORDER BY created_at DESC
         """, conversation_id)
     return [dict(r) for r in rows]
