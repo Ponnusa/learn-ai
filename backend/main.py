@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from database import init_pool, close_pool
 from config import settings
-from routers import auth, sessions, chat, videos, quizzes, uploads
+from routers import auth, sessions, chat, videos, quizzes, uploads, studysets
 
 
 @asynccontextmanager
@@ -19,14 +19,75 @@ async def lifespan(app: FastAPI):
     from database import get_db
     async with get_db() as db:
         for sql in [
+            # ── existing columns ─────────────────────────────────────────────
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id TEXT",
+            # ── StudySets ────────────────────────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS study_sets (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id      UUID REFERENCES users(id) ON DELETE CASCADE,
+                session_id   UUID,
+                title        TEXT NOT NULL,
+                subject      TEXT,
+                description  TEXT,
+                summary      TEXT,
+                status       TEXT NOT NULL DEFAULT 'empty',
+                created_at   TIMESTAMPTZ DEFAULT NOW(),
+                updated_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS study_materials (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                study_set_id UUID NOT NULL REFERENCES study_sets(id) ON DELETE CASCADE,
+                filename     TEXT NOT NULL DEFAULT 'upload.pdf',
+                file_url     TEXT,
+                raw_text     TEXT,
+                page_count   INT,
+                char_count   INT,
+                status       TEXT NOT NULL DEFAULT 'pending',
+                error_msg    TEXT,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS study_concepts (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                study_set_id UUID NOT NULL REFERENCES study_sets(id) ON DELETE CASCADE,
+                name         TEXT NOT NULL,
+                definition   TEXT NOT NULL DEFAULT '',
+                explanation  TEXT,
+                order_index  INT NOT NULL DEFAULT 0,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS study_flashcards (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                study_set_id UUID NOT NULL REFERENCES study_sets(id) ON DELETE CASCADE,
+                concept_id   UUID REFERENCES study_concepts(id) ON DELETE SET NULL,
+                front        TEXT NOT NULL,
+                back         TEXT NOT NULL,
+                order_index  INT NOT NULL DEFAULT 0,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS study_card_reviews (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                flashcard_id UUID NOT NULL REFERENCES study_flashcards(id) ON DELETE CASCADE,
+                rating       INT NOT NULL,
+                reviewed_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
         ]:
             try:
                 await db.execute(sql)
-                _log.info("Migration OK: %s", sql[:60])
+                _log.info("Migration OK: %s", sql.strip()[:60])
             except Exception as exc:
-                _log.error("Migration FAILED: %s — %s", sql[:60], exc)
+                _log.error("Migration FAILED: %s — %s", sql.strip()[:60], exc)
     yield
     await close_pool()
 
@@ -55,6 +116,7 @@ app.include_router(chat.router)
 app.include_router(videos.router)
 app.include_router(quizzes.router)
 app.include_router(uploads.router)
+app.include_router(studysets.router)
 
 
 @app.get("/health")

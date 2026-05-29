@@ -177,6 +177,75 @@ export const submitQuiz = (quizId: string, answers: Record<string, number>, user
     `/api/quizzes/${quizId}/submit`, { answers, user_id: userId }, token
   );
 
+// ── StudySets ─────────────────────────────────────────────────────────────────
+
+export type StudySetSummary = {
+  id: string; title: string; subject?: string; status: string;
+  summary?: string; created_at: string;
+  concept_count: number; flashcard_count: number;
+};
+
+export type StudyConcept = {
+  id: string; name: string; definition: string; explanation?: string; order_index: number;
+};
+
+export type StudyFlashcard = {
+  id: string; front: string; back: string; order_index: number;
+};
+
+export type StudyMaterial = {
+  id: string; filename: string; page_count?: number;
+  char_count?: number; status: string; error_msg?: string; created_at: string;
+};
+
+export type StudySetDetail = StudySetSummary & {
+  description?: string; updated_at: string;
+  concepts: StudyConcept[]; flashcards: StudyFlashcard[]; materials: StudyMaterial[];
+};
+
+export const createStudySet = (data: {
+  title: string; subject?: string; description?: string;
+  user_id?: string; session_id?: string;
+}, token?: string) =>
+  post<StudySetSummary>('/api/studysets', data, token);
+
+export const listStudySets = (userId?: string, sessionId?: string, token?: string) =>
+  get<StudySetSummary[]>(
+    `/api/studysets?${userId ? `user_id=${userId}` : `session_id=${sessionId}`}`, token
+  );
+
+export const getStudySet = (id: string, token?: string) =>
+  get<StudySetDetail>(`/api/studysets/${id}`, token);
+
+export const getStudySetStatus = (id: string, token?: string) =>
+  get<{ status: string; summary?: string; concept_count: number; flashcard_count: number }>(
+    `/api/studysets/${id}/status`, token
+  );
+
+export async function uploadStudyMaterial(
+  studySetId: string, file: File, userId?: string, token?: string,
+) {
+  const form = new FormData();
+  form.append('file', file);
+  if (userId) form.append('user_id', userId);
+  const res = await fetch(`${API_BASE}/api/studysets/${studySetId}/upload`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Upload failed'); }
+  return res.json() as Promise<{ material_id: string; status: string }>;
+}
+
+export const chatWithStudySet = (id: string, message: string, history: {role: string; content: string}[], token?: string) =>
+  post<{ reply: string }>(`/api/studysets/${id}/chat`, { message, history }, token);
+
+export const reviewStudyCard = (studySetId: string, cardId: string, userId: string, rating: number, token?: string) =>
+  post<{ ok: boolean }>(`/api/studysets/${studySetId}/cards/${cardId}/review`, { user_id: userId, rating }, token);
+
+export const deleteStudySet = (id: string, token?: string) =>
+  del<{ ok: boolean }>(`/api/studysets/${id}`, token);
+
 // ── File upload (multipart) ───────────────────────────────────────────────────
 export async function uploadFile(file: File, sessionId?: string, userId?: string, token?: string) {
   const form = new FormData();
