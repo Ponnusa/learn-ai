@@ -1552,6 +1552,23 @@ def call_claude_svg(asset_name: str) -> str:
     return _strip_svg_markdown(msg.content[0].text)
 
 
+def _svg_asset_url(r2_key: str) -> str:
+    """
+    Return the best permanent URL for an R2 SVG asset.
+    Prefers the public R2_PUBLIC_URL (no expiry) over a 1-hour presigned URL.
+    Presigned URLs expire before Cloud Run renders the video — public URLs don't.
+    """
+    if R2_PUBLIC_URL:
+        return f"{R2_PUBLIC_URL.rstrip('/')}/{r2_key}"
+    # Fallback: presigned URL (expires in 24 h — longer than default 1 h to
+    # reduce chance of expiry, but still not ideal for slow render queues)
+    return r2_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": R2_BUCKET_NAME, "Key": r2_key},
+        ExpiresIn=86400,
+    )
+
+
 def generate_svg_assets(svg_list: list) -> dict:
     """For each asset: check R2 cache, generate via Claude, upload. Returns {name: url}."""
     MAX_ASSETS = 5
@@ -1560,21 +1577,14 @@ def generate_svg_assets(svg_list: list) -> dict:
         logger.warning("⚠️  R2 not configured — skipping SVG asset generation")
         return svg_urls
 
-    def _presigned_url(key: str, expires: int = 3600) -> str:
-        return r2_client.generate_presigned_url(
-            "get_object",
-            Params={"Bucket": R2_BUCKET_NAME, "Key": key},
-            ExpiresIn=expires,
-        )
-
     for asset_name in svg_list[:MAX_ASSETS]:
         r2_key = f"svg_assets/{asset_name}.svg"
         if r2_object_exists(r2_key):
             logger.info(f"🖼️  SVG cache hit: {asset_name}")
             try:
-                svg_urls[asset_name] = _presigned_url(r2_key)
+                svg_urls[asset_name] = _svg_asset_url(r2_key)
             except Exception as e:
-                logger.warning(f"⚠️  Could not presign cached SVG '{asset_name}': {e}")
+                logger.warning(f"⚠️  Could not get URL for cached SVG '{asset_name}': {e}")
             continue
         svg_xml = None
         for attempt in range(1, SVG_MAX_RETRIES + 1):
@@ -1599,7 +1609,7 @@ def generate_svg_assets(svg_list: list) -> dict:
                 Body=svg_xml.encode("utf-8"),
                 ContentType="image/svg+xml",
             )
-            svg_urls[asset_name] = _presigned_url(r2_key)
+            svg_urls[asset_name] = _svg_asset_url(r2_key)
             logger.info(f"✅ SVG uploaded: {r2_key}")
         except Exception as e:
             logger.error(f"❌ R2 upload failed for '{asset_name}': {e}")
@@ -1831,6 +1841,31 @@ def _strip_critic_prose(text: str) -> str:
                 return '\n'.join(lines[i:])
             return text
     return text
+
+
+def _fix_svg_urls_in_code(code: str, svg_urls: dict) -> str:
+    """
+    Replace any URL Claude wrote inside get_svg("name", "URL", ...) with the
+    correct URL from svg_urls. Claude sometimes hallucinates URLs (e.g. constructs
+    a public R2 URL without the svg_assets/ path prefix, or invents one entirely).
+    This regex pass ensures the code always calls the real, correct URL.
+    """
+    if not svg_urls:
+        return code
+    for name, correct_url in svg_urls.items():
+        # Match: get_svg("name", "ANY_URL"  or  get_svg('name', 'ANY_URL'
+        # Captures the opening quote style so we can handle both.
+        pattern = (
+            r'(get_svg\s*\(\s*["\']'
+            + re.escape(name)
+            + r'["\'],\s*)["\'][^"\']*["\']'
+        )
+        replacement = r'\g<1>"' + correct_url + '"'
+        new_code, n = re.subn(pattern, replacement, code)
+        if n:
+            logger.info(f"🔧 Fixed SVG URL for '{name}' ({n} occurrence(s))")
+        code = new_code
+    return code
 
 
 def _assemble_two_pass_code(setup_code: str, beats_code: str) -> str:
@@ -2321,6 +2356,10 @@ MANDATORY RULES:
     code = fix_manim_colors(code)
     code = ensure_numpy_import(code)
     code = re.sub(r'VGroup\(\s*\*\s*self\.mobjects\s*\)', 'Group(*self.mobjects)', code)
+
+    # Fix hallucinated / expired SVG URLs in get_svg() calls
+    if svg_urls:
+        code = _fix_svg_urls_in_code(code, svg_urls)
 
     # Hoist show_subtitle if defined as inner function inside construct()
     if re.search(r'^        def show_subtitle\(self', code, re.MULTILINE):
