@@ -164,25 +164,32 @@ async def get_video_status(video_id: int):
 
 @router.get("/user/{user_id}")
 async def get_user_videos(user_id: str):
+    """Returns only completed videos for the library view."""
     async with get_db() as db:
         rows = await db.fetch("""
             SELECT id, status, video_url, thumbnail_url, prompt, subject,
-                   duration_secs, created_at, transcript_markdown
-            FROM videos WHERE user_id = $1::uuid
-            ORDER BY created_at DESC LIMIT 50
+                   duration_secs, created_at, transcript_markdown,
+                   conversation_id, message_id
+            FROM videos
+            WHERE user_id = $1::uuid
+              AND status IN ('complete', 'completed')
+            ORDER BY created_at DESC LIMIT 200
         """, user_id)
     return [dict(r) for r in rows]
 
 
 @router.get("/session/{session_id}")
 async def get_session_videos(session_id: str):
-    """Videos for anonymous sessions (no user account)."""
+    """Completed videos for anonymous sessions (no user account)."""
     async with get_db() as db:
         rows = await db.fetch("""
             SELECT id, status, video_url, thumbnail_url, prompt, subject,
-                   duration_secs, created_at, transcript_markdown
-            FROM videos WHERE session_id = $1::uuid
-            ORDER BY created_at DESC LIMIT 50
+                   duration_secs, created_at, transcript_markdown,
+                   conversation_id, message_id
+            FROM videos
+            WHERE session_id = $1::uuid
+              AND status IN ('complete', 'completed')
+            ORDER BY created_at DESC LIMIT 200
         """, session_id)
     return [dict(r) for r in rows]
 

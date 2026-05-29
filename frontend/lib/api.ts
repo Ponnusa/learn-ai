@@ -110,11 +110,14 @@ export const getSessionVideos = (sessionId: string) =>
     id: number;
     status: string;
     video_url?: string;
+    thumbnail_url?: string;
     prompt?: string;
     subject?: string;
     duration_secs?: number;
     created_at: string;
     transcript_markdown?: string;
+    conversation_id?: string;
+    message_id?: string;
   }[]>(`/api/videos/session/${sessionId}`);
 
 export const getUserVideos = (userId: string, token?: string) =>
@@ -122,11 +125,14 @@ export const getUserVideos = (userId: string, token?: string) =>
     id: number;
     status: string;
     video_url?: string;
+    thumbnail_url?: string;
     prompt?: string;
     subject?: string;
     duration_secs?: number;
     created_at: string;
     transcript_markdown?: string;
+    conversation_id?: string;
+    message_id?: string;
   }[]>(`/api/videos/user/${userId}`, token);
 
 export const getConversationVideos = (conversationId: string, token?: string) =>
