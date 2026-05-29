@@ -203,7 +203,7 @@ function statusToStepIdx(status: string): number {
   }
 }
 
-function VideoStatusCard({ videoId, token }: { videoId: number; token?: string }) {
+export function VideoStatusCard({ videoId, token }: { videoId: number; token?: string }) {
   const router = useRouter();
   const [status,     setStatus]     = useState<string>('pending');
   const [videoUrl,   setVideoUrl]   = useState<string | null>(null);
