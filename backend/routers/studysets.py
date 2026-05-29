@@ -37,7 +37,8 @@ class CreateStudySetRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    history: list[dict] = []   # [{role, content}, ...]
+    concept_name: str | None = None  # set when student clicks a concept → seeds intro
+    history: list[dict] = []         # [{role, content}, ...]
 
 
 class ReviewRequest(BaseModel):
@@ -257,20 +258,40 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
     )
 
     messages = [{"role": "system", "content": system_prompt}]
-    for h in req.history[-10:]:   # last 10 turns of context
+    for h in req.history[-10:]:
         messages.append({"role": h["role"], "content": h["content"]})
-    messages.append({"role": "user", "content": req.message})
+
+    # When a concept is clicked with no prior history, inject a focused intro prompt
+    if req.concept_name and not req.history:
+        user_content = (
+            f'Give me a thorough lesson on "{req.concept_name}" based on the study material. '
+            f'Structure your response as:\n'
+            f'1. **Definition** — what it is in plain terms\n'
+            f'2. **Key points** — the most important things to understand\n'
+            f'3. **From the material** — quote or paraphrase the most relevant section\n'
+            f'4. **Example** — a concrete example that makes it click\n\n'
+            f'Keep it focused and student-friendly.'
+        )
+    else:
+        user_content = req.message
+
+    messages.append({"role": "user", "content": user_content})
 
     from openai import AsyncOpenAI
     client = AsyncOpenAI()
     response = await client.chat.completions.create(
         model="gpt-4o-mini",
         messages=messages,
-        max_tokens=800,
+        max_tokens=1000,
         temperature=0.3,
     )
 
-    return {"reply": response.choices[0].message.content}
+    reply = response.choices[0].message.content
+
+    # Action chips — always offered after every AI response
+    chips = ["Quiz me on this", "Create a video", "Give me an example", "Explain differently"]
+
+    return {"reply": reply, "chips": chips}
 
 
 @router.post("/{study_set_id}/cards/{card_id}/review")

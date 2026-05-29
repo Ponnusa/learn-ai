@@ -238,8 +238,18 @@ export async function uploadStudyMaterial(
   return res.json() as Promise<{ material_id: string; status: string }>;
 }
 
-export const chatWithStudySet = (id: string, message: string, history: {role: string; content: string}[], token?: string) =>
-  post<{ reply: string }>(`/api/studysets/${id}/chat`, { message, history }, token);
+export const chatWithStudySet = (
+  id: string,
+  message: string,
+  history: {role: string; content: string}[],
+  token?: string,
+  conceptName?: string,
+) =>
+  post<{ reply: string; chips: string[] }>(
+    `/api/studysets/${id}/chat`,
+    { message, history, concept_name: conceptName ?? null },
+    token,
+  );
 
 export const reviewStudyCard = (studySetId: string, cardId: string, userId: string, rating: number, token?: string) =>
   post<{ ok: boolean }>(`/api/studysets/${studySetId}/cards/${cardId}/review`, { user_id: userId, rating }, token);
