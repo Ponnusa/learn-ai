@@ -7,9 +7,13 @@
 -- ============================================================
 
 
--- ── Drop old stubs (cascade to dependent rows/fks) ──────────
-DROP TABLE IF EXISTS study_concepts CASCADE;
-DROP TABLE IF EXISTS study_sets     CASCADE;
+-- ── Drop all studyset tables (safe re-run) ──────────────────
+-- Order matters: children before parents.
+DROP TABLE IF EXISTS study_card_reviews CASCADE;
+DROP TABLE IF EXISTS study_flashcards   CASCADE;
+DROP TABLE IF EXISTS study_concepts     CASCADE;
+DROP TABLE IF EXISTS study_materials    CASCADE;
+DROP TABLE IF EXISTS study_sets         CASCADE;
 
 
 -- ── study_sets ───────────────────────────────────────────────
