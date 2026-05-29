@@ -95,7 +95,7 @@ export function WelcomeScreen({ user, onSend }: Props) {
         <img
           src="/learnx-logo.png"
           alt="LearnX-AI"
-          className="h-28 sm:h-36 w-auto max-w-xs sm:max-w-sm object-contain drop-shadow-lg"
+          className="h-36 sm:h-44 w-auto max-w-sm sm:max-w-md object-contain drop-shadow-lg"
         />
       </div>
 
