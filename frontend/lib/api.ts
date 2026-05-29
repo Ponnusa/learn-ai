@@ -39,6 +39,16 @@ export const verifyMagicLink = (token: string) =>
     '/api/auth/verify', { token }
   );
 
+export const getUserStats = (userId: string, token?: string) =>
+  get<{
+    messages:      number;
+    videos:        number;
+    quizzes:       number;
+    conversations: number;
+    top_subject:   string | null;
+    member_since:  string | null;
+  }>(`/api/auth/stats?user_id=${userId}`, token);
+
 // ── Sessions ──────────────────────────────────────────────────────────────────
 export const createSession = (sessionId?: string) =>
   post<{ session_id: string; msg_count: number; video_count: number; quiz_count: number }>(

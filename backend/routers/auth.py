@@ -319,3 +319,59 @@ async def google_callback(req: GoogleCallbackRequest):
 @router.get("/me")
 async def get_me():
     pass  # Resolved by identity dependency in main.py
+
+
+# ── /stats ────────────────────────────────────────────────────────────────────
+
+@router.get("/stats")
+async def get_user_stats(user_id: str):
+    """
+    Returns real lifetime stats for a logged-in user, pulled from the DB.
+    Queried fresh on every page load — never cached in the session store.
+    """
+    async with get_db() as db:
+        # Messages sent (user-role messages in their conversations)
+        messages = await db.fetchval("""
+            SELECT COUNT(*) FROM messages m
+            JOIN conversations c ON c.id = m.conversation_id
+            WHERE c.user_id = $1::uuid AND m.role = 'user'
+        """, user_id) or 0
+
+        # Completed videos
+        videos = await db.fetchval("""
+            SELECT COUNT(*) FROM videos
+            WHERE user_id = $1::uuid AND status IN ('complete', 'completed')
+        """, user_id) or 0
+
+        # Quizzes completed (submitted)
+        quizzes = await db.fetchval("""
+            SELECT COUNT(*) FROM quizzes
+            WHERE user_id = $1::uuid AND completed_at IS NOT NULL
+        """, user_id) or 0
+
+        # Conversations started
+        conversations = await db.fetchval("""
+            SELECT COUNT(*) FROM conversations WHERE user_id = $1::uuid
+        """, user_id) or 0
+
+        # Most studied subject
+        top_subject_row = await db.fetchrow("""
+            SELECT subject, COUNT(*) AS cnt
+            FROM conversations
+            WHERE user_id = $1::uuid AND subject IS NOT NULL
+            GROUP BY subject ORDER BY cnt DESC LIMIT 1
+        """, user_id)
+
+        # Account creation date
+        user_row = await db.fetchrow(
+            "SELECT created_at FROM users WHERE id = $1::uuid", user_id
+        )
+
+    return {
+        "messages":      int(messages),
+        "videos":        int(videos),
+        "quizzes":       int(quizzes),
+        "conversations": int(conversations),
+        "top_subject":   top_subject_row["subject"] if top_subject_row else None,
+        "member_since":  user_row["created_at"].isoformat() if user_row else None,
+    }
