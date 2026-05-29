@@ -91,8 +91,12 @@ export function WelcomeScreen({ user, onSend }: Props) {
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
 
       {/* Logo */}
-      <div className="w-16 h-16 mb-7">
-        <img src="/logo-64.png" alt="Learn-AI" className="w-full h-full object-contain drop-shadow-xl" />
+      <div className="mb-6">
+        <img
+          src="/learnx-logo.png"
+          alt="LearnX-AI"
+          className="h-16 sm:h-20 w-auto object-contain drop-shadow-lg"
+        />
       </div>
 
       {/* Greeting */}
