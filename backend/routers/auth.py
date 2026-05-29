@@ -99,12 +99,12 @@ async def send_magic_link(req: MagicLinkRequest):
             "subject": "Your Learn-AI sign-in link",
             "html": f"""
                 <div style="font-family:Arial,sans-serif;max-width:480px;margin:auto;padding:32px">
-                  <h2 style="color:#7c3aed">Learn-AI</h2>
+                  <h2 style="color:#7c3aed">LearnX-AI</h2>
                   <p>Click the button below to sign in. This link expires in 15 minutes.</p>
                   <a href="{magic_url}"
                      style="display:inline-block;padding:12px 28px;background:#7c3aed;
                             color:#fff;border-radius:8px;text-decoration:none;font-weight:600">
-                    Sign in to Learn-AI
+                    Sign in to LearnX-AI
                   </a>
                   <p style="color:#888;font-size:12px;margin-top:24px">
                     If you didn't request this, you can safely ignore this email.

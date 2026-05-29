@@ -33,9 +33,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Learn-AI API", version="1.0.0", lifespan=lifespan)
 
+_allowed_origins: list[str] = list({
+    settings.FRONTEND_URL,
+    "http://localhost:3000",
+    "https://learnx-ai.com",
+    "https://www.learnx-ai.com",
+    *[o.strip() for o in settings.EXTRA_ALLOWED_ORIGINS.split(",") if o.strip()],
+})
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL, "http://localhost:3000"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
