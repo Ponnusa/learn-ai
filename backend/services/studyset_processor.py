@@ -19,13 +19,14 @@ def extract_text_from_pdf(file_bytes: bytes) -> tuple[str, int]:
     import fitz  # PyMuPDF
 
     doc = fitz.open(stream=file_bytes, filetype="pdf")
+    page_count = len(doc)          # must read before close()
     pages: list[str] = []
     for page in doc:
         text = page.get_text("text")
         if text.strip():
             pages.append(text.strip())
     doc.close()
-    return "\n\n".join(pages), len(doc)
+    return "\n\n".join(pages), page_count
 
 
 # ─── AI generation ────────────────────────────────────────────────────────────
