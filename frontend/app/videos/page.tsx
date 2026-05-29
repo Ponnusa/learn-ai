@@ -381,8 +381,8 @@ function VideoLibraryGrid({
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Grid */}
-      <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="flex-1 overflow-y-auto no-scrollbar px-3 sm:px-6 py-4 sm:py-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {pageVideos.map(v => (
             <VideoLibraryCard
               key={v.id}
@@ -586,17 +586,10 @@ function VideosContent() {
 
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Header */}
-          <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--bd)] shrink-0">
-            <button
-              onClick={() => router.back()}
-              className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors"
-              aria-label="Back"
-            >
-              <ArrowLeft size={20} />
-            </button>
+          <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-[var(--bd)] shrink-0">
             <h1 className="text-[var(--tx1)] font-semibold">My Videos</h1>
             {!videosLoading && videos.length > 0 && (
-              <span className="ml-1 px-2 py-0.5 bg-[var(--ov3)] rounded-full
+              <span className="px-2 py-0.5 bg-[var(--ov3)] rounded-full
                                text-[var(--tx5)] text-xs">
                 {videos.length}
               </span>
@@ -642,7 +635,7 @@ function VideosContent() {
           </div>
 
           <div className="flex-1 overflow-y-auto no-scrollbar">
-            <div className="flex items-start justify-center px-6 py-10 min-h-full">
+            <div className="flex items-start justify-center px-3 sm:px-6 py-6 sm:py-10 min-h-full">
 
               {/* Loading */}
               {isLoading && (
@@ -689,18 +682,37 @@ function VideosContent() {
               {isDone && videoUrl && (
                 <div className="w-full max-w-3xl">
                   <div className="aspect-video rounded-2xl overflow-hidden bg-black
-                                  shadow-2xl shadow-purple-500/10 mb-4">
+                                  shadow-2xl shadow-purple-500/10 mb-3">
                     <video src={videoUrl} controls autoPlay className="w-full h-full" />
                   </div>
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-[var(--tx5)] text-sm">✅ {t.video.ready}</p>
-                    <a href={videoUrl} download
-                      className="flex items-center gap-2 px-4 py-2 bg-[var(--ov3)] hover:bg-[var(--ov4)]
-                                 rounded-xl text-[var(--tx2)] text-sm transition-colors">
-                      <Download size={14} /> {t.download}
-                    </a>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[var(--tx5)] text-sm min-w-0 truncate">✅ {t.video.ready}</p>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {transcript && (
+                        <button
+                          onClick={() => openTranscript(transcript)}
+                          title="Solution & Transcript"
+                          className="flex items-center gap-2 px-3 sm:px-4 py-2
+                                     bg-[var(--ov3)] hover:bg-[var(--ov4)]
+                                     rounded-xl text-[var(--tx2)] text-sm transition-colors"
+                        >
+                          <FileText size={14} />
+                          <span className="hidden sm:inline">Solution &amp; Transcript</span>
+                        </button>
+                      )}
+                      <a
+                        href={videoUrl}
+                        download
+                        title="Download"
+                        className="flex items-center gap-2 px-3 sm:px-4 py-2
+                                   bg-[var(--ov3)] hover:bg-[var(--ov4)]
+                                   rounded-xl text-[var(--tx2)] text-sm transition-colors"
+                      >
+                        <Download size={14} />
+                        <span className="hidden sm:inline">{t.download}</span>
+                      </a>
+                    </div>
                   </div>
-                  {transcript && <TranscriptButton onClick={() => openTranscript(transcript)} />}
                 </div>
               )}
 
@@ -724,19 +736,26 @@ function VideosContent() {
                     <button
                       onClick={handleRetry}
                       disabled={retrying}
-                      className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-500
+                      title={retrying ? 'Retrying…' : transcript ? 'Retry Video Generation' : 'Regenerate Video'}
+                      className="flex items-center gap-2 px-4 sm:px-5 py-2.5
+                                 bg-purple-600 hover:bg-purple-500
                                  disabled:opacity-50 text-white text-sm rounded-xl transition-colors"
                     >
                       <RefreshCw size={14} className={retrying ? 'animate-spin' : ''} />
-                      {retrying ? 'Retrying…' : transcript ? 'Retry Video Generation' : 'Regenerate Video'}
+                      <span className="hidden sm:inline">
+                        {retrying ? 'Retrying…' : transcript ? 'Retry Video Generation' : 'Regenerate Video'}
+                      </span>
                     </button>
 
                     <button
                       onClick={() => router.back()}
-                      className="px-5 py-2.5 bg-[var(--ov3)] hover:bg-[var(--ov4)]
+                      title={t.back}
+                      className="flex items-center gap-2 px-4 sm:px-5 py-2.5
+                                 bg-[var(--ov3)] hover:bg-[var(--ov4)]
                                  text-[var(--tx2)] text-sm rounded-xl transition-colors"
                     >
-                      {t.back}
+                      <ArrowLeft size={14} />
+                      <span className="hidden sm:inline">{t.back}</span>
                     </button>
                   </div>
 
@@ -750,8 +769,8 @@ function VideosContent() {
           </div>
         </div>
 
-        {/* Right sidebar: completed videos list */}
-        <aside className="w-60 border-l border-[var(--bd)] flex flex-col overflow-hidden shrink-0">
+        {/* Right sidebar: completed videos list — desktop only */}
+        <aside className="hidden md:flex flex-col w-60 border-l border-[var(--bd)] overflow-hidden shrink-0">
           <div className="px-3 py-3 border-b border-[var(--bd)] shrink-0">
             <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wide">My Videos</p>
           </div>
