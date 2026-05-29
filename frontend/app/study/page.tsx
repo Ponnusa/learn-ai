@@ -222,7 +222,7 @@ export default function StudyPage() {
 
   useEffect(() => {
     setLoading(true);
-    listStudySets(user?.id, sessionId ?? undefined, token ?? undefined)
+    listStudySets(user?.id || undefined, sessionId || undefined, token || undefined)
       .then(r => { setSets(r); setLoading(false); })
       .catch(()  => setLoading(false));
   }, [user?.id, sessionId]);

@@ -209,10 +209,11 @@ export const createStudySet = (data: {
 }, token?: string) =>
   post<StudySetSummary>('/api/studysets', data, token);
 
-export const listStudySets = (userId?: string, sessionId?: string, token?: string) =>
-  get<StudySetSummary[]>(
-    `/api/studysets?${userId ? `user_id=${userId}` : `session_id=${sessionId}`}`, token
-  );
+export const listStudySets = (userId?: string, sessionId?: string, token?: string) => {
+  if (!userId && !sessionId) return Promise.resolve<StudySetSummary[]>([]);
+  const param = userId ? `user_id=${userId}` : `session_id=${sessionId}`;
+  return get<StudySetSummary[]>(`/api/studysets?${param}`, token);
+};
 
 export const getStudySet = (id: string, token?: string) =>
   get<StudySetDetail>(`/api/studysets/${id}`, token);

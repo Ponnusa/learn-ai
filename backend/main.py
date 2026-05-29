@@ -99,6 +99,7 @@ _allowed_origins: list[str] = list({
     "http://localhost:3000",
     "https://learnx-ai.com",
     "https://www.learnx-ai.com",
+    "https://learn-ai-ebon.vercel.app",   # Vercel preview
     *[o.strip() for o in settings.EXTRA_ALLOWED_ORIGINS.split(",") if o.strip()],
 })
 
