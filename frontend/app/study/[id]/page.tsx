@@ -16,7 +16,7 @@ import {
   getStudySet, uploadStudyMaterial, chatWithStudySet, reviewStudyCard,
   generateQuiz, generateVideo, getStudySetConversations, getMessages,
   getConversationVideos, fetchMaterialPdf,
-  StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial,
+  StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial, StudyConcept,
 } from '@/lib/api';
 
 // PDFViewerModal uses browser-only APIs — never SSR
@@ -196,6 +196,109 @@ function OverviewTab({
   );
 }
 
+// ─── ConceptCard ──────────────────────────────────────────────────────────────
+
+const CONCEPT_GRADIENTS = [
+  'from-indigo-500 to-violet-500',
+  'from-violet-500 to-purple-500',
+  'from-blue-500 to-indigo-500',
+  'from-cyan-500 to-blue-500',
+  'from-teal-500 to-cyan-500',
+  'from-emerald-500 to-teal-500',
+  'from-purple-500 to-pink-500',
+  'from-rose-500 to-pink-500',
+];
+
+function ConceptCard({
+  concept, index, prevConv, convsLoading, onNewChat, onContinue,
+}: {
+  concept: StudyConcept;
+  index: number;
+  prevConv: StudySetConversation | undefined;
+  convsLoading: boolean;
+  onNewChat: (name: string) => void;
+  onContinue: (conv: StudySetConversation) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const gradient = CONCEPT_GRADIENTS[index % CONCEPT_GRADIENTS.length];
+  const hasExtra = !!(concept.explanation && concept.explanation.trim());
+
+  return (
+    <div className="group relative bg-[var(--surface)] border border-[var(--bd)] rounded-2xl
+                    overflow-hidden flex flex-col
+                    hover:border-indigo-500/30 hover:shadow-[0_0_0_1px_rgba(99,102,241,0.15)]
+                    transition-all duration-200">
+      {/* Top accent bar */}
+      <div className={`h-1 w-full bg-gradient-to-r ${gradient} opacity-80`} />
+
+      {/* Card body */}
+      <div className="flex flex-col gap-3 p-4 flex-1">
+        {/* Number + name */}
+        <div className="flex items-start gap-3">
+          <span className={`w-8 h-8 rounded-xl bg-gradient-to-br ${gradient} text-white
+                            text-xs font-bold flex items-center justify-center shrink-0 shadow-sm`}>
+            {index + 1}
+          </span>
+          <p className="text-[var(--tx1)] font-semibold text-sm leading-snug pt-1">{concept.name}</p>
+        </div>
+
+        {/* Definition */}
+        <p className={`text-[var(--tx4)] text-sm leading-relaxed
+                       ${!expanded && hasExtra ? 'line-clamp-3' : ''}`}>
+          {concept.definition}
+        </p>
+
+        {/* Explanation (shown when expanded) */}
+        {expanded && hasExtra && (
+          <p className="text-[var(--tx5)] text-xs leading-relaxed border-t border-[var(--bd)] pt-3">
+            {concept.explanation}
+          </p>
+        )}
+
+        {/* Expand toggle */}
+        {hasExtra && (
+          <button
+            onClick={() => setExpanded(e => !e)}
+            className="self-start text-[10px] font-medium text-indigo-400 hover:text-indigo-300
+                       transition-colors flex items-center gap-1">
+            {expanded ? <><ChevronLeft size={11} className="rotate-90" /> Less</> : <><ChevronRight size={11} className="-rotate-90" /> More</>}
+          </button>
+        )}
+      </div>
+
+      {/* Action row */}
+      <div className="flex gap-2 px-4 pb-4 pt-1">
+        {prevConv && !convsLoading ? (
+          <>
+            <button
+              onClick={() => onContinue(prevConv)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl
+                         text-xs font-medium border transition-colors
+                         bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx3)] border-[var(--bd)]">
+              <MessageSquare size={11} /> Continue
+            </button>
+            <button
+              onClick={() => onNewChat(concept.name)}
+              className="w-9 h-9 flex items-center justify-center rounded-xl border transition-colors shrink-0
+                         bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20"
+              title="New chat">
+              <Plus size={13} />
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={() => onNewChat(concept.name)}
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl
+                       text-xs font-medium border transition-colors
+                       bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20">
+            <Plus size={11} /> Chat about this
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── ConceptsTab ──────────────────────────────────────────────────────────────
 
 function ConceptsTab({
@@ -207,8 +310,6 @@ function ConceptsTab({
   onNewChat: (conceptName: string) => void;
   onContinue: (conv: StudySetConversation) => void;
 }) {
-  const [selectedIdx, setSelectedIdx] = useState(0);
-
   if (ss.concepts.length === 0) return (
     <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
       <BookOpen size={32} className="text-[var(--tx6)]" />
@@ -218,101 +319,30 @@ function ConceptsTab({
     </div>
   );
 
-  const safeIdx  = Math.min(selectedIdx, ss.concepts.length - 1);
-  const concept  = ss.concepts[safeIdx];
-  const prevConv = convsLoading ? undefined : convs.find(c => c.title.startsWith(concept.name));
-
   return (
-    <div className="flex flex-col gap-5">
-      {/* Header */}
-      <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide shrink-0">
-        Key Concepts · {ss.concepts.length}
-      </p>
-
-      {/* Horizontal concept tabs */}
-      <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1 shrink-0">
-        {ss.concepts.map((c, i) => (
-          <button
-            key={c.id}
-            onClick={() => setSelectedIdx(i)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium
-                        whitespace-nowrap shrink-0 border transition-all
-              ${safeIdx === i
-                ? 'bg-indigo-600 text-white border-indigo-600'
-                : 'bg-[var(--surface)] text-[var(--tx4)] border-[var(--bd)] hover:border-indigo-500/40 hover:text-[var(--tx2)]'}`}
-          >
-            <span className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center shrink-0
-              ${safeIdx === i ? 'bg-white/20' : 'bg-indigo-500/15 text-indigo-400'}`}>
-              {i + 1}
-            </span>
-            {c.name}
-          </button>
-        ))}
-      </div>
-
-      {/* Selected concept detail card */}
-      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 flex flex-col gap-4">
-        <div>
-          <div className="flex items-start gap-3 mb-3">
-            <span className="w-7 h-7 rounded-lg bg-indigo-500/15 text-indigo-400 text-xs font-bold
-                             flex items-center justify-center shrink-0 mt-0.5">
-              {safeIdx + 1}
-            </span>
-            <p className="text-[var(--tx1)] font-semibold text-base leading-snug">{concept.name}</p>
-          </div>
-          <p className="text-[var(--tx3)] text-sm leading-relaxed">{concept.definition}</p>
-          {concept.explanation && (
-            <p className="text-[var(--tx5)] text-sm leading-relaxed mt-3 pt-3 border-t border-[var(--bd)]">
-              {concept.explanation}
-            </p>
-          )}
-        </div>
-
-        {/* Chat actions */}
-        <div className="flex gap-2 pt-1 border-t border-[var(--bd)]">
-          <button onClick={() => onNewChat(concept.name)}
-            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
-                       text-xs font-medium border transition-colors
-                       bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20">
-            <Plus size={12} /> New chat
-          </button>
-          {prevConv ? (
-            <button onClick={() => onContinue(prevConv)}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
-                         text-xs font-medium border transition-colors
-                         bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx3)] border-[var(--bd)]">
-              <ChevronRight size={12} /> Continue chat
-            </button>
-          ) : (
-            <button onClick={() => onNewChat(concept.name)}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
-                         text-xs font-medium border transition-colors
-                         bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx6)] border-[var(--bd)]">
-              <MessageSquare size={12} /> Start learning
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Prev / Next navigation */}
+    <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <button
-          onClick={() => setSelectedIdx(i => Math.max(0, i - 1))}
-          disabled={safeIdx === 0}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border
-                     text-[var(--tx5)] border-[var(--bd)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)]
-                     disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-          <ChevronLeft size={13} /> Previous
-        </button>
-        <span className="text-[var(--tx6)] text-xs">{safeIdx + 1} / {ss.concepts.length}</span>
-        <button
-          onClick={() => setSelectedIdx(i => Math.min(ss.concepts.length - 1, i + 1))}
-          disabled={safeIdx === ss.concepts.length - 1}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border
-                     text-[var(--tx5)] border-[var(--bd)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)]
-                     disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
-          Next <ChevronRight size={13} />
-        </button>
+        <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">
+          Key Concepts
+        </p>
+        <span className="text-[var(--tx6)] text-xs bg-[var(--ov3)] border border-[var(--bd)]
+                         px-2 py-0.5 rounded-full">
+          {ss.concepts.length}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {ss.concepts.map((c, i) => (
+          <ConceptCard
+            key={c.id}
+            concept={c}
+            index={i}
+            prevConv={convsLoading ? undefined : convs.find(cv => cv.title.startsWith(c.name))}
+            convsLoading={convsLoading}
+            onNewChat={onNewChat}
+            onContinue={onContinue}
+          />
+        ))}
       </div>
     </div>
   );
