@@ -151,32 +151,58 @@ function OverviewTab({
         <div className="space-y-2">
           <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">Materials</p>
           {ss.materials.map(m => (
-            <div key={m.id}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[var(--surface)] border border-[var(--bd)]">
-              <FileText size={14} className="text-indigo-400 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-[var(--tx2)] text-sm truncate">{m.filename}</p>
-                {m.page_count && (
-                  <p className="text-[var(--tx6)] text-xs">{m.page_count} pages · {Math.round((m.char_count || 0) / 1000)}k chars</p>
-                )}
-              </div>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0
-                ${m.status === 'ready'      ? 'bg-emerald-500/10 text-emerald-400' :
-                  m.status === 'processing' ? 'bg-yellow-500/10 text-yellow-400'   :
-                  m.status === 'failed'     ? 'bg-red-500/10 text-red-400'         :
-                                             'bg-[var(--ov3)] text-[var(--tx6)]'}`}>
-                {m.status}
-              </span>
-              {/* Open PDF button — only when ready and file_url is set */}
-              {m.status === 'ready' && m.file_url && (
+            <div key={m.id}>
+              {m.status === 'ready' && m.file_url ? (
+                /* Clickable PDF card */
                 <button
                   onClick={() => onOpenPdf(m)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shrink-0
-                             bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20
-                             transition-colors"
-                >
-                  <Eye size={12} /> Open PDF
+                  className="w-full text-left group rounded-2xl bg-[var(--surface)] border border-[var(--bd)]
+                             hover:border-indigo-500/35 hover:shadow-[0_0_0_1px_rgba(99,102,241,0.12)]
+                             transition-all overflow-hidden">
+                  {/* Gradient top bar */}
+                  <div className="h-0.5 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 opacity-60
+                                  group-hover:opacity-100 transition-opacity" />
+                  <div className="flex items-center gap-3 px-4 py-3.5">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-500/10 border border-indigo-500/20
+                                    flex items-center justify-center shrink-0
+                                    group-hover:bg-indigo-500/15 transition-colors">
+                      <FileText size={16} className="text-indigo-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[var(--tx1)] text-sm font-medium truncate">{m.filename}</p>
+                      <p className="text-[var(--tx6)] text-xs mt-0.5">
+                        {m.page_count ? `${m.page_count} pages` : ''}
+                        {m.page_count && m.char_count ? ' · ' : ''}
+                        {m.char_count ? `${Math.round(m.char_count / 1000)}k chars` : ''}
+                        {(m.page_count || m.char_count) ? ' · ' : ''}
+                        <span className="text-indigo-400">Select text or region → Ask AI</span>
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg shrink-0
+                                    bg-indigo-500/10 group-hover:bg-indigo-500/20
+                                    text-indigo-400 border border-indigo-500/20 transition-colors">
+                      <Eye size={12} />
+                      <span className="text-xs font-medium">Open PDF</span>
+                    </div>
+                  </div>
                 </button>
+              ) : (
+                /* Non-ready material row */
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-[var(--surface)] border border-[var(--bd)]">
+                  <FileText size={14} className="text-[var(--tx6)] shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[var(--tx2)] text-sm truncate">{m.filename}</p>
+                    {m.page_count && (
+                      <p className="text-[var(--tx6)] text-xs">{m.page_count} pages · {Math.round((m.char_count || 0) / 1000)}k chars</p>
+                    )}
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0
+                    ${m.status === 'processing' ? 'bg-yellow-500/10 text-yellow-400' :
+                      m.status === 'failed'     ? 'bg-red-500/10 text-red-400'       :
+                                                 'bg-[var(--ov3)] text-[var(--tx6)]'}`}>
+                    {m.status}
+                  </span>
+                </div>
               )}
             </div>
           ))}
