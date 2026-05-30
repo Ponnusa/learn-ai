@@ -8,6 +8,7 @@ import {
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
   FileText, AlertCircle, Send, BookOpen, HelpCircle,
   Lightbulb, Repeat2, Video, Clock, Plus, Eye,
+  ZoomIn, ZoomOut, X as XIcon,
 } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
@@ -513,6 +514,88 @@ function Chips({ chips, onChip }: { chips: string[]; onChip: (c: string) => void
   );
 }
 
+// ─── ImageLightbox ────────────────────────────────────────────────────────────
+
+function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  const [zoom, setZoom] = useState(1);
+  const MIN = 0.5, MAX = 5, STEP = 0.4;
+
+  // Keyboard: Escape closes, +/- zooms
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose();
+      if (e.key === '+' || e.key === '=') setZoom(z => Math.min(MAX, parseFloat((z + STEP).toFixed(1))));
+      if (e.key === '-')                  setZoom(z => Math.max(MIN, parseFloat((z - STEP).toFixed(1))));
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  // Ctrl/Cmd + wheel
+  useEffect(() => {
+    function onWheel(e: WheelEvent) {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setZoom(z => parseFloat(Math.min(MAX, Math.max(MIN, z + (e.deltaY < 0 ? STEP : -STEP))).toFixed(1)));
+    }
+    window.addEventListener('wheel', onWheel, { passive: false });
+    return () => window.removeEventListener('wheel', onWheel);
+  }, []);
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      {/* Controls */}
+      <div
+        className="absolute top-4 right-4 flex items-center gap-1.5 z-10"
+        onClick={e => e.stopPropagation()}
+      >
+        <button
+          onClick={() => setZoom(z => Math.max(MIN, parseFloat((z - STEP).toFixed(1))))}
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
+          <ZoomOut size={16} />
+        </button>
+        <span className="text-white/50 text-xs w-12 text-center tabular-nums select-none">
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          onClick={() => setZoom(z => Math.min(MAX, parseFloat((z + STEP).toFixed(1))))}
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
+          <ZoomIn size={16} />
+        </button>
+        <div className="w-px h-5 bg-white/20 mx-0.5" />
+        <button
+          onClick={onClose}
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
+          <XIcon size={16} />
+        </button>
+      </div>
+
+      {/* Reset zoom on double-click */}
+      <div
+        className="overflow-auto max-w-full max-h-full p-4"
+        style={{ cursor: zoom > 1 ? 'zoom-out' : 'zoom-in' }}
+        onClick={e => { e.stopPropagation(); setZoom(z => z === 1 ? 2.5 : 1); }}
+      >
+        <img
+          src={src}
+          alt="PDF region"
+          style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 0.15s ease' }}
+          className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg select-none"
+          draggable={false}
+        />
+      </div>
+
+      {/* Hint */}
+      <p className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/30 text-xs select-none pointer-events-none">
+        Click to toggle zoom · Ctrl+scroll · Esc to close
+      </p>
+    </div>
+  );
+}
+
 // ─── ActiveChat ───────────────────────────────────────────────────────────────
 
 function ActiveChat({
@@ -530,6 +613,7 @@ function ActiveChat({
   const [loading, setLoading]      = useState(false);
   const [histLoading, setHistLoading] = useState(false);
   const [quizzing, setQuizzing]    = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [videoing, setVideoing]    = useState(false);
   const [convId, setConvId]        = useState<string | null>(null);
   const [lastMsgId, setLastMsgId]  = useState<string | null>(null);
@@ -701,19 +785,30 @@ function ActiveChat({
         )}
         {messages.map((m, i) => (
           <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-            {/* PDF region thumbnail — shown above the user bubble */}
+            {/* PDF region thumbnail — click to open lightbox */}
             {m.role === 'user' && m.imageUrl && (
               <div className="max-w-[88%] mb-1.5">
                 <div className="flex items-center gap-1.5 mb-1">
                   <FileText size={11} className="text-indigo-300" />
                   <span className="text-[10px] text-indigo-300/70 font-medium">From PDF</span>
                 </div>
-                <img
-                  src={m.imageUrl}
-                  alt="Selected PDF region"
-                  className="rounded-xl border border-indigo-500/30 bg-white max-w-full"
-                  style={{ maxHeight: '200px', objectFit: 'contain' }}
-                />
+                <button
+                  onClick={() => setLightboxSrc(m.imageUrl!)}
+                  className="block group relative rounded-xl overflow-hidden border border-indigo-500/30
+                             hover:border-indigo-400/60 transition-colors cursor-zoom-in">
+                  <img
+                    src={m.imageUrl}
+                    alt="Selected PDF region"
+                    className="bg-white max-w-full block"
+                    style={{ maxHeight: '180px', objectFit: 'contain' }}
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors
+                                  flex items-center justify-center opacity-0 group-hover:opacity-100">
+                    <div className="bg-black/60 rounded-full p-1.5">
+                      <ZoomIn size={14} className="text-white" />
+                    </div>
+                  </div>
+                </button>
               </div>
             )}
             <div className={`max-w-[88%] px-4 py-3 rounded-2xl text-sm leading-relaxed
@@ -769,6 +864,11 @@ function ActiveChat({
           <Send size={15} />
         </button>
       </div>
+
+      {/* Image lightbox */}
+      {lightboxSrc && (
+        <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+      )}
     </div>
   );
 }
