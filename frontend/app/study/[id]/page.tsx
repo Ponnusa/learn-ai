@@ -152,7 +152,7 @@ function OverviewTab({
           <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">Materials</p>
           {ss.materials.map(m => (
             <div key={m.id}>
-              {m.status === 'ready' && m.file_url ? (
+              {m.status === 'ready' ? (
                 /* Clickable PDF card */
                 <button
                   onClick={() => onOpenPdf(m)}
