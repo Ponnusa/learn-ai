@@ -44,6 +44,7 @@ class ChatRequest(BaseModel):
     user_id: str | None = None
     session_id: str | None = None
     history: list[dict] = []             # [{role, content}, ...] — last N turns from frontend
+    image_url: str | None = None         # R2 URL of a captured PDF region (vision input)
 
 
 class ReviewRequest(BaseModel):
@@ -266,7 +267,10 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
     Grounded chat — answers are strictly from the study material.
     Creates a persisted conversation on first message; all turns are
     saved to messages table so history survives page refreshes.
+    Supports vision: pass image_url (R2 URL of a PDF region capture).
     """
+    import json as _json
+
     async with get_db() as db:
         ss = await db.fetchrow(
             "SELECT title, subject, summary FROM study_sets WHERE id = $1::uuid",
@@ -288,12 +292,14 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
     # ── 1. Get or create conversation ────────────────────────────────────────
     conv_id = req.conversation_id
     if not conv_id:
-        # First message — create a new conversation tagged to this study set
-        title = (
-            f"{req.concept_name} — {ss['title']}"
-            if req.concept_name
-            else f"{ss['title']} — Study Chat"
-        )
+        if req.concept_name:
+            title = f"{req.concept_name} — {ss['title']}"
+        elif req.image_url:
+            snippet = req.message[:70].rstrip()
+            title = f"📄 {snippet}{'…' if len(req.message) > 70 else ''}"
+        else:
+            title = f"{ss['title']} — Study Chat"
+
         async with get_db() as db:
             conv = await db.fetchrow(
                 """INSERT INTO conversations
@@ -305,12 +311,14 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
             )
         conv_id = str(conv["id"])
 
-    # ── 2. Save user message ──────────────────────────────────────────────────
+    # ── 2. Save user message (with image metadata if present) ────────────────
+    content_type = "image_url" if req.image_url else "text"
+    metadata     = _json.dumps({"image_url": req.image_url}) if req.image_url else "{}"
     async with get_db() as db:
         user_msg = await db.fetchrow(
-            """INSERT INTO messages (conversation_id, role, content)
-               VALUES ($1::uuid, 'user', $2) RETURNING id""",
-            conv_id, req.message,
+            """INSERT INTO messages (conversation_id, role, content, content_type, metadata)
+               VALUES ($1::uuid, 'user', $2, $3, $4::jsonb) RETURNING id""",
+            conv_id, req.message, content_type, metadata,
         )
 
     # ── 3. Build AI prompt ────────────────────────────────────────────────────
@@ -334,7 +342,7 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
 
     # Concept-seeded intro: structured lesson format
     if req.concept_name and not req.history:
-        user_content = (
+        base_text = (
             f'Give me a thorough lesson on "{req.concept_name}" based on the study material. '
             f'Structure your response as:\n'
             f'1. **Definition** — what it is in plain terms\n'
@@ -344,7 +352,16 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
             f'Keep it focused and student-friendly.'
         )
     else:
-        user_content = req.message
+        base_text = req.message
+
+    # Vision: if image_url supplied, build multipart user content
+    if req.image_url:
+        user_content = [
+            {"type": "text", "text": base_text},
+            {"type": "image_url", "image_url": {"url": req.image_url, "detail": "high"}},
+        ]
+    else:
+        user_content = base_text
 
     ai_messages.append({"role": "user", "content": user_content})
 

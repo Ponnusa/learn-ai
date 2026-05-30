@@ -15,7 +15,7 @@ import { VideoStatusCard } from '@/components/chat/MessageBubble';
 import {
   getStudySet, uploadStudyMaterial, chatWithStudySet, reviewStudyCard,
   generateQuiz, generateVideo, getStudySetConversations, getMessages,
-  getConversationVideos, fetchMaterialPdf,
+  getConversationVideos, fetchMaterialPdf, uploadRegionImage,
   StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial, StudyConcept,
 } from '@/lib/api';
 
@@ -35,6 +35,7 @@ type ChatMsg = {
   content:  string;
   chips?:   string[];
   videoId?: number;
+  imageUrl?: string;   // R2 URL of a PDF region capture (shown as thumbnail)
 };
 
 type ChatSeed = {
@@ -551,9 +552,10 @@ function ActiveChat({
       for (const v of videos) { if (v.message_id) vidMap[String(v.message_id)] = v.id; }
 
       const loaded: ChatMsg[] = rows.map(r => ({
-        role:    r.role as 'user' | 'assistant',
-        content: r.content,
-        videoId: vidMap[String(r.id)],
+        role:     r.role as 'user' | 'assistant',
+        content:  r.content,
+        videoId:  vidMap[String(r.id)],
+        imageUrl: r.metadata?.image_url as string | undefined,
       }));
       // Chips on last assistant message
       const lastAi = loaded.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).slice(-1)[0];
@@ -564,27 +566,41 @@ function ActiveChat({
     }).catch(() => {}).finally(() => setHistLoading(false));
   }, [loadConversation?.id]);
 
-  // Auto-fire seed message
+  // Auto-fire seed message (upload region image to R2 first if present)
   useEffect(() => {
     if (!seed || firedRef.current || ss.status !== 'ready') return;
     firedRef.current = true;
 
-    if (seed.pdfQuestion) {
-      // PDF-based question: combine question + selected context
-      const userText = seed.pdfContext?.text
-        ? `${seed.pdfQuestion}\n\n---\n*Selected from PDF:*\n"${seed.pdfContext.text}"`
-        : seed.pdfQuestion;
-      fireMessage(userText, undefined);
-    } else if (seed.concept) {
-      fireMessage(`Tell me about "${seed.concept}"`, seed.concept);
+    async function autoFire() {
+      if (seed!.pdfQuestion) {
+        let imageUrl: string | undefined;
+
+        // Upload captured region to R2 before sending
+        if (seed!.pdfContext?.imageDataUrl) {
+          try {
+            imageUrl = await uploadRegionImage(
+              seed!.pdfContext.imageDataUrl,
+              user?.id, sessionId || undefined, token ?? undefined,
+            );
+          } catch { /* best-effort: continue without image */ }
+        }
+
+        const userText = seed!.pdfContext?.text
+          ? `${seed!.pdfQuestion}\n\n---\n*Selected from PDF:*\n"${seed!.pdfContext.text}"`
+          : seed!.pdfQuestion;
+        fireMessage(userText, undefined, imageUrl);
+      } else if (seed!.concept) {
+        fireMessage(`Tell me about "${seed!.concept}"`, seed!.concept);
+      }
     }
+    autoFire();
   }, [seed, ss.status]);
 
   const notReady = ss.status !== 'ready';
 
-  async function fireMessage(text: string, conceptName?: string) {
+  async function fireMessage(text: string, conceptName?: string, imageUrl?: string) {
     if (loading || notReady) return;
-    setMessages(prev => [...prev, { role: 'user', content: text }]);
+    setMessages(prev => [...prev, { role: 'user', content: text, imageUrl }]);
     setLoading(true);
     try {
       const history = messages.slice(-10).map(m => ({ role: m.role, content: m.content }));
@@ -592,6 +608,7 @@ function ActiveChat({
         ss.id, text, history, token ?? undefined,
         conceptName, convId ?? undefined,
         user?.id, sessionId || undefined,
+        imageUrl,
       );
       setConvId(res.conversation_id);
       setLastMsgId(res.message_id);
@@ -684,6 +701,21 @@ function ActiveChat({
         )}
         {messages.map((m, i) => (
           <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+            {/* PDF region thumbnail — shown above the user bubble */}
+            {m.role === 'user' && m.imageUrl && (
+              <div className="max-w-[88%] mb-1.5">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <FileText size={11} className="text-indigo-300" />
+                  <span className="text-[10px] text-indigo-300/70 font-medium">From PDF</span>
+                </div>
+                <img
+                  src={m.imageUrl}
+                  alt="Selected PDF region"
+                  className="rounded-xl border border-indigo-500/30 bg-white max-w-full"
+                  style={{ maxHeight: '200px', objectFit: 'contain' }}
+                />
+              </div>
+            )}
             <div className={`max-w-[88%] px-4 py-3 rounded-2xl text-sm leading-relaxed
               ${m.role === 'user'
                 ? 'bg-indigo-600 text-white rounded-br-md'

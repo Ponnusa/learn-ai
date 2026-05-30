@@ -248,6 +248,7 @@ export const chatWithStudySet = (
   conversationId?: string,
   userId?: string,
   sessionId?: string,
+  imageUrl?: string,
 ) =>
   post<{ reply: string; chips: string[]; conversation_id: string; message_id: string }>(
     `/api/studysets/${id}/chat`,
@@ -258,9 +259,38 @@ export const chatWithStudySet = (
       conversation_id: conversationId ?? null,
       user_id:         userId         ?? null,
       session_id:      sessionId      ?? null,
+      image_url:       imageUrl       ?? null,
     },
     token,
   );
+
+/**
+ * Upload a canvas region (base64 data URL) to R2 via /api/uploads.
+ * Returns the public R2 URL for use as image_url in chat messages.
+ */
+export async function uploadRegionImage(
+  dataUrl: string,
+  userId?: string,
+  sessionId?: string,
+  token?: string,
+): Promise<string> {
+  const blob = await fetch(dataUrl).then(r => r.blob());
+  const form = new FormData();
+  form.append('file', blob, 'region.png');
+  if (userId)    form.append('user_id',    userId);
+  if (sessionId) form.append('session_id', sessionId);
+
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/api/uploads`, { method: 'POST', headers, body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Image upload failed');
+  }
+  const data = await res.json();
+  return data.url as string;
+}
 
 export type StudySetConversation = {
   id: string; title: string; created_at: string;
