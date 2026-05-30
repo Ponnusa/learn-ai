@@ -1,12 +1,13 @@
 'use client';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import ReactMarkdown from 'react-markdown';
 import {
   ArrowLeft, Upload, Loader, LayoutGrid, MessageSquare,
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
   FileText, AlertCircle, Send, BookOpen, HelpCircle,
-  Lightbulb, Repeat2, Video, Clock, Plus,
+  Lightbulb, Repeat2, Video, Clock, Plus, Eye,
 } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
@@ -14,19 +15,32 @@ import { VideoStatusCard } from '@/components/chat/MessageBubble';
 import {
   getStudySet, uploadStudyMaterial, chatWithStudySet, reviewStudyCard,
   generateQuiz, generateVideo, getStudySetConversations, getMessages,
-  getConversationVideos,
-  StudySetDetail, StudyFlashcard, StudySetConversation,
+  getConversationVideos, fetchMaterialPdf,
+  StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial,
 } from '@/lib/api';
+
+// PDFViewerModal uses browser-only APIs — never SSR
+const PDFViewerModal = dynamic(
+  () => import('@/components/chat/PDFViewerModal').then(m => m.PDFViewerModal),
+  { ssr: false, loading: () => null },
+);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'flashcards' | 'chat';
+type Tab = 'overview' | 'concepts' | 'flashcards' | 'chat';
+type ChatView = 'list' | 'active';
 
 type ChatMsg = {
   role:     'user' | 'assistant';
   content:  string;
   chips?:   string[];
-  videoId?: number;   // inline video card when "Create a video" chip is clicked
+  videoId?: number;
+};
+
+type ChatSeed = {
+  concept?: string;          // concept name
+  pdfQuestion?: string;      // question from PDF selection
+  pdfContext?: { text?: string; imageDataUrl?: string };
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -44,14 +58,13 @@ function formatDate(iso: string) {
 function ProcessingBanner({ status }: { status: string }) {
   if (status === 'ready') return null;
   const cfg = {
-    empty:      { cls: 'border-[var(--bd)] bg-[var(--ov2)]',    icon: <Upload size={15} className="text-[var(--tx5)]" />,            msg: 'Upload a PDF below to get started.' },
-    processing: { cls: 'border-yellow-500/30 bg-yellow-500/5',  icon: <Loader size={15} className="text-yellow-400 animate-spin" />, msg: 'Extracting concepts and flashcards — ~30–60 seconds…' },
-    failed:     { cls: 'border-red-500/30 bg-red-500/5',        icon: <AlertCircle size={15} className="text-red-400" />,            msg: 'Processing failed. Try uploading again.' },
+    empty:      { cls: 'border-[var(--bd)] bg-[var(--ov2)]',   icon: <Upload size={15} className="text-[var(--tx5)]" />,            msg: 'Upload a PDF below to get started.' },
+    processing: { cls: 'border-yellow-500/30 bg-yellow-500/5', icon: <Loader size={15} className="text-yellow-400 animate-spin" />, msg: 'Extracting concepts and generating flashcards — ~30–60 seconds…' },
+    failed:     { cls: 'border-red-500/30 bg-red-500/5',       icon: <AlertCircle size={15} className="text-red-400" />,            msg: 'Processing failed. Try uploading again.' },
   }[status] ?? { cls: 'border-[var(--bd)] bg-[var(--ov2)]', icon: null, msg: '' };
   return (
     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border mb-5 ${cfg.cls}`}>
-      {cfg.icon}
-      <p className="text-[var(--tx4)] text-sm">{cfg.msg}</p>
+      {cfg.icon}<p className="text-[var(--tx4)] text-sm">{cfg.msg}</p>
     </div>
   );
 }
@@ -86,7 +99,7 @@ function UploadZone({ studySetId, onUploaded }: { studySetId: string; onUploaded
         {uploading ? (
           <div className="flex flex-col items-center gap-3">
             <Loader size={28} className="text-indigo-400 animate-spin" />
-            <p className="text-[var(--tx4)] text-sm">Uploading PDF…</p>
+            <p className="text-[var(--tx4)] text-sm">Uploading…</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
@@ -107,35 +120,17 @@ function UploadZone({ studySetId, onUploaded }: { studySetId: string; onUploaded
   );
 }
 
-// ─── OverviewTab ──────────────────────────────────────────────────────────────
+// ─── OverviewTab ─────────────────────────────────────────────────────────────
 
 function OverviewTab({
-  ss, onRefresh, onNewConceptChat, onContinueConversation,
+  ss, onRefresh, onOpenPdf,
 }: {
   ss: StudySetDetail;
   onRefresh: () => void;
-  onNewConceptChat: (conceptName: string) => void;
-  onContinueConversation: (conv: StudySetConversation) => void;
+  onOpenPdf: (mat: StudyMaterial) => void;
 }) {
-  const { token }  = useSessionStore();
-  const [convs,     setConvs]     = useState<StudySetConversation[]>([]);
-  const [convsLoad, setConvsLoad] = useState(false);
-
-  useEffect(() => {
-    if (ss.status !== 'ready') return;
-    setConvsLoad(true);
-    getStudySetConversations(ss.id, token ?? undefined)
-      .then(r => { setConvs(r); setConvsLoad(false); })
-      .catch(()  => setConvsLoad(false));
-  }, [ss.id, ss.status]);
-
-  // Find the most recent conversation that starts with a given concept name
-  function latestConvForConcept(name: string) {
-    return convs.find(c => c.title.startsWith(name));
-  }
-
   return (
-    <div className="space-y-7">
+    <div className="space-y-6">
       <ProcessingBanner status={ss.status} />
 
       {/* Summary */}
@@ -172,121 +167,153 @@ function OverviewTab({
                                              'bg-[var(--ov3)] text-[var(--tx6)]'}`}>
                 {m.status}
               </span>
+              {/* Open PDF button — only when ready and file_url is set */}
+              {m.status === 'ready' && m.file_url && (
+                <button
+                  onClick={() => onOpenPdf(m)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium shrink-0
+                             bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20
+                             transition-colors"
+                >
+                  <Eye size={12} /> Open PDF
+                </button>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Concept cards ── */}
-      {ss.concepts.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">
-              Key Concepts · {ss.concepts.length}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {ss.concepts.map((c, i) => {
-              const prev = latestConvForConcept(c.name);
-              return (
-                <div key={c.id}
-                  className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4
-                             hover:border-indigo-500/20 transition-colors flex flex-col gap-3">
-
-                  {/* Header */}
-                  <div className="flex items-start gap-2.5">
-                    <span className="w-6 h-6 rounded-lg bg-indigo-500/15 text-indigo-400
-                                     text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
-                      {i + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[var(--tx1)] font-semibold text-sm leading-snug">{c.name}</p>
-                      <p className="text-[var(--tx5)] text-xs leading-relaxed mt-1 line-clamp-3">
-                        {c.definition}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-2 mt-auto">
-                    <button
-                      onClick={() => onNewConceptChat(c.name)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2
-                                 rounded-xl text-xs font-medium border transition-colors
-                                 bg-indigo-500/10 hover:bg-indigo-500/20
-                                 text-indigo-400 border-indigo-500/20"
-                    >
-                      <Plus size={12} /> New chat
-                    </button>
-
-                    {prev ? (
-                      <button
-                        onClick={() => onContinueConversation(prev)}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2
-                                   rounded-xl text-xs font-medium border transition-colors
-                                   bg-[var(--ov3)] hover:bg-[var(--ov4)]
-                                   text-[var(--tx3)] border-[var(--bd)]"
-                      >
-                        <ChevronRight size={12} /> Continue
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => onNewConceptChat(c.name)}
-                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2
-                                   rounded-xl text-xs font-medium border transition-colors
-                                   bg-[var(--ov2)] hover:bg-[var(--ov3)]
-                                   text-[var(--tx6)] border-[var(--bd)]"
-                      >
-                        <MessageSquare size={12} /> Start learning
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      {/* Empty concept hint */}
+      {ss.status === 'ready' && ss.concepts.length > 0 && (
+        <div className="rounded-2xl bg-indigo-500/5 border border-indigo-500/15 px-5 py-4 flex items-center gap-3">
+          <BookOpen size={16} className="text-indigo-400 shrink-0" />
+          <p className="text-[var(--tx4)] text-sm">
+            {ss.concepts.length} key concepts extracted — go to the <strong>Concepts</strong> tab to study them.
+          </p>
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* ── Chat history ── */}
-      {(convsLoad || convs.length > 0) && (
-        <div className="space-y-2">
-          <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">
-            Chat History · {convs.length}
-          </p>
-          {convsLoad ? (
-            <div className="flex items-center gap-2 py-2 text-[var(--tx6)] text-xs">
-              <Loader size={12} className="animate-spin" /> Loading…
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {convs.map(c => (
-                <button key={c.id} onClick={() => onContinueConversation(c)}
-                  className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl
-                             bg-[var(--surface)] border border-[var(--bd)]
-                             hover:border-indigo-500/30 hover:bg-indigo-500/5
-                             transition-colors group">
-                  <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20
-                                  flex items-center justify-center shrink-0">
-                    <MessageSquare size={13} className="text-indigo-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[var(--tx2)] text-sm font-medium truncate">{c.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5 text-[var(--tx6)] text-xs">
-                      <span className="flex items-center gap-1"><Clock size={10} />{formatDate(c.created_at)}</span>
-                      {c.message_count > 0 && <span>· {c.message_count} msg</span>}
-                      {c.quiz_count   > 0 && <span>· {c.quiz_count} quiz</span>}
-                      {c.video_count  > 0 && <span>· {c.video_count} video</span>}
-                    </div>
-                  </div>
-                  <ChevronRight size={14} className="text-[var(--tx6)] opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                </button>
-              ))}
-            </div>
+// ─── ConceptsTab ──────────────────────────────────────────────────────────────
+
+function ConceptsTab({
+  ss, convs, convsLoading, onNewChat, onContinue,
+}: {
+  ss: StudySetDetail;
+  convs: StudySetConversation[];
+  convsLoading: boolean;
+  onNewChat: (conceptName: string) => void;
+  onContinue: (conv: StudySetConversation) => void;
+}) {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+
+  if (ss.concepts.length === 0) return (
+    <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
+      <BookOpen size={32} className="text-[var(--tx6)]" />
+      <p className="text-[var(--tx4)] text-sm">
+        {ss.status === 'ready' ? 'No concepts extracted.' : 'Upload a PDF to extract key concepts.'}
+      </p>
+    </div>
+  );
+
+  const safeIdx  = Math.min(selectedIdx, ss.concepts.length - 1);
+  const concept  = ss.concepts[safeIdx];
+  const prevConv = convsLoading ? undefined : convs.find(c => c.title.startsWith(concept.name));
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Header */}
+      <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide shrink-0">
+        Key Concepts · {ss.concepts.length}
+      </p>
+
+      {/* Horizontal concept tabs */}
+      <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1 shrink-0">
+        {ss.concepts.map((c, i) => (
+          <button
+            key={c.id}
+            onClick={() => setSelectedIdx(i)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium
+                        whitespace-nowrap shrink-0 border transition-all
+              ${safeIdx === i
+                ? 'bg-indigo-600 text-white border-indigo-600'
+                : 'bg-[var(--surface)] text-[var(--tx4)] border-[var(--bd)] hover:border-indigo-500/40 hover:text-[var(--tx2)]'}`}
+          >
+            <span className={`w-4 h-4 rounded text-[9px] font-bold flex items-center justify-center shrink-0
+              ${safeIdx === i ? 'bg-white/20' : 'bg-indigo-500/15 text-indigo-400'}`}>
+              {i + 1}
+            </span>
+            {c.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Selected concept detail card */}
+      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 flex flex-col gap-4">
+        <div>
+          <div className="flex items-start gap-3 mb-3">
+            <span className="w-7 h-7 rounded-lg bg-indigo-500/15 text-indigo-400 text-xs font-bold
+                             flex items-center justify-center shrink-0 mt-0.5">
+              {safeIdx + 1}
+            </span>
+            <p className="text-[var(--tx1)] font-semibold text-base leading-snug">{concept.name}</p>
+          </div>
+          <p className="text-[var(--tx3)] text-sm leading-relaxed">{concept.definition}</p>
+          {concept.explanation && (
+            <p className="text-[var(--tx5)] text-sm leading-relaxed mt-3 pt-3 border-t border-[var(--bd)]">
+              {concept.explanation}
+            </p>
           )}
         </div>
-      )}
+
+        {/* Chat actions */}
+        <div className="flex gap-2 pt-1 border-t border-[var(--bd)]">
+          <button onClick={() => onNewChat(concept.name)}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
+                       text-xs font-medium border transition-colors
+                       bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20">
+            <Plus size={12} /> New chat
+          </button>
+          {prevConv ? (
+            <button onClick={() => onContinue(prevConv)}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
+                         text-xs font-medium border transition-colors
+                         bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx3)] border-[var(--bd)]">
+              <ChevronRight size={12} /> Continue chat
+            </button>
+          ) : (
+            <button onClick={() => onNewChat(concept.name)}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl
+                         text-xs font-medium border transition-colors
+                         bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx6)] border-[var(--bd)]">
+              <MessageSquare size={12} /> Start learning
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Prev / Next navigation */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setSelectedIdx(i => Math.max(0, i - 1))}
+          disabled={safeIdx === 0}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border
+                     text-[var(--tx5)] border-[var(--bd)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)]
+                     disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          <ChevronLeft size={13} /> Previous
+        </button>
+        <span className="text-[var(--tx6)] text-xs">{safeIdx + 1} / {ss.concepts.length}</span>
+        <button
+          onClick={() => setSelectedIdx(i => Math.min(ss.concepts.length - 1, i + 1))}
+          disabled={safeIdx === ss.concepts.length - 1}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border
+                     text-[var(--tx5)] border-[var(--bd)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)]
+                     disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+          Next <ChevronRight size={13} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -296,14 +323,13 @@ function OverviewTab({
 function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
   const { user, token } = useSessionStore();
   const cards = ss.flashcards;
-  const [idx,        setIdx]       = useState(0);
-  const [flipped,    setFlipped]   = useState(false);
-  const [done,       setDone]      = useState<Set<number>>(new Set());
-  const [again,      setAgain]     = useState<number[]>([]);
-  const [finished,   setFinished]  = useState(false);
-  const [submitting, setSubmitting]= useState(false);
-
-  const card     = cards[idx] as StudyFlashcard | undefined;
+  const [idx, setIdx]           = useState(0);
+  const [flipped, setFlipped]   = useState(false);
+  const [done, setDone]         = useState<Set<number>>(new Set());
+  const [again, setAgain]       = useState<number[]>([]);
+  const [finished, setFinished] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const card = cards[idx] as StudyFlashcard | undefined;
   const progress = Math.round((done.size / cards.length) * 100);
 
   async function recordReview(rating: 1 | 4) {
@@ -312,13 +338,12 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
     await reviewStudyCard(ss.id, card.id, user.id, rating, token ?? undefined).catch(() => {});
     setSubmitting(false);
   }
-
   async function handleGotIt()  { await recordReview(4); setDone(p => new Set([...p, idx])); advance(); }
   async function handleAgain()  { await recordReview(1); setAgain(p => [...p, idx]);         advance(); }
-  function advance() { setFlipped(false); const n = idx + 1; if (n >= cards.length) setFinished(true); else setIdx(n); }
+  function advance() { setFlipped(false); const n = idx + 1; n >= cards.length ? setFinished(true) : setIdx(n); }
   function restart() { setIdx(0); setFlipped(false); setDone(new Set()); setAgain([]); setFinished(false); }
 
-  if (cards.length === 0) return (
+  if (!cards.length) return (
     <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
       <LayoutGrid size={32} className="text-[var(--tx6)]" />
       <p className="text-[var(--tx4)] text-sm">No flashcards yet — upload a PDF first.</p>
@@ -355,7 +380,6 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
           <div className="h-full rounded-full bg-indigo-500 transition-all" style={{ width: `${progress}%` }} />
         </div>
       </div>
-
       <div onClick={() => setFlipped(f => !f)}
         className="w-full min-h-[220px] rounded-2xl border border-[var(--bd)] bg-[var(--surface)]
                    cursor-pointer select-none flex flex-col items-center justify-center p-8 text-center gap-3
@@ -367,7 +391,6 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
           {flipped ? card?.back : card?.front}
         </p>
       </div>
-
       {flipped ? (
         <div className="flex gap-3 w-full">
           <button onClick={handleAgain} disabled={submitting}
@@ -389,7 +412,6 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
           Reveal answer
         </button>
       )}
-
       <div className="flex items-center gap-4">
         <button onClick={() => { setIdx(i => Math.max(0, i - 1)); setFlipped(false); }} disabled={idx === 0}
           className="w-9 h-9 flex items-center justify-center rounded-xl border border-[var(--bd)]
@@ -434,76 +456,73 @@ function Chips({ chips, onChip }: { chips: string[]; onChip: (c: string) => void
   );
 }
 
-// ─── ChatTab ──────────────────────────────────────────────────────────────────
+// ─── ActiveChat ───────────────────────────────────────────────────────────────
 
-function ChatTab({
-  ss, seedConcept, onSeedConsumed, loadConversation,
+function ActiveChat({
+  ss, seed, loadConversation, onBack,
 }: {
   ss: StudySetDetail;
-  seedConcept: string | null;
-  onSeedConsumed: () => void;
+  seed: ChatSeed | null;
   loadConversation: StudySetConversation | null;
+  onBack: () => void;
 }) {
   const { user, token, sessionId } = useSessionStore();
   const router                     = useRouter();
-  const [messages,    setMessages]   = useState<ChatMsg[]>([]);
-  const [input,       setInput]      = useState('');
-  const [loading,     setLoading]    = useState(false);
-  const [histLoading, setHistLoading]= useState(false);
-  const [quizzing,    setQuizzing]   = useState(false);
-  const [videoing,    setVideoing]   = useState(false);
-  const [convId,      setConvId]     = useState<string | null>(null);
-  const [lastMsgId,   setLastMsgId]  = useState<string | null>(null);
-  const bottomRef  = useRef<HTMLDivElement>(null);
-  const seededRef  = useRef(false);
+  const [messages, setMessages]    = useState<ChatMsg[]>([]);
+  const [input, setInput]          = useState('');
+  const [loading, setLoading]      = useState(false);
+  const [histLoading, setHistLoading] = useState(false);
+  const [quizzing, setQuizzing]    = useState(false);
+  const [videoing, setVideoing]    = useState(false);
+  const [convId, setConvId]        = useState<string | null>(null);
+  const [lastMsgId, setLastMsgId]  = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const firedRef  = useRef(false);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
 
-  // Load saved conversation when user clicks one from overview
+  // Load saved conversation
   useEffect(() => {
     if (!loadConversation) return;
-    seededRef.current = true;
+    firedRef.current = true;
     setConvId(loadConversation.id);
-    setMessages([]);
     setHistLoading(true);
-
     Promise.all([
       getMessages(loadConversation.id, token ?? undefined),
       getConversationVideos(loadConversation.id, token ?? undefined).catch(() => []),
     ]).then(([rows, videos]) => {
-      // Build message_id → video_id map
       const vidMap: Record<string, number> = {};
-      for (const v of videos) {
-        if (v.message_id) vidMap[String(v.message_id)] = v.id;
-      }
+      for (const v of videos) { if (v.message_id) vidMap[String(v.message_id)] = v.id; }
 
       const loaded: ChatMsg[] = rows.map(r => ({
         role:    r.role as 'user' | 'assistant',
         content: r.content,
         videoId: vidMap[String(r.id)],
       }));
-
-      // Re-attach chips to last assistant message
-      const lastAiIdx = [...loaded].map((m, i) => m.role === 'assistant' ? i : -1)
-                                   .filter(i => i !== -1).slice(-1)[0];
-      if (lastAiIdx !== undefined && lastAiIdx >= 0) {
-        loaded[lastAiIdx] = {
-          ...loaded[lastAiIdx],
-          chips: ['Quiz me on this', 'Create a video', 'Give me an example', 'Explain differently'],
-        };
+      // Chips on last assistant message
+      const lastAi = loaded.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).slice(-1)[0];
+      if (lastAi !== undefined && lastAi >= 0) {
+        loaded[lastAi] = { ...loaded[lastAi], chips: ['Quiz me on this', 'Create a video', 'Give me an example', 'Explain differently'] };
       }
       setMessages(loaded);
-      setHistLoading(false);
-    }).catch(() => setHistLoading(false));
+    }).catch(() => {}).finally(() => setHistLoading(false));
   }, [loadConversation?.id]);
 
-  // Auto-fire concept intro
+  // Auto-fire seed message
   useEffect(() => {
-    if (!seedConcept || seededRef.current || ss.status !== 'ready') return;
-    seededRef.current = true;
-    fireMessage(`Tell me about "${seedConcept}"`, seedConcept);
-    onSeedConsumed();
-  }, [seedConcept, ss.status]);
+    if (!seed || firedRef.current || ss.status !== 'ready') return;
+    firedRef.current = true;
+
+    if (seed.pdfQuestion) {
+      // PDF-based question: combine question + selected context
+      const userText = seed.pdfContext?.text
+        ? `${seed.pdfQuestion}\n\n---\n*Selected from PDF:*\n"${seed.pdfContext.text}"`
+        : seed.pdfQuestion;
+      fireMessage(userText, undefined);
+    } else if (seed.concept) {
+      fireMessage(`Tell me about "${seed.concept}"`, seed.concept);
+    }
+  }, [seed, ss.status]);
 
   const notReady = ss.status !== 'ready';
 
@@ -523,21 +542,17 @@ function ChatTab({
       setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips: res.chips }]);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Something went wrong. Please try again.' }]);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   }
 
   async function send() {
-    const text = input.trim();
-    if (!text) return;
-    setInput('');
-    await fireMessage(text);
+    const text = input.trim(); if (!text) return;
+    setInput(''); await fireMessage(text);
   }
 
   function currentTopic() {
-    return seedConcept
-      || messages.filter(m => m.role === 'user').slice(-1)[0]?.content
+    return seed?.concept
+      || messages.filter(m => m.role === 'user').slice(-1)[0]?.content?.slice(0, 120)
       || ss.title;
   }
 
@@ -545,99 +560,86 @@ function ChatTab({
     if (chip === 'Quiz me on this') {
       setQuizzing(true);
       try {
-        const res = await generateQuiz({
-          topic:           currentTopic(),
-          conversation_id: convId ?? undefined,
-          user_id:         user?.id,
-          subject:         ss.subject || undefined,
-        }, token ?? undefined);
+        const res = await generateQuiz({ topic: currentTopic(), conversation_id: convId ?? undefined, user_id: user?.id, subject: ss.subject || undefined }, token ?? undefined);
         router.push(`/quiz/${res.quiz_id}`);
       } catch { setQuizzing(false); }
       return;
     }
-
     if (chip === 'Create a video') {
       setVideoing(true);
       try {
-        const res = await generateVideo({
-          prompt:          currentTopic(),
-          conversation_id: convId ?? undefined,
-          message_id:      lastMsgId ?? undefined,
-          user_id:         user?.id,
-          subject:         ss.subject || undefined,
-        }, token ?? undefined);
-
+        const res = await generateVideo({ prompt: currentTopic(), conversation_id: convId ?? undefined, message_id: lastMsgId ?? undefined, user_id: user?.id, subject: ss.subject || undefined }, token ?? undefined);
         if (res.supported && res.video_id) {
-          // Show inline — attach videoId to the last assistant message
           setMessages(prev => {
-            const updated = [...prev];
-            for (let i = updated.length - 1; i >= 0; i--) {
-              if (updated[i].role === 'assistant') {
-                updated[i] = { ...updated[i], videoId: res.video_id! };
-                break;
-              }
+            const up = [...prev];
+            for (let i = up.length - 1; i >= 0; i--) {
+              if (up[i].role === 'assistant') { up[i] = { ...up[i], videoId: res.video_id! }; break; }
             }
-            return updated;
+            return up;
           });
         }
       } finally { setVideoing(false); }
       return;
     }
-
     await fireMessage(chip);
   }
 
+  function chatTitle() {
+    if (loadConversation?.title) return loadConversation.title;
+    if (seed?.concept) return seed.concept;
+    if (seed?.pdfContext?.text) {
+      const snippet = seed.pdfContext.text.length > 80
+        ? seed.pdfContext.text.slice(0, 80) + '…'
+        : seed.pdfContext.text;
+      return `📄 "${snippet}"`;
+    }
+    if (seed?.pdfQuestion) {
+      const q = seed.pdfQuestion.length > 80 ? seed.pdfQuestion.slice(0, 80) + '…' : seed.pdfQuestion;
+      return `📄 ${q}`;
+    }
+    return 'New chat';
+  }
+  const title = chatTitle();
+
   return (
-    <div className="flex flex-col h-full min-h-[60vh]">
-      {notReady && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl border border-yellow-500/20
-                        bg-yellow-500/5 mb-4 text-yellow-400 text-sm">
-          <AlertCircle size={14} />
-          Chat available once your PDF is processed.
-        </div>
-      )}
+    <div className="flex flex-col h-full">
+      {/* Sub-header */}
+      <div className="flex items-center gap-2 pb-3 mb-3 border-b border-[var(--bd)] shrink-0">
+        <button onClick={onBack}
+          className="w-7 h-7 flex items-center justify-center rounded-lg
+                     text-[var(--tx5)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)] transition-colors">
+          <ChevronLeft size={16} />
+        </button>
+        <p className="text-[var(--tx2)] text-sm font-medium truncate flex-1">{title}</p>
+      </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 pb-4">
         {histLoading && (
           <div className="flex items-center justify-center py-10 gap-2 text-[var(--tx6)] text-sm">
-            <Loader size={16} className="animate-spin" /> Loading conversation…
+            <Loader size={16} className="animate-spin" /> Loading…
           </div>
         )}
         {!histLoading && messages.length === 0 && !notReady && (
-          <div className="flex flex-col items-center justify-center py-12 gap-4 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center">
-              <MessageSquare size={20} className="text-indigo-400" />
-            </div>
-            <div>
-              <p className="text-[var(--tx3)] text-sm font-medium mb-1">Ask anything about "{ss.title}"</p>
-              <p className="text-[var(--tx6)] text-xs">Or pick a concept in Overview to start a focused lesson</p>
-            </div>
+          <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+            <MessageSquare size={28} className="text-[var(--tx6)]" />
+            <p className="text-[var(--tx5)] text-sm">Ask anything about "{ss.title}"</p>
           </div>
         )}
-
         {messages.map((m, i) => (
           <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div className={`max-w-[88%] px-4 py-3 rounded-2xl text-sm leading-relaxed
               ${m.role === 'user'
                 ? 'bg-indigo-600 text-white rounded-br-md'
-                : 'bg-[var(--surface)] border border-[var(--bd)] text-[var(--tx2)] rounded-bl-md'
-              }`}>
-              {m.role === 'assistant'
-                ? <ReactMarkdown>{m.content}</ReactMarkdown>
-                : m.content
-              }
+                : 'bg-[var(--surface)] border border-[var(--bd)] text-[var(--tx2)] rounded-bl-md'}`}>
+              {m.role === 'assistant' ? <ReactMarkdown>{m.content}</ReactMarkdown> : m.content}
             </div>
-
-            {/* Inline video card */}
             {m.role === 'assistant' && m.videoId && (
               <div className="max-w-[88%] w-full mt-2">
                 <VideoStatusCard videoId={m.videoId} token={token ?? undefined} />
               </div>
             )}
-
-            {/* Action chips on last assistant message */}
-            {m.role === 'assistant' && m.chips && i === messages.length - 1 && !loading && !m.videoId && (
+            {m.role === 'assistant' && m.chips && i === messages.length - 1 && !loading && (
               <div className="max-w-[88%] mt-1">
                 {(quizzing || videoing) ? (
                   <div className="flex items-center gap-1.5 text-xs text-[var(--tx6)] py-1">
@@ -645,22 +647,15 @@ function ChatTab({
                     {quizzing ? 'Generating quiz…' : 'Generating video…'}
                   </div>
                 ) : (
-                  <Chips chips={m.chips} onChip={handleChip} />
+                  <Chips
+                    chips={m.videoId ? m.chips.filter(c => c !== 'Create a video') : m.chips}
+                    onChip={handleChip}
+                  />
                 )}
-              </div>
-            )}
-            {/* Show chips even after video is attached (except Create a video chip) */}
-            {m.role === 'assistant' && m.chips && i === messages.length - 1 && !loading && m.videoId && (
-              <div className="max-w-[88%] mt-1">
-                <Chips
-                  chips={m.chips.filter(c => c !== 'Create a video')}
-                  onChip={handleChip}
-                />
               </div>
             )}
           </div>
         ))}
-
         {loading && (
           <div className="flex justify-start">
             <div className="px-4 py-3 rounded-2xl rounded-bl-md bg-[var(--surface)] border border-[var(--bd)]">
@@ -673,22 +668,127 @@ function ChatTab({
 
       {/* Input */}
       <div className="flex gap-2 pt-3 border-t border-[var(--bd)] shrink-0">
-        <input
-          value={input}
-          onChange={e => setInput(e.target.value)}
+        <input value={input} onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           disabled={notReady || loading}
           placeholder={notReady ? 'Waiting for PDF processing…' : `Ask about ${ss.title}…`}
           className="flex-1 px-4 py-2.5 rounded-xl bg-[var(--ov2)] border border-[var(--bd)]
                      text-[var(--tx1)] text-sm placeholder-[var(--tx7)]
-                     focus:outline-none focus:border-indigo-500/50 disabled:opacity-50 transition-colors"
-        />
+                     focus:outline-none focus:border-indigo-500/50 disabled:opacity-50 transition-colors" />
         <button onClick={send} disabled={!input.trim() || loading || notReady}
           className="w-10 h-10 flex items-center justify-center rounded-xl
                      bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white transition-colors">
           <Send size={15} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── ChatTab ──────────────────────────────────────────────────────────────────
+
+function ChatTab({
+  ss, initSeed, initConversation,
+}: {
+  ss: StudySetDetail;
+  initSeed: ChatSeed | null;
+  initConversation: StudySetConversation | null;
+}) {
+  const { token } = useSessionStore();
+  const [view, setView]         = useState<ChatView>(initSeed || initConversation ? 'active' : 'list');
+  const [activeSeed, setActiveSeed]       = useState<ChatSeed | null>(initSeed);
+  const [activeConv, setActiveConv]       = useState<StudySetConversation | null>(initConversation);
+  const [convs, setConvs]       = useState<StudySetConversation[]>([]);
+  const [loading, setLoading]   = useState(false);
+
+  useEffect(() => {
+    if (ss.status !== 'ready') return;
+    setLoading(true);
+    getStudySetConversations(ss.id, token ?? undefined)
+      .then(r => { setConvs(r); setLoading(false); })
+      .catch(()  => setLoading(false));
+  }, [ss.id, ss.status, view]); // refresh list when returning to list view
+
+  function startNew(seed?: ChatSeed) {
+    setActiveSeed(seed ?? null);
+    setActiveConv(null);
+    setView('active');
+  }
+
+  function openConv(conv: StudySetConversation) {
+    setActiveSeed(null);
+    setActiveConv(conv);
+    setView('active');
+  }
+
+  function goBack() {
+    setView('list');
+    setActiveSeed(null);
+    setActiveConv(null);
+  }
+
+  // ── Active chat ───────────────────────────────────────────────────────────
+  if (view === 'active') {
+    return (
+      <ActiveChat
+        key={`${activeSeed?.concept ?? activeSeed?.pdfQuestion ?? 'new'}-${activeConv?.id ?? 'new'}`}
+        ss={ss}
+        seed={activeSeed}
+        loadConversation={activeConv}
+        onBack={goBack}
+      />
+    );
+  }
+
+  // ── Conversation list ──────────────────────────────────────────────────────
+  return (
+    <div className="space-y-4">
+      {/* New chat button */}
+      <button onClick={() => startNew()}
+        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl
+                   border-2 border-dashed border-indigo-500/30 hover:border-indigo-500/50
+                   text-indigo-400 hover:bg-indigo-500/5 text-sm font-medium transition-all">
+        <Plus size={16} /> New chat
+      </button>
+
+      {/* Past conversations */}
+      {loading ? (
+        <div className="flex items-center justify-center py-8 gap-2 text-[var(--tx6)] text-sm">
+          <Loader size={16} className="animate-spin" /> Loading…
+        </div>
+      ) : convs.length === 0 ? (
+        <div className="text-center py-10 text-[var(--tx6)] text-sm">
+          No conversations yet. Click "New chat" or start from a concept.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">
+            History · {convs.length}
+          </p>
+          {convs.map(c => (
+            <button key={c.id} onClick={() => openConv(c)}
+              className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl
+                         bg-[var(--surface)] border border-[var(--bd)]
+                         hover:border-indigo-500/30 hover:bg-indigo-500/5
+                         transition-colors group">
+              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20
+                              flex items-center justify-center shrink-0">
+                <MessageSquare size={13} className="text-indigo-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[var(--tx2)] text-sm font-medium truncate">{c.title}</p>
+                <div className="flex items-center gap-2 mt-0.5 text-[var(--tx6)] text-xs">
+                  <span className="flex items-center gap-1"><Clock size={10} />{formatDate(c.created_at)}</span>
+                  {c.message_count > 0 && <span>· {c.message_count} msg</span>}
+                  {c.quiz_count   > 0 && <span>· {c.quiz_count} quiz</span>}
+                  {c.video_count  > 0 && <span>· {c.video_count} video</span>}
+                </div>
+              </div>
+              <ChevronRight size={14} className="text-[var(--tx6)] opacity-0 group-hover:opacity-100 shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -701,11 +801,23 @@ export default function StudySetPage() {
   const { token } = useSessionStore();
   const id        = params.id as string;
 
-  const [ss,               setSs]               = useState<StudySetDetail | null>(null);
-  const [loading,          setLoading]          = useState(true);
-  const [tab,              setTab]              = useState<Tab>('overview');
-  const [seedConcept,      setSeedConcept]      = useState<string | null>(null);
-  const [loadConversation, setLoadConversation] = useState<StudySetConversation | null>(null);
+  const [ss,       setSs]       = useState<StudySetDetail | null>(null);
+  const [loading,  setLoading]  = useState(true);
+  const [tab,      setTab]      = useState<Tab>('overview');
+
+  // Chat entry state — cleared after ChatTab mounts
+  const [chatSeed,     setChatSeed]     = useState<ChatSeed | null>(null);
+  const [chatConv,     setChatConv]     = useState<StudySetConversation | null>(null);
+
+  // Conversations list — shared between ConceptsTab and ChatTab list
+  const [convs,        setConvs]        = useState<StudySetConversation[]>([]);
+  const [convsLoading, setConvsLoading] = useState(false);
+
+  // PDF state
+  const [pdfMaterial, setPdfMaterial] = useState<StudyMaterial | null>(null);
+  const [pdfFile,     setPdfFile]     = useState<File | null>(null);
+  const [pdfLoading,  setPdfLoading]  = useState(false);
+
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -723,32 +835,64 @@ export default function StudySetPage() {
     return () => { if (pollRef.current) clearTimeout(pollRef.current); };
   }, []);
 
+  // Load conversations when study set is ready
+  useEffect(() => {
+    if (!ss || ss.status !== 'ready') return;
+    setConvsLoading(true);
+    getStudySetConversations(ss.id, token ?? undefined)
+      .then(r => { setConvs(r); setConvsLoading(false); })
+      .catch(()  => setConvsLoading(false));
+  }, [ss?.id, ss?.status]);
+
   function startPoll() {
     pollRef.current = setTimeout(async () => {
-      const s = await load();
-      if (s === 'processing') startPoll();
+      const s = await load(); if (s === 'processing') startPoll();
     }, 4000);
   }
 
   function handleUploaded() { load().then(() => startPoll()); }
 
+  // Navigate to Chat tab with a concept
   function handleNewConceptChat(conceptName: string) {
-    setLoadConversation(null);
-    setSeedConcept(conceptName);
-    // Reset seededRef by re-mounting ChatTab via key change
+    setChatSeed({ concept: conceptName });
+    setChatConv(null);
     setTab('chat');
   }
 
-  function handleContinueConversation(conv: StudySetConversation) {
-    setSeedConcept(null);
-    setLoadConversation(conv);
+  // Navigate to Chat tab to continue a conversation
+  function handleContinue(conv: StudySetConversation) {
+    setChatSeed(null);
+    setChatConv(conv);
+    setTab('chat');
+  }
+
+  // Open PDF from material
+  async function handleOpenPdf(mat: StudyMaterial) {
+    setPdfLoading(true);
+    setPdfMaterial(mat);
+    try {
+      const file = await fetchMaterialPdf(id, mat.id, mat.filename, token ?? undefined);
+      setPdfFile(file);
+    } catch {
+      alert('Could not load PDF. Please try again.');
+      setPdfMaterial(null);
+    } finally { setPdfLoading(false); }
+  }
+
+  // When user asks from PDF selection
+  function handlePdfAsk(question: string, context: { text?: string; imageDataUrl?: string }) {
+    setPdfFile(null);
+    setPdfMaterial(null);
+    setChatSeed({ pdfQuestion: question, pdfContext: context });
+    setChatConv(null);
     setTab('chat');
   }
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode; disabled?: boolean }[] = [
-    { key: 'overview',   label: 'Overview',   icon: <BookOpen size={14} /> },
-    { key: 'flashcards', label: 'Flashcards', icon: <LayoutGrid size={14} />,   disabled: ss?.status !== 'ready' },
-    { key: 'chat',       label: 'Chat',       icon: <MessageSquare size={14} />, disabled: ss?.status !== 'ready' },
+    { key: 'overview',   label: 'Overview',   icon: <BookOpen size={13} /> },
+    { key: 'concepts',   label: 'Concepts',   icon: <FileText size={13} />,   disabled: ss?.status !== 'ready' },
+    { key: 'flashcards', label: 'Flashcards', icon: <LayoutGrid size={13} />, disabled: ss?.status !== 'ready' },
+    { key: 'chat',       label: 'Chat',       icon: <MessageSquare size={13} />, disabled: ss?.status !== 'ready' },
   ];
 
   if (loading) return (
@@ -794,14 +938,20 @@ export default function StudySetPage() {
               <CheckCircle size={10} /> Ready
             </span>
           )}
+          {pdfLoading && (
+            <span className="flex items-center gap-1.5 text-xs text-indigo-400 bg-indigo-500/10
+                             px-2.5 py-1 rounded-full border border-indigo-500/20 shrink-0">
+              <Loader size={10} className="animate-spin" /> Loading PDF…
+            </span>
+          )}
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-[var(--bd)] px-4 sm:px-6 shrink-0">
+        <div className="flex border-b border-[var(--bd)] px-4 sm:px-6 shrink-0 overflow-x-auto no-scrollbar">
           {TABS.map(t => (
             <button key={t.key} onClick={() => !t.disabled && setTab(t.key)} disabled={t.disabled}
-              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 transition-colors
-                          disabled:opacity-30 disabled:cursor-not-allowed
+              className={`flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2 whitespace-nowrap
+                          transition-colors disabled:opacity-30 disabled:cursor-not-allowed
                 ${tab === t.key
                   ? 'border-indigo-500 text-indigo-400'
                   : 'border-transparent text-[var(--tx5)] hover:text-[var(--tx2)]'}`}>
@@ -813,25 +963,34 @@ export default function StudySetPage() {
         {/* Content */}
         <div className="flex-1 overflow-y-auto no-scrollbar px-4 sm:px-6 py-6">
           {tab === 'overview' && (
-            <OverviewTab
-              ss={ss}
-              onRefresh={handleUploaded}
-              onNewConceptChat={handleNewConceptChat}
-              onContinueConversation={handleContinueConversation}
+            <OverviewTab ss={ss} onRefresh={handleUploaded} onOpenPdf={handleOpenPdf} />
+          )}
+          {tab === 'concepts' && (
+            <ConceptsTab
+              ss={ss} convs={convs} convsLoading={convsLoading}
+              onNewChat={handleNewConceptChat} onContinue={handleContinue}
             />
           )}
           {tab === 'flashcards' && <FlashcardsTab ss={ss} />}
           {tab === 'chat' && (
             <ChatTab
-              key={`${seedConcept ?? 'general'}-${loadConversation?.id ?? 'new'}`}
+              key={`${chatSeed?.concept ?? chatSeed?.pdfQuestion ?? 'general'}-${chatConv?.id ?? 'new'}`}
               ss={ss}
-              seedConcept={seedConcept}
-              onSeedConsumed={() => setSeedConcept(null)}
-              loadConversation={loadConversation}
+              initSeed={chatSeed}
+              initConversation={chatConv}
             />
           )}
         </div>
       </main>
+
+      {/* PDF Viewer Modal */}
+      {pdfFile && (
+        <PDFViewerModal
+          file={pdfFile}
+          onClose={() => { setPdfFile(null); setPdfMaterial(null); }}
+          onAsk={handlePdfAsk}
+        />
+      )}
     </div>
   );
 }

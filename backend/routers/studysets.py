@@ -1,13 +1,15 @@
 """
 StudySet router.
-  POST   /api/studysets                         — create a new study set
-  GET    /api/studysets                         — list (by user_id or session_id)
-  GET    /api/studysets/{id}                    — full detail (+ concepts + flashcards)
-  GET    /api/studysets/{id}/status             — lightweight poll during processing
-  POST   /api/studysets/{id}/upload             — upload PDF (multipart)
-  POST   /api/studysets/{id}/chat               — grounded chat
-  POST   /api/studysets/{id}/cards/{card_id}/review  — record flashcard rating
-  DELETE /api/studysets/{id}                    — delete
+  POST   /api/studysets                                     — create
+  GET    /api/studysets                                     — list
+  GET    /api/studysets/{id}                                — full detail
+  GET    /api/studysets/{id}/status                         — poll status
+  POST   /api/studysets/{id}/upload                         — upload PDF
+  GET    /api/studysets/{id}/materials/{mid}/pdf            — proxy PDF (CORS-safe)
+  POST   /api/studysets/{id}/chat                           — grounded chat
+  GET    /api/studysets/{id}/conversations                  — list conversations
+  POST   /api/studysets/{id}/cards/{card_id}/review         — record flashcard rating
+  DELETE /api/studysets/{id}                                — delete
 """
 import logging
 import uuid as _uuid
@@ -222,6 +224,40 @@ async def upload_material(
     bg.add_task(process_material_bg, material_id, study_set_id, data)
 
     return {"material_id": material_id, "status": "processing"}
+
+
+@router.get("/{study_set_id}/materials/{material_id}/pdf")
+async def proxy_material_pdf(study_set_id: str, material_id: str):
+    """
+    Proxy the stored PDF through the backend so the browser avoids R2 CORS
+    restrictions. Returns the raw PDF bytes with correct Content-Type.
+    """
+    async with get_db() as db:
+        mat = await db.fetchrow(
+            """SELECT file_url, filename FROM study_materials
+               WHERE id = $1::uuid AND study_set_id = $2::uuid""",
+            material_id, study_set_id,
+        )
+    if not mat or not mat["file_url"]:
+        raise HTTPException(404, "Material PDF not found or not yet uploaded to storage")
+
+    import httpx
+    from fastapi.responses import Response
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(mat["file_url"])
+        if r.status_code != 200:
+            raise HTTPException(502, "Could not fetch PDF from storage")
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Storage fetch failed: {exc}")
+
+    safe_name = (mat["filename"] or "material.pdf").replace('"', '')
+    return Response(
+        content=r.content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+    )
 
 
 @router.post("/{study_set_id}/chat")

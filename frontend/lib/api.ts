@@ -196,6 +196,7 @@ export type StudyFlashcard = {
 export type StudyMaterial = {
   id: string; filename: string; page_count?: number;
   char_count?: number; status: string; error_msg?: string; created_at: string;
+  file_url?: string;
 };
 
 export type StudySetDetail = StudySetSummary & {
@@ -274,6 +275,22 @@ export const reviewStudyCard = (studySetId: string, cardId: string, userId: stri
 
 export const deleteStudySet = (id: string, token?: string) =>
   del<{ ok: boolean }>(`/api/studysets/${id}`, token);
+
+/** Fetch a study-set PDF through the backend proxy (avoids R2 CORS). */
+export async function fetchMaterialPdf(
+  studySetId: string,
+  materialId: string,
+  filename: string,
+  token?: string,
+): Promise<File> {
+  const res = await fetch(
+    `${API_BASE}/api/studysets/${studySetId}/materials/${materialId}/pdf`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  );
+  if (!res.ok) throw new Error('Could not load PDF');
+  const blob = await res.blob();
+  return new File([blob], filename, { type: 'application/pdf' });
+}
 
 // ── File upload (multipart) ───────────────────────────────────────────────────
 export async function uploadFile(file: File, sessionId?: string, userId?: string, token?: string) {
