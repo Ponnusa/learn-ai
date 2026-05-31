@@ -54,6 +54,7 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
   const [showCustom,  setShowCustom]  = useState(false);
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState('');
+  const [showHint,    setShowHint]    = useState(true);
 
   // Region drawing
   const [drawing,  setDrawing]  = useState(false);
@@ -109,6 +110,8 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
         setScale(fit);
       } catch { /* use default */ }
       setLoading(false);
+      // Fade-away hint: show for 2.5 s after PDF is ready
+      setTimeout(() => setShowHint(false), 2500);
     });
     return () => cancelAnimationFrame(raf);
   }, [pdfDoc]);
@@ -249,6 +252,15 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
   // ────────────────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm sm:p-3">
+      <style>{`
+        @keyframes fadeOut {
+          0%   { opacity: 1; transform: translateX(-50%) translateY(0); }
+          70%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+          100% { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+        }
+        .animate-fade-out { animation: fadeOut 2.5s ease forwards; }
+      `}</style>
+
       <div className="bg-[#0f0f0f] border border-white/10
                       rounded-t-2xl sm:rounded-2xl
                       w-full sm:max-w-5xl
@@ -294,18 +306,19 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
           </button>
         </div>
 
-        {/* ── Instruction strip ───────────────────────────────────────────────── */}
-        {!regionUrl && !loading && (
-          <div className="flex items-center justify-center gap-2 px-4 py-2 bg-violet-500/[0.07] border-b border-violet-500/15 shrink-0">
-            <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse shrink-0" />
-            <p className="text-violet-300/70 text-xs">
-              Drag to capture any area — text, diagram, equation, or image
-            </p>
-          </div>
-        )}
 
         {/* ── PDF viewport ────────────────────────────────────────────────────── */}
-        <div ref={scrollRef} className="flex-1 overflow-auto bg-[#181818] min-h-0" style={{ padding: '8px' }}>
+        <div ref={scrollRef} className="flex-1 overflow-auto bg-[#181818] min-h-0 relative" style={{ padding: '8px' }}>
+          {/* Floating fade-away hint toast */}
+          {showHint && !regionUrl && !loading && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none
+                            flex items-center gap-2 px-4 py-2 rounded-full
+                            bg-black/70 border border-white/10 backdrop-blur-sm
+                            animate-fade-out">
+              <div className="w-1.5 h-1.5 rounded-full bg-violet-400 shrink-0" />
+              <p className="text-white/70 text-xs whitespace-nowrap">Drag to capture any area</p>
+            </div>
+          )}
           {loading && (
             <div className="h-full flex items-center justify-center gap-2 text-white/35 text-sm">
               <Loader2 size={16} className="animate-spin" /> Loading PDF…
