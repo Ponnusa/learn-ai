@@ -267,37 +267,52 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
                       h-[100dvh] sm:h-[94vh]
                       flex flex-col overflow-hidden shadow-2xl">
 
-        {/* ── Header ─────────────────────────────────────────────────────────── */}
-        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.07] shrink-0">
-          <span className="text-white/60 text-xs font-medium truncate flex-1 min-w-0">{file.name}</span>
+        {/* ── Header: page nav + zoom + close ────────────────────────────────── */}
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-white/[0.07] shrink-0">
 
-          {/* Tier badge */}
-          <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${
-            pageLimit === Infinity
-              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-          }`}>
-            {tier} · {pageLimit === Infinity ? 'unlimited' : `${pageLimit} pg`}
+          {/* Page navigation */}
+          <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80
+                       disabled:opacity-20 hover:bg-white/8 transition-colors shrink-0">
+            <ChevronLeft size={15} />
+          </button>
+          <span className="text-xs text-white/45 tabular-nums select-none shrink-0 w-14 text-center">
+            {effectiveMax ? `${currentPage} / ${effectiveMax}` : '…'}
           </span>
+          <button onClick={() => setCurrentPage(p => Math.min(effectiveMax, p + 1))}
+            disabled={currentPage >= effectiveMax || effectiveMax === 0}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80
+                       disabled:opacity-20 hover:bg-white/8 transition-colors shrink-0">
+            <ChevronRight size={15} />
+          </button>
+
+          {/* Locked-pages hint */}
+          {numPages > 0 && numPages > pageLimit && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400
+                             border border-amber-500/20 shrink-0 hidden xs:inline-flex items-center gap-1">
+              🔒 {numPages - pageLimit} page{numPages - pageLimit !== 1 ? 's' : ''} locked · upgrade
+            </span>
+          )}
+
+          {/* Filename — fills remaining space */}
+          <span className="text-white/35 text-[11px] truncate flex-1 min-w-0 mx-1">{file.name}</span>
 
           <div className="w-px h-4 bg-white/10 shrink-0" />
 
           {/* Zoom */}
-          <div className="flex items-center gap-0.5 shrink-0">
-            <button onClick={() => zoom(-1)} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 hover:bg-white/8 transition-colors">
-              <ZoomOut size={14} />
-            </button>
-            <span className="text-[11px] text-white/30 w-10 text-center tabular-nums select-none">
-              {Math.round(scale * 100)}%
-            </span>
-            <button onClick={() => zoom(1)} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 hover:bg-white/8 transition-colors">
-              <ZoomIn size={14} />
-            </button>
-            <button onClick={() => setScale(fitScale)} title="Fit to width"
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-white/35 hover:text-white/70 hover:bg-white/8 transition-colors">
-              <Maximize2 size={13} />
-            </button>
-          </div>
+          <button onClick={() => zoom(-1)} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 hover:bg-white/8 transition-colors shrink-0">
+            <ZoomOut size={14} />
+          </button>
+          <span className="text-[11px] text-white/30 w-9 text-center tabular-nums select-none shrink-0">
+            {Math.round(scale * 100)}%
+          </span>
+          <button onClick={() => zoom(1)} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 hover:bg-white/8 transition-colors shrink-0">
+            <ZoomIn size={14} />
+          </button>
+          <button onClick={() => setScale(fitScale)} title="Fit to width"
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/35 hover:text-white/70 hover:bg-white/8 transition-colors shrink-0">
+            <Maximize2 size={13} />
+          </button>
 
           <div className="w-px h-4 bg-white/10 shrink-0" />
           <button onClick={onClose}
@@ -365,23 +380,6 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
               </div>
             </div>
           )}
-        </div>
-
-        {/* ── Page navigation ─────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between px-3 py-1.5 border-t border-white/[0.05] bg-[#0f0f0f] shrink-0">
-          <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/35 hover:text-white/65 disabled:opacity-20 hover:bg-white/5 transition-colors">
-            <ChevronLeft size={15} />
-          </button>
-          <span className="text-xs text-white/35">
-            Page {currentPage} / {effectiveMax || '…'}
-            {numPages > pageLimit && <span className="ml-2 text-amber-400/50">{numPages - pageLimit} locked</span>}
-          </span>
-          <button onClick={() => setCurrentPage(p => Math.min(effectiveMax, p + 1))}
-            disabled={currentPage >= effectiveMax || effectiveMax === 0}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/35 hover:text-white/65 disabled:opacity-20 hover:bg-white/5 transition-colors">
-            <ChevronRight size={15} />
-          </button>
         </div>
 
         {/* ── Action panel — only when region is captured ──────────────────────── */}
