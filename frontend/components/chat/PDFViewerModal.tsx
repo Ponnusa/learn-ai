@@ -11,7 +11,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   X, ZoomIn, ZoomOut, ChevronLeft, ChevronRight,
   Send, Loader2, Lightbulb, AlignLeft, ListChecks,
-  MessageSquare, Sparkles, Maximize2,
+  MessageSquare, Maximize2, Flame,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -259,6 +259,10 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
           100% { opacity: 0; transform: translateX(-50%) translateY(-6px); }
         }
         .animate-fade-out { animation: fadeOut 2.5s ease forwards; }
+        @keyframes ctxIn {
+          from { opacity: 0; transform: scale(0.92); }
+          to   { opacity: 1; transform: scale(1); }
+        }
       `}</style>
 
       <div className="bg-[#0f0f0f] border border-white/10
@@ -348,7 +352,7 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
                 style={{ boxShadow: '0 2px 20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)' }}>
                 <canvas ref={canvasRef} style={{ display: 'block' }} />
 
-                {/* Crosshair region overlay */}
+                {/* Crosshair / drawing overlay */}
                 <div
                   ref={overlayRef}
                   className="absolute inset-0"
@@ -358,97 +362,114 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
                   onMouseUp={onMouseUp}
                   onMouseLeave={() => setDrawing(false)}
                 >
-                  {/* Selection rectangle while drawing */}
-                  {selRect && (
+                  {/* Live selection rectangle while drawing */}
+                  {selRect && !regionUrl && (
                     <div
                       className="absolute border-2 border-violet-400 bg-violet-500/10 rounded-sm pointer-events-none"
                       style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }}
                     />
                   )}
 
-                  {/* Dim overlay with cut-out when region is captured */}
+                  {/* Dim overlay + highlighted selection once captured */}
                   {regionUrl && selRect && (
                     <>
-                      <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+                      <div className="absolute inset-0 bg-black/45 pointer-events-none" />
                       <div
-                        className="absolute border-2 border-violet-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)] rounded-sm pointer-events-none"
-                        style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h, background: 'transparent', boxShadow: 'none', outline: '9999px solid rgba(0,0,0,0.35)' }}
+                        className="absolute border-2 border-violet-400 rounded-sm pointer-events-none"
+                        style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h,
+                                 background: 'transparent', outline: '9999px solid rgba(0,0,0,0.45)' }}
                       />
                     </>
                   )}
                 </div>
+
+                {/* ── Context menu — floats near the selection ──────────────── */}
+                {regionUrl && selRect && (() => {
+                  const menuW  = 200;
+                  const cW     = canvasRef.current?.offsetWidth  ?? 600;
+                  const cH     = canvasRef.current?.offsetHeight ?? 800;
+                  const centerX = selRect.x + selRect.w / 2;
+                  const left    = Math.max(4, Math.min(cW - menuW - 4, centerX - menuW / 2));
+                  const belowY  = selRect.y + selRect.h + 10;
+                  const top     = belowY + 230 < cH ? belowY : Math.max(4, selRect.y - 240);
+                  return (
+                    <div
+                      className="absolute z-30 w-[200px] bg-[#1c1c1e]/95 backdrop-blur border border-white/[0.12]
+                                 rounded-2xl shadow-2xl overflow-hidden"
+                      style={{ left, top, animation: 'ctxIn 0.15s ease' }}
+                      onMouseDown={e => e.stopPropagation()}
+                    >
+                      {/* Primary: Explain */}
+                      <button onClick={() => fire('Explain this to me in simple terms')}
+                        className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-semibold
+                                   text-violet-300 bg-violet-500/10 hover:bg-violet-500/20
+                                   active:bg-violet-500/30 transition-colors">
+                        <Lightbulb size={14} className="shrink-0" /> Explain
+                      </button>
+
+                      <div className="h-px bg-white/[0.07]" />
+
+                      {/* Secondary actions */}
+                      <button onClick={() => fire('Summarize this concisely')}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
+                                   text-white/65 hover:text-white hover:bg-white/[0.07] transition-colors">
+                        <AlignLeft size={13} className="shrink-0" /> Summarize
+                      </button>
+                      <button onClick={() => fire('What are the key points or takeaways from this?')}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
+                                   text-white/65 hover:text-white hover:bg-white/[0.07] transition-colors">
+                        <ListChecks size={13} className="shrink-0" /> Key points
+                      </button>
+                      <button onClick={() => fire('Brainstorm questions I should explore based on this. What should I dig deeper into?')}
+                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
+                                   text-white/65 hover:text-white hover:bg-white/[0.07] transition-colors">
+                        <Flame size={13} className="shrink-0" /> Brainstorm
+                      </button>
+
+                      <div className="h-px bg-white/[0.07]" />
+
+                      {/* Custom question */}
+                      {!showCustom ? (
+                        <button
+                          onClick={() => { setShowCustom(true); setTimeout(() => inputRef.current?.focus(), 50); }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
+                                     text-white/40 hover:text-white/70 hover:bg-white/[0.05] transition-colors">
+                          <MessageSquare size={13} className="shrink-0" /> Ask your own…
+                        </button>
+                      ) : (
+                        <div className="flex gap-1.5 px-2 py-2">
+                          <input
+                            ref={inputRef}
+                            value={customQ}
+                            onChange={e => setCustomQ(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleCustomSend(); if (e.key === 'Escape') setShowCustom(false); }}
+                            placeholder="Ask anything…"
+                            className="flex-1 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5
+                                       text-xs text-white placeholder-white/25 outline-none
+                                       focus:border-violet-500/50 transition-colors min-w-0"
+                          />
+                          <button onClick={handleCustomSend} disabled={!customQ.trim()}
+                            className="w-8 h-8 flex items-center justify-center rounded-xl shrink-0
+                                       bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-35 transition-colors">
+                            <Send size={12} />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Clear */}
+                      <div className="h-px bg-white/[0.07]" />
+                      <button onClick={clearRegion}
+                        className="w-full flex items-center gap-2.5 px-4 py-2 text-[11px]
+                                   text-white/25 hover:text-white/50 hover:bg-white/[0.04] transition-colors">
+                        <X size={11} className="shrink-0" /> Clear selection
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           )}
         </div>
-
-        {/* ── Action panel — only when region is captured ──────────────────────── */}
-        {regionUrl && (
-          <div className="border-t border-white/[0.07] bg-[#0f0f0f] shrink-0 px-3 py-3 flex flex-col gap-2">
-            {/* Preview + clear */}
-            <div className="flex items-center gap-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl px-3 py-2">
-              <img src={regionUrl} alt="" className="h-9 object-contain rounded border border-violet-500/25 bg-white/5 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-violet-300/80 font-medium">Region captured</p>
-                <p className="text-[10px] text-violet-300/45 mt-0.5">Choose an action or ask a custom question</p>
-              </div>
-              <button onClick={clearRegion} className="text-white/25 hover:text-white/55 transition-colors shrink-0">
-                <X size={13} />
-              </button>
-            </div>
-
-            {/* Quick actions */}
-            <div className="grid grid-cols-3 gap-2">
-              <button onClick={() => fire('Explain this to me in simple terms')}
-                className="flex items-center justify-center gap-1.5 py-3 rounded-xl
-                           bg-violet-600 hover:bg-violet-500 active:bg-violet-700
-                           text-white text-xs font-semibold transition-colors">
-                <Lightbulb size={13} /> Explain
-              </button>
-              <button onClick={() => fire('Summarize this concisely')}
-                className="flex items-center justify-center gap-1.5 py-3 rounded-xl
-                           bg-white/[0.07] hover:bg-white/[0.12] active:bg-white/[0.04]
-                           border border-white/[0.09] text-white/70 hover:text-white text-xs font-medium transition-colors">
-                <AlignLeft size={13} /> Summarize
-              </button>
-              <button onClick={() => fire('What are the key points or takeaways from this?')}
-                className="flex items-center justify-center gap-1.5 py-3 rounded-xl
-                           bg-white/[0.07] hover:bg-white/[0.12] active:bg-white/[0.04]
-                           border border-white/[0.09] text-white/70 hover:text-white text-xs font-medium transition-colors">
-                <ListChecks size={13} /> Key points
-              </button>
-            </div>
-
-            {/* Custom question */}
-            {!showCustom ? (
-              <button
-                onClick={() => { setShowCustom(true); setTimeout(() => inputRef.current?.focus(), 50); }}
-                className="flex items-center justify-center gap-1.5 py-2.5 rounded-xl
-                           border border-white/[0.08] text-white/35 hover:text-white/60
-                           text-xs transition-colors hover:bg-white/[0.04] active:bg-white/[0.02]">
-                <MessageSquare size={12} /> Ask your own question…
-              </button>
-            ) : (
-              <div className="flex gap-2">
-                <input
-                  ref={inputRef}
-                  value={customQ}
-                  onChange={e => setCustomQ(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleCustomSend(); if (e.key === 'Escape') setShowCustom(false); }}
-                  placeholder="Type your question about this region…"
-                  className="flex-1 bg-[#1c1c1c] border border-white/10 rounded-xl px-3 py-2.5 text-sm
-                             text-white placeholder-white/25 outline-none focus:border-violet-500/50 transition-colors"
-                />
-                <button onClick={handleCustomSend} disabled={!customQ.trim()}
-                  className="px-4 py-2.5 rounded-xl text-sm font-medium flex items-center gap-1.5 shrink-0
-                             bg-violet-600 hover:bg-violet-500 active:bg-violet-700
-                             text-white disabled:opacity-35 transition-colors">
-                  <Send size={13} />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
 
       </div>
     </div>
