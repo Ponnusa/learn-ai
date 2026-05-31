@@ -669,8 +669,9 @@ function ActiveChat({
           } catch { /* best-effort: continue without image */ }
         }
 
+        // For text-selected context (legacy), quote it in the message body
         const userText = seed!.pdfContext?.text
-          ? `${seed!.pdfQuestion}\n\n---\n*Selected from PDF:*\n"${seed!.pdfContext.text}"`
+          ? `${seed!.pdfQuestion}\n\n> ${seed!.pdfContext.text}`
           : seed!.pdfQuestion;
         fireMessage(userText, undefined, imageUrl);
       } else if (seed!.concept) {

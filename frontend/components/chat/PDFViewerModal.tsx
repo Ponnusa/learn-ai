@@ -1,10 +1,11 @@
 'use client';
 /**
- * PDFViewerModal
- * - DPR-aware rendering (crisp on HiDPI/Retina)
- * - Fit-to-width on first load (rAF so clientWidth is real)
- * - Text selection: mouse + touch (onTouchEnd reads window.getSelection)
- * - Region drawing: mouse + touch with touch-action:none to stop scroll
+ * PDFViewerModal — region-capture only.
+ * Drag to select any area (text, diagram, equation, image).
+ * The crop is uploaded to R2; the AI receives it as a vision message.
+ *
+ * DPR-aware canvas rendering (crisp on HiDPI/Retina).
+ * Fit-to-width computed via rAF after first paint.
  */
 import { useState, useRef, useEffect } from 'react';
 import {
@@ -24,36 +25,13 @@ const ZOOM_STEP = 0.2;
 const ZOOM_MIN  = 0.3;
 const ZOOM_MAX  = 4.0;
 
-type Mode = 'text' | 'region';
 interface Rect { x: number; y: number; w: number; h: number }
 declare global { interface Window { pdfjsLib: any } }
-
-// ── Inline mode icons ────────────────────────────────────────────────────────
-
-function HighlightIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <path d="M3 14h12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
-      <path d="M6 11L9 3l3 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M7 8.5h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    </svg>
-  );
-}
-
-function RegionIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-      <rect x="2.5" y="2.5" width="13" height="13" rx="1.5"
-        stroke="currentColor" strokeWidth="1.6" strokeDasharray="3 2"/>
-      <path d="M9 6v6M6 9h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    </svg>
-  );
-}
 
 interface PDFViewerModalProps {
   file: File;
   onClose: () => void;
-  onAsk: (question: string, context: { text?: string; imageDataUrl?: string }) => void;
+  onAsk: (question: string, context: { imageDataUrl?: string }) => void;
 }
 
 export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
@@ -61,40 +39,36 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
   const tier      = user?.tier ?? 'anonymous';
   const pageLimit = PAGE_LIMITS[tier] ?? 2;
 
-  const canvasRef    = useRef<HTMLCanvasElement>(null);
-  const textLayerRef = useRef<HTMLDivElement>(null);
-  const scrollRef    = useRef<HTMLDivElement>(null);
-  const inputRef     = useRef<HTMLInputElement>(null);
+  const canvasRef       = useRef<HTMLCanvasElement>(null);
+  const scrollRef       = useRef<HTMLDivElement>(null);
+  const overlayRef      = useRef<HTMLDivElement>(null);
+  const inputRef        = useRef<HTMLInputElement>(null);
 
-  const [pdfDoc,       setPdfDoc]       = useState<any>(null);
-  const [numPages,     setNumPages]     = useState(0);
-  const [currentPage,  setCurrentPage]  = useState(1);
-  const [scale,        setScale]        = useState(1.0);
-  const [fitScale,     setFitScale]     = useState(1.0);
-  const [mode,         setMode]         = useState<Mode>('text');
-  const [pageText,     setPageText]     = useState('');
-  const [selectedText, setSelectedText] = useState('');
-  const [regionUrl,    setRegionUrl]    = useState<string | null>(null);
-  const [customQ,      setCustomQ]      = useState('');
-  const [showCustom,   setShowCustom]   = useState(false);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState('');
+  const [pdfDoc,      setPdfDoc]      = useState<any>(null);
+  const [numPages,    setNumPages]    = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [scale,       setScale]       = useState(1.0);
+  const [fitScale,    setFitScale]    = useState(1.0);
+  const [regionUrl,   setRegionUrl]   = useState<string | null>(null);
+  const [customQ,     setCustomQ]     = useState('');
+  const [showCustom,  setShowCustom]  = useState(false);
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState('');
 
+  // Region drawing
   const [drawing,  setDrawing]  = useState(false);
   const [startPos, setStartPos] = useState<{ x: number; y: number } | null>(null);
   const [selRect,  setSelRect]  = useState<Rect | null>(null);
 
-  // Keep refs for touch handlers (avoid stale closures in useEffect)
+  // Refs for non-passive touch handlers
   const drawingRef  = useRef(false);
   const startPosRef = useRef<{ x: number; y: number } | null>(null);
   const selRectRef  = useRef<Rect | null>(null);
-
   drawingRef.current  = drawing;
   startPosRef.current = startPos;
   selRectRef.current  = selRect;
 
   const effectiveMax = numPages > 0 ? Math.min(numPages, pageLimit) : 0;
-  const hasSelection = mode === 'text' ? !!selectedText : !!regionUrl;
 
   // ── Load PDF.js + document ───────────────────────────────────────────────────
   useEffect(() => {
@@ -114,7 +88,6 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
         const doc  = await window.pdfjsLib.getDocument({ data }).promise;
         setPdfDoc(doc);
         setNumPages(doc.numPages);
-        // loading cleared by fit-scale effect after first paint
       } catch (e: any) {
         setError(e.message || 'Failed to load PDF');
         setLoading(false);
@@ -123,7 +96,7 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
     init();
   }, [file]);
 
-  // ── Fit scale — after first paint so clientWidth is real ────────────────────
+  // ── Fit scale — rAF so clientWidth is real ───────────────────────────────────
   useEffect(() => {
     if (!pdfDoc) return;
     const raf = requestAnimationFrame(async () => {
@@ -142,57 +115,36 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
 
   // ── DPR-aware render ─────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!pdfDoc || !canvasRef.current || !textLayerRef.current) return;
+    if (!pdfDoc || !canvasRef.current) return;
     let cancelled = false;
     let renderTask: any = null;
-    let textTask:   any = null;
 
     async function render() {
       try {
         const page    = await pdfDoc.getPage(currentPage);
         if (cancelled) return;
-
         const dpr     = window.devicePixelRatio || 1;
         const baseVp  = page.getViewport({ scale });
         const hiDpiVp = page.getViewport({ scale: scale * dpr });
-
         const canvas  = canvasRef.current!;
-        const tl      = textLayerRef.current!;
-
         canvas.width  = hiDpiVp.width;
         canvas.height = hiDpiVp.height;
         canvas.style.width  = `${baseVp.width}px`;
         canvas.style.height = `${baseVp.height}px`;
-
         renderTask = page.render({ canvasContext: canvas.getContext('2d')!, viewport: hiDpiVp });
         await renderTask.promise;
-        if (cancelled) return;
-
-        tl.innerHTML   = '';
-        tl.style.width  = `${baseVp.width}px`;
-        tl.style.height = `${baseVp.height}px`;
-
-        const tc = await page.getTextContent();
-        if (cancelled) return;
-        setPageText(tc.items.map((i: any) => i.str).filter((s: string) => s.trim()).join(' '));
-
-        textTask = window.pdfjsLib.renderTextLayer({ textContent: tc, container: tl, viewport: baseVp, textDivs: [] });
-        await textTask.promise;
-      } catch { /* cancelled / non-fatal */ }
+      } catch { /* cancelled */ }
     }
 
-    clearSelection();
+    clearRegion();
     render();
-    return () => { cancelled = true; renderTask?.cancel?.(); textTask?.cancel?.(); };
+    return () => { cancelled = true; renderTask?.cancel?.(); };
   }, [pdfDoc, currentPage, scale]);
 
-  // ── Non-passive touch listeners on region overlay ────────────────────────────
-  // React synthetic onTouchMove may be passive in some environments.
-  // We attach directly with passive:false so e.preventDefault() stops scroll.
-  const regionOverlayRef = useRef<HTMLDivElement>(null);
+  // ── Non-passive touch listeners (prevent scroll during draw) ─────────────────
   useEffect(() => {
-    const el = regionOverlayRef.current;
-    if (!el || mode !== 'region') return;
+    const el = overlayRef.current;
+    if (!el) return;
 
     function touchStart(e: TouchEvent) {
       e.preventDefault();
@@ -212,10 +164,8 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
       const r = el!.getBoundingClientRect();
       const x = touch.clientX - r.left, y = touch.clientY - r.top;
       const rect = {
-        x: Math.min(startPosRef.current.x, x),
-        y: Math.min(startPosRef.current.y, y),
-        w: Math.abs(x - startPosRef.current.x),
-        h: Math.abs(y - startPosRef.current.y),
+        x: Math.min(startPosRef.current.x, x), y: Math.min(startPosRef.current.y, y),
+        w: Math.abs(x - startPosRef.current.x), h: Math.abs(y - startPosRef.current.y),
       };
       selRectRef.current = rect;
       setSelRect(rect);
@@ -236,7 +186,7 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
       el.removeEventListener('touchmove',  touchMove);
       el.removeEventListener('touchend',   touchEnd);
     };
-  }, [mode]);
+  }, []);
 
   // ── Ctrl/Cmd + wheel zoom ────────────────────────────────────────────────────
   useEffect(() => {
@@ -250,11 +200,11 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  // ── Mouse region drawing ─────────────────────────────────────────────────────
   function onMouseDown(e: React.MouseEvent<HTMLDivElement>) {
     const r = e.currentTarget.getBoundingClientRect();
-    const pos = { x: e.clientX - r.left, y: e.clientY - r.top };
-    setStartPos(pos); setDrawing(true); setSelRect(null); setRegionUrl(null);
+    setStartPos({ x: e.clientX - r.left, y: e.clientY - r.top });
+    setDrawing(true); setSelRect(null); setRegionUrl(null);
   }
   function onMouseMove(e: React.MouseEvent<HTMLDivElement>) {
     if (!drawing || !startPos) return;
@@ -283,55 +233,53 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
     setRegionUrl(off.toDataURL('image/png'));
   }
 
-  function readTextSelection() {
-    const sel = window.getSelection()?.toString().trim();
-    if (sel) setSelectedText(sel);
+  function clearRegion() {
+    setSelRect(null); setRegionUrl(null);
+    setCustomQ(''); setShowCustom(false);
   }
 
-  function clearSelection() {
-    setSelRect(null); setRegionUrl(null); setSelectedText('');
-    setCustomQ(''); setShowCustom(false);
-    window.getSelection()?.removeAllRanges();
-  }
-  function switchMode(m: Mode) { setMode(m); clearSelection(); }
   function fire(prompt: string) {
-    if (mode === 'text') onAsk(prompt, { text: selectedText || pageText.slice(0, 2000) || undefined });
-    else                 onAsk(prompt, { imageDataUrl: regionUrl ?? undefined });
+    onAsk(prompt, { imageDataUrl: regionUrl ?? undefined });
   }
   function handleCustomSend() { const q = customQ.trim(); if (!q) return; fire(q); }
   function zoom(dir: 1 | -1) {
     setScale(s => parseFloat(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, s + dir * ZOOM_STEP)).toFixed(2)));
   }
 
-  // ── JSX ──────────────────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────────────────────
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/80 backdrop-blur-sm sm:p-3">
-      <style>{`
-        .pdf-tl { position:absolute; top:0; left:0; overflow:hidden; line-height:1; }
-        .pdf-tl span { color:transparent; position:absolute; white-space:pre; cursor:text; transform-origin:0% 0%; }
-        .pdf-tl span::selection { background:rgba(139,92,246,0.45); color:transparent; }
-        .pdf-tl br { display:none; }
-      `}</style>
-
       <div className="bg-[#0f0f0f] border border-white/10
                       rounded-t-2xl sm:rounded-2xl
                       w-full sm:max-w-5xl
                       h-[100dvh] sm:h-[94vh]
                       flex flex-col overflow-hidden shadow-2xl">
 
-        {/* ── Header row: filename + zoom + close ─────────────────────────────── */}
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] shrink-0">
-          <span className="text-white/55 text-xs truncate flex-1 min-w-0 font-medium">{file.name}</span>
+        {/* ── Header ─────────────────────────────────────────────────────────── */}
+        <div className="flex items-center gap-2 px-3 py-2.5 border-b border-white/[0.07] shrink-0">
+          <span className="text-white/60 text-xs font-medium truncate flex-1 min-w-0">{file.name}</span>
 
+          {/* Tier badge */}
+          <span className={`text-[10px] px-2 py-0.5 rounded-full border shrink-0 ${
+            pageLimit === Infinity
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+              : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
+          }`}>
+            {tier} · {pageLimit === Infinity ? 'unlimited' : `${pageLimit} pg`}
+          </span>
+
+          <div className="w-px h-4 bg-white/10 shrink-0" />
+
+          {/* Zoom */}
           <div className="flex items-center gap-0.5 shrink-0">
             <button onClick={() => zoom(-1)} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 hover:bg-white/8 transition-colors">
-              <ZoomOut size={15} />
+              <ZoomOut size={14} />
             </button>
             <span className="text-[11px] text-white/30 w-10 text-center tabular-nums select-none">
               {Math.round(scale * 100)}%
             </span>
             <button onClick={() => zoom(1)} className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 hover:bg-white/8 transition-colors">
-              <ZoomIn size={15} />
+              <ZoomIn size={14} />
             </button>
             <button onClick={() => setScale(fitScale)} title="Fit to width"
               className="w-8 h-8 flex items-center justify-center rounded-lg text-white/35 hover:text-white/70 hover:bg-white/8 transition-colors">
@@ -339,43 +287,22 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
             </button>
           </div>
 
-          <div className="w-px h-5 bg-white/10 shrink-0" />
+          <div className="w-px h-4 bg-white/10 shrink-0" />
           <button onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-white/40 hover:text-white/80 hover:bg-white/8 transition-colors shrink-0">
             <X size={17} />
           </button>
         </div>
 
-        {/* ── Mode switcher — full width, descriptive, touch-friendly ─────────── */}
-        <div className="grid grid-cols-2 gap-2 px-3 py-2.5 border-b border-white/[0.06] shrink-0">
-          <button
-            onClick={() => switchMode('text')}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition-all text-left ${
-              mode === 'text'
-                ? 'bg-violet-600/20 border-violet-500/50 text-violet-200'
-                : 'bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white/75 hover:bg-white/[0.07]'
-            }`}>
-            <HighlightIcon />
-            <div className="min-w-0">
-              <p className="text-xs font-semibold leading-tight">Highlight Text</p>
-              <p className="text-[10px] opacity-60 leading-tight mt-0.5 hidden sm:block">Select words to ask AI</p>
-            </div>
-          </button>
-
-          <button
-            onClick={() => switchMode('region')}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition-all text-left ${
-              mode === 'region'
-                ? 'bg-violet-600/20 border-violet-500/50 text-violet-200'
-                : 'bg-white/[0.04] border-white/[0.08] text-white/50 hover:text-white/75 hover:bg-white/[0.07]'
-            }`}>
-            <RegionIcon />
-            <div className="min-w-0">
-              <p className="text-xs font-semibold leading-tight">Capture Area</p>
-              <p className="text-[10px] opacity-60 leading-tight mt-0.5 hidden sm:block">Draw over diagrams or images</p>
-            </div>
-          </button>
-        </div>
+        {/* ── Instruction strip ───────────────────────────────────────────────── */}
+        {!regionUrl && !loading && (
+          <div className="flex items-center justify-center gap-2 px-4 py-2 bg-violet-500/[0.07] border-b border-violet-500/15 shrink-0">
+            <div className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse shrink-0" />
+            <p className="text-violet-300/70 text-xs">
+              Drag to capture any area — text, diagram, equation, or image
+            </p>
+          </div>
+        )}
 
         {/* ── PDF viewport ────────────────────────────────────────────────────── */}
         <div ref={scrollRef} className="flex-1 overflow-auto bg-[#181818] min-h-0" style={{ padding: '8px' }}>
@@ -393,41 +320,35 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
                 style={{ boxShadow: '0 2px 20px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05)' }}>
                 <canvas ref={canvasRef} style={{ display: 'block' }} />
 
-                {/* Text layer — native browser selection (mouse + long-press touch) */}
+                {/* Crosshair region overlay */}
                 <div
-                  ref={textLayerRef}
-                  className="pdf-tl"
-                  style={{ pointerEvents: mode === 'text' ? 'auto' : 'none' }}
-                  onMouseUp={readTextSelection}
-                  onTouchEnd={() => setTimeout(readTextSelection, 120)}
-                />
+                  ref={overlayRef}
+                  className="absolute inset-0"
+                  style={{ cursor: regionUrl ? 'default' : 'crosshair', userSelect: 'none', touchAction: 'none' }}
+                  onMouseDown={onMouseDown}
+                  onMouseMove={onMouseMove}
+                  onMouseUp={onMouseUp}
+                  onMouseLeave={() => setDrawing(false)}
+                >
+                  {/* Selection rectangle while drawing */}
+                  {selRect && (
+                    <div
+                      className="absolute border-2 border-violet-400 bg-violet-500/10 rounded-sm pointer-events-none"
+                      style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }}
+                    />
+                  )}
 
-                {/* Region drawing overlay — touch handled via useEffect (non-passive) */}
-                {mode === 'region' && (
-                  <div
-                    ref={regionOverlayRef}
-                    className="absolute inset-0"
-                    style={{ cursor: 'crosshair', userSelect: 'none', touchAction: 'none' }}
-                    onMouseDown={onMouseDown}
-                    onMouseMove={onMouseMove}
-                    onMouseUp={onMouseUp}
-                    onMouseLeave={() => { setDrawing(false); }}
-                  >
-                    {selRect && (
+                  {/* Dim overlay with cut-out when region is captured */}
+                  {regionUrl && selRect && (
+                    <>
+                      <div className="absolute inset-0 bg-black/40 pointer-events-none" />
                       <div
-                        className="absolute border-2 border-violet-400 bg-violet-500/10 rounded-sm pointer-events-none"
-                        style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h }}
+                        className="absolute border-2 border-violet-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.4)] rounded-sm pointer-events-none"
+                        style={{ left: selRect.x, top: selRect.y, width: selRect.w, height: selRect.h, background: 'transparent', boxShadow: 'none', outline: '9999px solid rgba(0,0,0,0.35)' }}
                       />
-                    )}
-                    {!selRect && !regionUrl && (
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <span className="bg-black/70 text-white/55 text-xs px-4 py-2 rounded-full border border-white/15">
-                          Drag to capture a region
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -436,46 +357,32 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
         {/* ── Page navigation ─────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-3 py-1.5 border-t border-white/[0.05] bg-[#0f0f0f] shrink-0">
           <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage <= 1}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/35 hover:text-white/70 disabled:opacity-20 hover:bg-white/5 transition-colors">
-            <ChevronLeft size={16} />
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/35 hover:text-white/65 disabled:opacity-20 hover:bg-white/5 transition-colors">
+            <ChevronLeft size={15} />
           </button>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-white/35">Page {currentPage} / {effectiveMax || '…'}</span>
-            {numPages > pageLimit && <span className="text-[10px] text-amber-400/50">{numPages - pageLimit} locked</span>}
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${
-              pageLimit === Infinity
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-            }`}>{tier}</span>
-          </div>
+          <span className="text-xs text-white/35">
+            Page {currentPage} / {effectiveMax || '…'}
+            {numPages > pageLimit && <span className="ml-2 text-amber-400/50">{numPages - pageLimit} locked</span>}
+          </span>
           <button onClick={() => setCurrentPage(p => Math.min(effectiveMax, p + 1))}
             disabled={currentPage >= effectiveMax || effectiveMax === 0}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/35 hover:text-white/70 disabled:opacity-20 hover:bg-white/5 transition-colors">
-            <ChevronRight size={16} />
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-white/35 hover:text-white/65 disabled:opacity-20 hover:bg-white/5 transition-colors">
+            <ChevronRight size={15} />
           </button>
         </div>
 
-        {/* ── Action panel — only when selection exists ────────────────────────── */}
-        {hasSelection && (
+        {/* ── Action panel — only when region is captured ──────────────────────── */}
+        {regionUrl && (
           <div className="border-t border-white/[0.07] bg-[#0f0f0f] shrink-0 px-3 py-3 flex flex-col gap-2">
-            {/* Selection preview */}
-            <div className="flex items-center gap-2 bg-violet-500/10 border border-violet-500/20 rounded-xl px-3 py-1.5">
-              {selectedText ? (
-                <>
-                  <Sparkles size={11} className="text-violet-400 shrink-0" />
-                  <span className="text-xs text-violet-300/80 flex-1 truncate">
-                    "{selectedText.length > 90 ? selectedText.slice(0, 90) + '…' : selectedText}"
-                  </span>
-                </>
-              ) : (
-                <>
-                  <RegionIcon />
-                  <img src={regionUrl!} alt="" className="h-7 object-contain rounded border border-violet-500/25 bg-white/5 shrink-0" />
-                  <span className="text-xs text-violet-300/60 flex-1">Region captured</span>
-                </>
-              )}
-              <button onClick={clearSelection} className="text-white/25 hover:text-white/55 transition-colors shrink-0">
-                <X size={12} />
+            {/* Preview + clear */}
+            <div className="flex items-center gap-2.5 bg-violet-500/10 border border-violet-500/20 rounded-xl px-3 py-2">
+              <img src={regionUrl} alt="" className="h-9 object-contain rounded border border-violet-500/25 bg-white/5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-violet-300/80 font-medium">Region captured</p>
+                <p className="text-[10px] text-violet-300/45 mt-0.5">Choose an action or ask a custom question</p>
+              </div>
+              <button onClick={clearRegion} className="text-white/25 hover:text-white/55 transition-colors shrink-0">
+                <X size={13} />
               </button>
             </div>
 
@@ -517,7 +424,7 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
                   value={customQ}
                   onChange={e => setCustomQ(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleCustomSend(); if (e.key === 'Escape') setShowCustom(false); }}
-                  placeholder="Type your question…"
+                  placeholder="Type your question about this region…"
                   className="flex-1 bg-[#1c1c1c] border border-white/10 rounded-xl px-3 py-2.5 text-sm
                              text-white placeholder-white/25 outline-none focus:border-violet-500/50 transition-colors"
                 />
