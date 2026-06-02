@@ -50,6 +50,7 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
   const [scale,       setScale]       = useState(1.0);
   const [fitScale,    setFitScale]    = useState(1.0);
   const [regionUrl,   setRegionUrl]   = useState<string | null>(null);
+  const [menuPos,     setMenuPos]     = useState<{ x: number; y: number } | null>(null);
   const [customQ,     setCustomQ]     = useState('');
   const [showCustom,  setShowCustom]  = useState(false);
   const [loading,     setLoading]     = useState(true);
@@ -234,10 +235,17 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
       0, 0, off.width, off.height,
     );
     setRegionUrl(off.toDataURL('image/png'));
+
+    // Screen coords for the fixed context menu — avoids scroll-container overflow clipping
+    const cb = canvas.getBoundingClientRect();
+    setMenuPos({
+      x: cb.left + rect.x + rect.w / 2,
+      y: cb.top  + rect.y + rect.h + 12,
+    });
   }
 
   function clearRegion() {
-    setSelRect(null); setRegionUrl(null);
+    setSelRect(null); setRegionUrl(null); setMenuPos(null);
     setCustomQ(''); setShowCustom(false);
   }
 
@@ -383,95 +391,93 @@ export function PDFViewerModal({ file, onClose, onAsk }: PDFViewerModalProps) {
                   )}
                 </div>
 
-                {/* ── Context menu — floats near the selection ──────────────── */}
-                {regionUrl && selRect && (() => {
-                  const menuW  = 200;
-                  const cW     = canvasRef.current?.offsetWidth  ?? 600;
-                  const cH     = canvasRef.current?.offsetHeight ?? 800;
-                  const centerX = selRect.x + selRect.w / 2;
-                  const left    = Math.max(4, Math.min(cW - menuW - 4, centerX - menuW / 2));
-                  const belowY  = selRect.y + selRect.h + 10;
-                  const top     = belowY + 230 < cH ? belowY : Math.max(4, selRect.y - 240);
-                  return (
-                    <div
-                      className="absolute z-30 w-[200px] bg-[#1c1c1e]/95 backdrop-blur border border-white/[0.12]
-                                 rounded-2xl shadow-2xl overflow-hidden"
-                      style={{ left, top, animation: 'ctxIn 0.15s ease' }}
-                      onMouseDown={e => e.stopPropagation()}
-                    >
-                      {/* Primary: Explain */}
-                      <button onClick={() => fire('Explain this to me in simple terms')}
-                        className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-semibold
-                                   text-violet-300 bg-violet-500/10 hover:bg-violet-500/20
-                                   active:bg-violet-500/30 transition-colors">
-                        <Lightbulb size={14} className="shrink-0" /> Explain
-                      </button>
-
-                      <div className="h-px bg-white/[0.07]" />
-
-                      {/* Secondary actions */}
-                      <button onClick={() => fire('Summarize this concisely')}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
-                                   text-white/65 hover:text-white hover:bg-white/[0.07] transition-colors">
-                        <AlignLeft size={13} className="shrink-0" /> Summarize
-                      </button>
-                      <button onClick={() => fire('What are the key points or takeaways from this?')}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
-                                   text-white/65 hover:text-white hover:bg-white/[0.07] transition-colors">
-                        <ListChecks size={13} className="shrink-0" /> Key points
-                      </button>
-                      <button onClick={() => fire('Brainstorm questions I should explore based on this. What should I dig deeper into?')}
-                        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
-                                   text-white/65 hover:text-white hover:bg-white/[0.07] transition-colors">
-                        <Flame size={13} className="shrink-0" /> Brainstorm
-                      </button>
-
-                      <div className="h-px bg-white/[0.07]" />
-
-                      {/* Custom question */}
-                      {!showCustom ? (
-                        <button
-                          onClick={() => { setShowCustom(true); setTimeout(() => inputRef.current?.focus(), 50); }}
-                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
-                                     text-white/40 hover:text-white/70 hover:bg-white/[0.05] transition-colors">
-                          <MessageSquare size={13} className="shrink-0" /> Ask your own…
-                        </button>
-                      ) : (
-                        <div className="flex gap-1.5 px-2 py-2">
-                          <input
-                            ref={inputRef}
-                            value={customQ}
-                            onChange={e => setCustomQ(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') handleCustomSend(); if (e.key === 'Escape') setShowCustom(false); }}
-                            placeholder="Ask anything…"
-                            className="flex-1 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5
-                                       text-xs text-white placeholder-white/25 outline-none
-                                       focus:border-violet-500/50 transition-colors min-w-0"
-                          />
-                          <button onClick={handleCustomSend} disabled={!customQ.trim()}
-                            className="w-8 h-8 flex items-center justify-center rounded-xl shrink-0
-                                       bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-35 transition-colors">
-                            <Send size={12} />
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Clear */}
-                      <div className="h-px bg-white/[0.07]" />
-                      <button onClick={clearRegion}
-                        className="w-full flex items-center gap-2.5 px-4 py-2 text-[11px]
-                                   text-white/25 hover:text-white/50 hover:bg-white/[0.04] transition-colors">
-                        <X size={11} className="shrink-0" /> Clear selection
-                      </button>
-                    </div>
-                  );
-                })()}
               </div>
             </div>
           )}
         </div>
 
       </div>
+
+      {/* ── Context menu — fixed to viewport, never clipped by overflow ───────── */}
+      {regionUrl && menuPos && (() => {
+        const W   = 204;
+        const vw  = typeof window !== 'undefined' ? window.innerWidth  : 800;
+        const vh  = typeof window !== 'undefined' ? window.innerHeight : 600;
+        const cx  = Math.max(8, Math.min(vw - W - 8, menuPos.x - W / 2));
+        // Show below selection, flip above if too close to bottom
+        const cy  = menuPos.y + 260 < vh ? menuPos.y : menuPos.y - 260 - (selRect?.h ?? 0) - 24;
+        const top = Math.max(8, Math.min(vh - 260, cy));
+        return (
+          <div
+            className="fixed z-[70] bg-[#1c1c1e] border border-white/[0.13]
+                       rounded-2xl shadow-2xl overflow-hidden"
+            style={{ left: cx, top, width: W, animation: 'ctxIn 0.14s ease' }}
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Primary */}
+            <button onClick={() => fire('Explain this to me in simple terms')}
+              className="w-full flex items-center gap-2.5 px-4 py-3 text-sm font-semibold
+                         text-violet-300 bg-violet-500/10 hover:bg-violet-500/20 transition-colors">
+              <Lightbulb size={14} className="shrink-0" /> Explain
+            </button>
+
+            <div className="h-px bg-white/[0.08]" />
+
+            <button onClick={() => fire('Summarize this concisely')}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
+                         text-white/60 hover:text-white hover:bg-white/[0.07] transition-colors">
+              <AlignLeft size={13} className="shrink-0" /> Summarize
+            </button>
+            <button onClick={() => fire('What are the key points or takeaways from this?')}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
+                         text-white/60 hover:text-white hover:bg-white/[0.07] transition-colors">
+              <ListChecks size={13} className="shrink-0" /> Key points
+            </button>
+            <button onClick={() => fire('Brainstorm questions I should explore based on this. What should I dig deeper into?')}
+              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
+                         text-white/60 hover:text-white hover:bg-white/[0.07] transition-colors">
+              <Flame size={13} className="shrink-0" /> Brainstorm
+            </button>
+
+            <div className="h-px bg-white/[0.08]" />
+
+            {!showCustom ? (
+              <button
+                onClick={() => { setShowCustom(true); setTimeout(() => inputRef.current?.focus(), 50); }}
+                className="w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium
+                           text-white/38 hover:text-white/65 hover:bg-white/[0.05] transition-colors">
+                <MessageSquare size={13} className="shrink-0" /> Ask your own…
+              </button>
+            ) : (
+              <div className="flex gap-1.5 px-2 py-2">
+                <input
+                  ref={inputRef}
+                  value={customQ}
+                  onChange={e => setCustomQ(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleCustomSend(); if (e.key === 'Escape') setShowCustom(false); }}
+                  placeholder="Ask anything…"
+                  className="flex-1 bg-white/[0.06] border border-white/10 rounded-xl px-3 py-1.5
+                             text-xs text-white placeholder-white/25 outline-none
+                             focus:border-violet-500/50 transition-colors min-w-0"
+                />
+                <button onClick={handleCustomSend} disabled={!customQ.trim()}
+                  className="w-8 h-8 flex items-center justify-center rounded-xl shrink-0
+                             bg-violet-600 hover:bg-violet-500 text-white disabled:opacity-35 transition-colors">
+                  <Send size={12} />
+                </button>
+              </div>
+            )}
+
+            <div className="h-px bg-white/[0.08]" />
+            <button onClick={clearRegion}
+              className="w-full flex items-center gap-2.5 px-4 py-2 text-[11px]
+                         text-white/25 hover:text-white/50 hover:bg-white/[0.04] transition-colors">
+              <X size={11} className="shrink-0" /> Clear selection
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }
