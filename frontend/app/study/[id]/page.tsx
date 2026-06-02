@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -985,14 +985,17 @@ function ChatTab({
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function StudySetPage() {
-  const params    = useParams();
-  const router    = useRouter();
-  const { token } = useSessionStore();
-  const id        = params.id as string;
+  const params       = useParams();
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const { token }    = useSessionStore();
+  const id           = params.id as string;
 
   const [ss,       setSs]       = useState<StudySetDetail | null>(null);
   const [loading,  setLoading]  = useState(true);
-  const [tab,      setTab]      = useState<Tab>('overview');
+  const [tab,      setTab]      = useState<Tab>(
+    (searchParams.get('tab') as Tab | null) ?? 'overview'
+  );
 
   // Chat entry state — cleared after ChatTab mounts
   const [chatSeed,     setChatSeed]     = useState<ChatSeed | null>(null);

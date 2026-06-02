@@ -352,7 +352,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                   {studyGroups.map(g => (
                     <button
                       key={g.study_set_id}
-                      onClick={() => { router.push(`/study/${g.study_set_id}`); setChatsOpen(false); if (typeof window !== 'undefined' && window.innerWidth < 768) setMobileOpen(false); }}
+                      onClick={() => { router.push(`/study/${g.study_set_id}?tab=chat`); setChatsOpen(false); if (typeof window !== 'undefined' && window.innerWidth < 768) setMobileOpen(false); }}
                       className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl
                                  hover:bg-[var(--ov3)] transition-colors text-left group"
                     >
