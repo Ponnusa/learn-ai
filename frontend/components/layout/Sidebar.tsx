@@ -108,22 +108,56 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
   const filtered = conversations.filter(c =>
     !q ||
     c.title?.toLowerCase().includes(q) ||
-    c.subject?.toLowerCase().includes(q)
+    c.subject?.toLowerCase().includes(q) ||
+    c.study_set_title?.toLowerCase().includes(q)
   );
 
+  // Split: study-set-linked vs regular
+  const studySetConvs = filtered.filter(c => c.study_set_id);
+  const regularConvs  = filtered.filter(c => !c.study_set_id);
+
+  // Group study-set conversations by study_set_id
+  type StudyGroup = { study_set_id: string; title: string; count: number; updated_at: string };
+  const studyGroupMap = new Map<string, StudyGroup>();
+  for (const c of studySetConvs) {
+    const existing = studyGroupMap.get(c.study_set_id!);
+    if (!existing) {
+      studyGroupMap.set(c.study_set_id!, {
+        study_set_id: c.study_set_id!,
+        title:        c.study_set_title || c.title,
+        count:        1,
+        updated_at:   c.updated_at,
+      });
+    } else {
+      existing.count++;
+      if (c.updated_at > existing.updated_at) existing.updated_at = c.updated_at;
+    }
+  }
+  const studyGroups = Array.from(studyGroupMap.values())
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+
+  // Date-group regular conversations
   const now       = new Date();
   const todayStr  = now.toDateString();
   const yesterStr = new Date(Date.now() - 86400000).toDateString();
 
-  const groups: Record<string, typeof conversations> = {
+  const groups: Record<string, typeof regularConvs> = {
     today: [], yesterday: [], week: [], older: [],
   };
-  for (const c of filtered) {
+  for (const c of regularConvs) {
     const d = new Date(c.updated_at).toDateString();
     if      (d === todayStr)                                                  groups.today.push(c);
     else if (d === yesterStr)                                                 groups.yesterday.push(c);
     else if (Date.now() - new Date(c.updated_at).getTime() < 7 * 86400000)  groups.week.push(c);
     else                                                                      groups.older.push(c);
+  }
+
+  function fmtDate(iso: string) {
+    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Yesterday';
+    if (diff < 7)  return `${diff}d ago`;
+    return new Date(iso).toLocaleDateString('en', { month: 'short', day: 'numeric' });
   }
 
   const activeId = selectedConversationId ?? activeConversationId ?? undefined;
@@ -308,6 +342,42 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
 
             {/* Conversation list */}
             <div className="flex-1 overflow-y-auto no-scrollbar px-2 pb-4 space-y-3 text-xs">
+
+              {/* ── Study Sets group ──────────────────────────────────────── */}
+              {studyGroups.length > 0 && (
+                <div>
+                  <p className="px-3 py-1.5 text-[var(--tx8)] text-[10px] uppercase tracking-widest font-medium">
+                    Study Sets
+                  </p>
+                  {studyGroups.map(g => (
+                    <button
+                      key={g.study_set_id}
+                      onClick={() => { router.push(`/study/${g.study_set_id}`); setChatsOpen(false); if (typeof window !== 'undefined' && window.innerWidth < 768) setMobileOpen(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl
+                                 hover:bg-[var(--ov3)] transition-colors text-left group"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-indigo-500/15 border border-indigo-500/20
+                                      flex items-center justify-center shrink-0">
+                        <BookOpen size={11} className="text-indigo-400" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[var(--tx2)] truncate text-xs leading-snug font-medium">
+                          {g.title}
+                        </p>
+                        <p className="text-[var(--tx7)] text-[10px] mt-0.5">
+                          {g.count} chat{g.count !== 1 ? 's' : ''} · {fmtDate(g.updated_at)}
+                        </p>
+                      </div>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/10
+                                       text-indigo-400 border border-indigo-500/20 shrink-0 tabular-nums">
+                        {g.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* ── Regular conversations — grouped by date ───────────────── */}
               {Object.entries({
                 today:     'Today',
                 yesterday: 'Yesterday',
@@ -329,11 +399,9 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                         }`}
                       >
                         <span className="text-sm shrink-0 mt-0.5 leading-none">
-                          {c.study_set_id
-                            ? <BookOpen size={12} className="text-indigo-400 mt-0.5" />
-                            : c.subject
-                              ? (SUBJECT_ICONS[c.subject] ?? '📚')
-                              : <MessageSquare size={12} className="text-[var(--tx6)] mt-0.5" />}
+                          {c.subject
+                            ? (SUBJECT_ICONS[c.subject] ?? '📚')
+                            : <MessageSquare size={12} className="text-[var(--tx6)] mt-0.5" />}
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-[var(--tx2)] truncate text-xs leading-snug">
@@ -349,7 +417,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                 )
               )}
 
-              {/* Empty: no conversations at all */}
+              {/* Empty states */}
               {conversations.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
                   <div className="w-12 h-12 rounded-2xl bg-[var(--ov2)] flex items-center justify-center mb-3">
@@ -361,8 +429,6 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                   </p>
                 </div>
               )}
-
-              {/* Empty: search returned no results */}
               {conversations.length > 0 && filtered.length === 0 && (
                 <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
                   <div className="w-12 h-12 rounded-2xl bg-[var(--ov2)] flex items-center justify-center mb-3">

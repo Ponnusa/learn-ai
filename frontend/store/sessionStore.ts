@@ -15,6 +15,7 @@ export interface Conversation {
   subject?: string;
   subtopic?: string;
   study_set_id?: string;
+  study_set_title?: string;
   updated_at: string;
 }
 

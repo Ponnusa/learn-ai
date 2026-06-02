@@ -52,15 +52,23 @@ async def list_conversations(user_id: str | None = None, session_id: str | None 
     async with get_db() as db:
         if user_id:
             rows = await db.fetch("""
-                SELECT id, title, subject, subtopic, study_set_id, created_at, updated_at
-                FROM conversations WHERE user_id = $1
-                ORDER BY updated_at DESC LIMIT 50
+                SELECT c.id, c.title, c.subject, c.subtopic,
+                       c.study_set_id, c.created_at, c.updated_at,
+                       ss.title AS study_set_title
+                FROM conversations c
+                LEFT JOIN study_sets ss ON ss.id = c.study_set_id
+                WHERE c.user_id = $1
+                ORDER BY c.updated_at DESC LIMIT 50
             """, user_id)
         elif session_id:
             rows = await db.fetch("""
-                SELECT id, title, subject, subtopic, study_set_id, created_at, updated_at
-                FROM conversations WHERE session_id = $1
-                ORDER BY updated_at DESC LIMIT 20
+                SELECT c.id, c.title, c.subject, c.subtopic,
+                       c.study_set_id, c.created_at, c.updated_at,
+                       ss.title AS study_set_title
+                FROM conversations c
+                LEFT JOIN study_sets ss ON ss.id = c.study_set_id
+                WHERE c.session_id = $1
+                ORDER BY c.updated_at DESC LIMIT 20
             """, session_id)
         else:
             return []
