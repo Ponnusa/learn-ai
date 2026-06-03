@@ -123,14 +123,12 @@ body {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* ── Chat scrollbar — thin bar on the LEFT side ─────────────────── */
+/* ── Chat scrollbar — thin bar on the RIGHT side ─────────────────── */
 .chat-scroll {
-  direction: rtl;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--bd2, #333) transparent;
 }
-.chat-scroll > * { direction: ltr; }
 .chat-scroll::-webkit-scrollbar       { width: 4px; }
 .chat-scroll::-webkit-scrollbar-track { background: transparent; }
 .chat-scroll::-webkit-scrollbar-thumb {
