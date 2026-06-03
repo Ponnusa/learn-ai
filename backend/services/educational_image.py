@@ -1,190 +1,252 @@
 """
-Educational Image Generator — core pipeline.
+Educational Image Generator — Knowledge-Layer Pipeline.
 
 Flow:
-  1. Keyword-classify domain (physics / chemistry / biology / etc.)
-  2. Claude → structured educational image spec (JSON)
-  3. Spec → standardised OpenAI image prompt
-  4. DALL-E 3 → temporary image URL
-  5. Download + upload to R2 for permanent storage
-  6. Update DB job record
+  1. Knowledge Extraction  (Claude Haiku) → rich knowledge model
+  2. Diagram Planning      (Claude Haiku) → structured diagram plan
+  3. Validation            (local)        → catch bad visuals pre-generation
+  4. Prompt Building       (local)        → domain-specific gpt-image-1 prompt
+  5. Image Generation      (gpt-image-1)  → PNG bytes
+  6. Vision Critic         (GPT-4o)       → score + issues
+  7. Auto-regenerate       (if score<85)  → one retry with correction prompt
+  8. R2 Upload             (boto3)        → permanent URL
+  9. DB update             (asyncpg)      → status=ready + all metadata
+
+Public entry point: process_image_job()
 """
+import base64
 import json
 import logging
 
 logger = logging.getLogger(__name__)
 
-# ── Domain rules — drive Claude spec + prompt emphasis ────────────────────────
-
-DOMAIN_RULES: dict[str, dict] = {
-    "physics": {
-        "emphasis": [
-            "force vectors", "velocity/acceleration arrows", "field lines",
-            "energy level diagrams", "free-body diagrams", "wave crests",
-        ],
-        "style": "clean physics textbook diagram with labelled vectors and force arrows",
-    },
-    "chemistry": {
-        "emphasis": [
-            "molecular structures", "reaction arrow mechanisms", "apparatus cross-sections",
-            "electron orbitals", "bond angles", "periodic table elements",
-        ],
-        "style": "chemistry textbook diagram with accurate molecular representations and reaction arrows",
-    },
-    "mathematics": {
-        "emphasis": [
-            "labelled coordinate axes", "geometric shapes with dimensions",
-            "function graphs", "proof steps", "angles and measurements",
-        ],
-        "style": "precise mathematical diagram with exact labels, grids, and annotated variables",
-    },
-    "biology": {
-        "emphasis": [
-            "labelled anatomical structures", "cellular organelles", "process arrows",
-            "magnification callouts", "colour-coded regions",
-        ],
-        "style": "biology textbook illustration with detailed labelled structures and process flow",
-    },
-    "geography": {
-        "emphasis": [
-            "geographical features", "directional arrows", "scale reference",
-            "climate zones", "physical process labels",
-        ],
-        "style": "geography textbook diagram with labelled features, legend, and directional indicators",
-    },
-    "general": {
-        "emphasis": [
-            "key components", "numbered steps", "cause-effect arrows",
-            "labelled sections", "logical flow",
-        ],
-        "style": "clean educational infographic with clear labels and logical flow",
-    },
-}
-
-DOMAIN_KEYWORDS: dict[str, list[str]] = {
-    "physics":     ["force", "velocity", "acceleration", "momentum", "energy", "wave",
-                    "gravity", "electric", "magnetic", "quantum", "thermodynamics",
-                    "optics", "Newton", "friction", "inclined", "pulley", "circuit"],
-    "chemistry":   ["molecule", "atom", "bond", "reaction", "element", "compound",
-                    "periodic", "acid", "base", "organic", "electron", "titration",
-                    "polymer", "covalent", "ionic", "oxidation"],
-    "mathematics": ["equation", "graph", "function", "derivative", "integral",
-                    "geometry", "algebra", "triangle", "circle", "probability",
-                    "matrix", "vector", "polynomial", "calculus", "logarithm"],
-    "biology":     ["cell", "DNA", "protein", "organism", "evolution", "photosynthesis",
-                    "neuron", "enzyme", "gene", "mitosis", "chlorophyll", "diffusion",
-                    "osmosis", "chromosome", "respiration"],
-    "geography":   ["climate", "plate", "tectonic", "continent", "ocean", "watershed",
-                    "biome", "atmosphere", "volcanic", "erosion", "glacier", "river",
-                    "latitude", "longitude"],
-}
+_CRITIC_THRESHOLD     = 85   # score below this triggers regeneration
+_MAX_GEN_ATTEMPTS     = 2    # max attempts including the retry
 
 
-def classify_domain(concept: str) -> str:
-    """Fast keyword-based domain classification."""
-    c = concept.lower()
-    for domain, kws in DOMAIN_KEYWORDS.items():
-        if any(kw.lower() in c for kw in kws):
-            return domain
-    return "general"
+# ─────────────────────────────────────────────────────────────────────────────
+# Prompt builder
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_image_prompt(
+    knowledge_model: dict,
+    diagram_plan:    dict,
+    critic_feedback: str = "",
+    validation_issues: list[str] | None = None,
+) -> str:
+    """
+    Assemble a final gpt-image-1 prompt from knowledge model + diagram plan.
+    Injects BAD_VISUALS, domain style, and any critic/validation feedback.
+    """
+    from .domain_templates import BAD_VISUALS, DOMAIN_STYLES, CONCEPT_TYPE_REQUIREMENTS
+
+    domain       = knowledge_model.get("domain", "general")
+    concept_type = knowledge_model.get("concept_type", "process_flow")
+    title        = knowledge_model.get("title", "Educational diagram")
+    learning_goal = knowledge_model.get("learning_goal", "")
+    must_show    = knowledge_model.get("must_show", [])
+    must_not_show = knowledge_model.get("must_not_show", [])
+
+    domain_style = DOMAIN_STYLES.get(domain, DOMAIN_STYLES["general"])
+    template     = CONCEPT_TYPE_REQUIREMENTS.get(concept_type, {})
+
+    # Collect drawable elements from plan — deduplicated
+    elements: list[str] = []
+    seen: set[str] = set()
+    for panel in diagram_plan.get("panels", []):
+        for el in panel.get("elements", []):
+            if el not in seen:
+                elements.append(el)
+                seen.add(el)
+    for lbl in diagram_plan.get("labels", []):
+        if lbl not in seen:
+            elements.append(lbl)
+            seen.add(lbl)
+    for ms in must_show:
+        if ms not in seen:
+            elements.append(ms)
+            seen.add(ms)
+
+    elements_str = "\n".join(f"  - {e}" for e in elements[:14])
+
+    # Forbidden visuals = must_not_show + top global BAD_VISUALS
+    forbidden = list(dict.fromkeys(must_not_show + BAD_VISUALS[:8]))
+    forbidden_str = "\n".join(f"  - {f}" for f in forbidden[:12])
+
+    correction = ""
+    if critic_feedback:
+        correction = f"\n\nCORRECTION (fix these issues from the previous attempt):\n{critic_feedback}"
+    if validation_issues:
+        pre = "\n".join(f"  - {i}" for i in validation_issues)
+        correction += f"\n\nPRE-GENERATION WARNINGS (avoid these):\n{pre}"
+
+    return f"""Educational {domain} diagram — {title}
+
+Learning goal: {learning_goal}
+
+STYLE: {domain_style}
+LAYOUT: {diagram_plan.get("layout", "clean, well-spaced")}
+COLOR: {diagram_plan.get("color_scheme", "high contrast, white background")}
+TEMPLATE: {template.get("style_notes", "")}
+
+MUST INCLUDE (scientifically essential):
+{elements_str}
+
+NEVER INCLUDE (scientifically misleading or incorrect):
+{forbidden_str}
+
+Additional requirements:
+- Pure white background, no gradients or textures
+- Every element clearly labeled with correct scientific notation and units
+- Professional textbook illustration quality
+- No decorative art, no artistic flourishes, no stylised backgrounds
+- Suitable for high school students{correction}"""
 
 
-async def generate_spec_via_claude(concept: str, domain: str) -> dict:
-    """Call Claude Haiku to convert the user concept into a structured image spec."""
-    from anthropic import AsyncAnthropic
+# ─────────────────────────────────────────────────────────────────────────────
+# Vision critic
+# ─────────────────────────────────────────────────────────────────────────────
 
-    rules = DOMAIN_RULES.get(domain, DOMAIN_RULES["general"])
-
-    system = (
-        "You are an expert educational illustrator who creates precise specifications "
-        "for educational diagrams. Output valid JSON only — no markdown fences, no extra text."
-    )
-    user = f"""Create an educational image specification for:
-"{concept}"
-
-Domain: {domain}
-Key elements to emphasise: {", ".join(rules["emphasis"][:4])}
-
-Return a JSON object with exactly these keys:
-{{
-  "domain": "{domain}",
-  "title": "max 8-word descriptive title",
-  "subject": "main subject of the diagram",
-  "visual_elements": ["3 to 8 specific visual elements"],
-  "labels": true,
-  "background": "white",
-  "style": "{rules['style']}",
-  "difficulty": "high school",
-  "key_relationships": "one sentence describing the main process or relationship shown"
-}}
-
-Be specific: instead of "forces", write "gravity vector pointing straight down" and "normal force vector perpendicular to surface"."""
-
-    client = AsyncAnthropic()
-    response = await client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=600,
-        system=system,
-        messages=[{"role": "user", "content": user}],
-    )
-
-    raw = response.content[0].text.strip()
-    # Strip accidental markdown fences
-    if raw.startswith("```"):
-        parts = raw.split("```")
-        raw = parts[1][4:].strip() if parts[1].startswith("json") else parts[1].strip()
-    return json.loads(raw)
-
-
-def build_image_prompt(spec: dict, domain: str) -> str:
-    """Convert a structured spec into a final DALL-E image generation prompt."""
-    rules = DOMAIN_RULES.get(domain, DOMAIN_RULES["general"])
-    elements = "\n".join(f"- {e}" for e in spec.get("visual_elements", []))
-    key_rel = spec.get("key_relationships", "")
-
-    return f"""Educational {domain} diagram for students.
-
-Topic: {spec.get("title", spec.get("subject", "Educational concept"))}.
-{key_rel}
-
-Include:
-{elements}
-
-Requirements:
-- clean, professional textbook illustration
-- pure white background
-- all elements clearly and concisely labelled
-- {rules["style"]}
-- high educational clarity — easy to read and understand
-- suitable for high school students
-
-Avoid:
-- artistic or decorative styles
-- photorealistic rendering
-- decorative or gradient backgrounds
-- excessive decorative detail
-- cluttered overlapping labels"""
-
-
-async def generate_image_openai(prompt: str) -> bytes:
-    """Generate image via gpt-image-1; returns raw PNG bytes."""
-    import base64
+async def run_vision_critic(
+    image_bytes:     bytes,
+    knowledge_model: dict,
+    diagram_plan:    dict,
+) -> dict:
+    """
+    Send the generated PNG to GPT-4o for scientific accuracy review.
+    Returns a critic report dict with score, issues, and correction_prompt.
+    """
     from openai import AsyncOpenAI
-
     client = AsyncOpenAI()
-    response = await client.images.generate(
-        model="gpt-image-1",
-        prompt=prompt,
-        size="1024x1024",
-        quality="medium",
-        n=1,
-    )
-    b64 = response.data[0].b64_json
-    return base64.b64decode(b64)
+
+    b64           = base64.b64encode(image_bytes).decode("utf-8")
+    learning_goal = knowledge_model.get("learning_goal", "")
+    must_show     = knowledge_model.get("must_show", [])
+    must_not_show = knowledge_model.get("must_not_show", [])
+    misconceptions = knowledge_model.get("common_misconceptions", [])
+
+    prompt = f"""Review this educational diagram for scientific accuracy and educational quality.
+
+Learning goal: {learning_goal}
+Must be present: {must_show}
+Must NOT appear: {must_not_show}
+Common misconceptions to avoid reinforcing: {misconceptions}
+
+Evaluate:
+1. Scientific accuracy — are all concepts shown correctly?
+2. Label completeness — are all key elements labeled with correct units?
+3. Label correctness — any spelling errors or wrong notation?
+4. Misleading visuals — anything that could teach the wrong concept?
+5. Educational clarity — is it immediately clear to a high school student?
+6. Missing elements — anything from "Must be present" that is absent?
+
+Return ONLY valid JSON:
+{{
+  "score": <integer 0-100>,
+  "issues": ["<specific problem>"],
+  "missing": ["<element that should be present but isn't>"],
+  "misleading": ["<element that could cause a misconception>"],
+  "regenerate": <true if score < {_CRITIC_THRESHOLD}>,
+  "correction_prompt": "<specific one-paragraph instruction to fix issues in the next attempt>"
+}}"""
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            max_tokens=600,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                    {"type": "text",      "text": prompt},
+                ],
+            }],
+            response_format={"type": "json_object"},
+        )
+        report = json.loads(response.choices[0].message.content)
+        logger.info("[critic] score=%s regenerate=%s issues=%d",
+                    report.get("score"), report.get("regenerate"), len(report.get("issues", [])))
+        return report
+    except Exception as e:
+        logger.warning("[critic] vision critic failed (%s) — skipping", e)
+        return {"score": 90, "issues": [], "missing": [], "misleading": [],
+                "regenerate": False, "correction_prompt": ""}
 
 
-async def store_image_r2(image_bytes: bytes, job_id: str, user_id: str | None, session_id: str | None) -> str:
-    """Upload raw image bytes to R2 for permanent storage."""
+# ─────────────────────────────────────────────────────────────────────────────
+# Image generation + critic loop
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def generate_with_critic(
+    knowledge_model:   dict,
+    diagram_plan:      dict,
+    validation_issues: list[str],
+) -> tuple[bytes, dict, str]:
+    """
+    Generate image → critic → regenerate once if score < threshold.
+    Returns (final_image_bytes, critic_report, final_prompt_used).
+    """
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+
+    critic_feedback = ""
+    if validation_issues:
+        critic_feedback = "Pre-generation issues to fix: " + "; ".join(validation_issues)
+
+    final_bytes:  bytes = b""
+    final_report: dict  = {}
+    final_prompt: str   = ""
+
+    for attempt in range(1, _MAX_GEN_ATTEMPTS + 1):
+        prompt = build_image_prompt(
+            knowledge_model, diagram_plan,
+            critic_feedback=critic_feedback,
+            validation_issues=validation_issues if attempt == 1 else None,
+        )
+        final_prompt = prompt
+
+        logger.info("[img] attempt %d/%d — prompt length=%d", attempt, _MAX_GEN_ATTEMPTS, len(prompt))
+
+        response = await client.images.generate(
+            model="gpt-image-1",
+            prompt=prompt,
+            size="1024x1024",
+            quality="medium",
+            n=1,
+        )
+        image_bytes = base64.b64decode(response.data[0].b64_json)
+
+        # Vision critic
+        critic_report = await run_vision_critic(image_bytes, knowledge_model, diagram_plan)
+        critic_report["attempt"] = attempt
+
+        final_bytes  = image_bytes
+        final_report = critic_report
+
+        if not critic_report.get("regenerate", False) or attempt >= _MAX_GEN_ATTEMPTS:
+            if attempt > 1:
+                logger.info("[img] accepted after %d attempts, score=%s", attempt, critic_report.get("score"))
+            break
+
+        # Prepare correction for next attempt
+        critic_feedback = critic_report.get("correction_prompt", "")
+        logger.info("[img] score=%s < %d — retrying with critic feedback",
+                    critic_report.get("score"), _CRITIC_THRESHOLD)
+
+    return final_bytes, final_report, final_prompt
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# R2 storage
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def store_image_r2(
+    image_bytes: bytes,
+    job_id:      str,
+    user_id:     str | None,
+    session_id:  str | None,
+) -> str:
+    """Upload raw PNG bytes to Cloudflare R2 and return the permanent public URL."""
     from services.manim import _make_r2_client, R2_BUCKET_NAME, R2_PUBLIC_URL
 
     if user_id:
@@ -196,57 +258,101 @@ async def store_image_r2(image_bytes: bytes, job_id: str, user_id: str | None, s
 
     r2 = _make_r2_client()
     if not r2:
-        raise RuntimeError("R2 storage not configured — cannot store image")
+        raise RuntimeError("R2 not configured — cannot store image")
 
     r2.put_object(Bucket=R2_BUCKET_NAME, Key=key, Body=image_bytes, ContentType="image/png")
     logger.info("[edu-img] stored %s (%d bytes)", key, len(image_bytes))
     return f"{R2_PUBLIC_URL.rstrip('/')}/{key}"
 
 
-# ── Main pipeline ─────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# Main pipeline — called by background task
+# ─────────────────────────────────────────────────────────────────────────────
 
-async def process_image_job(job_id: str, concept: str, user_id: str | None, session_id: str | None) -> None:
+async def process_image_job(
+    job_id:     str,
+    concept:    str,
+    user_id:    str | None,
+    session_id: str | None,
+) -> None:
     """
-    Full async pipeline — runs as a FastAPI BackgroundTask.
-    Status transitions: processing → ready | failed
+    Full async pipeline. Status transitions: processing → ready | failed.
+    Saves intermediate state to DB so the frontend can show progress.
     """
     from database import get_db
+    from .knowledge_extractor import extract_knowledge_model
+    from .diagram_planner     import plan_diagram
+    from .diagram_validator   import validate_diagram_plan
 
     try:
-        # 1. Domain
-        domain = classify_domain(concept)
-        logger.info("[edu-img] %s domain=%s", job_id[:8], domain)
+        # ── 1. Knowledge extraction ───────────────────────────────────────
+        knowledge_model = await extract_knowledge_model(concept)
+        domain       = knowledge_model.get("domain", "general")
+        concept_type = knowledge_model.get("concept_type", "process_flow")
 
-        # 2. Spec via Claude
-        spec = await generate_spec_via_claude(concept, domain)
-        logger.info("[edu-img] %s spec=%s", job_id[:8], spec.get("title"))
-
-        # Persist domain + spec early so polling can show progress
-        async with get_db() as db:
-            await db.execute(
-                "UPDATE educational_images SET domain=$1, spec=$2::jsonb WHERE id=$3::uuid",
-                domain, json.dumps(spec), job_id,
-            )
-
-        # 3. Build prompt
-        prompt = build_image_prompt(spec, domain)
-
-        # 4. Generate via gpt-image-1
-        image_bytes = await generate_image_openai(prompt)
-        logger.info("[edu-img] %s image generated (%d bytes)", job_id[:8], len(image_bytes))
-
-        # 5. Store in R2
-        r2_url = await store_image_r2(image_bytes, job_id, user_id, session_id)
-
-        # 6. Mark ready
         async with get_db() as db:
             await db.execute(
                 """UPDATE educational_images
-                   SET status='ready', image_url=$1, prompt=$2
+                   SET domain=$1, knowledge_model=$2::jsonb
                    WHERE id=$3::uuid""",
-                r2_url, prompt, job_id,
+                domain, json.dumps(knowledge_model), job_id,
             )
-        logger.info("[edu-img] %s ready → %s", job_id[:8], r2_url)
+
+        # ── 2. Diagram planning ───────────────────────────────────────────
+        diagram_plan = await plan_diagram(knowledge_model)
+
+        async with get_db() as db:
+            await db.execute(
+                """UPDATE educational_images
+                   SET diagram_plan=$1::jsonb, diagram_type=$2
+                   WHERE id=$3::uuid""",
+                json.dumps(diagram_plan), concept_type, job_id,
+            )
+
+        # ── 3. Pre-generation validation ─────────────────────────────────
+        validation_issues = validate_diagram_plan(diagram_plan, knowledge_model)
+
+        # ── 4+5+6+7. Generate → critic → (retry) ─────────────────────────
+        image_bytes, critic_report, final_prompt = await generate_with_critic(
+            knowledge_model, diagram_plan, validation_issues,
+        )
+
+        # ── 8. Upload to R2 ───────────────────────────────────────────────
+        r2_url = await store_image_r2(image_bytes, job_id, user_id, session_id)
+
+        # Build a backward-compatible spec for frontend display
+        all_elements = []
+        for panel in diagram_plan.get("panels", []):
+            all_elements.extend(panel.get("elements", []))
+        compat_spec = {
+            "domain":            domain,
+            "title":             knowledge_model.get("title", ""),
+            "visual_elements":   list(dict.fromkeys(all_elements + knowledge_model.get("must_show", [])))[:10],
+            "key_relationships": knowledge_model.get("learning_goal", ""),
+            "style":             diagram_plan.get("layout", ""),
+            "difficulty":        knowledge_model.get("difficulty", "high_school"),
+        }
+
+        # ── 9. Mark ready ─────────────────────────────────────────────────
+        async with get_db() as db:
+            await db.execute(
+                """UPDATE educational_images
+                   SET status='ready',
+                       image_url=$1,
+                       prompt=$2,
+                       spec=$3::jsonb,
+                       critic_report=$4::jsonb,
+                       generation_attempts=$5
+                   WHERE id=$6::uuid""",
+                r2_url,
+                final_prompt,
+                json.dumps(compat_spec),
+                json.dumps(critic_report),
+                critic_report.get("attempt", 1),
+                job_id,
+            )
+        logger.info("[edu-img] %s ready — score=%s attempts=%s",
+                    job_id[:8], critic_report.get("score"), critic_report.get("attempt", 1))
 
     except Exception as exc:
         logger.exception("[edu-img] %s failed: %s", job_id[:8], exc)

@@ -313,7 +313,33 @@ export type EduImageJob = {
   jobId?: string;
   concept: string;
   domain?: string;
-  spec?: { visual_elements?: string[]; key_relationships?: string; [k: string]: unknown };
+  diagram_type?: string;
+  /** Backward-compatible spec — has visual_elements for display */
+  spec?: {
+    visual_elements?: string[];
+    key_relationships?: string;
+    title?: string;
+    difficulty?: string;
+    [k: string]: unknown;
+  };
+  /** Rich knowledge model from knowledge extractor */
+  knowledge_model?: {
+    learning_goal?: string;
+    entities?: string[];
+    mechanisms?: string[];
+    must_show?: string[];
+    common_misconceptions?: string[];
+    [k: string]: unknown;
+  };
+  /** Critic report from GPT-4o vision review */
+  critic_report?: {
+    score?: number;
+    issues?: string[];
+    regenerate?: boolean;
+    attempt?: number;
+    [k: string]: unknown;
+  };
+  generation_attempts?: number;
   prompt?: string;
   image_url?: string;
   status: 'processing' | 'ready' | 'failed';

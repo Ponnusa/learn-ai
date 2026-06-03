@@ -59,7 +59,9 @@ async def get_image_job(job_id: str):
     async with get_db() as db:
         row = await db.fetchrow(
             """SELECT id, concept, domain, spec, prompt, image_url, status, error_msg,
-                      conversation_id, study_set_id, message_id, created_at
+                      conversation_id, study_set_id, message_id,
+                      knowledge_model, diagram_plan, critic_report,
+                      diagram_type, generation_attempts, created_at
                FROM educational_images WHERE id = $1::uuid""",
             job_id,
         )
@@ -69,7 +71,6 @@ async def get_image_job(job_id: str):
     result = dict(row)
     if result.get("created_at"):
         result["created_at"] = result["created_at"].isoformat()
-    # UUID fields → str
     for field in ("conversation_id", "study_set_id"):
         if result.get(field):
             result[field] = str(result[field])

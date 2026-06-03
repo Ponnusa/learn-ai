@@ -61,6 +61,12 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS message_id      TEXT",
             "CREATE INDEX IF NOT EXISTS idx_edu_img_conv ON educational_images(conversation_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_edu_img_ss   ON educational_images(study_set_id, created_at DESC)",
+            # ── Educational Images: Knowledge-Layer columns ───────────────────
+            "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS knowledge_model     JSONB DEFAULT '{}'",
+            "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS diagram_plan        JSONB DEFAULT '{}'",
+            "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS critic_report       JSONB DEFAULT '{}'",
+            "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS diagram_type        TEXT",
+            "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS generation_attempts INT  DEFAULT 1",
             # ── StudySets: create new tables that didn't exist in 001 ─────────
             """
             CREATE TABLE IF NOT EXISTS study_materials (

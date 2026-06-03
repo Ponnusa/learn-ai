@@ -298,7 +298,7 @@ export default function ImagesPage() {
                     </div>
                     <div className="text-center">
                       <p className="text-[var(--tx3)] text-sm font-medium">Creating your diagram…</p>
-                      <p className="text-[var(--tx6)] text-xs mt-1">Claude is building the spec · DALL-E 3 is drawing it</p>
+                      <p className="text-[var(--tx6)] text-xs mt-1">Knowledge extraction → Diagram plan → gpt-image-1 → Quality review</p>
                     </div>
                   </div>
                 ) : current.status === 'ready' && current.image_url ? (
@@ -324,18 +324,47 @@ export default function ImagesPage() {
                   </div>
                 ) : null}
 
-                {/* Spec detail */}
-                {current.status === 'ready' && current.spec && (
-                  <div className="px-5 py-3 border-t border-[var(--bd)] bg-[var(--ov2)]">
-                    <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide font-medium mb-1.5">Generated spec</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(current.spec.visual_elements ?? []).map((el: string) => (
-                        <span key={el} className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--surface)]
-                                                   border border-[var(--bd)] text-[var(--tx5)]">
-                          {el}
+                {/* Knowledge layer detail */}
+                {current.status === 'ready' && (
+                  <div className="px-5 py-3 border-t border-[var(--bd)] bg-[var(--ov2)] space-y-2.5">
+                    {/* Learning goal */}
+                    {current.knowledge_model?.learning_goal && (
+                      <p className="text-[var(--tx5)] text-xs leading-snug">
+                        <span className="text-[var(--tx7)] font-medium">Goal: </span>
+                        {current.knowledge_model.learning_goal}
+                      </p>
+                    )}
+                    {/* Visual elements */}
+                    {(current.spec?.visual_elements ?? current.knowledge_model?.must_show ?? []).length > 0 && (
+                      <div>
+                        <p className="text-[var(--tx7)] text-[10px] uppercase tracking-wide font-medium mb-1">Shows</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(current.spec?.visual_elements ?? current.knowledge_model?.must_show ?? []).map((el: string) => (
+                            <span key={el} className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--surface)]
+                                                       border border-[var(--bd)] text-[var(--tx5)]">
+                              {el}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Critic score */}
+                    {current.critic_report?.score != null && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[var(--tx7)] text-[10px] uppercase tracking-wide font-medium">Quality score</span>
+                        <span className={`text-xs font-semibold ${
+                          (current.critic_report.score ?? 0) >= 85 ? 'text-emerald-400' :
+                          (current.critic_report.score ?? 0) >= 70 ? 'text-amber-400' : 'text-red-400'
+                        }`}>
+                          {current.critic_report.score}/100
                         </span>
-                      ))}
-                    </div>
+                        {(current.generation_attempts ?? 1) > 1 && (
+                          <span className="text-[var(--tx8)] text-[10px]">
+                            ({current.generation_attempts} attempts)
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

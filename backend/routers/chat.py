@@ -144,9 +144,9 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         """, conv_id)
         history = list(reversed(history))
 
-        # Fetch diagram specs generated in this conversation (for AI context)
+        # Fetch diagram knowledge models for this conversation (for AI context)
         diagram_rows = await db.fetch("""
-            SELECT concept, spec, prompt FROM educational_images
+            SELECT concept, knowledge_model, spec FROM educational_images
             WHERE conversation_id = $1 AND status = 'ready'
             ORDER BY created_at ASC LIMIT 5
         """, conv_id)
@@ -182,23 +182,35 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     if isinstance(subject_data, Exception):
         subject_data = {}
 
-    # Append diagram context so AI can answer questions about generated images
+    # Append diagram knowledge context so AI can answer questions about generated images
     if diagram_rows:
         diagram_lines = []
         for d in diagram_rows:
+            km   = d["knowledge_model"] or {}
             spec = d["spec"] or {}
-            elements = ", ".join(spec.get("visual_elements", [])[:5])
-            rel = spec.get("key_relationships", "")
-            diagram_lines.append(
-                f'- "{d["concept"]}": {rel}' + (f" (shows: {elements})" if elements else "")
-            )
+            goal         = km.get("learning_goal") or spec.get("key_relationships", "")
+            entities     = km.get("entities") or []
+            mechanisms   = km.get("mechanisms") or []
+            misconceptions = km.get("common_misconceptions") or []
+            must_show    = km.get("must_show") or spec.get("visual_elements") or []
+
+            line = f'- Diagram: "{d["concept"]}"'
+            if goal:        line += f'\n  Learning goal: {goal}'
+            if must_show:   line += f'\n  Shows: {", ".join(must_show[:6])}'
+            if entities:    line += f'\n  Entities: {", ".join(entities[:5])}'
+            if mechanisms:  line += f'\n  Mechanisms: {", ".join(mechanisms[:4])}'
+            if misconceptions:
+                line += f'\n  Common misconceptions: {", ".join(misconceptions[:2])}'
+            diagram_lines.append(line)
+
         system_prompt = (
             system_prompt
-            + "\n\n[DIAGRAMS IN THIS CONVERSATION — the student has generated the following "
-            "educational diagrams. If they ask about a diagram or its content, explain using "
-            "this information (you cannot see the actual image, but you know what it shows):\n"
-            + "\n".join(diagram_lines)
-            + "\n]"
+            + "\n\n[DIAGRAMS IN THIS CONVERSATION]\n"
+            "The student has generated the following educational diagrams. "
+            "Use this knowledge to answer questions about the diagrams — "
+            "you cannot see the images but know exactly what they represent:\n\n"
+            + "\n\n".join(diagram_lines)
+            + "\n[END DIAGRAMS]"
         )
 
     # ── 5. Call AI (GPT-4o or GPT-4o with vision) ────────────────────────────
