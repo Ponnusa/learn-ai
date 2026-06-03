@@ -342,7 +342,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
             </div>
 
             {/* Conversation list */}
-            <div className="flex-1 overflow-y-auto no-scrollbar px-2 pb-4 space-y-3 text-xs">
+            <div className="flex-1 chat-scroll px-2 pb-4 space-y-3 text-xs">
 
               {/* ── Study Sets group ──────────────────────────────────────── */}
               {studyGroups.length > 0 && (
