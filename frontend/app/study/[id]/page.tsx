@@ -762,6 +762,14 @@ function ActiveChat({
           }
           return up;
         });
+      } catch (e: any) {
+        const isLimit = e?.message === 'session_limit_reached' || e?.message === 'Daily image limit reached';
+        if (isLimit) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: '⚠️ **Daily diagram limit reached.** Come back tomorrow or upgrade your plan.',
+          }]);
+        }
       } finally { setImageing(false); }
       return;
     }

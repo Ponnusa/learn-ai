@@ -192,7 +192,13 @@ export default function ImagesPage() {
       setJobId(res.jobId);
       setConcept('');
     } catch (e: any) {
-      setCurrent({ concept: c, status: 'failed', error_msg: e.message });
+      const isLimit = e?.message === 'session_limit_reached' || e?.message === 'Daily image limit reached';
+      if (isLimit) {
+        setCurrent({ concept: c, status: 'failed', error_msg: '⚠️ Daily diagram limit reached. Come back tomorrow or upgrade your plan.' });
+        setHistory(prev => prev.filter(h => h.concept !== c || h.status !== 'processing'));
+      } else {
+        setCurrent({ concept: c, status: 'failed', error_msg: e.message });
+      }
     }
   }
 

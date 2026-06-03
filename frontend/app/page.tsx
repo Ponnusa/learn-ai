@@ -265,7 +265,20 @@ export default function HomePage() {
       }, token ?? undefined);
 
       setImageByMsgId(prev => ({ ...prev, [messageId]: res.jobId }));
-    } catch (e) { console.error(e); }
+    } catch (e: any) {
+      const isLimit = e?.message === 'session_limit_reached' || e?.message === 'Daily image limit reached';
+      if (isLimit && !user) {
+        setSignupReason('session_limit');
+        setShowSignup(true);
+      } else if (isLimit && user) {
+        setMessages(prev => [...prev, {
+          id: Date.now().toString(), role: 'assistant',
+          content: '⚠️ **Daily diagram limit reached.** Come back tomorrow or upgrade your plan.',
+        }]);
+      } else {
+        console.error(e);
+      }
+    }
   }
 
   async function handleTestYourself(content: string, subject?: string) {

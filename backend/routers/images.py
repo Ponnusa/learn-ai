@@ -12,6 +12,7 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from database import get_db
+from services.tier_config import get_limit
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,37 @@ class GenerateRequest(BaseModel):
     message_id:      str | None = None
 
 
+async def _check_image_credit(user_id: str | None, session_id: str | None, tier: str):
+    """Enforce per-tier image generation limits (mirrors video credit check)."""
+    async with get_db() as db:
+        if user_id:
+            limit = await get_limit(tier, "images_daily")
+            if limit == -1:
+                return  # unlimited
+            count = await db.fetchval("""
+                SELECT COUNT(*) FROM usage_events
+                WHERE user_id = $1 AND event_type = 'image_generated'
+                AND created_at > NOW() - INTERVAL '1 day'
+            """, user_id)
+            if count >= limit:
+                raise HTTPException(status_code=429, detail="Daily image limit reached")
+            await db.execute(
+                "INSERT INTO usage_events (user_id, event_type) VALUES ($1, 'image_generated')",
+                user_id,
+            )
+        elif session_id:
+            row = await db.fetchrow(
+                "SELECT image_count FROM anonymous_sessions WHERE id = $1", session_id
+            )
+            limit = await get_limit("anonymous", "images_total")
+            if row and row["image_count"] >= limit:
+                raise HTTPException(status_code=429, detail="session_limit_reached")
+            await db.execute(
+                "UPDATE anonymous_sessions SET image_count = image_count + 1 WHERE id = $1",
+                session_id,
+            )
+
+
 @router.post("/generate")
 async def generate_image(req: GenerateRequest, bg: BackgroundTasks):
     concept = req.concept.strip()
@@ -34,6 +66,14 @@ async def generate_image(req: GenerateRequest, bg: BackgroundTasks):
         raise HTTPException(400, "concept is required")
     if len(concept) > 500:
         raise HTTPException(400, "concept must be 500 characters or fewer")
+
+    # ── Credit check ──────────────────────────────────────────────────────────
+    async with get_db() as db:
+        tier = "anonymous"
+        if req.user_id:
+            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1", req.user_id)
+            tier = user["tier"] if user else "free"
+    await _check_image_credit(req.user_id, req.session_id, tier)
 
     job_id = str(uuid.uuid4())
 
@@ -49,8 +89,8 @@ async def generate_image(req: GenerateRequest, bg: BackgroundTasks):
     from services.educational_image import process_image_job
     bg.add_task(process_image_job, job_id, concept, req.user_id, req.session_id)
 
-    logger.info("[edu-img] job created: %s conv=%s ss=%s", job_id[:8],
-                (req.conversation_id or "")[:8], (req.study_set_id or "")[:8])
+    logger.info("[edu-img] job created: %s tier=%s conv=%s", job_id[:8], tier,
+                (req.conversation_id or "")[:8])
     return {"jobId": job_id, "status": "processing"}
 
 
