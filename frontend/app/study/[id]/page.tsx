@@ -1022,7 +1022,7 @@ export default function StudySetPage() {
   const params       = useParams();
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const { token }    = useSessionStore();
+  const { token, user, sessionId } = useSessionStore();
   const id           = params.id as string;
 
   const [ss,       setSs]       = useState<StudySetDetail | null>(null);
