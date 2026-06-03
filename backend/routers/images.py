@@ -160,10 +160,15 @@ async def list_images(
         else:
             return []
 
-    return [
-        {**dict(r), "created_at": r["created_at"].isoformat() if r["created_at"] else None}
-        for r in rows
-    ]
+    result = []
+    for r in rows:
+        row = dict(r)
+        if row.get("created_at"):
+            row["created_at"] = row["created_at"].isoformat()
+        if row.get("conversation_id"):
+            row["conversation_id"] = str(row["conversation_id"])
+        result.append(row)
+    return result
 
 
 @router.delete("/{job_id}")

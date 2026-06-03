@@ -235,7 +235,7 @@ export default function ImagesPage() {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar">
+        <div className="flex-1 chat-scroll">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-8">
 
             {/* ── Generator input ─────────────────────────────────── */}

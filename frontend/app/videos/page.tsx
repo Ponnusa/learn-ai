@@ -144,7 +144,7 @@ function TranscriptModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-5">
+        <div className="flex-1 chat-scroll px-6 py-5">
           <div className="ai-content text-sm leading-relaxed">
             <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
               {preprocessMath(markdown)}
@@ -381,7 +381,7 @@ function VideoLibraryGrid({
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Grid */}
-      <div className="flex-1 overflow-y-auto no-scrollbar px-3 sm:px-6 py-4 sm:py-6">
+      <div className="flex-1 chat-scroll px-3 sm:px-6 py-4 sm:py-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {pageVideos.map(v => (
             <VideoLibraryCard
@@ -634,7 +634,7 @@ function VideosContent() {
             </h1>
           </div>
 
-          <div className="flex-1 overflow-y-auto no-scrollbar">
+          <div className="flex-1 chat-scroll">
             <div className="flex items-start justify-center px-3 sm:px-6 py-6 sm:py-10 min-h-full">
 
               {/* Loading */}
@@ -783,7 +783,7 @@ function VideosContent() {
               <p className="text-[var(--tx6)] text-xs text-center">No completed videos yet.</p>
             </div>
           ) : (
-            <div className="flex-1 overflow-y-auto no-scrollbar py-2 px-2 space-y-0.5">
+            <div className="flex-1 chat-scroll py-2 px-2 space-y-0.5">
               {videos.map(v => (
                 <VideoSidebarCard
                   key={v.id}

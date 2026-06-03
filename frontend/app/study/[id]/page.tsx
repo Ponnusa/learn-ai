@@ -806,7 +806,7 @@ function ActiveChat({
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto no-scrollbar space-y-4 pb-4">
+      <div className="flex-1 chat-scroll space-y-4 pb-4">
         {histLoading && (
           <div className="flex items-center justify-center py-10 gap-2 text-[var(--tx6)] text-sm">
             <Loader size={16} className="animate-spin" /> Loading…
@@ -1196,7 +1196,7 @@ export default function StudySetPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar px-4 sm:px-6 py-6">
+        <div className="flex-1 chat-scroll px-4 sm:px-6 py-6">
           {tab === 'overview' && (
             <OverviewTab ss={ss} onRefresh={handleUploaded} onOpenPdf={handleOpenPdf} />
           )}

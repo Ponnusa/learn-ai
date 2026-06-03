@@ -267,7 +267,7 @@ export default function StudyPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto no-scrollbar px-4 sm:px-6 py-5">
+        <div className="flex-1 chat-scroll px-4 sm:px-6 py-5">
           {loading ? (
             <div className="flex items-center justify-center h-40">
               <Loader size={22} className="text-[var(--tx5)] animate-spin" />
