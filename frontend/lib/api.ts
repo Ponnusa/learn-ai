@@ -310,6 +310,7 @@ export const deleteStudySet = (id: string, token?: string) =>
 
 export type EduImageJob = {
   id: string;
+  jobId?: string;
   concept: string;
   domain?: string;
   spec?: Record<string, unknown>;
