@@ -309,11 +309,11 @@ export const deleteStudySet = (id: string, token?: string) =>
 // ── Educational Images ────────────────────────────────────────────────────────
 
 export type EduImageJob = {
-  id: string;
+  id?: string;
   jobId?: string;
   concept: string;
   domain?: string;
-  spec?: Record<string, unknown>;
+  spec?: { visual_elements?: string[]; key_relationships?: string; [k: string]: unknown };
   prompt?: string;
   image_url?: string;
   status: 'processing' | 'ready' | 'failed';
@@ -321,7 +321,7 @@ export type EduImageJob = {
   message_id?: string;
   conversation_id?: string;
   study_set_id?: string;
-  created_at: string;
+  created_at?: string;
 };
 
 export const generateEduImage = (data: {

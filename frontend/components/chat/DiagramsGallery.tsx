@@ -45,7 +45,7 @@ function ImageCard({
     let stopped = false;
     const poll = async () => {
       try {
-        const d = await getEduImageJob(job.id, token);
+        const d = await getEduImageJob(job.id!, token);
         if (!stopped) {
           setJob(d);
           if (d.status === 'processing') setTimeout(poll, 3000);
@@ -59,13 +59,13 @@ function ImageCard({
   async function handleRetry() {
     setRetrying(true);
     setJob(j => ({ ...j, status: 'processing', image_url: undefined }));
-    try { await retryEduImage(job.id, token); } catch { setJob(j => ({ ...j, status: 'failed' })); }
+    try { await retryEduImage(job.id!, token); } catch { setJob(j => ({ ...j, status: 'failed' })); }
     finally { setRetrying(false); }
   }
 
   async function handleDelete() {
     setDeleting(true);
-    try { await deleteEduImage(job.id, token); onRemove(job.id); } catch { setDeleting(false); }
+    try { await deleteEduImage(job.id!, token); onRemove(job.id!); } catch { setDeleting(false); }
   }
 
   return (
@@ -215,7 +215,7 @@ export function DiagramsGallery({
   return (
     <div className="grid grid-cols-2 gap-3 p-1">
       {jobs.map(job => (
-        <ImageCard key={job.id} job={job} token={token} onRemove={removeJob} />
+        <ImageCard key={job.id ?? job.jobId} job={job} token={token} onRemove={removeJob} />
       ))}
     </div>
   );
