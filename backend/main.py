@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 
 from database import init_pool, close_pool
 from config import settings
-from routers import auth, sessions, chat, videos, quizzes, uploads, studysets
+from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
 
 
 @asynccontextmanager
@@ -37,6 +37,24 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE study_concepts ADD COLUMN IF NOT EXISTS order_index INT NOT NULL DEFAULT 0",
             # backfill name from title for any old rows
             "UPDATE study_concepts SET name = title WHERE name IS NULL AND title IS NOT NULL",
+            # ── Educational Images ────────────────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS educational_images (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                user_id      UUID REFERENCES users(id) ON DELETE SET NULL,
+                session_id   UUID REFERENCES anonymous_sessions(id) ON DELETE SET NULL,
+                concept      TEXT NOT NULL,
+                domain       TEXT,
+                spec         JSONB DEFAULT '{}',
+                prompt       TEXT,
+                image_url    TEXT,
+                status       TEXT NOT NULL DEFAULT 'processing',
+                error_msg    TEXT,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_edu_img_user ON educational_images(user_id, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_edu_img_sess ON educational_images(session_id, created_at DESC)",
             # ── StudySets: create new tables that didn't exist in 001 ─────────
             """
             CREATE TABLE IF NOT EXISTS study_materials (
@@ -108,6 +126,7 @@ app.include_router(videos.router)
 app.include_router(quizzes.router)
 app.include_router(uploads.router)
 app.include_router(studysets.router)
+app.include_router(images.router)
 
 
 @app.get("/health")

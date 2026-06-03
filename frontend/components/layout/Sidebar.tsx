@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Video, BookOpen, BarChart2, Settings,
-  Search, Menu, X, PenSquare, User,
+  Search, Menu, X, PenSquare, User, Sparkles,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { listConversations } from '@/lib/api';
@@ -165,6 +165,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
   const navItems = [
     { icon: <Video size={18} />,     label: 'My Videos',  href: '/videos'   },
     { icon: <BookOpen size={18} />,  label: 'Study Sets', href: '/study'    },
+    { icon: <Sparkles size={18} />,  label: 'Diagrams',   href: '/images'   },
     { icon: <BarChart2 size={18} />, label: 'Progress',   href: '/progress' },
     { icon: <Settings size={18} />,  label: 'Settings',   href: '/settings' },
   ];
