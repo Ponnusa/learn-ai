@@ -160,7 +160,7 @@ export default function ImagesPage() {
   // Load history
   useEffect(() => {
     setHistLoading(true);
-    listEduImages(user?.id, sessionId ?? undefined, token ?? undefined)
+    listEduImages({ user_id: user?.id, session_id: sessionId ?? undefined }, token ?? undefined)
       .then(r => { setHistory(r); setHistLoading(false); })
       .catch(() => setHistLoading(false));
   }, [user?.id, sessionId]);
@@ -188,7 +188,7 @@ export default function ImagesPage() {
     setCurrent({ concept: c, status: 'processing' });
     setHistory(prev => [{ concept: c, status: 'processing' }, ...prev]);
     try {
-      const res = await generateEduImage(c, user?.id, sessionId ?? undefined, token ?? undefined);
+      const res = await generateEduImage({ concept: c, user_id: user?.id, session_id: sessionId ?? undefined }, token ?? undefined);
       setJobId(res.jobId);
       setConcept('');
     } catch (e: any) {

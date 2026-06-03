@@ -372,39 +372,6 @@ export async function fetchMaterialPdf(
   return new File([blob], filename, { type: 'application/pdf' });
 }
 
-// ── Educational Images ────────────────────────────────────────────────────────
-
-export type EduImageJob = {
-  jobId?:     string;
-  id?:        string;
-  concept:    string;
-  domain?:    string;
-  spec?:      Record<string, any>;
-  prompt?:    string;
-  image_url?: string;
-  status:     'processing' | 'ready' | 'failed';
-  error_msg?: string;
-  created_at?: string;
-};
-
-export const generateEduImage = (
-  concept: string, userId?: string, sessionId?: string, token?: string
-) =>
-  post<{ jobId: string; status: string }>(
-    '/api/images/generate',
-    { concept, user_id: userId ?? null, session_id: sessionId ?? null },
-    token,
-  );
-
-export const getEduImageJob = (jobId: string, token?: string) =>
-  get<EduImageJob>(`/api/images/${jobId}`, token);
-
-export const listEduImages = (userId?: string, sessionId?: string, token?: string) => {
-  if (!userId && !sessionId) return Promise.resolve<EduImageJob[]>([]);
-  const param = userId ? `user_id=${userId}` : `session_id=${sessionId}`;
-  return get<EduImageJob[]>(`/api/images?${param}`, token);
-};
-
 // ── File upload (multipart) ───────────────────────────────────────────────────
 export async function uploadFile(file: File, sessionId?: string, userId?: string, token?: string) {
   const form = new FormData();
