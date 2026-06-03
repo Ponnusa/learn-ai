@@ -61,7 +61,7 @@ async def get_image_job(job_id: str):
             """SELECT id, concept, domain, spec, prompt, image_url, status, error_msg,
                       conversation_id, study_set_id, message_id,
                       knowledge_model, diagram_plan, critic_report,
-                      diagram_type, generation_attempts, created_at
+                      diagram_type, generation_attempts, description, created_at
                FROM educational_images WHERE id = $1::uuid""",
             job_id,
         )
@@ -88,7 +88,7 @@ async def list_images(
         if conversation_id:
             rows = await db.fetch(
                 """SELECT id, concept, domain, image_url, status, error_msg,
-                          message_id, spec, created_at
+                          message_id, spec, description, created_at
                    FROM educational_images WHERE conversation_id = $1::uuid
                    ORDER BY created_at ASC""",
                 conversation_id,
@@ -96,7 +96,7 @@ async def list_images(
         elif study_set_id:
             rows = await db.fetch(
                 """SELECT id, concept, domain, image_url, status, error_msg,
-                          message_id, spec, created_at
+                          message_id, spec, description, created_at
                    FROM educational_images WHERE study_set_id = $1::uuid
                    ORDER BY created_at ASC""",
                 study_set_id,
@@ -104,7 +104,7 @@ async def list_images(
         elif user_id:
             rows = await db.fetch(
                 """SELECT id, concept, domain, image_url, status, error_msg,
-                          message_id, spec, created_at
+                          message_id, spec, description, created_at
                    FROM educational_images WHERE user_id = $1::uuid
                    ORDER BY created_at DESC LIMIT 20""",
                 user_id,
@@ -112,7 +112,7 @@ async def list_images(
         elif session_id:
             rows = await db.fetch(
                 """SELECT id, concept, domain, image_url, status, error_msg,
-                          message_id, spec, created_at
+                          message_id, spec, description, created_at
                    FROM educational_images WHERE session_id = $1::uuid
                    ORDER BY created_at DESC LIMIT 10""",
                 session_id,

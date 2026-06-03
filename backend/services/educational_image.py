@@ -80,27 +80,31 @@ def build_image_prompt(
         pre = "\n".join(f"  - {i}" for i in validation_issues)
         correction += f"\n\nPRE-GENERATION WARNINGS (avoid these):\n{pre}"
 
-    return f"""Educational {domain} diagram — {title}
-
-Learning goal: {learning_goal}
+    return f"""Educational {domain} diagram: {title}
 
 STYLE: {domain_style}
 LAYOUT: {diagram_plan.get("layout", "clean, well-spaced")}
 COLOR: {diagram_plan.get("color_scheme", "high contrast, white background")}
 TEMPLATE: {template.get("style_notes", "")}
 
-MUST INCLUDE (scientifically essential):
+DRAW these visual elements:
 {elements_str}
 
-NEVER INCLUDE (scientifically misleading or incorrect):
+LABELLING RULES (critical):
+- Each drawn element gets a SHORT label directly on or next to it (max 4 words)
+- Labels are identifiers only: element name + unit if applicable (e.g. "Weight W (N)", "v = 10 m/s")
+- NO title text block, NO subtitle, NO paragraph text, NO floating description
+- NO equations as text blocks — only as compact inline labels if essential
+- NO legend boxes with long text
+- Every label must point directly to the element it names
+
+NEVER INCLUDE (scientifically misleading):
 {forbidden_str}
 
-Additional requirements:
-- Pure white background, no gradients or textures
-- Every element clearly labeled with correct scientific notation and units
-- Professional textbook illustration quality
-- No decorative art, no artistic flourishes, no stylised backgrounds
-- Suitable for high school students{correction}"""
+Image requirements:
+- Pure white background
+- Professional textbook line-art quality
+- No decorative backgrounds, gradients, or artistic flourishes{correction}"""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -266,6 +270,75 @@ async def store_image_r2(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# AI description generator — runs after image is stored
+# ─────────────────────────────────────────────────────────────────────────────
+
+async def generate_image_description(knowledge_model: dict, diagram_plan: dict) -> str:
+    """
+    Generate a rich markdown explanation of the diagram using Claude.
+    This text is shown as an AI message next to the image — it replaces all
+    the explanatory text that used to be embedded inside the image itself.
+    """
+    from anthropic import AsyncAnthropic
+    client = AsyncAnthropic()
+
+    title          = knowledge_model.get("title", "")
+    learning_goal  = knowledge_model.get("learning_goal", "")
+    entities       = knowledge_model.get("entities", [])
+    relationships  = knowledge_model.get("relationships", [])
+    mechanisms     = knowledge_model.get("mechanisms", [])
+    variables      = knowledge_model.get("variables", [])
+    misconceptions = knowledge_model.get("common_misconceptions", [])
+    must_show      = knowledge_model.get("must_show", [])
+
+    elements = []
+    for panel in diagram_plan.get("panels", []):
+        elements.extend(panel.get("elements", []))
+
+    prompt = f"""You are an expert science educator. Write a clear, concise explanation of this educational diagram.
+
+Diagram: {title}
+Learning goal: {learning_goal}
+Key entities shown: {entities}
+Relationships: {relationships}
+Mechanisms: {mechanisms}
+Variables: {variables}
+What the diagram shows: {must_show + elements[:6]}
+Common misconceptions to address: {misconceptions}
+
+Write 3–5 short paragraphs in plain educational language:
+1. What the diagram shows (1-2 sentences)
+2. How to read/interpret it — walk through the key labeled elements
+3. The underlying science — what causes what, why it matters
+4. Common mistakes students make with this concept (if any)
+
+Format: use **bold** for key terms. Keep it concise and student-friendly.
+Do NOT describe the image visually (no "the arrow on the left..."). Explain the science.
+Do NOT use headers. Just flowing paragraphs."""
+
+    try:
+        response = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        description = response.content[0].text.strip()
+        logger.info("[desc] generated %d chars for '%s'", len(description), title)
+        return description
+    except Exception as e:
+        logger.warning("[desc] description generation failed (%s) — using fallback", e)
+        # Minimal fallback built from the knowledge model
+        parts = [f"**{title}**"]
+        if learning_goal:
+            parts.append(learning_goal)
+        if mechanisms:
+            parts.append("Key mechanisms: " + ", ".join(mechanisms) + ".")
+        if misconceptions:
+            parts.append("Common misconception: " + misconceptions[0])
+        return "\n\n".join(parts)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main pipeline — called by background task
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -320,8 +393,11 @@ async def process_image_job(
         # ── 8. Upload to R2 ───────────────────────────────────────────────
         r2_url = await store_image_r2(image_bytes, job_id, user_id, session_id)
 
-        # Build a backward-compatible spec for frontend display
-        all_elements = []
+        # ── 9. Generate AI description (runs in parallel with nothing — fast) ─
+        description = await generate_image_description(knowledge_model, diagram_plan)
+
+        # Build backward-compatible spec for frontend display
+        all_elements: list[str] = []
         for panel in diagram_plan.get("panels", []):
             all_elements.extend(panel.get("elements", []))
         compat_spec = {
@@ -333,7 +409,7 @@ async def process_image_job(
             "difficulty":        knowledge_model.get("difficulty", "high_school"),
         }
 
-        # ── 9. Mark ready ─────────────────────────────────────────────────
+        # ── 10. Mark ready ────────────────────────────────────────────────
         async with get_db() as db:
             await db.execute(
                 """UPDATE educational_images
@@ -342,13 +418,15 @@ async def process_image_job(
                        prompt=$2,
                        spec=$3::jsonb,
                        critic_report=$4::jsonb,
-                       generation_attempts=$5
-                   WHERE id=$6::uuid""",
+                       generation_attempts=$5,
+                       description=$6
+                   WHERE id=$7::uuid""",
                 r2_url,
                 final_prompt,
                 json.dumps(compat_spec),
                 json.dumps(critic_report),
                 critic_report.get("attempt", 1),
+                description,
                 job_id,
             )
         logger.info("[edu-img] %s ready — score=%s attempts=%s",

@@ -67,6 +67,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS critic_report       JSONB DEFAULT '{}'",
             "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS diagram_type        TEXT",
             "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS generation_attempts INT  DEFAULT 1",
+            "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS description         TEXT",
             # ── StudySets: create new tables that didn't exist in 001 ─────────
             """
             CREATE TABLE IF NOT EXISTS study_materials (

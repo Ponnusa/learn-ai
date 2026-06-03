@@ -340,6 +340,8 @@ export type EduImageJob = {
     [k: string]: unknown;
   };
   generation_attempts?: number;
+  /** AI-generated markdown explanation — shown as a text message alongside the image */
+  description?: string;
   prompt?: string;
   image_url?: string;
   status: 'processing' | 'ready' | 'failed';

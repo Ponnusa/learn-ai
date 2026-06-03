@@ -324,6 +324,16 @@ export default function ImagesPage() {
                   </div>
                 ) : null}
 
+                {/* AI description — the explanation that used to live inside the image */}
+                {current.status === 'ready' && current.description && (
+                  <div className="px-5 py-4 border-t border-[var(--bd)] bg-[var(--surface)]">
+                    <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide font-medium mb-2">About this diagram</p>
+                    <div className="text-[var(--tx3)] text-sm leading-relaxed space-y-2 whitespace-pre-wrap">
+                      {current.description}
+                    </div>
+                  </div>
+                )}
+
                 {/* Knowledge layer detail */}
                 {current.status === 'ready' && (
                   <div className="px-5 py-3 border-t border-[var(--bd)] bg-[var(--ov2)] space-y-2.5">

@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { ImageIcon, RefreshCw, Trash2, X, ZoomIn, AlertCircle, Loader } from 'lucide-react';
+import { ImageIcon, RefreshCw, Trash2, X, ZoomIn, AlertCircle, Loader, ChevronDown } from 'lucide-react';
 import {
   listEduImages, deleteEduImage, retryEduImage, getEduImageJob,
   type EduImageJob,
@@ -34,10 +34,11 @@ function ImageCard({
   token?: string;
   onRemove: (id: string) => void;
 }) {
-  const [job,      setJob]      = useState<EduImageJob>(initial);
-  const [lightbox, setLightbox] = useState(false);
-  const [retrying, setRetrying] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [job,         setJob]         = useState<EduImageJob>(initial);
+  const [lightbox,    setLightbox]    = useState(false);
+  const [showDesc,    setShowDesc]    = useState(false);
+  const [retrying,    setRetrying]    = useState(false);
+  const [deleting,    setDeleting]    = useState(false);
 
   // Poll while processing
   useEffect(() => {
@@ -108,6 +109,16 @@ function ImageCard({
           <div className="flex items-center justify-between gap-1.5">
             <DomainBadge domain={job.domain} />
             <div className="flex items-center gap-1">
+              {job.description && (
+                <button
+                  onClick={() => setShowDesc(v => !v)}
+                  className="w-6 h-6 flex items-center justify-center rounded-md
+                             text-[var(--tx6)] hover:text-[var(--tx2)] hover:bg-[var(--ov3)] transition-colors"
+                  title="More info"
+                >
+                  <ChevronDown size={11} className={`transition-transform ${showDesc ? 'rotate-180' : ''}`} />
+                </button>
+              )}
               {job.status === 'failed' && (
                 <button
                   onClick={handleRetry}
@@ -130,6 +141,13 @@ function ImageCard({
               </button>
             </div>
           </div>
+
+          {/* Description toggle */}
+          {showDesc && job.description && (
+            <p className="text-[var(--tx4)] text-[11px] leading-relaxed border-t border-[var(--bd)] pt-2 whitespace-pre-wrap">
+              {job.description}
+            </p>
+          )}
         </div>
       </div>
 

@@ -415,12 +415,13 @@ export function VideoStatusCard({ videoId, token }: { videoId: number; token?: s
 export function ImageStatusCard({
   jobId, token, onDelete,
 }: { jobId: string; token?: string; onDelete?: () => void }) {
-  const [status,   setStatus]   = useState<'processing' | 'ready' | 'failed'>('processing');
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [concept,  setConcept]  = useState<string>('');
-  const [retrying, setRetrying] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [lightbox, setLightbox] = useState(false);
+  const [status,      setStatus]      = useState<'processing' | 'ready' | 'failed'>('processing');
+  const [imageUrl,    setImageUrl]    = useState<string | null>(null);
+  const [concept,     setConcept]     = useState<string>('');
+  const [description, setDescription] = useState<string | null>(null);
+  const [retrying,    setRetrying]    = useState(false);
+  const [deleting,    setDeleting]    = useState(false);
+  const [lightbox,    setLightbox]    = useState(false);
 
   useEffect(() => {
     let stopped = false;
@@ -429,8 +430,9 @@ export function ImageStatusCard({
         const d = await getEduImageJob(jobId, token);
         if (stopped) return;
         setStatus(d.status as 'processing' | 'ready' | 'failed');
-        if (d.concept) setConcept(d.concept);
-        if (d.image_url) setImageUrl(d.image_url);
+        if (d.concept)     setConcept(d.concept);
+        if (d.image_url)   setImageUrl(d.image_url);
+        if (d.description) setDescription(d.description);
         if (d.status === 'processing') setTimeout(poll, 3000);
       } catch {
         if (!stopped) setTimeout(poll, 6000);
@@ -488,6 +490,17 @@ export function ImageStatusCard({
             className="w-full rounded-lg object-contain max-h-52 bg-white cursor-zoom-in border border-[var(--bd)]"
           />
         </div>
+
+        {/* AI description — shown as a message below the image */}
+        {description && (
+          <div className="rounded-xl border border-[var(--bd)] bg-[var(--surface)] px-4 py-3 mt-2">
+            <div className="ai-content text-sm leading-relaxed text-[var(--tx2)]">
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                {description}
+              </ReactMarkdown>
+            </div>
+          </div>
+        )}
 
         {lightbox && (
           <div
