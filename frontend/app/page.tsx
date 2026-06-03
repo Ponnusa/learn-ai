@@ -16,7 +16,9 @@ const PDFViewerModal = dynamic(
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos } from '@/lib/api';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages } from '@/lib/api';
+import { DiagramsGallery } from '@/components/chat/DiagramsGallery';
+import { ImageIcon } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -42,6 +44,11 @@ export default function HomePage() {
   const [pdfFile, setPdfFile]               = useState<File | null>(null);
   /** Maps message ID → video ID so we can show inline status per message */
   const [videoByMsgId, setVideoByMsgId]     = useState<Record<string, number>>({});
+  /** Maps message ID → image job ID for inline diagram cards */
+  const [imageByMsgId, setImageByMsgId]     = useState<Record<string, string>>({});
+  /** Incremented to refresh DiagramsGallery when a new image is triggered */
+  const [diagramsKey,  setDiagramsKey]      = useState(0);
+  const [showDiagrams, setShowDiagrams]     = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }     = useTranslation();
@@ -91,10 +98,13 @@ export default function HomePage() {
     setActiveConversationId(id);
     setMessages([]);
     setVideoByMsgId({});
+    setImageByMsgId({});
+    setShowDiagrams(false);
     try {
-      const [rows, videos] = await Promise.all([
+      const [rows, videos, images] = await Promise.all([
         getMessages(id, token ?? undefined),
         getConversationVideos(id, token ?? undefined).catch(() => []),
+        listEduImages({ conversation_id: id }, token ?? undefined).catch(() => []),
       ]);
 
       const loadedMessages = rows.map((m: any) => {
@@ -136,6 +146,16 @@ export default function HomePage() {
       }
 
       if (Object.keys(restored).length > 0) setVideoByMsgId(restored);
+
+      // Restore inline image cards (message_id → job id)
+      const restoredImages: Record<string, string> = {};
+      for (const img of images) {
+        if (img.message_id) restoredImages[img.message_id] = img.id;
+      }
+      if (Object.keys(restoredImages).length > 0) {
+        setImageByMsgId(restoredImages);
+        setShowDiagrams(true);
+      }
 
       const conv = conversations.find(c => c.id === id);
       if (conv?.subject) setCurrentSubject({ subject: conv.subject, subtopic: conv.subtopic });
@@ -238,6 +258,22 @@ export default function HomePage() {
         // Fallback: no message context, navigate to /videos
         router.push(`/videos?id=${res.video_id}`);
       }
+    } catch (e) { console.error(e); }
+  }
+
+  async function handleMakeDiagram(content: string, messageId: string) {
+    try {
+      const res = await generateEduImage({
+        concept:         content.slice(0, 400),
+        conversation_id: conversationId ?? undefined,
+        message_id:      messageId,
+        user_id:         user?.id,
+        session_id:      sessionId ?? undefined,
+      }, token ?? undefined);
+
+      setImageByMsgId(prev => ({ ...prev, [messageId]: res.jobId }));
+      setShowDiagrams(true);
+      setDiagramsKey(k => k + 1);
     } catch (e) { console.error(e); }
   }
 
@@ -428,10 +464,12 @@ export default function HomePage() {
                 <MessageBubble key={msg.id} message={msg}
                   onChipClick={handleSend}
                   onMakeVisual={(content, subject) => handleMakeVisual(content, subject, msg.id)}
+                  onMakeDiagram={(content, id) => handleMakeDiagram(content, id)}
                   onTestYourself={handleTestYourself}
                   onSimplify={() => handleSend('Can you simplify that explanation?')}
                   onGoDeeper={() => handleSend('Can you go deeper on that?')}
                   videoId={videoByMsgId[msg.id]}
+                  imageJobId={imageByMsgId[msg.id]}
                   token={token ?? undefined}
                 />
               ))
@@ -441,6 +479,37 @@ export default function HomePage() {
             <div ref={bottomRef} />
           </div>
         </div>
+
+        {/* Diagrams panel — collapsible, shown when conversation has images */}
+        {conversationId && (Object.keys(imageByMsgId).length > 0 || showDiagrams) && (
+          <div className="border-t border-[var(--bd)] bg-[var(--surface)]">
+            <button
+              onClick={() => setShowDiagrams(v => !v)}
+              className="w-full flex items-center justify-between px-4 py-2.5 text-left
+                         hover:bg-[var(--ov1)] transition-colors"
+            >
+              <div className="flex items-center gap-2 text-[var(--tx3)] text-xs font-semibold">
+                <ImageIcon size={13} className="text-teal-400" />
+                Diagrams
+                {Object.keys(imageByMsgId).length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-teal-500/15 text-teal-400 text-[10px]">
+                    {Object.keys(imageByMsgId).length}
+                  </span>
+                )}
+              </div>
+              <span className="text-[var(--tx7)] text-xs">{showDiagrams ? '▾' : '▸'}</span>
+            </button>
+            {showDiagrams && (
+              <div className="px-4 pb-4 max-h-72 overflow-y-auto no-scrollbar">
+                <DiagramsGallery
+                  conversationId={conversationId}
+                  token={token ?? undefined}
+                  refreshKey={diagramsKey}
+                />
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Credit warning */}
         {!user && msgCount >= 6 && (

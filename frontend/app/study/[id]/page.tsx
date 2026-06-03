@@ -8,17 +8,19 @@ import {
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
   FileText, AlertCircle, Send, BookOpen, HelpCircle,
   Lightbulb, Repeat2, Video, Clock, Plus, Eye,
-  ZoomIn, ZoomOut, X as XIcon,
+  ZoomIn, ZoomOut, X as XIcon, ImageIcon,
 } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
 import { VideoStatusCard } from '@/components/chat/MessageBubble';
+import { DiagramsGallery } from '@/components/chat/DiagramsGallery';
 import {
   getStudySet, uploadStudyMaterial, chatWithStudySet, reviewStudyCard,
   generateQuiz, generateVideo, getStudySetConversations, getMessages,
-  getConversationVideos, fetchMaterialPdf, uploadRegionImage,
+  getConversationVideos, fetchMaterialPdf, uploadRegionImage, generateEduImage,
   StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial, StudyConcept,
 } from '@/lib/api';
+import { ImageStatusCard } from '@/components/chat/MessageBubble';
 
 // PDFViewerModal uses browser-only APIs — never SSR
 const PDFViewerModal = dynamic(
@@ -28,15 +30,16 @@ const PDFViewerModal = dynamic(
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'concepts' | 'flashcards' | 'chat';
+type Tab = 'overview' | 'concepts' | 'flashcards' | 'chat' | 'diagrams';
 type ChatView = 'list' | 'active';
 
 type ChatMsg = {
-  role:     'user' | 'assistant';
-  content:  string;
-  chips?:   string[];
-  videoId?: number;
-  imageUrl?: string;   // R2 URL of a PDF region capture (shown as thumbnail)
+  role:       'user' | 'assistant';
+  content:    string;
+  chips?:     string[];
+  videoId?:   number;
+  imageJobId?: string;  // educational-image job ID for inline diagram card
+  imageUrl?:  string;   // R2 URL of a PDF region capture (shown as thumbnail)
 };
 
 type ChatSeed = {
@@ -615,6 +618,7 @@ function ActiveChat({
   const [quizzing, setQuizzing]    = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [videoing, setVideoing]    = useState(false);
+  const [imageing, setImageing]    = useState(false);
   const [convId, setConvId]        = useState<string | null>(null);
   const [lastMsgId, setLastMsgId]  = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -644,7 +648,7 @@ function ActiveChat({
       // Chips on last assistant message
       const lastAi = loaded.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).slice(-1)[0];
       if (lastAi !== undefined && lastAi >= 0) {
-        loaded[lastAi] = { ...loaded[lastAi], chips: ['Quiz me on this', 'Create a video', 'Give me an example', 'Explain differently'] };
+        loaded[lastAi] = { ...loaded[lastAi], chips: ['Quiz me on this', 'Create a video', 'Make it visual', 'Give me an example', 'Explain differently'] };
       }
       setMessages(loaded);
     }).catch(() => {}).finally(() => setHistLoading(false));
@@ -697,7 +701,8 @@ function ActiveChat({
       );
       setConvId(res.conversation_id);
       setLastMsgId(res.message_id);
-      setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips: res.chips }]);
+      const defaultChips = ['Quiz me on this', 'Create a video', 'Make it visual', 'Give me an example', 'Explain differently'];
+      setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips: res.chips?.length ? res.chips : defaultChips }]);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Something went wrong. Please try again.' }]);
     } finally { setLoading(false); }
@@ -737,6 +742,27 @@ function ActiveChat({
           });
         }
       } finally { setVideoing(false); }
+      return;
+    }
+    if (chip === 'Make it visual') {
+      setImageing(true);
+      try {
+        const res = await generateEduImage({
+          concept:      currentTopic().slice(0, 400),
+          conversation_id: convId ?? undefined,
+          study_set_id: ss.id,
+          message_id:   lastMsgId ?? undefined,
+          user_id:      user?.id,
+          session_id:   sessionId ?? undefined,
+        }, token ?? undefined);
+        setMessages(prev => {
+          const up = [...prev];
+          for (let i = up.length - 1; i >= 0; i--) {
+            if (up[i].role === 'assistant') { up[i] = { ...up[i], imageJobId: res.jobId }; break; }
+          }
+          return up;
+        });
+      } finally { setImageing(false); }
       return;
     }
     await fireMessage(chip);
@@ -823,16 +849,24 @@ function ActiveChat({
                 <VideoStatusCard videoId={m.videoId} token={token ?? undefined} />
               </div>
             )}
+            {m.role === 'assistant' && m.imageJobId && (
+              <div className="max-w-[88%] w-full mt-2">
+                <ImageStatusCard jobId={m.imageJobId} token={token ?? undefined} />
+              </div>
+            )}
             {m.role === 'assistant' && m.chips && i === messages.length - 1 && !loading && (
               <div className="max-w-[88%] mt-1">
-                {(quizzing || videoing) ? (
+                {(quizzing || videoing || imageing) ? (
                   <div className="flex items-center gap-1.5 text-xs text-[var(--tx6)] py-1">
                     <Loader size={11} className="animate-spin" />
-                    {quizzing ? 'Generating quiz…' : 'Generating video…'}
+                    {quizzing ? 'Generating quiz…' : videoing ? 'Generating video…' : 'Generating diagram…'}
                   </div>
                 ) : (
                   <Chips
-                    chips={m.videoId ? m.chips.filter(c => c !== 'Create a video') : m.chips}
+                    chips={m.chips.filter(c =>
+                      !(m.videoId && c === 'Create a video') &&
+                      !(m.imageJobId && c === 'Make it visual')
+                    )}
                     onChip={handleChip}
                   />
                 )}
@@ -1085,6 +1119,7 @@ export default function StudySetPage() {
     { key: 'concepts',   label: 'Concepts',   icon: <FileText size={13} />,   disabled: ss?.status !== 'ready' },
     { key: 'flashcards', label: 'Flashcards', icon: <LayoutGrid size={13} />, disabled: ss?.status !== 'ready' },
     { key: 'chat',       label: 'Chat',       icon: <MessageSquare size={13} />, disabled: ss?.status !== 'ready' },
+    { key: 'diagrams',   label: 'Diagrams',   icon: <ImageIcon size={13} />,  disabled: ss?.status !== 'ready' },
   ];
 
   if (loading) return (
@@ -1164,6 +1199,14 @@ export default function StudySetPage() {
             />
           )}
           {tab === 'flashcards' && <FlashcardsTab ss={ss} />}
+          {tab === 'diagrams' && (
+            <DiagramsGallery
+              studySetId={ss.id}
+              userId={user?.id}
+              sessionId={sessionId ?? undefined}
+              token={token ?? undefined}
+            />
+          )}
           {tab === 'chat' && (
             <ChatTab
               key={`${chatSeed?.concept ?? chatSeed?.pdfQuestion ?? 'general'}-${chatConv?.id ?? 'new'}`}

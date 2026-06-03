@@ -55,6 +55,12 @@ async def lifespan(app: FastAPI):
             """,
             "CREATE INDEX IF NOT EXISTS idx_edu_img_user ON educational_images(user_id, created_at DESC)",
             "CREATE INDEX IF NOT EXISTS idx_edu_img_sess ON educational_images(session_id, created_at DESC)",
+            # ── Educational Images: conversation/study-set linking ────────────
+            "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS conversation_id UUID REFERENCES conversations(id) ON DELETE SET NULL",
+            "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS study_set_id    UUID REFERENCES study_sets(id) ON DELETE SET NULL",
+            "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS message_id      TEXT",
+            "CREATE INDEX IF NOT EXISTS idx_edu_img_conv ON educational_images(conversation_id, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_edu_img_ss   ON educational_images(study_set_id, created_at DESC)",
             # ── StudySets: create new tables that didn't exist in 001 ─────────
             """
             CREATE TABLE IF NOT EXISTS study_materials (

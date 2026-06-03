@@ -306,6 +306,56 @@ export const reviewStudyCard = (studySetId: string, cardId: string, userId: stri
 export const deleteStudySet = (id: string, token?: string) =>
   del<{ ok: boolean }>(`/api/studysets/${id}`, token);
 
+// ── Educational Images ────────────────────────────────────────────────────────
+
+export type EduImageJob = {
+  id: string;
+  concept: string;
+  domain?: string;
+  spec?: Record<string, unknown>;
+  prompt?: string;
+  image_url?: string;
+  status: 'processing' | 'ready' | 'failed';
+  error_msg?: string;
+  message_id?: string;
+  conversation_id?: string;
+  study_set_id?: string;
+  created_at: string;
+};
+
+export const generateEduImage = (data: {
+  concept: string;
+  user_id?: string;
+  session_id?: string;
+  conversation_id?: string;
+  study_set_id?: string;
+  message_id?: string;
+}, token?: string) =>
+  post<{ jobId: string; status: string }>('/api/images/generate', data, token);
+
+export const getEduImageJob = (jobId: string, token?: string) =>
+  get<EduImageJob>(`/api/images/${jobId}`, token);
+
+export const listEduImages = (params: {
+  user_id?: string;
+  session_id?: string;
+  conversation_id?: string;
+  study_set_id?: string;
+}, token?: string) => {
+  const q = new URLSearchParams();
+  if (params.conversation_id) q.set('conversation_id', params.conversation_id);
+  else if (params.study_set_id) q.set('study_set_id', params.study_set_id);
+  else if (params.user_id) q.set('user_id', params.user_id);
+  else if (params.session_id) q.set('session_id', params.session_id);
+  return get<EduImageJob[]>(`/api/images?${q}`, token);
+};
+
+export const deleteEduImage = (jobId: string, token?: string) =>
+  del<{ deleted: boolean }>(`/api/images/${jobId}`, token);
+
+export const retryEduImage = (jobId: string, token?: string) =>
+  post<{ jobId: string; status: string }>(`/api/images/${jobId}/retry`, {}, token);
+
 /** Fetch a study-set PDF through the backend proxy (avoids R2 CORS). */
 export async function fetchMaterialPdf(
   studySetId: string,

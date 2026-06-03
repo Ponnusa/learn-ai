@@ -144,6 +144,13 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         """, conv_id)
         history = list(reversed(history))
 
+        # Fetch diagram specs generated in this conversation (for AI context)
+        diagram_rows = await db.fetch("""
+            SELECT concept, spec, prompt FROM educational_images
+            WHERE conversation_id = $1 AND status = 'ready'
+            ORDER BY created_at ASC LIMIT 5
+        """, conv_id)
+
         # ── 3. Save user message ─────────────────────────────────────────────
         content_type = "image_url" if req.image_url else "text"
         await db.execute("""
@@ -174,6 +181,25 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         system_prompt = CHAT_SYSTEM_PROMPT
     if isinstance(subject_data, Exception):
         subject_data = {}
+
+    # Append diagram context so AI can answer questions about generated images
+    if diagram_rows:
+        diagram_lines = []
+        for d in diagram_rows:
+            spec = d["spec"] or {}
+            elements = ", ".join(spec.get("visual_elements", [])[:5])
+            rel = spec.get("key_relationships", "")
+            diagram_lines.append(
+                f'- "{d["concept"]}": {rel}' + (f" (shows: {elements})" if elements else "")
+            )
+        system_prompt = (
+            system_prompt
+            + "\n\n[DIAGRAMS IN THIS CONVERSATION — the student has generated the following "
+            "educational diagrams. If they ask about a diagram or its content, explain using "
+            "this information (you cannot see the actual image, but you know what it shows):\n"
+            + "\n".join(diagram_lines)
+            + "\n]"
+        )
 
     # ── 5. Call AI (GPT-4o or GPT-4o with vision) ────────────────────────────
     messages = [{"role": "system", "content": system_prompt}]

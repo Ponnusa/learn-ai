@@ -5,12 +5,12 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Copy, Check, CheckCircle, Loader, Play, XCircle, X, FileText, RefreshCw } from 'lucide-react';
+import { Copy, Check, CheckCircle, Loader, Play, XCircle, X, FileText, RefreshCw, ImageIcon, Trash2, ZoomIn } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
-import { getQuiz, getVideoStatus, retryVideoManim } from '@/lib/api';
+import { getQuiz, getVideoStatus, retryVideoManim, getEduImageJob, retryEduImage, deleteEduImage } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -411,23 +411,168 @@ export function VideoStatusCard({ videoId, token }: { videoId: number; token?: s
   );
 }
 
+/* ── ImageStatusCard ────────────────────────────────────────────────────────── */
+export function ImageStatusCard({
+  jobId, token, onDelete,
+}: { jobId: string; token?: string; onDelete?: () => void }) {
+  const [status,   setStatus]   = useState<'processing' | 'ready' | 'failed'>('processing');
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [concept,  setConcept]  = useState<string>('');
+  const [retrying, setRetrying] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
+
+  useEffect(() => {
+    let stopped = false;
+    async function poll() {
+      try {
+        const d = await getEduImageJob(jobId, token);
+        if (stopped) return;
+        setStatus(d.status as 'processing' | 'ready' | 'failed');
+        if (d.concept) setConcept(d.concept);
+        if (d.image_url) setImageUrl(d.image_url);
+        if (d.status === 'processing') setTimeout(poll, 3000);
+      } catch {
+        if (!stopped) setTimeout(poll, 6000);
+      }
+    }
+    poll();
+    return () => { stopped = true; };
+  }, [jobId, token]);
+
+  async function handleRetry() {
+    setRetrying(true);
+    setStatus('processing');
+    setImageUrl(null);
+    try { await retryEduImage(jobId, token); } catch { setStatus('failed'); }
+    finally { setRetrying(false); }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    try { await deleteEduImage(jobId, token); onDelete?.(); } catch { setDeleting(false); }
+  }
+
+  if (status === 'ready' && imageUrl) {
+    return (
+      <>
+        <div className="rounded-xl border border-teal-500/25 bg-teal-500/5 p-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-teal-600/20 flex items-center justify-center shrink-0">
+                <ImageIcon size={13} className="text-teal-400" />
+              </div>
+              <p className="text-[var(--tx2)] text-sm font-semibold truncate max-w-[180px]">{concept}</p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => setLightbox(true)}
+                className="text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-medium transition-colors flex items-center gap-1.5"
+              >
+                <ZoomIn size={11} /> View
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-[var(--tx6)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                title="Delete"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
+          </div>
+          <img
+            src={imageUrl}
+            alt={concept}
+            onClick={() => setLightbox(true)}
+            className="w-full rounded-lg object-contain max-h-52 bg-white cursor-zoom-in border border-[var(--bd)]"
+          />
+        </div>
+
+        {lightbox && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+            onClick={() => setLightbox(false)}
+          >
+            <button
+              onClick={() => setLightbox(false)}
+              className="absolute top-4 right-4 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+            >
+              <X size={17} />
+            </button>
+            <img
+              src={imageUrl}
+              alt={concept}
+              className="max-w-full max-h-full rounded-xl shadow-2xl object-contain"
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+        )}
+      </>
+    );
+  }
+
+  if (status === 'failed') {
+    return (
+      <div className="rounded-xl border border-[var(--wrong-bd)] bg-[var(--wrong-bg)] px-4 py-3 space-y-2.5">
+        <div className="flex items-center gap-2.5">
+          <XCircle size={15} className="text-[var(--red)] shrink-0" />
+          <p className="text-[var(--tx2)] text-sm font-medium">Diagram generation failed</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRetry}
+            disabled={retrying}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-medium transition-colors"
+          >
+            <RefreshCw size={11} className={retrying ? 'animate-spin' : ''} />
+            {retrying ? 'Retrying…' : 'Retry'}
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov2)] hover:bg-red-500/15 text-[var(--tx4)] hover:text-red-400 border border-[var(--bd)] transition-colors"
+          >
+            <Trash2 size={11} />
+            {deleting ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Processing
+  return (
+    <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 px-4 py-3 flex items-center gap-3">
+      <div className="w-3.5 h-3.5 rounded-full bg-teal-500 animate-pulse shrink-0" />
+      <div>
+        <p className="text-[var(--tx2)] text-sm font-semibold">Generating diagram…</p>
+        <p className="text-[var(--tx8)] text-[10px]">Claude spec → gpt-image-1 · ~15s</p>
+      </div>
+    </div>
+  );
+}
+
 /* ── MessageBubble ──────────────────────────────────────────────────────────── */
 interface MessageBubbleProps {
   message: Message;
   onChipClick?: (chip: string) => void;
   onMakeVisual?: (content: string, subject?: string) => void;
+  onMakeDiagram?: (content: string, messageId: string) => void;
   onTestYourself?: (content: string, subject?: string) => void;
   onSimplify?: () => void;
   onGoDeeper?: () => void;
   /** Set when video generation has been triggered for this message */
   videoId?: number;
-  /** Auth token forwarded to VideoStatusCard for polling */
+  /** Set when image generation has been triggered for this message */
+  imageJobId?: string;
+  /** Auth token forwarded to status cards */
   token?: string;
 }
 
 export function MessageBubble({
-  message, onChipClick, onMakeVisual, onTestYourself, onSimplify, onGoDeeper,
-  videoId, token,
+  message, onChipClick, onMakeVisual, onMakeDiagram, onTestYourself, onSimplify, onGoDeeper,
+  videoId, imageJobId, token,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const { t } = useTranslation();
@@ -512,6 +657,13 @@ export function MessageBubble({
                 </div>
               )}
 
+              {/* Inline image status card */}
+              {imageJobId != null && (
+                <div className="mb-3">
+                  <ImageStatusCard jobId={imageJobId} token={token} />
+                </div>
+              )}
+
               {/* Primary actions */}
               <div className="flex flex-wrap gap-2 items-center">
                 {videoId == null && (
@@ -519,6 +671,16 @@ export function MessageBubble({
                     subject={subject?.subject ?? null}
                     onClick={() => onMakeVisual?.(message.content, subject?.subject)}
                   />
+                )}
+                {imageJobId == null && (
+                  <button
+                    onClick={() => onMakeDiagram?.(message.content, message.id)}
+                    className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
+                               bg-teal-500/10 hover:bg-teal-500/20 text-teal-400
+                               border border-teal-500/20"
+                  >
+                    <ImageIcon size={12} /> Make it visual
+                  </button>
                 )}
                 <button
                   onClick={() => onTestYourself?.(message.content, subject?.subject)}
