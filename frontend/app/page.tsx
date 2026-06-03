@@ -17,8 +17,6 @@ import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
 import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages } from '@/lib/api';
-import { DiagramsGallery } from '@/components/chat/DiagramsGallery';
-import { ImageIcon } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -46,9 +44,6 @@ export default function HomePage() {
   const [videoByMsgId, setVideoByMsgId]     = useState<Record<string, number>>({});
   /** Maps message ID → image job ID for inline diagram cards */
   const [imageByMsgId, setImageByMsgId]     = useState<Record<string, string>>({});
-  /** Incremented to refresh DiagramsGallery when a new image is triggered */
-  const [diagramsKey,  setDiagramsKey]      = useState(0);
-  const [showDiagrams, setShowDiagrams]     = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }     = useTranslation();
@@ -99,7 +94,6 @@ export default function HomePage() {
     setMessages([]);
     setVideoByMsgId({});
     setImageByMsgId({});
-    setShowDiagrams(false);
     try {
       const [rows, videos, images] = await Promise.all([
         getMessages(id, token ?? undefined),
@@ -154,7 +148,6 @@ export default function HomePage() {
       }
       if (Object.keys(restoredImages).length > 0) {
         setImageByMsgId(restoredImages);
-        setShowDiagrams(true);
       }
 
       const conv = conversations.find(c => c.id === id);
@@ -272,8 +265,6 @@ export default function HomePage() {
       }, token ?? undefined);
 
       setImageByMsgId(prev => ({ ...prev, [messageId]: res.jobId }));
-      setShowDiagrams(true);
-      setDiagramsKey(k => k + 1);
     } catch (e) { console.error(e); }
   }
 
@@ -479,37 +470,6 @@ export default function HomePage() {
             <div ref={bottomRef} />
           </div>
         </div>
-
-        {/* Diagrams panel — collapsible, shown when conversation has images */}
-        {conversationId && (Object.keys(imageByMsgId).length > 0 || showDiagrams) && (
-          <div className="border-t border-[var(--bd)] bg-[var(--surface)]">
-            <button
-              onClick={() => setShowDiagrams(v => !v)}
-              className="w-full flex items-center justify-between px-4 py-2.5 text-left
-                         hover:bg-[var(--ov1)] transition-colors"
-            >
-              <div className="flex items-center gap-2 text-[var(--tx3)] text-xs font-semibold">
-                <ImageIcon size={13} className="text-teal-400" />
-                Diagrams
-                {Object.keys(imageByMsgId).length > 0 && (
-                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-teal-500/15 text-teal-400 text-[10px]">
-                    {Object.keys(imageByMsgId).length}
-                  </span>
-                )}
-              </div>
-              <span className="text-[var(--tx7)] text-xs">{showDiagrams ? '▾' : '▸'}</span>
-            </button>
-            {showDiagrams && (
-              <div className="px-4 pb-4 max-h-72 overflow-y-auto no-scrollbar">
-                <DiagramsGallery
-                  conversationId={conversationId}
-                  token={token ?? undefined}
-                  refreshKey={diagramsKey}
-                />
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Credit warning */}
         {!user && msgCount >= 6 && (
