@@ -150,7 +150,7 @@ export default function HomePage() {
       // Restore inline image cards (message_id → job id)
       const restoredImages: Record<string, string> = {};
       for (const img of images) {
-        if (img.message_id) restoredImages[img.message_id] = img.id;
+        if (img.message_id && img.id) restoredImages[img.message_id] = img.id;
       }
       if (Object.keys(restoredImages).length > 0) {
         setImageByMsgId(restoredImages);
