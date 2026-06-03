@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import {
   Sparkles, Loader2, ArrowLeft, Download, RefreshCw,
   Lightbulb, FlaskConical, Sigma, Leaf, Globe, BookOpen,
-  ZoomIn, X, Clock,
+  ZoomIn, X, Clock, MessageSquare,
 } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
@@ -99,8 +99,11 @@ function ImageLightbox({ src, title, onClose }: { src: string; title: string; on
 
 // ── ImageCard ─────────────────────────────────────────────────────────────────
 
-function ImageCard({ job, onClick }: { job: EduImageJob; onClick: () => void }) {
-  const id = job.id ?? job.jobId ?? '';
+function ImageCard({ job, onClick, onGoToChat }: {
+  job: EduImageJob;
+  onClick: () => void;
+  onGoToChat?: () => void;
+}) {
   return (
     <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden
                     hover:border-indigo-500/30 transition-all group">
@@ -123,8 +126,8 @@ function ImageCard({ job, onClick }: { job: EduImageJob; onClick: () => void }) 
             : <span className="text-[var(--tx6)] text-xs">Failed</span>}
         </div>
       )}
-      <div className="p-3">
-        <p className="text-[var(--tx2)] text-xs font-medium leading-snug line-clamp-2 mb-2">
+      <div className="p-3 space-y-2">
+        <p className="text-[var(--tx2)] text-xs font-medium leading-snug line-clamp-2">
           {job.concept}
         </p>
         <div className="flex items-center justify-between gap-2">
@@ -138,6 +141,18 @@ function ImageCard({ job, onClick }: { job: EduImageJob; onClick: () => void }) 
             <span className="text-[10px] text-red-400">Failed</span>
           )}
         </div>
+        {/* Go to chat link — shown when diagram was created from a conversation */}
+        {onGoToChat && job.status === 'ready' && (
+          <button
+            onClick={e => { e.stopPropagation(); onGoToChat(); }}
+            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px]
+                       font-medium text-indigo-400 hover:text-indigo-300
+                       bg-indigo-500/8 hover:bg-indigo-500/15 border border-indigo-500/20
+                       transition-colors"
+          >
+            <MessageSquare size={10} /> Go to chat message
+          </button>
+        )}
       </div>
     </div>
   );
@@ -406,6 +421,10 @@ export default function ImagesPage() {
                         key={job.id ?? job.jobId ?? i}
                         job={job}
                         onClick={() => job.image_url ? setLightbox(job) : undefined}
+                        onGoToChat={job.conversation_id
+                          ? () => router.push(`/?conv=${job.conversation_id}${job.message_id ? `&msg=${job.message_id}` : ''}`)
+                          : undefined
+                        }
                       />
                     ))}
                   </div>

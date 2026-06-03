@@ -136,7 +136,7 @@ async def list_images(
         elif study_set_id:
             rows = await db.fetch(
                 """SELECT id, concept, domain, image_url, status, error_msg,
-                          message_id, spec, description, created_at
+                          message_id, conversation_id, spec, description, created_at
                    FROM educational_images WHERE study_set_id = $1::uuid
                    ORDER BY created_at ASC""",
                 study_set_id,
@@ -144,7 +144,7 @@ async def list_images(
         elif user_id:
             rows = await db.fetch(
                 """SELECT id, concept, domain, image_url, status, error_msg,
-                          message_id, spec, description, created_at
+                          message_id, conversation_id, spec, description, created_at
                    FROM educational_images WHERE user_id = $1::uuid
                    ORDER BY created_at DESC LIMIT 20""",
                 user_id,
@@ -152,7 +152,7 @@ async def list_images(
         elif session_id:
             rows = await db.fetch(
                 """SELECT id, concept, domain, image_url, status, error_msg,
-                          message_id, spec, description, created_at
+                          message_id, conversation_id, spec, description, created_at
                    FROM educational_images WHERE session_id = $1::uuid
                    ORDER BY created_at DESC LIMIT 10""",
                 session_id,
