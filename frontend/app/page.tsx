@@ -446,7 +446,7 @@ export default function HomePage() {
 
       <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg)]">
         {/* pt-14 on mobile = clears the floating hamburger button */}
-        <div className="flex-1 overflow-y-auto no-scrollbar px-4 pt-14 pb-6 md:py-6">
+        <div className="flex-1 chat-scroll px-4 pt-14 pb-6 md:py-6">
           <div className="max-w-2xl mx-auto">
             {messages.length === 0 ? (
               <WelcomeScreen user={user} onSend={handleSend} />
