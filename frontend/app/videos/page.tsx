@@ -8,9 +8,9 @@ import 'katex/dist/katex.min.css';
 import {
   ArrowLeft, Download, CheckCircle, XCircle, Loader,
   RefreshCw, FileText, X, Play, MessageSquare,
-  ChevronLeft, ChevronRight, Video,
+  ChevronLeft, ChevronRight, Video, Sparkles,
 } from 'lucide-react';
-import { getVideoStatus, retryVideoManim, getUserVideos, getSessionVideos } from '@/lib/api';
+import { getVideoStatus, retryVideoManim, getUserVideos, getSessionVideos, generateVideo } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -335,26 +335,38 @@ function VideoLibraryGrid({
   loading,
   onTranscript,
   onGoToConversation,
+  embedded = false,
 }: {
   videos: VideoItem[];
   loading: boolean;
   onTranscript: (markdown: string) => void;
   onGoToConversation: (conversationId: string) => void;
+  embedded?: boolean;
 }) {
-  const router     = useRouter();
   const [page, setPage] = useState(1);
   const totalPages = Math.ceil(videos.length / PAGE_SIZE);
   const pageVideos = videos.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div className={`flex items-center justify-center ${embedded ? 'py-10' : 'flex-1'}`}>
         <Loader size={24} className="text-[var(--tx5)] animate-spin" />
       </div>
     );
   }
 
   if (!videos.length) {
+    if (embedded) {
+      return (
+        <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-[var(--ov2)] border border-[var(--bd)] flex items-center justify-center">
+            <Video size={18} className="text-[var(--tx6)]" />
+          </div>
+          <p className="text-[var(--tx5)] text-sm">No videos generated yet.</p>
+          <p className="text-[var(--tx7)] text-xs">Type a topic above and click Generate.</p>
+        </div>
+      );
+    }
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 px-6 text-center py-16">
         <div className="w-16 h-16 rounded-2xl bg-[var(--ov2)] border border-[var(--bd)]
@@ -364,24 +376,27 @@ function VideoLibraryGrid({
         <div>
           <h2 className="text-[var(--tx1)] font-semibold text-base mb-1">No videos yet</h2>
           <p className="text-[var(--tx5)] text-sm max-w-xs leading-relaxed">
-            Generate an animated explanation from any chat message to see it here.
+            Generate an animated explanation from any topic above.
           </p>
         </div>
-        <button
-          onClick={() => router.push('/')}
-          className="mt-1 px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm
-                     rounded-xl transition-colors font-medium"
-        >
-          Start chatting
-        </button>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Section header when embedded */}
+      {embedded && videos.length > 0 && (
+        <div className="flex items-center gap-2 mb-3">
+          <Video size={13} className="text-[var(--tx6)]" />
+          <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">
+            Past videos · {videos.length}
+          </p>
+        </div>
+      )}
+
       {/* Grid */}
-      <div className="flex-1 chat-scroll px-3 sm:px-6 py-4 sm:py-6">
+      <div className={embedded ? '' : 'flex-1 chat-scroll px-3 sm:px-6 py-4 sm:py-6'}>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {pageVideos.map(v => (
             <VideoLibraryCard
@@ -499,6 +514,11 @@ function VideosContent() {
   const [videos,        setVideos]        = useState<VideoItem[]>([]);
   const [videosLoading, setVideosLoading] = useState(true);
 
+  // Generation prompt (library view)
+  const [genTopic,      setGenTopic]      = useState('');
+  const [generating,    setGenerating]    = useState(false);
+  const [genError,      setGenError]      = useState<string | null>(null);
+
   const closeModal = useCallback(() => setShowModal(false), []);
 
   function openTranscript(md: string) {
@@ -556,6 +576,34 @@ function VideosContent() {
     load.then(r => setVideos(r as VideoItem[])).catch(() => {});
   }
 
+  async function handleGenerate() {
+    const topic = genTopic.trim();
+    if (!topic || generating) return;
+    setGenerating(true);
+    setGenError(null);
+    try {
+      const res = await generateVideo({
+        prompt:     topic,
+        user_id:    user?.id,
+        session_id: sessionId ?? undefined,
+      }, token ?? undefined);
+      if (!res.supported) {
+        setGenError(res.message ?? 'Video generation not supported for this topic.');
+        return;
+      }
+      setGenTopic('');
+      router.push(`/videos?id=${res.video_id}`);
+    } catch (e: any) {
+      const isLimit = e?.message === 'session_limit_reached' || e?.message === 'Daily video limit reached';
+      setGenError(isLimit
+        ? '⚠️ Daily video limit reached. Come back tomorrow or upgrade your plan.'
+        : (e?.message ?? 'Generation failed. Please try again.')
+      );
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   async function handleRetry() {
     if (!videoId) return;
     setRetrying(true);
@@ -580,6 +628,14 @@ function VideosContent() {
 
   // ── Library view (no ?id=) ────────────────────────────────────────────────
   if (!videoId) {
+    const EXAMPLES = [
+      'How does Newton\'s third law work?',
+      'Explain photosynthesis step by step',
+      'What is the quadratic formula?',
+      'How do circuits work?',
+      'Explain the water cycle',
+    ];
+
     return (
       <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
         <Sidebar onNewChat={() => router.push('/')} />
@@ -587,22 +643,79 @@ function VideosContent() {
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-[var(--bd)] shrink-0">
-            <h1 className="text-[var(--tx1)] font-semibold">My Videos</h1>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-[var(--tx1)] font-semibold">Video Studio</h1>
+              <p className="text-[var(--tx6)] text-xs mt-0.5">Generate animated educational videos from any topic</p>
+            </div>
             {!videosLoading && videos.length > 0 && (
-              <span className="px-2 py-0.5 bg-[var(--ov3)] rounded-full
-                               text-[var(--tx5)] text-xs">
+              <span className="px-2 py-0.5 bg-[var(--ov3)] rounded-full text-[var(--tx5)] text-xs shrink-0">
                 {videos.length}
               </span>
             )}
           </div>
 
-          {/* Grid */}
-          <VideoLibraryGrid
-            videos={videos}
-            loading={videosLoading}
-            onTranscript={openTranscript}
-            onGoToConversation={handleGoToConversation}
-          />
+          <div className="flex-1 chat-scroll">
+            <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-8">
+
+              {/* ── Generation prompt ─────────────────────────────── */}
+              <div className="space-y-3">
+                <div className="relative">
+                  <textarea
+                    value={genTopic}
+                    onChange={e => setGenTopic(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }}
+                    placeholder="Describe a concept or topic to animate…"
+                    rows={2}
+                    disabled={generating}
+                    className="w-full px-4 py-3.5 pr-28 rounded-2xl bg-[var(--surface)] border border-[var(--bd)]
+                               text-[var(--tx1)] text-sm placeholder-[var(--tx7)] resize-none
+                               focus:outline-none focus:border-purple-500/50 disabled:opacity-60 transition-colors
+                               leading-relaxed"
+                  />
+                  <button
+                    onClick={handleGenerate}
+                    disabled={!genTopic.trim() || generating}
+                    className="absolute right-3 bottom-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl
+                               text-xs font-semibold bg-purple-600 hover:bg-purple-500
+                               disabled:opacity-40 text-white transition-colors"
+                  >
+                    {generating
+                      ? <Loader size={12} className="animate-spin" />
+                      : <Sparkles size={12} />}
+                    {generating ? 'Generating…' : 'Generate'}
+                  </button>
+                </div>
+
+                {/* Example pills */}
+                <div className="flex flex-wrap gap-1.5">
+                  {EXAMPLES.map(ex => (
+                    <button key={ex} onClick={() => setGenTopic(ex)}
+                      className="text-[10px] px-2.5 py-1 rounded-full bg-[var(--ov3)] hover:bg-[var(--ov4)]
+                                 text-[var(--tx5)] hover:text-[var(--tx2)] border border-[var(--bd)]
+                                 transition-colors truncate max-w-[200px]">
+                      {ex}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Error */}
+                {genError && (
+                  <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">
+                    {genError}
+                  </p>
+                )}
+              </div>
+
+              {/* ── Past videos ───────────────────────────────────── */}
+              <VideoLibraryGrid
+                videos={videos}
+                loading={videosLoading}
+                onTranscript={openTranscript}
+                onGoToConversation={handleGoToConversation}
+                embedded
+              />
+            </div>
+          </div>
         </main>
 
         {showModal && modalText && (
@@ -772,7 +885,7 @@ function VideosContent() {
         {/* Right sidebar: completed videos list — desktop only */}
         <aside className="hidden md:flex flex-col w-60 border-l border-[var(--bd)] overflow-hidden shrink-0">
           <div className="px-3 py-3 border-b border-[var(--bd)] shrink-0">
-            <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wide">My Videos</p>
+            <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wide">Video Studio</p>
           </div>
           {videosLoading ? (
             <div className="flex-1 flex items-center justify-center">

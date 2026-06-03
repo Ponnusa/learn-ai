@@ -2,8 +2,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Sparkles, Loader2, ArrowLeft, Download, RefreshCw,
-  Lightbulb, FlaskConical, Sigma, Leaf, Globe, BookOpen,
+  Sparkles, Loader2, Download, RefreshCw,
+  FlaskConical, Sigma, Leaf, Globe, BookOpen,
   ZoomIn, X, Clock, MessageSquare,
 } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -226,9 +226,6 @@ export default function ImagesPage() {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[var(--bd)] shrink-0">
-          <button onClick={() => router.back()} className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors">
-            <ArrowLeft size={20} />
-          </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-[var(--tx1)] font-semibold">Educational Diagrams</h1>
             <p className="text-[var(--tx6)] text-xs mt-0.5">Generate textbook-quality illustrations from any concept</p>

@@ -163,7 +163,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
   const activeId = selectedConversationId ?? activeConversationId ?? undefined;
 
   const navItems = [
-    { icon: <Video size={18} />,     label: 'My Videos',  href: '/videos'   },
+    { icon: <Video size={18} />,     label: 'Video Studio', href: '/videos'   },
     { icon: <BookOpen size={18} />,  label: 'Study Sets', href: '/study'    },
     { icon: <Sparkles size={18} />,  label: 'Diagrams',   href: '/images'   },
     { icon: <BarChart2 size={18} />, label: 'Progress',   href: '/progress' },
