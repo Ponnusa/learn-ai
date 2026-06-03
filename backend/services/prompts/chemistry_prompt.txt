@@ -1,0 +1,299 @@
+══════════════════════════════════════════════════════════════════
+CHEMISTRY-SPECIFIC RULES
+══════════════════════════════════════════════════════════════════
+
+══════════════════════════════════════════════════════════════════
+CHEMISTRY NAMING RULE (MANDATORY)
+══════════════════════════════════════════════════════════════════
+
+- NEVER read chemical formulas letter-by-letter in voiceover
+- ALWAYS convert formulas to proper chemical names in spoken text
+- Visual formulas (e.g. ZnCl₂, H₂SO₄) are allowed on screen
+- Spoken language must use:
+  - English: zinc chloride, sulfuric acid
+  - Finnish: sinkkikloridi, rikkihappo
+  - Swedish: zinkklorid, svavelsyra
+
+══════════════════════════════════════════════════════════════════
+CHEMISTRY VISUALIZATION STRATEGY (CRITICAL DECISION RULE)
+══════════════════════════════════════════════════════════════════
+
+RULE: Choose visualization method based on molecule type and complexity
+
+──────────────────────────────────────────────────────────────────
+METHOD 1: MANUAL CONSTRUCTION (Simple Inorganic Molecules)
+──────────────────────────────────────────────────────────────────
+
+USE FOR:
+✓ Water (H₂O)
+✓ Carbon dioxide (CO₂)
+✓ Ammonia (NH₃)
+✓ Hydrogen chloride (HCl)
+✓ Oxygen (O₂), Nitrogen (N₂)
+✓ Simple ionic compounds
+
+WHEN TO USE:
+- Molecule has ≤5 atoms total
+- No carbon chains or complex rings
+- Educational focus on molecular geometry or polarity
+- Teaching basic bonding concepts
+- User asks to "explain" or "show why" (not just "show")
+
+WHY MANUAL:
+✓ Step-by-step atom construction (educational)
+✓ Animated bond formation (students see building process)
+✓ Manual dipole arrows (full control)
+✓ Better for teaching geometry fundamentals
+
+IMPLEMENTATION PATTERN:
+```python
+# Build atoms one by one
+o_atom = Circle(radius=0.3, color=RED, fill_opacity=0.8)
+o_label = Text("O", font_size=20, color=WHITE)
+o_label.move_to(o_atom.get_center())
+
+h1_atom = Circle(radius=0.2, color=WHITE, fill_opacity=0.8)
+h1_label = Text("H", font_size=16, color=BLACK)
+h1_label.move_to(h1_atom.get_center())
+
+# Animate atom creation
+self.play(Create(o_atom), Write(o_label))
+self.play(Create(h1_atom), Write(h1_label))
+
+# Create and animate bonds
+bond = Line(o_atom.get_center(), h1_atom.get_center(), color=WHITE, stroke_width=4)
+self.play(Create(bond))
+
+# Add dipole arrow manually
+dipole = Arrow(start, end, color=YELLOW, buff=0, stroke_width=4)
+self.play(Create(dipole))
+```
+
+──────────────────────────────────────────────────────────────────
+METHOD 2: RDKIT SMILES HELPER (Organic & Complex Molecules)
+──────────────────────────────────────────────────────────────────
+
+USE FOR:
+✓ ALL organic chemistry (methane, benzene, ethanol, etc.)
+✓ Any molecule with carbon chains (C-C bonds)
+✓ Complex molecules (≥6 atoms)
+✓ Aromatic compounds, functional groups
+✓ Hydrocarbons, alcohols, acids, esters
+
+WHEN TO USE:
+- Molecule involves organic chemistry
+- Has carbon chains or rings
+- ≥6 atoms total
+- User asks to "show structure of [organic molecule]"
+- Comparing multiple organic molecules
+
+WHY SMILES HELPER:
+✓ Accurate molecular structure (real bond angles)
+✓ Professional appearance
+✓ Handles complexity automatically
+✓ Shows realistic 3D-to-2D projection
+✓ Built-in hydrogen and dipole support
+
+REQUIRED IMPORT:
+from helpers import create_molecule_from_smiles
+
+USAGE:
+molecule = create_molecule_from_smiles(
+    smiles="SMILES_STRING",
+    position=ORIGIN,
+    scale=2.0,
+    show_hydrogens=False,
+    show_dipoles=False,
+    highlight_polar_bonds=False
+)
+
+COMMON SMILES:
+- Water (H₂O): "O"
+- Carbon dioxide (CO₂): "O=C=O"
+- Methane (CH₄): "C"
+- Ammonia (NH₃): "N"
+- Ethanol: "CCO"
+- Benzene: "c1ccccc1"
+- HCl: "Cl"
+- Ethane: "CC"
+- Acetic acid: "CC(=O)O"
+- Glucose: "C(C1C(C(C(C(O1)O)O)O)O)O"
+
+IMPLEMENTATION:
+```python
+from helpers import create_molecule_from_smiles
+
+# Benzene
+benzene = create_molecule_from_smiles(
+    smiles="c1ccccc1",
+    position=LEFT * 3,
+    scale=2.5,
+    show_hydrogens=True
+)
+self.play(FadeIn(benzene))
+
+# Ethanol with dipole
+ethanol = create_molecule_from_smiles(
+    smiles="CCO",
+    position=RIGHT * 3,
+    scale=2.5,
+    show_hydrogens=True,
+    show_dipoles=True
+)
+self.play(FadeIn(ethanol))
+```
+
+══════════════════════════════════════════════════════════════════
+DECISION FLOWCHART (USE THIS TO DECIDE)
+══════════════════════════════════════════════════════════════════
+
+Question: [User's chemistry query]
+
+1️⃣ Does it involve organic chemistry or carbon chains?
+   → YES → Use SMILES helper (Method 2)
+   Keywords: "organic", "hydrocarbon", "benzene", "alkane", "functional group", "methane", "ethanol"
+
+2️⃣ Does molecule have C-C or C-H bonds (except single carbon like CO₂)?
+   → YES → Use SMILES helper (Method 2)
+
+3️⃣ Does molecule have ≥6 atoms?
+   → YES → Use SMILES helper (Method 2)
+
+4️⃣ Is it one of: H₂O, CO₂, NH₃, HCl, O₂, N₂?
+   → YES → Use Manual construction (Method 1)
+
+5️⃣ Does question ask to "explain" or "why is X polar/nonpolar"?
+   → YES → Use Manual construction (Method 1)
+   These are teaching moments about geometry
+
+6️⃣ Does question ask to "show structure of [molecule]"?
+   → If organic → SMILES helper (Method 2)
+   → If simple inorganic → Manual construction (Method 1)
+
+7️⃣ Default for complex or unknown molecules:
+   → Use SMILES helper (Method 2)
+
+══════════════════════════════════════════════════════════════════
+EXAMPLES (DECISION GUIDE)
+══════════════════════════════════════════════════════════════════
+
+PROMPT: "Explain why water is polar"
+→ Manual construction (3 atoms, teaching geometry, polarity lesson)
+
+PROMPT: "Show me the structure of benzene"
+→ SMILES helper (organic, 12 atoms, aromatic ring)
+
+PROMPT: "Compare polarity of methanol and ethanol"
+→ SMILES helper (both organic chemistry, carbon chains)
+
+PROMPT: "Why is CO₂ linear but H₂O bent?"
+→ Manual construction (both simple, teaching geometry fundamentals)
+
+PROMPT: "Show functional groups in glucose"
+→ SMILES helper (organic, 24 atoms, complex structure)
+
+PROMPT: "Explain ammonia's pyramidal shape"
+→ Manual construction (4 atoms, geometry lesson)
+
+PROMPT: "Draw the structure of acetic acid"
+→ SMILES helper (organic, carbon chain, functional group)
+
+PROMPT: "Show me CH₄ vs NH₃ polarity"
+→ Mixed: CH₄ with SMILES (organic), NH₃ with Manual (simple)
+
+══════════════════════════════════════════════════════════════════
+MOLECULAR POLARITY POSITIONING (9:16 PORTRAIT)
+══════════════════════════════════════════════════════════════════
+
+FOR 9:16 (PORTRAIT):
+- Title: UP * 6, font_size=36
+- Single molecule: UP * 2.5, scale=3.0
+- Text: DOWN * 2 (first line), DOWN * 3 (second line), DOWN * 4 (third line)
+- Font size for text: 30-32
+- Side-by-side: LEFT*2 + UP*3 and RIGHT*2 + UP*3, scale=2.5
+
+FOR 16:9 (LANDSCAPE):
+- Title: UP * 3.5, font_size=32
+- Single molecule: ORIGIN, scale=2.5
+- Text: DOWN * 3, font_size=28
+- Side-by-side: LEFT*4 and RIGHT*4, scale=2.0
+
+CRITICAL: SEQUENTIAL DISPLAY ONLY
+✗ NEVER SHOW MOLECULE + TEXT SIMULTANEOUSLY
+✓ ALWAYS SHOW SEQUENTIALLY
+
+SPACING RULES (STRICT) FOR 9:16:
+- Screen range: UP * 7 to DOWN * 7 (14 units total)
+- Molecule zone: UP * 4 to UP * 1 (3 units) — centered at UP * 2.5
+- Gap zone: UP * 1 to DOWN * 1 (2 units) — EMPTY
+- Text zone: DOWN * 2 to DOWN * 5 (3 units)
+
+NEVER put molecule below UP * 1
+NEVER put text above DOWN * 1.5
+
+══════════════════════════════════════════════════════════════════
+MANDATORY PATTERN: MOLECULAR POLARITY EXPLANATION
+══════════════════════════════════════════════════════════════════
+
+Use this EXACT pattern for any molecular polarity question:
+
+1. Title (stays at top)
+2. First molecule alone
+3. First explanation (far below)
+4. Second explanation (clear first)
+5. Show dipoles (keep molecule, clear text)
+6. Conclusion for molecule 1
+7. CLEAR EVERYTHING
+8. Second molecule (repeat pattern)
+9. Final comparison (optional)
+10. Final takeaway (clear all, just text)
+
+KEY REMINDERS:
+1. ONE MOLECULE AT A TIME — never show two simultaneously unless final comparison
+2. ONE TEXT AT A TIME — FadeOut old text before showing new
+3. USE FULL VERTICAL SPACE — don't cram everything in middle
+4. BIGGER IS BETTER — scale 3.0 for single molecules on 9:16
+5. TEXT FAR BELOW — minimum DOWN * 2 for any text
+6. CLEAR BEFORE COMPARE — FadeOut everything before side-by-side
+7. SEQUENTIAL FLOW — Title → Mol1 → Explain → Clear → Mol2 → Explain → Compare
+
+══════════════════════════════════════════════════════════════════
+CONCEPT VIDEO ANIMATION QUALITY RULES (MANDATORY)
+══════════════════════════════════════════════════════════════════
+
+ATOM COLOR CONSTANTS (use consistently):
+- Oxygen (O): RED
+- Hydrogen (H): WHITE
+- Carbon (C): GRAY
+- Nitrogen (N): BLUE
+- Electrons / polarity / dipoles: YELLOW
+- Functional group highlights: ORANGE
+- Phase titles / section headers: GREEN
+
+ELECTRON SHARING (MANDATORY for bonding concepts):
+- Always show shared electron pairs as Dot() objects at bond midpoint
+- electron_pair = Dot(color=YELLOW, radius=0.08).move_to((atom1.get_center() + atom2.get_center()) / 2)
+- Animate electron shift for polarity: self.play(electron_pair.animate.shift(toward_electronegative * 0.3))
+
+TRANSITIONS (NEVER use plain FadeOut):
+- ✓ self.play(FadeOut(old, shift=LEFT), FadeIn(new, shift=RIGHT))
+- ✓ self.play(Transform(old_title, new_title))
+- ✗ NEVER: self.play(FadeOut(element))
+
+FUNCTIONAL GROUP HIGHLIGHTING (MANDATORY):
+- When introducing a functional group, always use SurroundingRectangle
+- oh_highlight = SurroundingRectangle(oh_group, color=YELLOW, buff=0.1)
+- self.play(Create(oh_highlight))
+
+VOICEOVER SYNC (MANDATORY):
+- Always use tracker pattern: with self.voiceover(...) as tracker: self.play(..., run_time=tracker.duration)
+
+SHOW DON'T TELL:
+- Animate molecular changes instead of bullet-point text lists
+- Max 2 lines of text visible at once
+- Prefer Indicate(), SurroundingRectangle(), animate.shift() over Text() lists
+
+TARGET DURATION:
+- Concept explanation videos: 150-180 seconds
+- Use all available time — do not rush through content
+- Each concept stage (introduction, mechanism, example, summary) should have breathing room

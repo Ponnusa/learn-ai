@@ -1020,9 +1020,63 @@ Output ONLY: ERROR: INVALID SOLUTION INPUT
 
 ULTIMATE_SYSTEM_PROMPT = apply_tts_placeholders(_ULTIMATE_SYSTEM_PROMPT_TEMPLATE)
 
+# ── Subject-specific prompt files ─────────────────────────────────────────────────────
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
+
+_SUBJECT_PROMPT_FILES: dict = {
+    "physics":     "physics_prompt.txt",
+    "chemistry":   "chemistry_prompt.txt",
+    "mathematics": "mathematics_prompt.txt",
+    "economics":   "economics_prompt.txt",
+}
+
+_prompt_file_cache: dict = {}
+
+
+def _load_prompt_file(filename: str) -> str:
+    """Load a prompt file from the prompts/ directory. Cached after first read."""
+    if filename in _prompt_file_cache:
+        return _prompt_file_cache[filename]
+    path = _PROMPTS_DIR / filename
+    try:
+        content = path.read_text(encoding="utf-8")
+        _prompt_file_cache[filename] = content
+        return content
+    except FileNotFoundError:
+        logger.warning(f"⚠️  Prompt file not found: {path} — falling back to inline prompt")
+        return ""
+
 
 def _build_system_prompt(subject: str, aspect_ratio: str, language: str) -> str:
-    """Build dynamic system prompt: ULTIMATE_SYSTEM_PROMPT + runtime config vars."""
+    """
+    Build the Manim system prompt for the given subject.
+
+    Strategy:
+      1. Load base_prompt.txt (shared rules for all subjects).
+         Falls back to the hardcoded _ULTIMATE_SYSTEM_PROMPT_TEMPLATE if file missing.
+      2. Append the subject-specific prompt file (physics/chemistry/mathematics/economics).
+         Skipped silently if no file exists for the subject (e.g. biology, general).
+      3. Apply {{TTS_IMPORT}} / {{TTS_SERVICE_BLOCK}} placeholders.
+      4. Append RUNTIME CONFIGURATION block (aspect ratio + language).
+    """
+    # 1. Base prompt
+    base = _load_prompt_file("base_prompt.txt")
+    if not base:
+        base = _ULTIMATE_SYSTEM_PROMPT_TEMPLATE  # inline fallback
+
+    # 2. Subject-specific addendum
+    subject_file = _SUBJECT_PROMPT_FILES.get(subject.lower(), "")
+    subject_addendum = _load_prompt_file(subject_file) if subject_file else ""
+
+    combined = base
+    if subject_addendum:
+        combined = combined + "\n\n" + subject_addendum
+        logger.info(f"📄 Loaded subject prompt: {subject_file}")
+
+    # 3. TTS placeholders
+    combined = apply_tts_placeholders(combined)
+
+    # 4. Runtime config
     runtime_config = f"""
 
 ══════════════════════════════════════════════════════════════════
@@ -1035,7 +1089,7 @@ TARGET_LANGUAGE: {language}
 Adapt all positioning and font sizes according to TARGET_ASPECT_RATIO rules above.
 Use TARGET_LANGUAGE for voiceover text and screen titles.
 """
-    return ULTIMATE_SYSTEM_PROMPT + runtime_config
+    return combined + runtime_config
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────

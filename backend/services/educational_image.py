@@ -11,7 +11,6 @@ Flow:
 """
 import json
 import logging
-import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -167,30 +166,26 @@ Avoid:
 - cluttered overlapping labels"""
 
 
-async def generate_image_openai(prompt: str) -> str:
-    """Generate image via DALL-E 3; returns the (temporary) OpenAI URL."""
+async def generate_image_openai(prompt: str) -> bytes:
+    """Generate image via gpt-image-1; returns raw PNG bytes."""
+    import base64
     from openai import AsyncOpenAI
 
     client = AsyncOpenAI()
     response = await client.images.generate(
-        model="dall-e-3",
+        model="gpt-image-1",
         prompt=prompt,
         size="1024x1024",
-        quality="standard",
+        quality="medium",
         n=1,
     )
-    return response.data[0].url
+    b64 = response.data[0].b64_json
+    return base64.b64decode(b64)
 
 
-async def store_image_r2(image_url: str, job_id: str, user_id: str | None, session_id: str | None) -> str:
-    """Download from OpenAI (temporary URL) and store permanently in R2."""
+async def store_image_r2(image_bytes: bytes, job_id: str, user_id: str | None, session_id: str | None) -> str:
+    """Upload raw image bytes to R2 for permanent storage."""
     from services.manim import _make_r2_client, R2_BUCKET_NAME, R2_PUBLIC_URL
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.get(image_url)
-        if r.status_code != 200:
-            raise RuntimeError(f"Failed to download generated image: HTTP {r.status_code}")
-        data = r.content
 
     if user_id:
         key = f"educational-images/{user_id}/{job_id}.png"
@@ -203,8 +198,8 @@ async def store_image_r2(image_url: str, job_id: str, user_id: str | None, sessi
     if not r2:
         raise RuntimeError("R2 storage not configured — cannot store image")
 
-    r2.put_object(Bucket=R2_BUCKET_NAME, Key=key, Body=data, ContentType="image/png")
-    logger.info("[edu-img] stored %s (%d bytes)", key, len(data))
+    r2.put_object(Bucket=R2_BUCKET_NAME, Key=key, Body=image_bytes, ContentType="image/png")
+    logger.info("[edu-img] stored %s (%d bytes)", key, len(image_bytes))
     return f"{R2_PUBLIC_URL.rstrip('/')}/{key}"
 
 
@@ -236,12 +231,12 @@ async def process_image_job(job_id: str, concept: str, user_id: str | None, sess
         # 3. Build prompt
         prompt = build_image_prompt(spec, domain)
 
-        # 4. Generate via DALL-E 3
-        temp_url = await generate_image_openai(prompt)
-        logger.info("[edu-img] %s image generated", job_id[:8])
+        # 4. Generate via gpt-image-1
+        image_bytes = await generate_image_openai(prompt)
+        logger.info("[edu-img] %s image generated (%d bytes)", job_id[:8], len(image_bytes))
 
         # 5. Store in R2
-        r2_url = await store_image_r2(temp_url, job_id, user_id, session_id)
+        r2_url = await store_image_r2(image_bytes, job_id, user_id, session_id)
 
         # 6. Mark ready
         async with get_db() as db:

@@ -1,0 +1,296 @@
+══════════════════════════════════════════════════════════════════
+MATHEMATICS-SPECIFIC RULES
+══════════════════════════════════════════════════════════════════
+
+══════════════════════════════════════════════════════════════════
+MATHEMATICAL VISUALIZATION PRINCIPLES
+══════════════════════════════════════════════════════════════════
+
+Mathematics visualizations focus on:
+- Geometric constructions
+- Coordinate systems
+- Function graphs
+- Number lines
+- Algebraic manipulations shown visually
+
+══════════════════════════════════════════════════════════════════
+COORDINATE SYSTEMS & GRAPHS
+══════════════════════════════════════════════════════════════════
+
+Creating axes:
+```python
+# X and Y axes
+x_axis = Line(LEFT * 6, RIGHT * 6, color=WHITE, stroke_width=3)
+y_axis = Line(DOWN * 4, UP * 4, color=WHITE, stroke_width=3)
+
+# Arrow tips
+x_arrow = Arrow(RIGHT * 5.8, RIGHT * 6, color=WHITE, buff=0)
+y_arrow = Arrow(UP * 3.8, UP * 4, color=WHITE, buff=0)
+
+# Labels
+x_label = Text("x", font_size=24).next_to(x_axis, RIGHT)
+y_label = Text("y", font_size=24).next_to(y_axis, UP)
+
+# Grid lines (optional)
+grid_lines = VGroup()
+for i in range(-5, 6):
+    if i != 0:
+        v_line = Line(UP * 4 + RIGHT * i, DOWN * 4 + RIGHT * i,
+                     color=GRAY, stroke_width=1, stroke_opacity=0.3)
+        h_line = Line(LEFT * 6 + UP * i, RIGHT * 6 + UP * i,
+                     color=GRAY, stroke_width=1, stroke_opacity=0.3)
+        grid_lines.add(v_line, h_line)
+
+self.play(Create(x_axis), Create(y_axis))
+self.play(Create(grid_lines))
+```
+
+══════════════════════════════════════════════════════════════════
+PLOTTING FUNCTIONS
+══════════════════════════════════════════════════════════════════
+
+Creating function curves:
+```python
+# Generate points for y = x²
+points = []
+for x in np.linspace(-3, 3, 100):
+    y = x ** 2
+    points.append([x, y, 0])
+
+# Create curve
+parabola = VMobject(color=BLUE, stroke_width=4)
+parabola.set_points_smoothly(points)
+
+self.play(Create(parabola), run_time=2)
+```
+
+Parametric functions:
+```python
+# Circle: x = r*cos(t), y = r*sin(t)
+points = []
+for t in np.linspace(0, 2*PI, 100):
+    x = 2 * np.cos(t)
+    y = 2 * np.sin(t)
+    points.append([x, y, 0])
+
+circle = VMobject(color=GREEN, stroke_width=3)
+circle.set_points_smoothly(points)
+```
+
+══════════════════════════════════════════════════════════════════
+GEOMETRIC CONSTRUCTIONS
+══════════════════════════════════════════════════════════════════
+
+Triangles:
+```python
+# Define vertices
+A = np.array([0, 0, 0])
+B = np.array([3, 0, 0])
+C = np.array([1.5, 2.5, 0])
+
+# Create triangle
+triangle = Polygon(A, B, C, color=BLUE, stroke_width=3)
+triangle.set_fill(BLUE, opacity=0.3)
+
+# Labels
+label_A = Text("A", font_size=20).next_to(A, DOWN)
+label_B = Text("B", font_size=20).next_to(B, DOWN)
+label_C = Text("C", font_size=20).next_to(C, UP)
+
+self.play(Create(triangle))
+self.play(Write(label_A), Write(label_B), Write(label_C))
+```
+
+Circles:
+```python
+circle = Circle(radius=2, color=RED, stroke_width=3)
+circle.move_to(ORIGIN)
+
+# Radius
+radius = Line(ORIGIN, circle.point_at_angle(PI/4), color=YELLOW, stroke_width=4)
+radius_label = Text("r", font_size=24, color=YELLOW)
+radius_label.next_to(radius.get_center(), UP+LEFT, buff=0.1)
+
+self.play(Create(circle))
+self.play(Create(radius), Write(radius_label))
+```
+
+══════════════════════════════════════════════════════════════════
+ANGLES & MEASUREMENTS
+══════════════════════════════════════════════════════════════════
+
+Angle arcs:
+```python
+from manim import Angle
+
+# Create angle between two lines
+line1 = Line(ORIGIN, RIGHT * 3)
+line2 = Line(ORIGIN, UP * 2 + RIGHT * 2)
+
+# Angle arc
+angle = Angle(line1, line2, radius=0.5, color=YELLOW)
+angle_label = Text("θ", font_size=24, color=YELLOW)
+angle_label.next_to(angle, RIGHT, buff=0.2)
+
+self.play(Create(line1), Create(line2))
+self.play(Create(angle), Write(angle_label))
+```
+
+Right angle marker:
+```python
+# Small square in corner
+corner = Square(side_length=0.3, color=WHITE, stroke_width=2)
+corner.move_to(vertex_position)
+corner.rotate(angle_to_align)
+```
+
+══════════════════════════════════════════════════════════════════
+NUMBER LINES
+══════════════════════════════════════════════════════════════════
+
+Creating number line:
+```python
+# Main line
+number_line = Line(LEFT * 6, RIGHT * 6, color=WHITE, stroke_width=4)
+
+# Tick marks and labels
+ticks = VGroup()
+for i in range(-5, 6):
+    tick = Line(UP * 0.2, DOWN * 0.2, color=WHITE, stroke_width=2)
+    tick.move_to(RIGHT * i)
+    ticks.add(tick)
+
+    if i != 0:
+        label = Text(str(i), font_size=18)
+        label.next_to(tick, DOWN, buff=0.2)
+        ticks.add(label)
+
+self.play(Create(number_line), Create(ticks))
+
+# Mark specific points
+point = Dot(color=RED, radius=0.1)
+point.move_to(RIGHT * 2.5)  # Position 2.5
+point_label = Text("2.5", font_size=20, color=RED)
+point_label.next_to(point, UP, buff=0.2)
+
+self.play(Create(point), Write(point_label))
+```
+
+══════════════════════════════════════════════════════════════════
+ALGEBRAIC MANIPULATIONS (STEP-BY-STEP)
+══════════════════════════════════════════════════════════════════
+
+Showing equation transformations:
+```python
+with self.voiceover(text="Start with the equation"):
+    eq1 = Text("2x + 5 = 13", font_size=32)
+    eq1.move_to(UP * 2)
+    self.play(Write(eq1))
+
+with self.voiceover(text="Subtract 5 from both sides"):
+    eq2 = Text("2x = 8", font_size=32, color=GREEN)
+    eq2.move_to(ORIGIN)
+    self.play(Write(eq2))
+
+    explanation = Text("(subtracted 5)", font_size=24, color=GRAY)
+    explanation.next_to(eq2, DOWN, buff=0.5)
+    self.play(Write(explanation))
+
+with self.voiceover(text="Divide both sides by 2"):
+    self.play(FadeOut(eq1), FadeOut(explanation))
+
+    eq3 = Text("x = 4", font_size=36, color=YELLOW)
+    eq3.move_to(DOWN * 1)
+    self.play(Write(eq3))
+```
+
+══════════════════════════════════════════════════════════════════
+VECTORS & TRANSFORMATIONS
+══════════════════════════════════════════════════════════════════
+
+Vector arrows:
+```python
+# Vector from origin
+vector = Arrow(ORIGIN, RIGHT * 3 + UP * 2, color=BLUE, buff=0, stroke_width=6)
+vector_label = Text("v", font_size=24, color=BLUE)
+vector_label.next_to(vector.get_end(), UP, buff=0.1)
+
+self.play(Create(vector), Write(vector_label))
+
+# Vector components
+x_component = Arrow(ORIGIN, RIGHT * 3, color=RED, buff=0, stroke_width=4)
+y_component = Arrow(RIGHT * 3, RIGHT * 3 + UP * 2, color=GREEN, buff=0, stroke_width=4)
+
+x_label = Text("vₓ", font_size=20, color=RED).next_to(x_component, DOWN)
+y_label = Text("vᵧ", font_size=20, color=GREEN).next_to(y_component, RIGHT)
+
+self.play(Create(x_component), Create(y_component))
+self.play(Write(x_label), Write(y_label))
+```
+
+══════════════════════════════════════════════════════════════════
+MATHEMATICAL NOTATION GUIDELINES
+══════════════════════════════════════════════════════════════════
+
+Use MathTex for ALL mathematical expressions:
+- Simple equations: MathTex(r"y = 2x + 3")
+- Fractions: MathTex(r"x = \frac{3}{4}")
+- Exponents: MathTex(r"x^2")
+- Greek letters: MathTex(r"\theta"), MathTex(r"\pi"), MathTex(r"\alpha")
+- Subscripts: MathTex(r"x_0"), MathTex(r"y_1")
+- Mathematical symbols: MathTex(r"\infty"), MathTex(r"\neq"), MathTex(r"\leq")
+
+Color coding:
+- Variables: BLUE or WHITE
+- Constants: GREEN
+- Results: YELLOW or ORANGE
+- Intermediate steps: GRAY
+
+══════════════════════════════════════════════════════════════════
+POSITIONING FOR MATHEMATICS (9:16)
+══════════════════════════════════════════════════════════════════
+
+For 9:16 portrait (most common for math):
+- Graph/diagram: UP * 5 to UP * 2 (top third)
+- Working area: UP * 1.5 to DOWN * 5 (bottom two-thirds)
+- Step-by-step equations: Stack from UP * 1.5 down to DOWN * 5
+- Font sizes: 28-34 for main equations
+
+For 16:9 landscape:
+- Graph/diagram: LEFT * 4 to LEFT * 2 (left side)
+- Working area: RIGHT * 1 to RIGHT * 4 (right side)
+- Font sizes: 24-30
+
+══════════════════════════════════════════════════════════════════
+MATHEMATICAL ANIMATION TECHNIQUES
+══════════════════════════════════════════════════════════════════
+
+Transform equations:
+```python
+eq1 = MathTex(r"x + 3 = 7", font_size=32)
+eq2 = MathTex(r"x = 4", font_size=32)
+eq2.move_to(eq1.get_center())
+
+self.play(Write(eq1))
+self.wait(1)
+self.play(TransformMatchingTex(eq1, eq2))
+```
+
+Highlight parts of expressions:
+```python
+equation = MathTex(r"2x + 5 = 13", font_size=32)
+self.play(Write(equation))
+
+# Highlight a specific part
+self.play(Indicate(equation[0][0:2], color=YELLOW, scale_factor=1.3))
+```
+
+Animate graph plotting:
+```python
+# Plot point by point using ValueTracker
+t = ValueTracker(x_start)
+graph = always_redraw(lambda: VMobject(color=BLUE, stroke_width=4)
+    .set_points_smoothly([[x, x**2, 0] for x in np.linspace(x_start, t.get_value(), 50)]))
+self.add(graph)
+self.play(t.animate.set_value(x_end), run_time=3, rate_func=smooth)
+```
