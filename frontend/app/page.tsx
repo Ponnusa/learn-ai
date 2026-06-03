@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
@@ -44,10 +44,9 @@ export default function HomePage() {
   const [videoByMsgId, setVideoByMsgId]     = useState<Record<string, number>>({});
   /** Maps message ID → image job ID for inline diagram cards */
   const [imageByMsgId, setImageByMsgId]     = useState<Record<string, string>>({});
-  const bottomRef   = useRef<HTMLDivElement>(null);
-  const router      = useRouter();
-  const searchParams = useSearchParams();
-  const { t }       = useTranslation();
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const router    = useRouter();
+  const { t }     = useTranslation();
   const {
     sessionId, setSessionId, msgCount, user, token, incrementMsg,
     activeConversationId, setActiveConversationId,
@@ -62,27 +61,27 @@ export default function HomePage() {
   }, []);
 
   // Open conversation from URL params (?conv=<id>&msg=<msgId>)
-  // Used when navigating from the Educational Diagrams page
+  // Used when navigating from the Educational Diagrams page.
+  // Reads window.location.search directly (avoids useSearchParams + Suspense requirement).
   useEffect(() => {
-    const convParam = searchParams.get('conv');
-    const msgParam  = searchParams.get('msg');
-    if (convParam && convParam !== conversationId) {
-      handleConversationSelect(convParam).then(() => {
-        if (msgParam) {
-          // Scroll to the target message after a short render delay
-          setTimeout(() => {
-            const el = document.querySelector(`[data-msg-id="${msgParam}"]`);
-            if (el) {
-              el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              el.classList.add('ring-2', 'ring-teal-500', 'ring-offset-2', 'rounded-2xl');
-              setTimeout(() => el.classList.remove('ring-2', 'ring-teal-500', 'ring-offset-2', 'rounded-2xl'), 2500);
-            }
-          }, 400);
+    if (typeof window === 'undefined') return;
+    const params    = new URLSearchParams(window.location.search);
+    const convParam = params.get('conv');
+    const msgParam  = params.get('msg');
+    if (!convParam) return;
+    handleConversationSelect(convParam).then(() => {
+      if (!msgParam) return;
+      setTimeout(() => {
+        const el = document.querySelector(`[data-msg-id="${msgParam}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('ring-2', 'ring-teal-500', 'ring-offset-2', 'rounded-2xl');
+          setTimeout(() => el.classList.remove('ring-2', 'ring-teal-500', 'ring-offset-2', 'rounded-2xl'), 2500);
         }
-      });
-    }
+      }, 400);
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, []);
 
   // Restore the last active conversation after page navigation
   useEffect(() => {
