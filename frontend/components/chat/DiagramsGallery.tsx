@@ -224,7 +224,7 @@ export function DiagramsGallery({
         </div>
         <p className="text-[var(--tx3)] text-sm font-medium">No diagrams yet</p>
         <p className="text-[var(--tx7)] text-xs mt-1">
-          Click <span className="text-teal-400 font-medium">Make it visual</span> on any AI response
+          Click <span className="text-teal-400 font-medium">Sketch it</span> on any AI response
         </p>
       </div>
     );

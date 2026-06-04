@@ -58,7 +58,7 @@ export const fi: Translation = {
     send: 'Lähetä',
     thinking: 'Ajattelee...',
     suggestions: 'Ehdotukset',
-    makeItVisual: '▶ Tee siitä video',
+    makeItVisual: '🎬 Animoi se',
     testYourself: '✏️ Testaa itsesi',
     goDeeper: 'Syvennä',
     simplify: 'Yksinkertaista',

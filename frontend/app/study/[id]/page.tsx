@@ -648,7 +648,7 @@ function ActiveChat({
       // Chips on last assistant message
       const lastAi = loaded.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).slice(-1)[0];
       if (lastAi !== undefined && lastAi >= 0) {
-        loaded[lastAi] = { ...loaded[lastAi], chips: ['Quiz me on this', 'Create a video', 'Make it visual', 'Give me an example', 'Explain differently'] };
+        loaded[lastAi] = { ...loaded[lastAi], chips: ['Quiz me on this', 'Create a video', 'Sketch it', 'Give me an example', 'Explain differently'] };
       }
       setMessages(loaded);
     }).catch(() => {}).finally(() => setHistLoading(false));
@@ -701,7 +701,7 @@ function ActiveChat({
       );
       setConvId(res.conversation_id);
       setLastMsgId(res.message_id);
-      const defaultChips = ['Quiz me on this', 'Create a video', 'Make it visual', 'Give me an example', 'Explain differently'];
+      const defaultChips = ['Quiz me on this', 'Create a video', 'Sketch it', 'Give me an example', 'Explain differently'];
       setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips: res.chips?.length ? res.chips : defaultChips }]);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Something went wrong. Please try again.' }]);
@@ -744,7 +744,7 @@ function ActiveChat({
       } finally { setVideoing(false); }
       return;
     }
-    if (chip === 'Make it visual') {
+    if (chip === 'Sketch it') {
       setImageing(true);
       try {
         const res = await generateEduImage({
@@ -873,7 +873,7 @@ function ActiveChat({
                   <Chips
                     chips={m.chips.filter(c =>
                       !(m.videoId && c === 'Create a video') &&
-                      !(m.imageJobId && c === 'Make it visual')
+                      !(m.imageJobId && c === 'Sketch it')
                     )}
                     onChip={handleChip}
                   />

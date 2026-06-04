@@ -58,7 +58,7 @@ export const en: Translation = {
     send: 'Send',
     thinking: 'Thinking...',
     suggestions: 'Suggestions',
-    makeItVisual: '▶ Make it visual',
+    makeItVisual: '🎬 Animate it',
     testYourself: '✏️ Test yourself',
     goDeeper: 'Go deeper',
     simplify: 'Simplify this',

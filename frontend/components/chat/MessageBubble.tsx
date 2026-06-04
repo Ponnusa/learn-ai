@@ -692,7 +692,7 @@ export function MessageBubble({
                                bg-teal-500/10 hover:bg-teal-500/20 text-teal-400
                                border border-teal-500/20"
                   >
-                    <ImageIcon size={12} /> Make it visual
+                    <ImageIcon size={12} /> Sketch it
                   </button>
                 )}
                 <button
