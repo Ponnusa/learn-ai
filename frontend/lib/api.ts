@@ -115,6 +115,14 @@ export const retryVideoManim = (videoId: number, token?: string) =>
     `/api/videos/${videoId}/retry-manim`, {}, token
   );
 
+export const regenerateVideo = (videoId: number, token?: string) =>
+  post<{ status: string; video_id: number }>(
+    `/api/videos/${videoId}/regenerate`, {}, token
+  );
+
+export const deleteVideo = (videoId: number, token?: string) =>
+  del<{ deleted: boolean }>(`/api/videos/${videoId}`, token);
+
 export const getSessionVideos = (sessionId: string) =>
   get<{
     id: number;

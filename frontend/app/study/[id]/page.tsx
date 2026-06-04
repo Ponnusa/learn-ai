@@ -871,7 +871,11 @@ function ActiveChat({
             </div>
             {m.role === 'assistant' && m.videoId && (
               <div className="max-w-[88%] w-full mt-2">
-                <VideoStatusCard videoId={m.videoId} token={token ?? undefined} />
+                <VideoStatusCard
+                  videoId={m.videoId}
+                  token={token ?? undefined}
+                  onDelete={() => setMessages(prev => prev.map((m2, j) => j === i ? { ...m2, videoId: undefined } : m2))}
+                />
               </div>
             )}
             {m.role === 'assistant' && m.imageJobId && (

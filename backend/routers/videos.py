@@ -132,6 +132,44 @@ async def retry_video_manim(video_id: int, bg: BackgroundTasks):
     return {"status": "pending", "video_id": video_id}
 
 
+@router.post("/{video_id}/regenerate")
+async def regenerate_video(video_id: int, bg: BackgroundTasks):
+    """Full regeneration — clears cached transcript/solution and reruns the entire pipeline."""
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT prompt, user_id, subject, language, aspect_ratio
+            FROM videos WHERE id = $1
+        """, video_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    async with get_db() as db:
+        await db.execute("""
+            UPDATE videos
+            SET status = 'pending', error_message = NULL,
+                generated_code = NULL, transcript_markdown = NULL,
+                verified_solution = NULL, updated_at = NOW()
+            WHERE id = $1
+        """, video_id)
+
+    prompt = row["prompt"] or ""
+    uid    = str(row["user_id"]) if row["user_id"] else None
+    bg.add_task(
+        _generate_video_bg, video_id, prompt, uid,
+        row["subject"], row["language"] or "en", row["aspect_ratio"] or "16:9",
+    )
+    return {"status": "pending", "video_id": video_id}
+
+
+@router.delete("/{video_id}")
+async def delete_video(video_id: int):
+    async with get_db() as db:
+        result = await db.execute("DELETE FROM videos WHERE id = $1", video_id)
+    if result == "DELETE 0":
+        raise HTTPException(status_code=404, detail="Video not found")
+    return {"deleted": True}
+
+
 @router.get("/conversation/{conversation_id}")
 async def get_conversation_videos(conversation_id: str):
     """

@@ -10,7 +10,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
-import { getQuiz, getVideoStatus, retryVideoManim, getEduImageJob, retryEduImage, deleteEduImage } from '@/lib/api';
+import { getQuiz, getVideoStatus, retryVideoManim, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -203,16 +203,18 @@ function statusToStepIdx(status: string): number {
   }
 }
 
-export function VideoStatusCard({ videoId, token }: { videoId: number; token?: string }) {
+export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number; token?: string; onDelete?: () => void }) {
   const router = useRouter();
-  const [status,     setStatus]     = useState<string>('pending');
-  const [videoUrl,   setVideoUrl]   = useState<string | null>(null);
-  const [stepIdx,    setStepIdx]    = useState(0);
-  const [transcript, setTranscript] = useState<string | null>(null);
-  const [solution,   setSolution]   = useState<string | null>(null);
-  const [showModal,  setShowModal]  = useState(false);
-  const [retrying,   setRetrying]   = useState(false);
-  const [retryTick,  setRetryTick]  = useState(0);   // increment to restart poll
+  const [status,        setStatus]        = useState<string>('pending');
+  const [videoUrl,      setVideoUrl]      = useState<string | null>(null);
+  const [stepIdx,       setStepIdx]       = useState(0);
+  const [transcript,    setTranscript]    = useState<string | null>(null);
+  const [solution,      setSolution]      = useState<string | null>(null);
+  const [showModal,     setShowModal]     = useState(false);
+  const [retrying,      setRetrying]      = useState(false);
+  const [regenerating,  setRegenerating]  = useState(false);
+  const [deleting,      setDeleting]      = useState(false);
+  const [retryTick,     setRetryTick]     = useState(0);
 
   const closeModal = useCallback(() => setShowModal(false), []);
 
@@ -250,11 +252,38 @@ export function VideoStatusCard({ videoId, token }: { videoId: number; token?: s
     setVideoUrl(null);
     try {
       await retryVideoManim(videoId, token);
-      setRetryTick(t => t + 1);   // restart polling loop
+      setRetryTick(t => t + 1);
     } catch {
       setStatus('failed');
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function handleRegenerate() {
+    setRegenerating(true);
+    setStatus('pending');
+    setStepIdx(0);
+    setVideoUrl(null);
+    setTranscript(null);
+    setSolution(null);
+    try {
+      await regenerateVideo(videoId, token);
+      setRetryTick(t => t + 1);
+    } catch {
+      setStatus('failed');
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteVideo(videoId, token);
+      onDelete?.();
+    } catch {
+      setDeleting(false);
     }
   }
 
@@ -290,14 +319,26 @@ export function VideoStatusCard({ videoId, token }: { videoId: number; token?: s
                 <p className="text-[var(--tx7)] text-[10px]">Your animation has been generated</p>
               </div>
             </div>
-            <button
-              onClick={() => router.push(`/videos?id=${videoId}`)}
-              className="shrink-0 text-xs px-3 py-1.5 rounded-lg
-                         bg-purple-600 hover:bg-purple-500 text-white font-medium
-                         transition-colors flex items-center gap-1.5"
-            >
-              Watch <span aria-hidden>→</span>
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                onClick={() => router.push(`/videos?id=${videoId}`)}
+                className="text-xs px-3 py-1.5 rounded-lg
+                           bg-purple-600 hover:bg-purple-500 text-white font-medium
+                           transition-colors flex items-center gap-1.5"
+              >
+                Watch <span aria-hidden>→</span>
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                title="Remove from chat"
+                className="w-7 h-7 flex items-center justify-center rounded-lg
+                           text-[var(--tx7)] hover:text-red-400 hover:bg-red-500/10
+                           disabled:opacity-40 transition-colors"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
           </div>
           {transcriptBtn && (
             <div className="pt-0.5">{transcriptBtn}</div>
@@ -320,25 +361,50 @@ export function VideoStatusCard({ videoId, token }: { videoId: number; token?: s
     return (
       <>
         <div className="rounded-xl border border-[var(--wrong-bd)] bg-[var(--wrong-bg)] px-4 py-3 space-y-2.5">
-          <div className="flex items-center gap-2.5">
-            <XCircle size={15} className="text-[var(--red)] shrink-0" />
-            <p className="text-[var(--tx2)] text-sm font-medium">Video generation failed</p>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <XCircle size={15} className="text-[var(--red)] shrink-0" />
+              <p className="text-[var(--tx2)] text-sm font-medium">Video generation failed</p>
+            </div>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              title="Remove from chat"
+              className="w-7 h-7 flex items-center justify-center rounded-lg shrink-0
+                         text-[var(--tx7)] hover:text-red-400 hover:bg-red-500/10
+                         disabled:opacity-40 transition-colors"
+            >
+              <Trash2 size={12} />
+            </button>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Retry */}
+            {/* Retry animation only (keep transcript if available) */}
+            {transcript && (
+              <button
+                onClick={handleRetry}
+                disabled={retrying || regenerating}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg
+                           bg-purple-600 hover:bg-purple-500 disabled:opacity-50
+                           text-white font-medium transition-colors"
+              >
+                <RefreshCw size={11} className={retrying ? 'animate-spin' : ''} />
+                {retrying ? 'Retrying…' : 'Retry animation'}
+              </button>
+            )}
+
+            {/* Full regeneration — new transcript + new animation */}
             <button
-              onClick={handleRetry}
-              disabled={retrying}
+              onClick={handleRegenerate}
+              disabled={retrying || regenerating}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg
-                         bg-purple-600 hover:bg-purple-500 disabled:opacity-50
-                         text-white font-medium transition-colors"
+                         bg-[var(--ov3)] hover:bg-[var(--ov4)] disabled:opacity-50
+                         text-[var(--tx3)] border border-[var(--bd)] font-medium transition-colors"
             >
-              <RefreshCw size={11} className={retrying ? 'animate-spin' : ''} />
-              {retrying ? 'Retrying…' : transcript ? 'Retry Video' : 'Regenerate'}
+              <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
+              {regenerating ? 'Regenerating…' : 'Regenerate from scratch'}
             </button>
 
-            {/* Transcript — only when available */}
             {transcriptBtn}
           </div>
         </div>
@@ -398,6 +464,31 @@ export function VideoStatusCard({ videoId, token }: { videoId: number; token?: s
             {transcriptBtn}
           </div>
         )}
+
+        {/* Stuck controls — always visible so user can escape a hung job */}
+        <div className="mt-3 pt-3 border-t border-purple-500/15 flex items-center gap-2">
+          <span className="text-[var(--tx8)] text-[10px] flex-1">Taking too long?</span>
+          <button
+            onClick={handleRegenerate}
+            disabled={regenerating}
+            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md
+                       bg-[var(--ov3)] hover:bg-[var(--ov4)] disabled:opacity-50
+                       text-[var(--tx4)] border border-[var(--bd)] transition-colors"
+          >
+            <RefreshCw size={9} className={regenerating ? 'animate-spin' : ''} />
+            {regenerating ? 'Restarting…' : 'Restart'}
+          </button>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-md
+                       bg-[var(--ov3)] hover:bg-red-500/10 disabled:opacity-50
+                       text-[var(--tx6)] hover:text-red-400 border border-[var(--bd)] transition-colors"
+          >
+            <Trash2 size={9} />
+            {deleting ? 'Removing…' : 'Remove'}
+          </button>
+        </div>
       </div>
 
       {showModal && transcript && (
@@ -581,13 +672,15 @@ interface MessageBubbleProps {
   imageJobId?: string;
   /** Called after the inline image card is deleted */
   onDeleteImage?: () => void;
+  /** Called after the inline video card is deleted */
+  onDeleteVideo?: () => void;
   /** Auth token forwarded to status cards */
   token?: string;
 }
 
 export function MessageBubble({
   message, onChipClick, onMakeVisual, onMakeDiagram, onTestYourself, onSimplify, onGoDeeper,
-  videoId, imageJobId, onDeleteImage, token,
+  videoId, imageJobId, onDeleteImage, onDeleteVideo, token,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const { t } = useTranslation();
@@ -668,7 +761,7 @@ export function MessageBubble({
               {/* Inline video status card */}
               {videoId != null && (
                 <div className="mb-3">
-                  <VideoStatusCard videoId={videoId} token={token} />
+                  <VideoStatusCard videoId={videoId} token={token} onDelete={onDeleteVideo} />
                 </div>
               )}
 

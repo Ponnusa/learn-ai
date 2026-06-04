@@ -507,6 +507,7 @@ export default function HomePage() {
                     videoId={videoByMsgId[msg.id]}
                     imageJobId={imageByMsgId[msg.id]}
                     onDeleteImage={() => setImageByMsgId(prev => { const n = { ...prev }; delete n[msg.id]; return n; })}
+                    onDeleteVideo={() => setVideoByMsgId(prev => { const n = { ...prev }; delete n[msg.id]; return n; })}
                     token={token ?? undefined}
                   />
                 </div>
