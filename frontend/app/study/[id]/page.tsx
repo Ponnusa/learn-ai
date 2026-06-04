@@ -11,7 +11,7 @@ import {
   ArrowLeft, Upload, Loader, LayoutGrid, MessageSquare,
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
   FileText, AlertCircle, Send, BookOpen, HelpCircle,
-  Lightbulb, Repeat2, Video, Clock, Plus, Eye,
+  Lightbulb, Repeat2, Video, Eye,
   ZoomIn, ZoomOut, X as XIcon, ImageIcon,
 } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -22,6 +22,7 @@ import {
   getStudySet, uploadStudyMaterial, chatWithStudySet, reviewStudyCard,
   generateQuiz, generateVideo, getStudySetConversations, getMessages,
   getConversationVideos, listEduImages, fetchMaterialPdf, uploadRegionImage, generateEduImage,
+  createSession,
   StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial, StudyConcept,
 } from '@/lib/api';
 import { ImageStatusCard } from '@/components/chat/MessageBubble';
@@ -35,7 +36,7 @@ const PDFViewerModal = dynamic(
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Tab = 'overview' | 'concepts' | 'flashcards' | 'chat' | 'diagrams';
-type ChatView = 'list' | 'active';
+
 
 type ChatMsg = {
   role:       'user' | 'assistant';
@@ -245,14 +246,11 @@ const CONCEPT_GRADIENTS = [
 ];
 
 function ConceptCard({
-  concept, index, prevConv, convsLoading, onNewChat, onContinue,
+  concept, index, onChat,
 }: {
   concept: StudyConcept;
   index: number;
-  prevConv: StudySetConversation | undefined;
-  convsLoading: boolean;
-  onNewChat: (name: string) => void;
-  onContinue: (conv: StudySetConversation) => void;
+  onChat: (name: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const gradient = CONCEPT_GRADIENTS[index % CONCEPT_GRADIENTS.length];
@@ -303,32 +301,13 @@ function ConceptCard({
 
       {/* Action row */}
       <div className="flex gap-2 px-4 pb-4 pt-1">
-        {prevConv && !convsLoading ? (
-          <>
-            <button
-              onClick={() => onContinue(prevConv)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl
-                         text-xs font-medium border transition-colors
-                         bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx3)] border-[var(--bd)]">
-              <MessageSquare size={11} /> Continue
-            </button>
-            <button
-              onClick={() => onNewChat(concept.name)}
-              className="w-9 h-9 flex items-center justify-center rounded-xl border transition-colors shrink-0
-                         bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20"
-              title="New chat">
-              <Plus size={13} />
-            </button>
-          </>
-        ) : (
-          <button
-            onClick={() => onNewChat(concept.name)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl
-                       text-xs font-medium border transition-colors
-                       bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20">
-            <Plus size={11} /> Chat about this
-          </button>
-        )}
+        <button
+          onClick={() => onChat(concept.name)}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl
+                     text-xs font-medium border transition-colors
+                     bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20">
+          <MessageSquare size={11} /> Chat about this
+        </button>
       </div>
     </div>
   );
@@ -337,13 +316,10 @@ function ConceptCard({
 // ─── ConceptsTab ──────────────────────────────────────────────────────────────
 
 function ConceptsTab({
-  ss, convs, convsLoading, onNewChat, onContinue,
+  ss, onChat,
 }: {
   ss: StudySetDetail;
-  convs: StudySetConversation[];
-  convsLoading: boolean;
-  onNewChat: (conceptName: string) => void;
-  onContinue: (conv: StudySetConversation) => void;
+  onChat: (conceptName: string) => void;
 }) {
   if (ss.concepts.length === 0) return (
     <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
@@ -372,10 +348,7 @@ function ConceptsTab({
             key={c.id}
             concept={c}
             index={i}
-            prevConv={convsLoading ? undefined : convs.find(cv => cv.title.startsWith(c.name))}
-            convsLoading={convsLoading}
-            onNewChat={onNewChat}
-            onContinue={onContinue}
+            onChat={onChat}
           />
         ))}
       </div>
@@ -619,6 +592,7 @@ function ActiveChat({
   const [input, setInput]          = useState('');
   const [loading, setLoading]      = useState(false);
   const [histLoading, setHistLoading] = useState(false);
+  const [histLoaded, setHistLoaded]   = useState(!loadConversation);
   const [quizzing, setQuizzing]    = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [videoing, setVideoing]    = useState(false);
@@ -640,7 +614,6 @@ function ActiveChat({
   // Load saved conversation
   useEffect(() => {
     if (!loadConversation) return;
-    firedRef.current = true;
     setConvId(loadConversation.id);
     setHistLoading(true);
     Promise.all([
@@ -687,12 +660,12 @@ function ActiveChat({
       if (lastAiRow) setLastMsgId(String(lastAiRow.id));
 
       setMessages(loaded);
-    }).catch(() => {}).finally(() => setHistLoading(false));
+    }).catch(() => {}).finally(() => { setHistLoading(false); setHistLoaded(true); });
   }, [loadConversation?.id]);
 
-  // Auto-fire seed message (upload region image to R2 first if present)
+  // Auto-fire seed message — waits for history to load if a conversation is being restored
   useEffect(() => {
-    if (!seed || firedRef.current || ss.status !== 'ready') return;
+    if (!seed || firedRef.current || !histLoaded || ss.status !== 'ready') return;
     firedRef.current = true;
 
     async function autoFire() {
@@ -719,7 +692,7 @@ function ActiveChat({
       }
     }
     autoFire();
-  }, [seed, ss.status]);
+  }, [seed, ss.status, histLoaded]);
 
   const notReady = ss.status !== 'ready';
 
@@ -974,102 +947,14 @@ function ChatTab({
   initSeed: ChatSeed | null;
   initConversation: StudySetConversation | null;
 }) {
-  const { token } = useSessionStore();
-  const [view, setView]         = useState<ChatView>(initSeed || initConversation ? 'active' : 'list');
-  const [activeSeed, setActiveSeed]       = useState<ChatSeed | null>(initSeed);
-  const [activeConv, setActiveConv]       = useState<StudySetConversation | null>(initConversation);
-  const [convs, setConvs]       = useState<StudySetConversation[]>([]);
-  const [loading, setLoading]   = useState(false);
-
-  useEffect(() => {
-    if (ss.status !== 'ready') return;
-    setLoading(true);
-    getStudySetConversations(ss.id, token ?? undefined)
-      .then(r => { setConvs(r); setLoading(false); })
-      .catch(()  => setLoading(false));
-  }, [ss.id, ss.status, view]); // refresh list when returning to list view
-
-  function startNew(seed?: ChatSeed) {
-    setActiveSeed(seed ?? null);
-    setActiveConv(null);
-    setView('active');
-  }
-
-  function openConv(conv: StudySetConversation) {
-    setActiveSeed(null);
-    setActiveConv(conv);
-    setView('active');
-  }
-
-  function goBack() {
-    setView('list');
-    setActiveSeed(null);
-    setActiveConv(null);
-  }
-
-  // ── Active chat ───────────────────────────────────────────────────────────
-  if (view === 'active') {
-    return (
-      <ActiveChat
-        key={`${activeSeed?.concept ?? activeSeed?.pdfQuestion ?? 'new'}-${activeConv?.id ?? 'new'}`}
-        ss={ss}
-        seed={activeSeed}
-        loadConversation={activeConv}
-        onBack={goBack}
-      />
-    );
-  }
-
-  // ── Conversation list ──────────────────────────────────────────────────────
   return (
-    <div className="space-y-4">
-      {/* New chat button */}
-      <button onClick={() => startNew()}
-        className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl
-                   border-2 border-dashed border-indigo-500/30 hover:border-indigo-500/50
-                   text-indigo-400 hover:bg-indigo-500/5 text-sm font-medium transition-all">
-        <Plus size={16} /> New chat
-      </button>
-
-      {/* Past conversations */}
-      {loading ? (
-        <div className="flex items-center justify-center py-8 gap-2 text-[var(--tx6)] text-sm">
-          <Loader size={16} className="animate-spin" /> Loading…
-        </div>
-      ) : convs.length === 0 ? (
-        <div className="text-center py-10 text-[var(--tx6)] text-sm">
-          No conversations yet. Click "New chat" or start from a concept.
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">
-            History · {convs.length}
-          </p>
-          {convs.map(c => (
-            <button key={c.id} onClick={() => openConv(c)}
-              className="w-full text-left flex items-center gap-3 px-4 py-3 rounded-xl
-                         bg-[var(--surface)] border border-[var(--bd)]
-                         hover:border-indigo-500/30 hover:bg-indigo-500/5
-                         transition-colors group">
-              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/20
-                              flex items-center justify-center shrink-0">
-                <MessageSquare size={13} className="text-indigo-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-[var(--tx2)] text-sm font-medium truncate">{c.title}</p>
-                <div className="flex items-center gap-2 mt-0.5 text-[var(--tx6)] text-xs">
-                  <span className="flex items-center gap-1"><Clock size={10} />{formatDate(c.created_at)}</span>
-                  {c.message_count > 0 && <span>· {c.message_count} msg</span>}
-                  {c.quiz_count   > 0 && <span>· {c.quiz_count} quiz</span>}
-                  {c.video_count  > 0 && <span>· {c.video_count} video</span>}
-                </div>
-              </div>
-              <ChevronRight size={14} className="text-[var(--tx6)] opacity-0 group-hover:opacity-100 shrink-0" />
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+    <ActiveChat
+      key={`seed-${initSeed?.concept ?? initSeed?.pdfQuestion ?? 'none'}-conv-${initConversation?.id ?? 'new'}`}
+      ss={ss}
+      seed={initSeed}
+      loadConversation={initConversation}
+      onBack={() => {}}
+    />
   );
 }
 
@@ -1079,7 +964,7 @@ export default function StudySetPage() {
   const params       = useParams();
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const { token, user, sessionId } = useSessionStore();
+  const { token, user, sessionId, setSessionId } = useSessionStore();
   const id           = params.id as string;
 
   const [ss,       setSs]       = useState<StudySetDetail | null>(null);
@@ -1094,7 +979,6 @@ export default function StudySetPage() {
 
   // Conversations list — shared between ConceptsTab and ChatTab list
   const [convs,        setConvs]        = useState<StudySetConversation[]>([]);
-  const [convsLoading, setConvsLoading] = useState(false);
 
   // PDF state
   const [pdfMaterial, setPdfMaterial] = useState<StudyMaterial | null>(null);
@@ -1103,6 +987,13 @@ export default function StudySetPage() {
 
   const pollRef          = useRef<ReturnType<typeof setTimeout> | null>(null);
   const urlRestoredRef   = useRef(false);
+
+  // Init anonymous session if arriving directly on this page
+  useEffect(() => {
+    if (!sessionId && !user) {
+      createSession().then(s => setSessionId(s.session_id)).catch(() => {});
+    }
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -1122,10 +1013,9 @@ export default function StudySetPage() {
   // Load conversations when study set is ready
   useEffect(() => {
     if (!ss || ss.status !== 'ready') return;
-    setConvsLoading(true);
     getStudySetConversations(ss.id, token ?? undefined)
-      .then(r => { setConvs(r); setConvsLoading(false); })
-      .catch(()  => setConvsLoading(false));
+      .then(r => setConvs(r))
+      .catch(() => {});
   }, [ss?.id, ss?.status]);
 
   // Restore active conversation from URL on refresh
@@ -1146,19 +1036,18 @@ export default function StudySetPage() {
 
   function handleUploaded() { load().then(() => startPoll()); }
 
-  // Navigate to Chat tab with a concept
+  // Auto-load the single conversation when chat tab is opened without explicit seed/conv
+  useEffect(() => {
+    if (tab === 'chat' && !chatSeed && !chatConv && convs.length > 0) {
+      setChatConv(convs[0]);
+    }
+  }, [tab, convs]);
+
+  // Navigate to Chat tab with a concept — reuses the existing studyset conversation
   function handleNewConceptChat(conceptName: string) {
     setChatSeed({ concept: conceptName });
-    setChatConv(null);
+    setChatConv(convs[0] ?? null);
     setTab('chat');
-  }
-
-  // Navigate to Chat tab to continue a conversation
-  function handleContinue(conv: StudySetConversation) {
-    setChatSeed(null);
-    setChatConv(conv);
-    setTab('chat');
-    window.history.replaceState({}, '', `/study/${id}?tab=chat&conv=${conv.id}`);
   }
 
   // Open PDF from material
@@ -1262,10 +1151,7 @@ export default function StudySetPage() {
             <OverviewTab ss={ss} onRefresh={handleUploaded} onOpenPdf={handleOpenPdf} />
           )}
           {tab === 'concepts' && (
-            <ConceptsTab
-              ss={ss} convs={convs} convsLoading={convsLoading}
-              onNewChat={handleNewConceptChat} onContinue={handleContinue}
-            />
+            <ConceptsTab ss={ss} onChat={handleNewConceptChat} />
           )}
           {tab === 'flashcards' && <FlashcardsTab ss={ss} />}
           {tab === 'diagrams' && (

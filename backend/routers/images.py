@@ -82,7 +82,7 @@ async def generate_image(req: GenerateRequest, bg: BackgroundTasks):
         await db.execute(
             """INSERT INTO educational_images
                (id, user_id, session_id, conversation_id, study_set_id, message_id, concept, status)
-               VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6, $7, 'processing')""",
+               VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7, 'processing')""",
             job_id, req.user_id, req.session_id,
             req.conversation_id, req.study_set_id, req.message_id, concept,
         )

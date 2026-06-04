@@ -67,7 +67,7 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
             INSERT INTO videos
               (user_id, session_id, conversation_id, message_id,
                prompt, status, max_duration, language, aspect_ratio, subject)
-            VALUES ($1,$2,$3,$4,$5,'pending',$6,$7,$8,$9)
+            VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,'pending',$6,$7,$8,$9)
             RETURNING id
         """, req.user_id, req.session_id, req.conversation_id, req.message_id,
             req.prompt, max_secs, req.language, req.aspect_ratio, req.subject)

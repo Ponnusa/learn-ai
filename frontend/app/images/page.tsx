@@ -22,6 +22,16 @@ const DOMAIN_STYLES: Record<string, { badge: string; gradient: string }> = {
 const DEFAULT_DOMAIN_STYLE = { badge: 'bg-[var(--ov3)] text-[var(--tx5)] border-[var(--bd)]', gradient: 'from-gray-900 via-slate-900 to-zinc-900' };
 function domainStyle(d?: string) { return DOMAIN_STYLES[(d || '').toLowerCase()] ?? DEFAULT_DOMAIN_STYLE; }
 
+function DomainBadge({ domain }: { domain?: string }) {
+  if (!domain) return null;
+  const { badge } = domainStyle(domain);
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium capitalize border shrink-0 ${badge}`}>
+      {domain}
+    </span>
+  );
+}
+
 function formatDate(iso: string): string {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
   if (diff === 0) return 'Today';

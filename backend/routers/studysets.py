@@ -289,27 +289,33 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
     if not mat_rows:
         raise HTTPException(400, "No processed material yet — please wait for processing to finish")
 
-    # ── 1. Get or create conversation ────────────────────────────────────────
+    # ── 1. Get or create conversation (one per studyset per user/session) ────
     conv_id = req.conversation_id
     if not conv_id:
-        if req.concept_name:
-            title = f"{req.concept_name} — {ss['title']}"
-        elif req.image_url:
-            snippet = req.message[:70].rstrip()
-            title = f"📄 {snippet}{'…' if len(req.message) > 70 else ''}"
-        else:
-            title = f"{ss['title']} — Study Chat"
-
         async with get_db() as db:
-            conv = await db.fetchrow(
-                """INSERT INTO conversations
-                     (user_id, session_id, title, subject, study_set_id)
-                   VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid)
-                   RETURNING id""",
-                req.user_id, req.session_id,
-                title, ss["subject"], study_set_id,
+            existing = await db.fetchrow(
+                """SELECT id FROM conversations
+                   WHERE study_set_id = $1::uuid
+                     AND (
+                       ($2::uuid IS NOT NULL AND user_id    = $2::uuid)
+                       OR ($3::uuid IS NOT NULL AND session_id = $3::uuid)
+                     )
+                   ORDER BY created_at ASC LIMIT 1""",
+                study_set_id, req.user_id, req.session_id,
             )
-        conv_id = str(conv["id"])
+        if existing:
+            conv_id = str(existing["id"])
+        else:
+            async with get_db() as db:
+                conv = await db.fetchrow(
+                    """INSERT INTO conversations
+                         (user_id, session_id, title, subject, study_set_id)
+                       VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid)
+                       RETURNING id""",
+                    req.user_id, req.session_id,
+                    f"{ss['title']} — Study Chat", ss["subject"], study_set_id,
+                )
+            conv_id = str(conv["id"])
 
     # ── 2. Save user message (with image metadata if present) ────────────────
     content_type = "image_url" if req.image_url else "text"
