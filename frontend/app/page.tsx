@@ -145,9 +145,11 @@ export default function HomePage() {
       // 2. localStorage: written at video-creation time, survives refresh
       const restored: Record<string, number> = {};
 
-      // Source 1 — DB (only entries where message_id is non-null)
+      // Source 1 — DB: prefer message_id, fall back to last AI message
+      const lastAiMsg = loadedMessages.slice().reverse().find(m => m.role === 'assistant');
       for (const v of videos) {
-        if (v.message_id) restored[String(v.message_id)] = v.id;
+        const key = v.message_id ?? (lastAiMsg?.id ?? null);
+        if (key) restored[String(key)] = v.id;
       }
 
       // Source 2 — localStorage (covers missing ::uuid cast era + anonymous users)

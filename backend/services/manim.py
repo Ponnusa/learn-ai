@@ -46,7 +46,7 @@ _openai_sync = _openai_module.OpenAI(
 )
 
 # ── Model for Manim code generation (same tier as AnimLearn) ─────────────────────────
-_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-4-7")
+_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-sonnet-4-6")
 
 # ── R2 / Cloudflare config (mirrors AnimLearn naming for verbatim function copy) ──────
 R2_BUCKET_NAME = settings.R2_BUCKET_NAME

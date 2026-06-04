@@ -648,11 +648,19 @@ function ActiveChat({
       getConversationVideos(loadConversation.id, token ?? undefined).catch(() => []),
       listEduImages({ conversation_id: loadConversation.id }, token ?? undefined).catch(() => []),
     ]).then(([rows, videos, images]) => {
+      const lastAiId = [...rows].reverse().find((r: any) => r.role === 'assistant')?.id;
+
       const vidMap: Record<string, number> = {};
-      for (const v of videos) { if (v.message_id) vidMap[String(v.message_id)] = v.id; }
+      for (const v of videos) {
+        const key = v.message_id ?? (lastAiId ? String(lastAiId) : null);
+        if (key) vidMap[key] = v.id;
+      }
 
       const imgMap: Record<string, string> = {};
-      for (const img of images) { if (img.message_id && img.id) imgMap[String(img.message_id)] = img.id; }
+      for (const img of images) {
+        const key = (img.message_id && img.id) ? img.message_id : null;
+        if (key) imgMap[key] = img.id;
+      }
 
       const loaded: ChatMsg[] = rows.map(r => ({
         role:       r.role as 'user' | 'assistant',
@@ -753,7 +761,7 @@ function ActiveChat({
       try {
         const lastAiContent = [...messages].reverse().find(m => m.role === 'assistant')?.content
           ?? currentTopic();
-        const res = await generateVideo({ prompt: lastAiContent.slice(0, 400), conversation_id: convId ?? undefined, message_id: lastMsgId ?? undefined, user_id: user?.id, subject: ss.subject || undefined }, token ?? undefined);
+        const res = await generateVideo({ prompt: lastAiContent.slice(0, 400), conversation_id: convId ?? undefined, message_id: lastMsgId ?? undefined, user_id: user?.id, session_id: sessionId ?? undefined, subject: ss.subject || undefined }, token ?? undefined);
         if (res.supported && res.video_id) {
           setMessages(prev => {
             const up = [...prev];
