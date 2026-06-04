@@ -878,7 +878,11 @@ function ActiveChat({
             )}
             {m.role === 'assistant' && m.imageJobId && (
               <div className="max-w-[88%] w-full mt-2">
-                <ImageStatusCard jobId={m.imageJobId} token={token ?? undefined} />
+                <ImageStatusCard
+                  jobId={m.imageJobId}
+                  token={token ?? undefined}
+                  onDelete={() => setMessages(prev => prev.map((m2, j) => j === i ? { ...m2, imageJobId: undefined } : m2))}
+                />
               </div>
             )}
             {m.role === 'assistant' && m.chips && i === messages.length - 1 && !loading && (

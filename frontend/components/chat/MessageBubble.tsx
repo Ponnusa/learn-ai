@@ -579,13 +579,15 @@ interface MessageBubbleProps {
   videoId?: number;
   /** Set when image generation has been triggered for this message */
   imageJobId?: string;
+  /** Called after the inline image card is deleted */
+  onDeleteImage?: () => void;
   /** Auth token forwarded to status cards */
   token?: string;
 }
 
 export function MessageBubble({
   message, onChipClick, onMakeVisual, onMakeDiagram, onTestYourself, onSimplify, onGoDeeper,
-  videoId, imageJobId, token,
+  videoId, imageJobId, onDeleteImage, token,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const { t } = useTranslation();
@@ -673,7 +675,7 @@ export function MessageBubble({
               {/* Inline image status card */}
               {imageJobId != null && (
                 <div className="mb-3">
-                  <ImageStatusCard jobId={imageJobId} token={token} />
+                  <ImageStatusCard jobId={imageJobId} token={token} onDelete={onDeleteImage} />
                 </div>
               )}
 
