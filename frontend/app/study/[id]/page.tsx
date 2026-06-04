@@ -649,11 +649,19 @@ function ActiveChat({
       listEduImages({ conversation_id: loadConversation.id }, token ?? undefined).catch(() => []),
     ]).then(([rows, videos, images]) => {
       const lastAiId = [...rows].reverse().find((r: any) => r.role === 'assistant')?.id;
+      const lastAiKey = lastAiId ? String(lastAiId) : null;
 
       const vidMap: Record<string, number> = {};
       for (const v of videos) {
-        const key = v.message_id ?? (lastAiId ? String(lastAiId) : null);
+        const key = v.message_id ?? lastAiKey;
         if (key) vidMap[key] = v.id;
+      }
+      // localStorage fallback — covers cases where conversation_id was null in DB
+      if (lastAiKey && !vidMap[lastAiKey]) {
+        try {
+          const stored = localStorage.getItem(`learnai_video_${lastAiKey}`);
+          if (stored) { const vid = Number(stored); if (vid) vidMap[lastAiKey] = vid; }
+        } catch {}
       }
 
       const imgMap: Record<string, string> = {};
@@ -770,6 +778,9 @@ function ActiveChat({
             }
             return up;
           });
+          if (lastMsgId) {
+            try { localStorage.setItem(`learnai_video_${lastMsgId}`, String(res.video_id)); } catch {}
+          }
         }
       } finally { setVideoing(false); }
       return;
