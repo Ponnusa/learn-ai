@@ -630,6 +630,13 @@ function ActiveChat({
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
 
+  // Sync new convId to URL so refresh can restore the conversation
+  useEffect(() => {
+    if (convId && !loadConversation) {
+      window.history.replaceState({}, '', `/study/${ss.id}?tab=chat&conv=${convId}`);
+    }
+  }, [convId]);
+
   // Load saved conversation
   useEffect(() => {
     if (!loadConversation) return;
@@ -1075,7 +1082,8 @@ export default function StudySetPage() {
   const [pdfFile,     setPdfFile]     = useState<File | null>(null);
   const [pdfLoading,  setPdfLoading]  = useState(false);
 
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollRef          = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const urlRestoredRef   = useRef(false);
 
   const load = useCallback(async () => {
     try {
@@ -1101,6 +1109,16 @@ export default function StudySetPage() {
       .catch(()  => setConvsLoading(false));
   }, [ss?.id, ss?.status]);
 
+  // Restore active conversation from URL on refresh
+  useEffect(() => {
+    if (urlRestoredRef.current || !convs.length) return;
+    const convParam = new URLSearchParams(window.location.search).get('conv');
+    if (!convParam) return;
+    urlRestoredRef.current = true;
+    const found = convs.find(c => c.id === convParam);
+    if (found) { setChatSeed(null); setChatConv(found); setTab('chat'); }
+  }, [convs]);
+
   function startPoll() {
     pollRef.current = setTimeout(async () => {
       const s = await load(); if (s === 'processing') startPoll();
@@ -1121,6 +1139,7 @@ export default function StudySetPage() {
     setChatSeed(null);
     setChatConv(conv);
     setTab('chat');
+    window.history.replaceState({}, '', `/study/${id}?tab=chat&conv=${conv.id}`);
   }
 
   // Open PDF from material

@@ -164,14 +164,19 @@ export default function HomePage() {
 
       if (Object.keys(restored).length > 0) setVideoByMsgId(restored);
 
-      // Restore inline image cards (message_id → job id)
+      // Restore inline image cards — DB first, then localStorage fallback
       const restoredImages: Record<string, string> = {};
       for (const img of images) {
         if (img.message_id && img.id) restoredImages[img.message_id] = img.id;
       }
-      if (Object.keys(restoredImages).length > 0) {
-        setImageByMsgId(restoredImages);
+      for (const m of loadedMessages) {
+        if (m.role !== 'assistant') continue;
+        try {
+          const stored = localStorage.getItem(`learnai_image_${m.id}`);
+          if (stored && !restoredImages[m.id]) restoredImages[m.id] = stored;
+        } catch {}
       }
+      if (Object.keys(restoredImages).length > 0) setImageByMsgId(restoredImages);
 
       const conv = conversations.find(c => c.id === id);
       if (conv?.subject) setCurrentSubject({ subject: conv.subject, subtopic: conv.subtopic });
@@ -288,6 +293,7 @@ export default function HomePage() {
       }, token ?? undefined);
 
       setImageByMsgId(prev => ({ ...prev, [messageId]: res.jobId }));
+      try { localStorage.setItem(`learnai_image_${messageId}`, res.jobId); } catch {}
     } catch (e: any) {
       const isLimit = e?.message === 'session_limit_reached' || e?.message === 'Daily image limit reached';
       if (isLimit && !user) {
