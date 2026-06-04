@@ -3,6 +3,10 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+import { preprocessMath } from '@/lib/preprocessMath';
 import {
   ArrowLeft, Upload, Loader, LayoutGrid, MessageSquare,
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
@@ -17,7 +21,7 @@ import { DiagramsGallery } from '@/components/chat/DiagramsGallery';
 import {
   getStudySet, uploadStudyMaterial, chatWithStudySet, reviewStudyCard,
   generateQuiz, generateVideo, getStudySetConversations, getMessages,
-  getConversationVideos, fetchMaterialPdf, uploadRegionImage, generateEduImage,
+  getConversationVideos, listEduImages, fetchMaterialPdf, uploadRegionImage, generateEduImage,
   StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial, StudyConcept,
 } from '@/lib/api';
 import { ImageStatusCard } from '@/components/chat/MessageBubble';
@@ -635,21 +639,30 @@ function ActiveChat({
     Promise.all([
       getMessages(loadConversation.id, token ?? undefined),
       getConversationVideos(loadConversation.id, token ?? undefined).catch(() => []),
-    ]).then(([rows, videos]) => {
+      listEduImages({ conversation_id: loadConversation.id }, token ?? undefined).catch(() => []),
+    ]).then(([rows, videos, images]) => {
       const vidMap: Record<string, number> = {};
       for (const v of videos) { if (v.message_id) vidMap[String(v.message_id)] = v.id; }
 
+      const imgMap: Record<string, string> = {};
+      for (const img of images) { if (img.message_id && img.id) imgMap[String(img.message_id)] = img.id; }
+
       const loaded: ChatMsg[] = rows.map(r => ({
-        role:     r.role as 'user' | 'assistant',
-        content:  r.content,
-        videoId:  vidMap[String(r.id)],
-        imageUrl: r.metadata?.image_url as string | undefined,
+        role:       r.role as 'user' | 'assistant',
+        content:    r.content,
+        videoId:    vidMap[String(r.id)],
+        imageJobId: imgMap[String(r.id)],
+        imageUrl:   r.metadata?.image_url as string | undefined,
       }));
       // Chips on last assistant message
       const lastAi = loaded.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).slice(-1)[0];
       if (lastAi !== undefined && lastAi >= 0) {
         loaded[lastAi] = { ...loaded[lastAi], chips: ['Quiz me on this', 'Create a video', 'Sketch it', 'Give me an example', 'Explain differently'] };
       }
+      // Set lastMsgId so Sketch it / Create a video link to the right message
+      const lastAiRow = [...rows].reverse().find((r: any) => r.role === 'assistant');
+      if (lastAiRow) setLastMsgId(String(lastAiRow.id));
+
       setMessages(loaded);
     }).catch(() => {}).finally(() => setHistLoading(false));
   }, [loadConversation?.id]);
@@ -731,7 +744,9 @@ function ActiveChat({
     if (chip === 'Create a video') {
       setVideoing(true);
       try {
-        const res = await generateVideo({ prompt: currentTopic(), conversation_id: convId ?? undefined, message_id: lastMsgId ?? undefined, user_id: user?.id, subject: ss.subject || undefined }, token ?? undefined);
+        const lastAiContent = [...messages].reverse().find(m => m.role === 'assistant')?.content
+          ?? currentTopic();
+        const res = await generateVideo({ prompt: lastAiContent.slice(0, 400), conversation_id: convId ?? undefined, message_id: lastMsgId ?? undefined, user_id: user?.id, subject: ss.subject || undefined }, token ?? undefined);
         if (res.supported && res.video_id) {
           setMessages(prev => {
             const up = [...prev];
@@ -747,8 +762,10 @@ function ActiveChat({
     if (chip === 'Sketch it') {
       setImageing(true);
       try {
+        const lastAiContent = [...messages].reverse().find(m => m.role === 'assistant')?.content
+          ?? currentTopic();
         const res = await generateEduImage({
-          concept:      currentTopic().slice(0, 400),
+          concept:      lastAiContent.slice(0, 400),
           conversation_id: convId ?? undefined,
           study_set_id: ss.id,
           message_id:   lastMsgId ?? undefined,
@@ -850,7 +867,9 @@ function ActiveChat({
               ${m.role === 'user'
                 ? 'bg-indigo-600 text-white rounded-br-md'
                 : 'bg-[var(--surface)] border border-[var(--bd)] text-[var(--tx2)] rounded-bl-md'}`}>
-              {m.role === 'assistant' ? <ReactMarkdown>{m.content}</ReactMarkdown> : m.content}
+              {m.role === 'assistant'
+                ? <div className="ai-content"><ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{preprocessMath(m.content)}</ReactMarkdown></div>
+                : m.content}
             </div>
             {m.role === 'assistant' && m.videoId && (
               <div className="max-w-[88%] w-full mt-2">

@@ -3,23 +3,32 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Sparkles, Loader2, Download, RefreshCw,
-  FlaskConical, Sigma, Leaf, Globe, BookOpen,
-  ZoomIn, X, Clock, MessageSquare,
+  ZoomIn, X, Clock, MessageSquare, Trash2, FileText, AlertCircle,
 } from 'lucide-react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
-import { generateEduImage, getEduImageJob, listEduImages, EduImageJob } from '@/lib/api';
+import { generateEduImage, getEduImageJob, listEduImages, deleteEduImage, retryEduImage, EduImageJob } from '@/lib/api';
 
-// ── Domain metadata ───────────────────────────────────────────────────────────
+// ── Domain styles (gradient bg + badge color) — mirrors video SUBJECT_STYLES ──
 
-const DOMAIN_META: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
-  physics:     { label: 'Physics',     icon: <Sparkles size={12} />,     color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' },
-  chemistry:   { label: 'Chemistry',   icon: <FlaskConical size={12} />, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
-  mathematics: { label: 'Mathematics', icon: <Sigma size={12} />,        color: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
-  biology:     { label: 'Biology',     icon: <Leaf size={12} />,         color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
-  geography:   { label: 'Geography',   icon: <Globe size={12} />,        color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
-  general:     { label: 'Education',   icon: <BookOpen size={12} />,     color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
+const DOMAIN_STYLES: Record<string, { badge: string; gradient: string }> = {
+  physics:     { badge: 'bg-blue-500/15 text-blue-400 border-blue-500/20',     gradient: 'from-blue-950 via-cyan-950 to-slate-900' },
+  chemistry:   { badge: 'bg-green-500/15 text-green-400 border-green-500/20',  gradient: 'from-emerald-950 via-teal-950 to-slate-900' },
+  mathematics: { badge: 'bg-purple-500/15 text-purple-400 border-purple-500/20', gradient: 'from-purple-950 via-indigo-950 to-slate-900' },
+  biology:     { badge: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', gradient: 'from-emerald-950 via-green-950 to-slate-900' },
+  geography:   { badge: 'bg-amber-500/15 text-amber-400 border-amber-500/20',  gradient: 'from-amber-950 via-yellow-950 to-slate-900' },
+  general:     { badge: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/20', gradient: 'from-indigo-950 via-slate-900 to-zinc-900' },
 };
+const DEFAULT_DOMAIN_STYLE = { badge: 'bg-[var(--ov3)] text-[var(--tx5)] border-[var(--bd)]', gradient: 'from-gray-900 via-slate-900 to-zinc-900' };
+function domainStyle(d?: string) { return DOMAIN_STYLES[(d || '').toLowerCase()] ?? DEFAULT_DOMAIN_STYLE; }
+
+function formatDate(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Yesterday';
+  if (diff < 7)  return `${diff}d ago`;
+  return new Date(iso).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+}
 
 const EXAMPLES = [
   'Forces acting on a sled moving down an inclined plane',
@@ -34,21 +43,10 @@ const EXAMPLES = [
   'The rock cycle',
 ];
 
-// ── DomainBadge ───────────────────────────────────────────────────────────────
-
-function DomainBadge({ domain }: { domain?: string }) {
-  if (!domain) return null;
-  const m = DOMAIN_META[domain] ?? DOMAIN_META.general;
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${m.color}`}>
-      {m.icon} {m.label}
-    </span>
-  );
-}
 
 // ── ImageLightbox ─────────────────────────────────────────────────────────────
 
-function ImageLightbox({ src, title, onClose }: { src: string; title: string; onClose: () => void }) {
+function ImageLightbox({ src, title, description, onClose }: { src: string; title: string; description?: string; onClose: () => void }) {
   const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
@@ -84,75 +82,171 @@ function ImageLightbox({ src, title, onClose }: { src: string; title: string; on
           <X size={15} />
         </button>
       </div>
-      <img src={src} alt={title}
-        style={{ transform: `scale(${zoom})`, transition: 'transform 0.15s ease', transformOrigin: 'center' }}
-        className="max-w-[90vw] max-h-[90vh] object-contain rounded-xl select-none"
-        onClick={e => { e.stopPropagation(); setZoom(z => z === 1 ? 2 : 1); }}
-        draggable={false}
-      />
-      <p className="absolute bottom-4 text-white/25 text-xs select-none pointer-events-none">
-        Click to toggle zoom · Esc to close
-      </p>
+      <div className="flex flex-col items-center gap-4 max-w-3xl w-full" onClick={e => e.stopPropagation()}>
+        <img src={src} alt={title}
+          style={{ transform: `scale(${zoom})`, transition: 'transform 0.15s ease', transformOrigin: 'center' }}
+          className="max-w-full max-h-[70vh] object-contain rounded-xl select-none cursor-zoom-in bg-white"
+          onClick={() => setZoom(z => z === 1 ? 2 : 1)}
+          draggable={false}
+        />
+        {description && (
+          <div className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-left">
+            <p className="text-white/50 text-[10px] uppercase tracking-wide font-medium mb-2">About this diagram</p>
+            <p className="text-white/75 text-sm leading-relaxed whitespace-pre-wrap">{description}</p>
+          </div>
+        )}
+        <p className="text-white/20 text-xs">Click image to toggle zoom · Esc to close</p>
+      </div>
     </div>
   );
 }
 
-// ── ImageCard ─────────────────────────────────────────────────────────────────
+// ── ImageCard — matches VideoLibraryCard structure ────────────────────────────
 
-function ImageCard({ job, onClick, onGoToChat }: {
+function ImageCard({ job, onClick, onGoToChat, onRemove }: {
   job: EduImageJob;
   onClick: () => void;
   onGoToChat?: () => void;
+  onRemove?: (id: string) => void;
 }) {
+  const { token } = useSessionStore();
+  const { badge, gradient } = domainStyle(job.domain);
+  const date     = job.created_at ? formatDate(job.created_at) : '';
+  const score    = job.critic_report?.score;
+  const scoreColor = score == null ? '' : score >= 85 ? 'bg-emerald-500/80' : score >= 70 ? 'bg-amber-500/80' : 'bg-red-500/80';
+
+  const [deleting, setDeleting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
+  async function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!job.id) return;
+    setDeleting(true);
+    try { await deleteEduImage(job.id, token ?? undefined); onRemove?.(job.id); }
+    catch { setDeleting(false); }
+  }
+
+  async function handleRetry(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!job.id) return;
+    setRetrying(true);
+    try { await retryEduImage(job.id, token ?? undefined); }
+    catch {}
+    finally { setRetrying(false); }
+  }
+
   return (
-    <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden
-                    hover:border-indigo-500/30 transition-all group">
-      {job.image_url ? (
-        <button className="w-full aspect-square overflow-hidden bg-white relative"
-          onClick={onClick}>
+    <div
+      onClick={job.status === 'ready' ? onClick : undefined}
+      className={`group bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden
+                  transition-all duration-200 flex flex-col
+                  ${job.status === 'ready'
+                    ? 'cursor-pointer hover:border-indigo-500/30 hover:shadow-xl hover:shadow-indigo-500/8'
+                    : ''}`}
+    >
+      {/* ── Thumbnail ── */}
+      <div className={`aspect-video relative overflow-hidden bg-gradient-to-br ${gradient} shrink-0`}>
+        {job.image_url ? (
           <img src={job.image_url} alt={job.concept}
-            className="w-full h-full object-contain group-hover:scale-[1.02] transition-transform duration-300" />
-          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-colors
-                          flex items-center justify-center opacity-0 group-hover:opacity-100">
-            <div className="bg-black/60 rounded-full p-2.5">
-              <ZoomIn size={18} className="text-white" />
+            className="w-full h-full object-contain bg-white" />
+        ) : job.status === 'processing' ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+            <Loader2 size={28} className="text-white/40 animate-spin" />
+            <p className="text-white/30 text-[10px]">Generating…</p>
+          </div>
+        ) : (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <AlertCircle size={24} className="text-red-400/60" />
+            <p className="text-white/30 text-[10px]">Failed</p>
+          </div>
+        )}
+
+        {/* Zoom overlay on hover (ready only) */}
+        {job.status === 'ready' && (
+          <div className="absolute inset-0 flex items-center justify-center
+                          opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+            <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full
+                            flex items-center justify-center ring-1 ring-white/30">
+              <ZoomIn size={20} className="text-white" />
             </div>
           </div>
-        </button>
-      ) : (
-        <div className="w-full aspect-square bg-[var(--ov2)] flex items-center justify-center">
-          {job.status === 'processing'
-            ? <Loader2 size={24} className="text-indigo-400 animate-spin" />
-            : <span className="text-[var(--tx6)] text-xs">Failed</span>}
-        </div>
-      )}
-      <div className="p-3 space-y-2">
-        <p className="text-[var(--tx2)] text-xs font-medium leading-snug line-clamp-2">
+        )}
+
+        {/* Quality score pill (bottom-right) — like duration pill on videos */}
+        {score != null && (
+          <div className={`absolute bottom-2 right-2 px-1.5 py-0.5 rounded text-white text-[10px]
+                           font-semibold leading-none ${scoreColor} backdrop-blur-sm`}>
+            {score}/100
+          </div>
+        )}
+      </div>
+
+      {/* ── Card body ── */}
+      <div className="p-3 flex flex-col gap-2 flex-1">
+        {/* Title */}
+        <p className="text-[var(--tx1)] text-sm font-medium line-clamp-2 leading-snug min-h-[2.5rem]">
           {job.concept}
         </p>
-        <div className="flex items-center justify-between gap-2">
-          <DomainBadge domain={job.domain} />
-          {job.status === 'processing' && (
-            <span className="text-[10px] text-yellow-400 flex items-center gap-1">
-              <Loader2 size={9} className="animate-spin" /> Generating…
-            </span>
-          )}
-          {job.status === 'failed' && (
-            <span className="text-[10px] text-red-400">Failed</span>
-          )}
+
+        {/* Footer row: badge + date | action buttons */}
+        <div className="flex items-center justify-between gap-1 mt-auto">
+          <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
+            {job.domain && (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium capitalize
+                               border shrink-0 ${badge}`}>
+                {job.domain}
+              </span>
+            )}
+            {date && <span className="text-[var(--tx6)] text-xs truncate">{date}</span>}
+          </div>
+
+          <div className="flex items-center gap-0.5 shrink-0">
+            {/* Description (if available) */}
+            {job.description && (
+              <button
+                onClick={e => { e.stopPropagation(); onClick(); }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg
+                           text-[var(--tx5)] hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
+                title="View description"
+              >
+                <FileText size={13} />
+              </button>
+            )}
+            {/* Go to chat */}
+            {onGoToChat && job.status === 'ready' && (
+              <button
+                onClick={e => { e.stopPropagation(); onGoToChat(); }}
+                className="w-7 h-7 flex items-center justify-center rounded-lg
+                           text-[var(--tx5)] hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                title="Go to chat message"
+              >
+                <MessageSquare size={13} />
+              </button>
+            )}
+            {/* Retry (failed) */}
+            {job.status === 'failed' && (
+              <button
+                onClick={handleRetry}
+                disabled={retrying}
+                className="w-7 h-7 flex items-center justify-center rounded-lg
+                           text-[var(--tx5)] hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
+                title="Retry"
+              >
+                <RefreshCw size={13} className={retrying ? 'animate-spin' : ''} />
+              </button>
+            )}
+            {/* Delete */}
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="w-7 h-7 flex items-center justify-center rounded-lg
+                         text-[var(--tx5)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              title="Delete"
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
         </div>
-        {/* Go to chat link — shown when diagram was created from a conversation */}
-        {onGoToChat && job.status === 'ready' && (
-          <button
-            onClick={e => { e.stopPropagation(); onGoToChat(); }}
-            className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[10px]
-                       font-medium text-indigo-400 hover:text-indigo-300
-                       bg-indigo-500/8 hover:bg-indigo-500/15 border border-indigo-500/20
-                       transition-colors"
-          >
-            <MessageSquare size={10} /> Go to chat message
-          </button>
-        )}
       </div>
     </div>
   );
@@ -422,6 +516,7 @@ export default function ImagesPage() {
                           ? () => router.push(`/?conv=${job.conversation_id}${job.message_id ? `&msg=${job.message_id}` : ''}`)
                           : undefined
                         }
+                        onRemove={id => setHistory(prev => prev.filter(h => h.id !== id))}
                       />
                     ))}
                   </div>
@@ -459,7 +554,12 @@ export default function ImagesPage() {
       </main>
 
       {lightbox && (
-        <ImageLightbox src={lightbox.image_url!} title={lightbox.concept} onClose={() => setLightbox(null)} />
+        <ImageLightbox
+          src={lightbox.image_url!}
+          title={lightbox.concept}
+          description={lightbox.description}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </div>
   );
