@@ -37,13 +37,13 @@ async def _check_image_credit(user_id: str | None, session_id: str | None, tier:
                 return  # unlimited
             count = await db.fetchval("""
                 SELECT COUNT(*) FROM usage_events
-                WHERE user_id = $1 AND event_type = 'image_generated'
+                WHERE user_id = $1::uuid AND event_type = 'image_generated'
                 AND created_at > NOW() - INTERVAL '1 day'
             """, user_id)
             if count >= limit:
                 raise HTTPException(status_code=429, detail="Daily image limit reached")
             await db.execute(
-                "INSERT INTO usage_events (user_id, event_type) VALUES ($1, 'image_generated')",
+                "INSERT INTO usage_events (user_id, event_type) VALUES ($1::uuid, 'image_generated')",
                 user_id,
             )
         elif session_id:
@@ -71,7 +71,7 @@ async def generate_image(req: GenerateRequest, bg: BackgroundTasks):
     async with get_db() as db:
         tier = "anonymous"
         if req.user_id:
-            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1", req.user_id)
+            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1::uuid", req.user_id)
             tier = user["tier"] if user else "free"
     await _check_image_credit(req.user_id, req.session_id, tier)
 

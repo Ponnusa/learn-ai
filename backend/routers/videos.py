@@ -55,7 +55,7 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
     tier = "anonymous"
     if req.user_id:
         async with get_db() as db:
-            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1", req.user_id)
+            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1::uuid", req.user_id)
         tier = user["tier"] if user else "free"
 
     max_secs = await get_limit(tier, "video_max_secs")
@@ -367,13 +367,13 @@ async def _check_video_credit(user_id: str | None, session_id: str | None, tier:
                 return
             count = await db.fetchval("""
                 SELECT COUNT(*) FROM usage_events
-                WHERE user_id = $1 AND event_type = 'video_generated'
+                WHERE user_id = $1::uuid AND event_type = 'video_generated'
                 AND created_at > NOW() - INTERVAL '1 day'
             """, user_id)
             if count >= limit:
                 raise HTTPException(status_code=429, detail="Daily video limit reached")
             await db.execute(
-                "INSERT INTO usage_events (user_id, event_type) VALUES ($1, 'video_generated')",
+                "INSERT INTO usage_events (user_id, event_type) VALUES ($1::uuid, 'video_generated')",
                 user_id
             )
         elif session_id:
