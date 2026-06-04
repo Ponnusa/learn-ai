@@ -73,6 +73,7 @@ async def generate_image(req: GenerateRequest, bg: BackgroundTasks):
         if req.user_id:
             user = await db.fetchrow("SELECT tier FROM users WHERE id = $1::uuid", req.user_id)
             tier = user["tier"] if user else "free"
+            logger.info("[edu-img] user_id=%s db_row_found=%s tier=%s", req.user_id[:8], user is not None, tier)
     await _check_image_credit(req.user_id, req.session_id, tier)
 
     job_id = str(uuid.uuid4())

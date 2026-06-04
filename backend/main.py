@@ -69,6 +69,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS generation_attempts INT  DEFAULT 1",
             "ALTER TABLE educational_images ADD COLUMN IF NOT EXISTS description         TEXT",
             "ALTER TABLE anonymous_sessions ADD COLUMN IF NOT EXISTS image_count INT DEFAULT 0",
+            # ── Ensure images_daily is in tier_config (upsert so re-runs are safe) ─
+            "INSERT INTO tier_config (tier, feature, value_int, description) VALUES ('anonymous','images_total',1,'Lifetime images per session') ON CONFLICT (tier,feature) DO NOTHING",
+            "INSERT INTO tier_config (tier, feature, value_int, description) VALUES ('free','images_daily',3,'Images per day') ON CONFLICT (tier,feature) DO NOTHING",
+            "INSERT INTO tier_config (tier, feature, value_int, description) VALUES ('learner','images_daily',10,'Images per day') ON CONFLICT (tier,feature) DO NOTHING",
+            "INSERT INTO tier_config (tier, feature, value_int, description) VALUES ('pro','images_daily',-1,'Unlimited') ON CONFLICT (tier,feature) DO NOTHING",
             # ── StudySets: create new tables that didn't exist in 001 ─────────
             """
             CREATE TABLE IF NOT EXISTS study_materials (
