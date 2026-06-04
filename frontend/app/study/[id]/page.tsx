@@ -639,8 +639,7 @@ function ActiveChat({
 
       const imgMap: Record<string, string> = {};
       for (const img of images) {
-        const key = (img.message_id && img.id) ? img.message_id : null;
-        if (key) imgMap[key] = img.id;
+        if (img.message_id && img.id) imgMap[img.message_id] = img.id;
       }
 
       const loaded: ChatMsg[] = rows.map(r => ({
