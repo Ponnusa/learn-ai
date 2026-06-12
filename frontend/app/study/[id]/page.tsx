@@ -737,8 +737,10 @@ function ActiveChat({
       );
       setConvId(res.conversation_id);
       setLastMsgId(res.message_id);
+      const ACTION_CHIPS = new Set(['Create a video', 'Quiz me on this']);
       const defaultChips = ['Sketch it', 'Give me an example', 'Explain differently'];
-      setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips: res.chips?.length ? res.chips : defaultChips, id: res.message_id }]);
+      const chips = (res.chips?.length ? res.chips : defaultChips).filter((c: string) => !ACTION_CHIPS.has(c));
+      setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips, id: res.message_id }]);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Something went wrong. Please try again.' }]);
     } finally { setLoading(false); }
@@ -759,7 +761,15 @@ function ActiveChat({
     if (chip === 'Quiz me on this') {
       setQuizzing(true);
       try {
-        const res = await generateQuiz({ topic: currentTopic(), conversation_id: convId ?? undefined, user_id: user?.id, subject: ss.subject || undefined }, token ?? undefined);
+        const topic = currentTopic();
+        const res = await generateQuiz({ topic, conversation_id: convId ?? undefined, user_id: user?.id, subject: ss.subject || undefined }, token ?? undefined);
+        if (res.message_id) {
+          setMessages(prev => [...prev, {
+            role: 'assistant', content: `Quiz: ${ss.subject || topic}`,
+            id: res.message_id!, quizId: res.quiz_id,
+            quizTopic: ss.subject || topic, quizQuestionCount: res.questions?.length,
+          }]);
+        }
         const returnUrl = `/study/${ss.id}?tab=chat${convId ? `&conv=${convId}` : ''}`;
         router.push(`/quiz/${res.quiz_id}?from=${encodeURIComponent(returnUrl)}`);
       } catch { setQuizzing(false); }
@@ -839,12 +849,20 @@ function ActiveChat({
     if (action === 'Quiz me on this') {
       setQuizzing(true);
       try {
+        const topic = msgContent.slice(0, 120);
         const res = await generateQuiz({
-          topic: msgContent.slice(0, 120),
+          topic,
           conversation_id: convId ?? undefined,
           user_id: user?.id,
           subject: ss.subject || undefined,
         }, token ?? undefined);
+        if (res.message_id) {
+          setMessages(prev => [...prev, {
+            role: 'assistant', content: `Quiz: ${ss.subject || topic}`,
+            id: res.message_id!, quizId: res.quiz_id,
+            quizTopic: ss.subject || topic, quizQuestionCount: res.questions?.length,
+          }]);
+        }
         const returnUrl = `/study/${ss.id}?tab=chat${convId ? `&conv=${convId}` : ''}`;
         router.push(`/quiz/${res.quiz_id}?from=${encodeURIComponent(returnUrl)}`);
       } catch { setQuizzing(false); }
@@ -952,14 +970,17 @@ function ActiveChat({
                 </button>
               </div>
             )}
-            <div className={`max-w-[88%] px-4 py-3 rounded-2xl text-sm leading-relaxed
-              ${m.role === 'user'
-                ? 'bg-indigo-600 text-white rounded-br-md'
-                : 'bg-[var(--surface)] border border-[var(--bd)] text-[var(--tx2)] rounded-bl-md'}`}>
-              {m.role === 'assistant'
-                ? <div className="ai-content"><ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{preprocessMath(m.content)}</ReactMarkdown></div>
-                : m.content}
-            </div>
+            {/* Don't render a text bubble for quiz-card messages — the amber card below is the UI */}
+            {!m.quizId && (
+              <div className={`max-w-[88%] px-4 py-3 rounded-2xl text-sm leading-relaxed
+                ${m.role === 'user'
+                  ? 'bg-indigo-600 text-white rounded-br-md'
+                  : 'bg-[var(--surface)] border border-[var(--bd)] text-[var(--tx2)] rounded-bl-md'}`}>
+                {m.role === 'assistant'
+                  ? <div className="ai-content"><ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>{preprocessMath(m.content)}</ReactMarkdown></div>
+                  : m.content}
+              </div>
+            )}
             {m.role === 'assistant' && m.videoId && (
               <div className="max-w-[88%] w-full mt-2">
                 <VideoStatusCard
@@ -1001,8 +1022,8 @@ function ActiveChat({
                 </button>
               </div>
             )}
-            {/* Action buttons — shown under every AI message */}
-            {m.role === 'assistant' && !loading && (
+            {/* Action buttons — shown under every AI message except quiz cards */}
+            {m.role === 'assistant' && !m.quizId && !loading && (
               <div className="max-w-[88%] mt-1.5 flex flex-wrap gap-1.5">
                 {!m.videoId && (
                   <button
@@ -1029,7 +1050,7 @@ function ActiveChat({
               </div>
             )}
             {/* Additional chips on last message only (Sketch it, examples, etc.) */}
-            {m.role === 'assistant' && m.chips && i === messages.length - 1 && !loading && (
+            {m.role === 'assistant' && !m.quizId && m.chips && i === messages.length - 1 && !loading && (
               <div className="max-w-[88%] mt-1">
                 {imageing ? (
                   <div className="flex items-center gap-1.5 text-xs text-[var(--tx6)] py-1">
