@@ -62,10 +62,16 @@ SUBJECT_ICONS = {
 
 _SYSTEM = (
     "You are a subject classifier for an educational platform.\n"
-    "Given text or an image, identify the academic subject and subtopic.\n"
+    "Given text or an image, identify the broad academic SUBJECT and a specific subtopic.\n"
     "Return ONLY valid JSON. No explanation. No markdown.\n"
-    'Format: {"subject": "Physics", "subtopic": "Newton\'s Laws", "confidence": 0.95}\n'
-    f"Subject must be one of: {', '.join(SUBJECT_NAMES)}\n"
+    'Format: {"subject": "Mathematics", "subtopic": "Quadratic Equations", "confidence": 0.95}\n'
+    f"subject MUST be exactly one of: {', '.join(SUBJECT_NAMES)}\n"
+    "NEVER put a specific topic (e.g. 'Quadratic Equations', 'Newton's Laws') as the subject — "
+    "those belong in subtopic. Always pick the broad discipline for subject.\n"
+    "Examples:\n"
+    '  "explain quadratic equations" → {"subject":"Mathematics","subtopic":"Quadratic Equations","confidence":0.98}\n'
+    '  "Newton second law" → {"subject":"Physics","subtopic":"Newton\'s Laws","confidence":0.97}\n'
+    '  "photosynthesis" → {"subject":"Biology","subtopic":"Photosynthesis","confidence":0.96}\n'
     "If unsure, set confidence below 0.6 and subject to \"Other\"."
 )
 

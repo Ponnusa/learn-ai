@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from database import get_db
 from services.tier_config import get_limit, video_supported_for
 from services.prompt_builder import build_video_prompt
+from services.subject_detector import detect_subject
 from services.manim import (
     generate_manim_code_enhanced,
     generate_solution_only,
@@ -42,12 +43,20 @@ class VideoRequest(BaseModel):
 @router.post("/generate")
 async def generate_video(req: VideoRequest, bg: BackgroundTasks):
     # ── 1. Subject gate ──────────────────────────────────────────────────────
-    supported = await video_supported_for(req.subject)
+    subject = req.subject
+    # Auto-detect subject from prompt when not provided or not a recognised discipline
+    if not subject or not await video_supported_for(subject):
+        detected = await detect_subject(text=req.prompt)
+        detected_sub = detected.get("subject")
+        if detected_sub and await video_supported_for(detected_sub):
+            subject = detected_sub
+
+    supported = await video_supported_for(subject)
     if not supported:
-        subject_label = req.subject or "this subject"
+        subject_label = subject or req.subject or "this subject"
         return {
             "supported": False,
-            "subject": req.subject,
+            "subject": subject,
             "message": f"Video generation for {subject_label} is coming soon. We currently support Mathematics, Physics, and Chemistry.",
         }
 
@@ -70,14 +79,14 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
             VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,'pending',$6,$7,$8,$9)
             RETURNING id
         """, req.user_id, req.session_id, req.conversation_id, req.message_id,
-            req.prompt, max_secs, req.language, req.aspect_ratio, req.subject)
+            req.prompt, max_secs, req.language, req.aspect_ratio, subject)
 
     video_id = video["id"]
 
     # ── 4. Run pipeline in background (Phase 1 → Phase 2) ───────────────────
     bg.add_task(
         _generate_video_bg,
-        video_id, req.prompt, req.user_id, req.subject, req.language, req.aspect_ratio
+        video_id, req.prompt, req.user_id, subject, req.language, req.aspect_ratio
     )
 
     return {"supported": True, "video_id": video_id, "status": "pending"}
