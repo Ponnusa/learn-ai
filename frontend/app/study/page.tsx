@@ -243,7 +243,7 @@ export default function StudyPage() {
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden pt-14 md:pt-0">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 sm:px-6 py-4

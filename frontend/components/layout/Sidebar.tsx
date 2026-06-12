@@ -175,23 +175,32 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
       {/* ── Mobile: dark backdrop ─────────────────────────────────── */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          className="fixed inset-0 bg-black/60 z-40 md:hidden" /* z-40 > top-bar z-30, sidebar stays z-50 */
           onClick={() => setMobileOpen(false)}
           aria-hidden="true"
         />
       )}
 
-      {/* ── Mobile: floating hamburger (shown when panel is closed) ── */}
+      {/* ── Mobile: full-width top bar (shown when panel is closed) ── */}
       {!mobileOpen && (
-        <button
-          className="fixed top-3.5 left-3.5 z-50 md:hidden w-9 h-9 flex items-center justify-center
-                     rounded-lg bg-[var(--surface)] border border-[var(--bd)]
-                     text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors"
-          onClick={() => setMobileOpen(true)}
-          aria-label="Open menu"
-        >
-          <Menu size={18} />
-        </button>
+        <div className="fixed top-0 left-0 right-0 h-14 z-30 md:hidden
+                        bg-[var(--bg)] border-b border-[var(--bd)]
+                        flex items-center px-3">
+          <button
+            onClick={() => setMobileOpen(true)}
+            aria-label="Open menu"
+            className="w-9 h-9 flex items-center justify-center rounded-lg
+                       text-[var(--tx5)] hover:text-[var(--tx1)]
+                       hover:bg-[var(--ov3)] transition-colors"
+          >
+            <Menu size={18} />
+          </button>
+          <div className="flex-1 flex justify-center">
+            <img src="/logo-36.png" alt="LearnAI" className="w-8 h-8 object-contain" />
+          </div>
+          {/* spacer mirrors hamburger width to keep logo centred */}
+          <div className="w-9" />
+        </div>
       )}
 
       {/*

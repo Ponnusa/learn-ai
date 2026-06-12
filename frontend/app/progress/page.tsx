@@ -128,7 +128,7 @@ export default function ProgressPage() {
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
 
-      <main className="flex-1 chat-scroll bg-[var(--bg)] p-6 sm:p-8">
+      <main className="flex-1 chat-scroll bg-[var(--bg)] p-6 sm:p-8 pt-14 md:pt-6">
         <div className="max-w-2xl mx-auto">
 
           {/* Header */}

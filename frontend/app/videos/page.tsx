@@ -640,7 +640,7 @@ function VideosContent() {
       <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
         <Sidebar onNewChat={() => router.push('/')} />
 
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden pt-14 md:pt-0">
           {/* Header */}
           <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-[var(--bd)] shrink-0">
             <div className="flex-1 min-w-0">
@@ -730,7 +730,7 @@ function VideosContent() {
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
 
-      <main className="flex-1 flex min-w-0 overflow-hidden">
+      <main className="flex-1 flex min-w-0 overflow-hidden pt-14 md:pt-0">
 
         {/* Left: video player / status */}
         <div className="flex-1 flex flex-col overflow-hidden">
