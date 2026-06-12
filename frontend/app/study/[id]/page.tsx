@@ -993,7 +993,6 @@ function ActiveChat({
 
       {/* Messages */}
       <div className="flex-1 chat-scroll space-y-4 pb-4">
-        <MobileTopBar />
         {histLoading && (
           <div className="flex items-center justify-center py-10 gap-2 text-[var(--tx6)] text-sm">
             <Loader size={16} className="animate-spin" /> Loading…
@@ -1313,6 +1312,7 @@ export default function StudySetPage() {
       <Sidebar onNewChat={() => router.push('/')} />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <MobileTopBar />
         {/* Header */}
         <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[var(--bd)] shrink-0">
           <button onClick={() => router.back()}
@@ -1359,7 +1359,6 @@ export default function StudySetPage() {
 
         {/* Content */}
         <div className="flex-1 chat-scroll px-4 sm:px-6 py-6">
-          {tab !== 'chat' && <MobileTopBar />}
           {tab === 'overview' && (
             <OverviewTab ss={ss} onRefresh={handleUploaded} onOpenPdf={handleOpenPdf} />
           )}

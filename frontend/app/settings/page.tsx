@@ -49,9 +49,10 @@ export default function SettingsPage() {
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
-      <main className="flex-1 chat-scroll bg-[var(--bg)] p-8">
+      <main className="flex-1 flex flex-col bg-[var(--bg)]">
+        <MobileTopBar />
+        <div className="flex-1 chat-scroll p-8">
         <div className="max-w-xl mx-auto">
-          <MobileTopBar />
 
           {/* Page header */}
           <div className="flex items-center gap-3 mb-8">
@@ -171,6 +172,7 @@ export default function SettingsPage() {
             </div>
           )}
 
+        </div>
         </div>
       </main>
     </div>

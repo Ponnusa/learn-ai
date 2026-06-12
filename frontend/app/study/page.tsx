@@ -244,6 +244,7 @@ export default function StudyPage() {
       <Sidebar onNewChat={() => router.push('/')} />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <MobileTopBar />
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 sm:px-6 py-4
@@ -268,7 +269,6 @@ export default function StudyPage() {
 
         {/* Content */}
         <div className="flex-1 chat-scroll px-4 sm:px-6 py-5">
-          <MobileTopBar />
           {loading ? (
             <div className="flex items-center justify-center h-40">
               <Loader size={22} className="text-[var(--tx5)] animate-spin" />

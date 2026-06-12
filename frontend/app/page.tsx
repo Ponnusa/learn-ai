@@ -489,9 +489,10 @@ export default function HomePage() {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg)]">
-        <div className="flex-1 chat-scroll px-4 pb-6 md:py-6">
+        <div className="flex-1 chat-scroll">
+          <MobileTopBar />
+          <div className="px-4 pb-6 md:py-6">
           <div className="max-w-2xl mx-auto">
-            <MobileTopBar />
             {messages.length === 0 ? (
               <WelcomeScreen user={user} onSend={handleSend} />
             ) : (
@@ -516,6 +517,7 @@ export default function HomePage() {
 
             {loading && <ThinkingIndicator />}
             <div ref={bottomRef} />
+          </div>
           </div>
         </div>
 

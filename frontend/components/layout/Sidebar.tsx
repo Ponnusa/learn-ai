@@ -16,7 +16,7 @@ let _openMobile: (() => void) | null = null;
  *  so it scrolls away naturally as the user reads content. md:hidden keeps it off desktop. */
 export function MobileTopBar() {
   return (
-    <div className="md:hidden flex items-center h-14 px-3 -mx-4 sm:-mx-6 border-b border-[var(--bd)] bg-[var(--bg)] shrink-0">
+    <div className="md:hidden flex items-center h-14 px-3 border-b border-[var(--bd)] bg-[var(--bg)] shrink-0">
       <button
         onClick={() => _openMobile?.()}
         aria-label="Open menu"
