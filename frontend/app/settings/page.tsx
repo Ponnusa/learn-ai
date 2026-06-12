@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { Settings, LogOut, User, Shield, Bell, Palette, Sun, Moon } from 'lucide-react';
-import { Sidebar } from '@/components/layout/Sidebar';
+import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTheme } from '@/hooks/useTheme';
@@ -49,8 +49,9 @@ export default function SettingsPage() {
   return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
-      <main className="flex-1 chat-scroll bg-[var(--bg)] p-8 pt-14 md:pt-8">
+      <main className="flex-1 chat-scroll bg-[var(--bg)] p-8">
         <div className="max-w-xl mx-auto">
+          <MobileTopBar />
 
           {/* Page header */}
           <div className="flex items-center gap-3 mb-8">

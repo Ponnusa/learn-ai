@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { BarChart2, MessageSquare, Video, HelpCircle, BookOpen, Star, Calendar, Loader } from 'lucide-react';
-import { Sidebar } from '@/components/layout/Sidebar';
+import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import { getUserStats } from '@/lib/api';
@@ -128,8 +128,9 @@ export default function ProgressPage() {
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
 
-      <main className="flex-1 chat-scroll bg-[var(--bg)] p-6 sm:p-8 pt-14 md:pt-6">
+      <main className="flex-1 chat-scroll bg-[var(--bg)] p-6 sm:p-8">
         <div className="max-w-2xl mx-auto">
+          <MobileTopBar />
 
           {/* Header */}
           <div className="flex items-center gap-3 mb-8">

@@ -5,7 +5,7 @@ import {
   Sparkles, Loader2, Download, RefreshCw,
   ZoomIn, X, Clock, MessageSquare, Trash2, FileText, AlertCircle,
 } from 'lucide-react';
-import { Sidebar } from '@/components/layout/Sidebar';
+import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
 import { generateEduImage, getEduImageJob, listEduImages, deleteEduImage, retryEduImage, EduImageJob } from '@/lib/api';
 
@@ -327,7 +327,7 @@ export default function ImagesPage() {
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden pt-14 md:pt-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[var(--bd)] shrink-0">
           <div className="flex-1 min-w-0">
@@ -338,7 +338,7 @@ export default function ImagesPage() {
 
         <div className="flex-1 chat-scroll">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-8">
-
+            <MobileTopBar />
             {/* ── Generator input ─────────────────────────────────── */}
             <div className="space-y-3">
               <div className="relative">

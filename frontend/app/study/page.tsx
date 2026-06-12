@@ -5,7 +5,7 @@ import {
   BookOpen, Plus, Loader, X, Upload,
   FileText, Brain, LayoutGrid, Trash2,
 } from 'lucide-react';
-import { Sidebar } from '@/components/layout/Sidebar';
+import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
 import { createStudySet, listStudySets, deleteStudySet, StudySetSummary } from '@/lib/api';
 
@@ -243,7 +243,7 @@ export default function StudyPage() {
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
 
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden pt-14 md:pt-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center justify-between px-5 sm:px-6 py-4
@@ -268,6 +268,7 @@ export default function StudyPage() {
 
         {/* Content */}
         <div className="flex-1 chat-scroll px-4 sm:px-6 py-5">
+          <MobileTopBar />
           {loading ? (
             <div className="flex items-center justify-center h-40">
               <Loader size={22} className="text-[var(--tx5)] animate-spin" />

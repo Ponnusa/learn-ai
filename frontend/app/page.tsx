@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Sidebar } from '@/components/layout/Sidebar';
+import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
@@ -489,9 +489,9 @@ export default function HomePage() {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg)]">
-        {/* pt-14 on mobile = clears the floating hamburger button */}
-        <div className="flex-1 chat-scroll px-4 pt-14 pb-6 md:py-6">
+        <div className="flex-1 chat-scroll px-4 pb-6 md:py-6">
           <div className="max-w-2xl mx-auto">
+            <MobileTopBar />
             {messages.length === 0 ? (
               <WelcomeScreen user={user} onSend={handleSend} />
             ) : (

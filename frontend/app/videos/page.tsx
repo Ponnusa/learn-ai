@@ -13,7 +13,7 @@ import {
 import { getVideoStatus, retryVideoManim, getUserVideos, getSessionVideos, generateVideo } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
-import { Sidebar } from '@/components/layout/Sidebar';
+import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { preprocessMath } from '@/lib/preprocessMath';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -640,7 +640,7 @@ function VideosContent() {
       <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
         <Sidebar onNewChat={() => router.push('/')} />
 
-        <main className="flex-1 flex flex-col min-w-0 overflow-hidden pt-14 md:pt-0">
+        <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Header */}
           <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-[var(--bd)] shrink-0">
             <div className="flex-1 min-w-0">
@@ -656,7 +656,7 @@ function VideosContent() {
 
           <div className="flex-1 chat-scroll">
             <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-8">
-
+              <MobileTopBar />
               {/* ── Generation prompt ─────────────────────────────── */}
               <div className="space-y-3">
                 <div className="relative">
@@ -730,7 +730,7 @@ function VideosContent() {
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
 
-      <main className="flex-1 flex min-w-0 overflow-hidden pt-14 md:pt-0">
+      <main className="flex-1 flex min-w-0 overflow-hidden">
 
         {/* Left: video player / status */}
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -749,6 +749,7 @@ function VideosContent() {
 
           <div className="flex-1 chat-scroll">
             <div className="flex items-start justify-center px-3 sm:px-6 py-6 sm:py-10 min-h-full">
+              <MobileTopBar />
 
               {/* Loading */}
               {isLoading && (

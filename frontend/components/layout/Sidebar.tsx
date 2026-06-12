@@ -9,6 +9,30 @@ import {
 import { useSessionStore } from '@/store/sessionStore';
 import { listConversations } from '@/lib/api';
 
+// Module-level callback so MobileTopBar (rendered anywhere) can open the sidebar panel
+let _openMobile: (() => void) | null = null;
+
+/** Inline hamburger + logo bar — place it as the first child of a scrollable container
+ *  so it scrolls away naturally as the user reads content. md:hidden keeps it off desktop. */
+export function MobileTopBar() {
+  return (
+    <div className="md:hidden flex items-center h-14 px-3 -mx-4 sm:-mx-6 border-b border-[var(--bd)] bg-[var(--bg)] shrink-0">
+      <button
+        onClick={() => _openMobile?.()}
+        aria-label="Open menu"
+        className="w-9 h-9 flex items-center justify-center rounded-lg
+                   text-[var(--tx5)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)] transition-colors"
+      >
+        <Menu size={18} />
+      </button>
+      <div className="flex-1 flex justify-center">
+        <img src="/logo-36.png" alt="LearnAI" className="w-8 h-8 object-contain" />
+      </div>
+      <div className="w-9" />
+    </div>
+  );
+}
+
 interface SidebarProps {
   selectedConversationId?: string;
   onNewChat: () => void;
@@ -41,6 +65,12 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     conversations, setConversations,
     activeConversationId,
   } = useSessionStore();
+
+  // ── Register module-level open callback for MobileTopBar ─────────────────
+  useEffect(() => {
+    _openMobile = () => setMobileOpen(true);
+    return () => { _openMobile = null; };
+  }, []);
 
   // ── Auto-open chats panel when navigated here from another page ──────────
   useEffect(() => {
@@ -175,33 +205,13 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
       {/* ── Mobile: dark backdrop ─────────────────────────────────── */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-40 md:hidden" /* z-40 > top-bar z-30, sidebar stays z-50 */
+          className="fixed inset-0 bg-black/60 z-40 md:hidden"
           onClick={() => setMobileOpen(false)}
           aria-hidden="true"
         />
       )}
 
-      {/* ── Mobile: full-width top bar (shown when panel is closed) ── */}
-      {!mobileOpen && (
-        <div className="fixed top-0 left-0 right-0 h-14 z-30 md:hidden
-                        bg-[var(--bg)] border-b border-[var(--bd)]
-                        flex items-center px-3">
-          <button
-            onClick={() => setMobileOpen(true)}
-            aria-label="Open menu"
-            className="w-9 h-9 flex items-center justify-center rounded-lg
-                       text-[var(--tx5)] hover:text-[var(--tx1)]
-                       hover:bg-[var(--ov3)] transition-colors"
-          >
-            <Menu size={18} />
-          </button>
-          <div className="flex-1 flex justify-center">
-            <img src="/logo-36.png" alt="LearnAI" className="w-8 h-8 object-contain" />
-          </div>
-          {/* spacer mirrors hamburger width to keep logo centred */}
-          <div className="w-9" />
-        </div>
-      )}
+      {/* Mobile top bar is now rendered inline by each page via MobileTopBar export */}
 
       {/*
         ══ Outer wrapper ═══════════════════════════════════════════════
