@@ -22,6 +22,7 @@ import {
   getStudySet, uploadStudyMaterial, chatWithStudySet, reviewStudyCard,
   generateQuiz, generateVideo, getStudySetConversations, getMessages,
   getConversationVideos, listEduImages, fetchMaterialPdf, uploadRegionImage, generateEduImage,
+  getQuiz,
   createSession,
   StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial, StudyConcept,
 } from '@/lib/api';
@@ -580,6 +581,73 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   );
 }
 
+// ─── StudyQuizCard ────────────────────────────────────────────────────────────
+
+function StudyQuizCard({
+  quizId, quizTopic, quizQuestionCount, returnUrl, token,
+}: {
+  quizId: string;
+  quizTopic?: string;
+  quizQuestionCount?: number;
+  returnUrl: string;
+  token?: string;
+}) {
+  const router = useRouter();
+  const [status, setStatus] = useState<{
+    completed: boolean;
+    score?: number;
+    max_score?: number;
+    score_pct?: number;
+  } | null>(null);
+
+  useEffect(() => {
+    getQuiz(quizId, token)
+      .then(d => {
+        if (d.completed && d.score != null && d.max_score) {
+          setStatus({
+            completed: true,
+            score: d.score,
+            max_score: d.max_score,
+            score_pct: Math.round((d.score / d.max_score) * 100),
+          });
+        } else {
+          setStatus({ completed: false });
+        }
+      })
+      .catch(() => setStatus({ completed: false }));
+  }, [quizId]);
+
+  return (
+    <button
+      onClick={() => router.push(`/quiz/${quizId}?from=${encodeURIComponent(returnUrl)}`)}
+      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl
+                 bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/20
+                 text-left transition-all group"
+    >
+      <HelpCircle size={18} className="text-amber-400 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide mb-0.5">Quiz</p>
+        <p className="text-sm text-[var(--tx2)] truncate">
+          {quizTopic || 'View quiz'}
+          {quizQuestionCount ? ` · ${quizQuestionCount} questions` : ''}
+        </p>
+      </div>
+      {status === null ? (
+        <Loader size={12} className="text-amber-400/50 animate-spin shrink-0" />
+      ) : status.completed && status.score_pct != null ? (
+        <div className="text-right shrink-0">
+          <p className="text-sm font-bold text-amber-400">{status.score_pct}%</p>
+          <p className="text-[10px] text-amber-400/60">
+            {status.score}/{status.max_score} · Review
+          </p>
+        </div>
+      ) : (
+        <ArrowRight size={14} className="text-amber-400/60 shrink-0 group-hover:translate-x-0.5 transition-transform" />
+      )}
+    </button>
+  );
+}
+
 // ─── ActiveChat ───────────────────────────────────────────────────────────────
 
 function ActiveChat({
@@ -1001,25 +1069,13 @@ function ActiveChat({
             )}
             {m.role === 'assistant' && m.quizId && (
               <div className="max-w-[88%] w-full mt-2">
-                <button
-                  onClick={() => {
-                    const returnUrl = `/study/${ss.id}?tab=chat${convId ? `&conv=${convId}` : ''}`;
-                    router.push(`/quiz/${m.quizId}?from=${encodeURIComponent(returnUrl)}`);
-                  }}
-                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl
-                             bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/20
-                             text-left transition-all group"
-                >
-                  <HelpCircle size={18} className="text-amber-400 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide mb-0.5">Quiz</p>
-                    <p className="text-sm text-[var(--tx2)] truncate">
-                      {m.quizTopic || 'View quiz results'}
-                      {m.quizQuestionCount ? ` · ${m.quizQuestionCount} questions` : ''}
-                    </p>
-                  </div>
-                  <ArrowRight size={14} className="text-amber-400/60 ml-auto shrink-0 group-hover:translate-x-0.5 transition-transform" />
-                </button>
+                <StudyQuizCard
+                  quizId={m.quizId}
+                  quizTopic={m.quizTopic}
+                  quizQuestionCount={m.quizQuestionCount}
+                  returnUrl={`/study/${ss.id}?tab=chat${convId ? `&conv=${convId}` : ''}`}
+                  token={token ?? undefined}
+                />
               </div>
             )}
             {/* Action buttons — shown under every AI message except quiz cards */}
