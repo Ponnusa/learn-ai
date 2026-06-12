@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { submitQuiz, getQuiz } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
@@ -34,7 +34,10 @@ export default function QuizPage() {
   const { t, tF } = useTranslation();
   const { token, user } = useSessionStore();
 
+  const searchParams = useSearchParams();
   const quizId = params.id as string;
+  // Return destination — defaults to home if not specified
+  const fromUrl = searchParams.get('from') ?? '/';
 
   const [questions,        setQuestions]        = useState<Question[]>([]);
   const [currentIdx,       setCurrentIdx]       = useState(0);
@@ -162,10 +165,10 @@ export default function QuizPage() {
         <div className="text-center">
           <p className="text-[var(--tx5)] mb-4">Quiz not found or session expired.</p>
           <button
-            onClick={() => router.push('/')}
+            onClick={() => router.push(fromUrl)}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm transition-colors"
           >
-            Back to chat
+            Back
           </button>
         </div>
       </div>
@@ -241,7 +244,7 @@ export default function QuizPage() {
 
           <div className="flex justify-center gap-3 mt-8">
             <button
-              onClick={() => router.push('/')}
+              onClick={() => router.push(fromUrl)}
               className="px-5 py-2.5 bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx1)] text-sm rounded-xl transition-colors"
             >
               {t.back}
@@ -257,7 +260,7 @@ export default function QuizPage() {
     <div className="min-h-screen bg-[var(--bg)] flex flex-col">
       {/* Top bar */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-[var(--bd)]">
-        <button onClick={() => router.push('/')} className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors">
+        <button onClick={() => router.push(fromUrl)} className="text-[var(--tx5)] hover:text-[var(--tx1)] transition-colors">
           <ArrowLeft size={20} />
         </button>
         <h1 className="text-[var(--tx1)] font-semibold">{t.quiz.title}</h1>

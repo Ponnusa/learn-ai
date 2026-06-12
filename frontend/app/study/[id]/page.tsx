@@ -8,7 +8,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { preprocessMath } from '@/lib/preprocessMath';
 import {
-  ArrowLeft, Upload, Loader, LayoutGrid, MessageSquare,
+  ArrowLeft, ArrowRight, Upload, Loader, LayoutGrid, MessageSquare,
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
   FileText, AlertCircle, Send, BookOpen, HelpCircle,
   Lightbulb, Repeat2, Video, Eye,
@@ -39,13 +39,16 @@ type Tab = 'overview' | 'concepts' | 'flashcards' | 'chat' | 'diagrams';
 
 
 type ChatMsg = {
-  role:       'user' | 'assistant';
-  content:    string;
-  chips?:     string[];
-  videoId?:   number;
-  imageJobId?: string;
-  imageUrl?:  string;
-  id?:        string;   // DB message UUID — used for per-message video/quiz actions
+  role:              'user' | 'assistant';
+  content:           string;
+  chips?:            string[];
+  videoId?:          number;
+  imageJobId?:       string;
+  imageUrl?:         string;
+  id?:               string;
+  quizId?:           string;
+  quizTopic?:        string;
+  quizQuestionCount?: number;
 };
 
 type ChatSeed = {
@@ -664,12 +667,15 @@ function ActiveChat({
       }
 
       const loaded: ChatMsg[] = rows.map(r => ({
-        role:       r.role as 'user' | 'assistant',
-        content:    r.content,
-        videoId:    vidMap[String(r.id)],
-        imageJobId: imgMap[String(r.id)],
-        imageUrl:   r.metadata?.image_url as string | undefined,
-        id:         String(r.id),
+        role:              r.role as 'user' | 'assistant',
+        content:           r.content,
+        videoId:           vidMap[String(r.id)],
+        imageJobId:        imgMap[String(r.id)],
+        imageUrl:          r.metadata?.image_url as string | undefined,
+        id:                String(r.id),
+        quizId:            r.metadata?.quiz_id as string | undefined,
+        quizTopic:         r.metadata?.quiz_topic as string | undefined,
+        quizQuestionCount: r.metadata?.num_questions as number | undefined,
       }));
       // Chips on last assistant message
       const lastAi = loaded.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).slice(-1)[0];
@@ -754,7 +760,8 @@ function ActiveChat({
       setQuizzing(true);
       try {
         const res = await generateQuiz({ topic: currentTopic(), conversation_id: convId ?? undefined, user_id: user?.id, subject: ss.subject || undefined }, token ?? undefined);
-        router.push(`/quiz/${res.quiz_id}`);
+        const returnUrl = `/study/${ss.id}?tab=chat${convId ? `&conv=${convId}` : ''}`;
+        router.push(`/quiz/${res.quiz_id}?from=${encodeURIComponent(returnUrl)}`);
       } catch { setQuizzing(false); }
       return;
     }
@@ -838,7 +845,8 @@ function ActiveChat({
           user_id: user?.id,
           subject: ss.subject || undefined,
         }, token ?? undefined);
-        router.push(`/quiz/${res.quiz_id}`);
+        const returnUrl = `/study/${ss.id}?tab=chat${convId ? `&conv=${convId}` : ''}`;
+        router.push(`/quiz/${res.quiz_id}?from=${encodeURIComponent(returnUrl)}`);
       } catch { setQuizzing(false); }
       return;
     }
@@ -968,6 +976,29 @@ function ActiveChat({
                   token={token ?? undefined}
                   onDelete={() => setMessages(prev => prev.map((m2, j) => j === i ? { ...m2, imageJobId: undefined } : m2))}
                 />
+              </div>
+            )}
+            {m.role === 'assistant' && m.quizId && (
+              <div className="max-w-[88%] w-full mt-2">
+                <button
+                  onClick={() => {
+                    const returnUrl = `/study/${ss.id}?tab=chat${convId ? `&conv=${convId}` : ''}`;
+                    router.push(`/quiz/${m.quizId}?from=${encodeURIComponent(returnUrl)}`);
+                  }}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-xl
+                             bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/20
+                             text-left transition-all group"
+                >
+                  <HelpCircle size={18} className="text-amber-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide mb-0.5">Quiz</p>
+                    <p className="text-sm text-[var(--tx2)] truncate">
+                      {m.quizTopic || 'View quiz results'}
+                      {m.quizQuestionCount ? ` · ${m.quizQuestionCount} questions` : ''}
+                    </p>
+                  </div>
+                  <ArrowRight size={14} className="text-amber-400/60 ml-auto shrink-0 group-hover:translate-x-0.5 transition-transform" />
+                </button>
               </div>
             )}
             {/* Action buttons — shown under every AI message */}
