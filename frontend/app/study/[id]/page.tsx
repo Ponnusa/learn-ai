@@ -636,10 +636,30 @@ function ActiveChat({
           if (stored) { const vid = Number(stored); if (vid) vidMap[lastAiKey] = vid; }
         } catch {}
       }
+      // conversation-level fallback (written at generation time)
+      if (lastAiKey && !vidMap[lastAiKey]) {
+        try {
+          const stored = localStorage.getItem(`learnai_conv_video_${loadConversation.id}`);
+          if (stored) { const vid = Number(stored); if (vid) vidMap[lastAiKey] = vid; }
+        } catch {}
+      }
 
       const imgMap: Record<string, string> = {};
       for (const img of images) {
-        if (img.message_id && img.id) imgMap[img.message_id] = img.id;
+        if (img.message_id && img.id) imgMap[String(img.message_id)] = String(img.id);
+      }
+      // localStorage fallback for images (Sketch it writes these)
+      if (lastAiKey && !imgMap[lastAiKey]) {
+        try {
+          const stored = localStorage.getItem(`learnai_image_${lastAiKey}`);
+          if (stored) imgMap[lastAiKey] = stored;
+        } catch {}
+      }
+      if (lastAiKey && !imgMap[lastAiKey]) {
+        try {
+          const stored = localStorage.getItem(`learnai_conv_image_${loadConversation.id}`);
+          if (stored) imgMap[lastAiKey] = stored;
+        } catch {}
       }
 
       const loaded: ChatMsg[] = rows.map(r => ({
@@ -753,6 +773,9 @@ function ActiveChat({
           if (lastMsgId) {
             try { localStorage.setItem(`learnai_video_${lastMsgId}`, String(res.video_id)); } catch {}
           }
+          if (convId) {
+            try { localStorage.setItem(`learnai_conv_video_${convId}`, String(res.video_id)); } catch {}
+          }
         }
       } finally { setVideoing(false); }
       return;
@@ -777,6 +800,12 @@ function ActiveChat({
           }
           return up;
         });
+        if (lastMsgId) {
+          try { localStorage.setItem(`learnai_image_${lastMsgId}`, res.jobId); } catch {}
+        }
+        if (convId) {
+          try { localStorage.setItem(`learnai_conv_image_${convId}`, res.jobId); } catch {}
+        }
       } catch (e: any) {
         const isLimit = e?.message === 'session_limit_reached' || e?.message === 'Daily image limit reached';
         if (isLimit) {
