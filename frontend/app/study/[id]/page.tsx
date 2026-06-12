@@ -651,12 +651,11 @@ function StudyQuizCard({
 // ─── ActiveChat ───────────────────────────────────────────────────────────────
 
 function ActiveChat({
-  ss, seed, loadConversation, onBack,
+  ss, seed, loadConversation,
 }: {
   ss: StudySetDetail;
   seed: ChatSeed | null;
   loadConversation: StudySetConversation | null;
-  onBack: () => void;
 }) {
   const { user, token, sessionId } = useSessionStore();
   const router                     = useRouter();
@@ -989,11 +988,6 @@ function ActiveChat({
     <div className="flex flex-col h-full">
       {/* Sub-header */}
       <div className="flex items-center gap-2 pb-3 mb-3 border-b border-[var(--bd)] shrink-0">
-        <button onClick={onBack}
-          className="w-7 h-7 flex items-center justify-center rounded-lg
-                     text-[var(--tx5)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)] transition-colors">
-          <ChevronLeft size={16} />
-        </button>
         <p className="text-[var(--tx2)] text-sm font-medium truncate flex-1">{title}</p>
       </div>
 
@@ -1171,7 +1165,6 @@ function ChatTab({
       ss={ss}
       seed={initSeed}
       loadConversation={initConversation}
-      onBack={() => {}}
     />
   );
 }
