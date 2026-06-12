@@ -43,8 +43,9 @@ type ChatMsg = {
   content:    string;
   chips?:     string[];
   videoId?:   number;
-  imageJobId?: string;  // educational-image job ID for inline diagram card
-  imageUrl?:  string;   // R2 URL of a PDF region capture (shown as thumbnail)
+  imageJobId?: string;
+  imageUrl?:  string;
+  id?:        string;   // DB message UUID — used for per-message video/quiz actions
 };
 
 type ChatSeed = {
@@ -668,11 +669,12 @@ function ActiveChat({
         videoId:    vidMap[String(r.id)],
         imageJobId: imgMap[String(r.id)],
         imageUrl:   r.metadata?.image_url as string | undefined,
+        id:         String(r.id),
       }));
       // Chips on last assistant message
       const lastAi = loaded.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).slice(-1)[0];
       if (lastAi !== undefined && lastAi >= 0) {
-        loaded[lastAi] = { ...loaded[lastAi], chips: ['Quiz me on this', 'Create a video', 'Sketch it', 'Give me an example', 'Explain differently'] };
+        loaded[lastAi] = { ...loaded[lastAi], chips: ['Sketch it', 'Give me an example', 'Explain differently'] };
       }
       // Set lastMsgId so Sketch it / Create a video link to the right message
       const lastAiRow = [...rows].reverse().find((r: any) => r.role === 'assistant');
@@ -729,8 +731,8 @@ function ActiveChat({
       );
       setConvId(res.conversation_id);
       setLastMsgId(res.message_id);
-      const defaultChips = ['Quiz me on this', 'Create a video', 'Sketch it', 'Give me an example', 'Explain differently'];
-      setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips: res.chips?.length ? res.chips : defaultChips }]);
+      const defaultChips = ['Sketch it', 'Give me an example', 'Explain differently'];
+      setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips: res.chips?.length ? res.chips : defaultChips, id: res.message_id }]);
     } catch {
       setMessages(prev => [...prev, { role: 'assistant', content: '⚠️ Something went wrong. Please try again.' }]);
     } finally { setLoading(false); }
@@ -818,6 +820,58 @@ function ActiveChat({
       return;
     }
     await fireMessage(chip);
+  }
+
+  // Action buttons shown under every AI message (not just the last one)
+  async function handlePerMessageAction(
+    action: 'Create a video' | 'Quiz me on this',
+    msgContent: string,
+    msgId: string | undefined,
+    msgIndex: number,
+  ) {
+    if (action === 'Quiz me on this') {
+      setQuizzing(true);
+      try {
+        const res = await generateQuiz({
+          topic: msgContent.slice(0, 120),
+          conversation_id: convId ?? undefined,
+          user_id: user?.id,
+          subject: ss.subject || undefined,
+        }, token ?? undefined);
+        router.push(`/quiz/${res.quiz_id}`);
+      } catch { setQuizzing(false); }
+      return;
+    }
+    if (action === 'Create a video') {
+      setVideoing(true);
+      try {
+        const res = await generateVideo({
+          prompt: msgContent.slice(0, 400),
+          conversation_id: convId ?? undefined,
+          message_id: msgId ?? undefined,
+          user_id: user?.id,
+          session_id: sessionId ?? undefined,
+          subject: ss.subject || undefined,
+        }, token ?? undefined);
+        if (res.supported && res.video_id) {
+          setMessages(prev => prev.map((m2, j) =>
+            j === msgIndex ? { ...m2, videoId: res.video_id! } : m2
+          ));
+          if (msgId) {
+            try { localStorage.setItem(`learnai_video_${msgId}`, String(res.video_id)); } catch {}
+          }
+          if (convId) {
+            try { localStorage.setItem(`learnai_conv_video_${convId}`, String(res.video_id)); } catch {}
+          }
+        } else if (!res.supported) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            content: `🎬 ${res.message || 'Video generation not available for this subject yet.'}`,
+          }]);
+        }
+      } finally { setVideoing(false); }
+      return;
+    }
   }
 
   function chatTitle() {
@@ -916,19 +970,43 @@ function ActiveChat({
                 />
               </div>
             )}
+            {/* Action buttons — shown under every AI message */}
+            {m.role === 'assistant' && !loading && (
+              <div className="max-w-[88%] mt-1.5 flex flex-wrap gap-1.5">
+                {!m.videoId && (
+                  <button
+                    onClick={() => handlePerMessageAction('Create a video', m.content, m.id, i)}
+                    disabled={videoing}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium
+                               bg-[var(--ov3)] hover:bg-violet-500/15 hover:text-violet-400
+                               border border-[var(--bd)] hover:border-violet-500/30
+                               text-[var(--tx5)] transition-all disabled:opacity-40">
+                    {videoing ? <Loader size={10} className="animate-spin" /> : <Video size={10} />}
+                    Create a video
+                  </button>
+                )}
+                <button
+                  onClick={() => handlePerMessageAction('Quiz me on this', m.content, m.id, i)}
+                  disabled={quizzing}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium
+                             bg-[var(--ov3)] hover:bg-amber-500/15 hover:text-amber-400
+                             border border-[var(--bd)] hover:border-amber-500/30
+                             text-[var(--tx5)] transition-all disabled:opacity-40">
+                  {quizzing ? <Loader size={10} className="animate-spin" /> : <HelpCircle size={10} />}
+                  Quiz me on this
+                </button>
+              </div>
+            )}
+            {/* Additional chips on last message only (Sketch it, examples, etc.) */}
             {m.role === 'assistant' && m.chips && i === messages.length - 1 && !loading && (
               <div className="max-w-[88%] mt-1">
-                {(quizzing || videoing || imageing) ? (
+                {imageing ? (
                   <div className="flex items-center gap-1.5 text-xs text-[var(--tx6)] py-1">
-                    <Loader size={11} className="animate-spin" />
-                    {quizzing ? 'Generating quiz…' : videoing ? 'Generating video…' : 'Generating diagram…'}
+                    <Loader size={11} className="animate-spin" /> Generating diagram…
                   </div>
                 ) : (
                   <Chips
-                    chips={m.chips.filter(c =>
-                      !(m.videoId && c === 'Create a video') &&
-                      !(m.imageJobId && c === 'Sketch it')
-                    )}
+                    chips={m.chips.filter(c => !(m.imageJobId && c === 'Sketch it'))}
                     onChip={handleChip}
                   />
                 )}
