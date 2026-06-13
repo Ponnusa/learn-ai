@@ -135,6 +135,9 @@ def inject_conversation_context(
     return prompt + block
 
 
+_LANGUAGE_NAMES = {"fi": "Finnish", "sv": "Swedish"}
+
+
 async def build_chat_prompt(
     user_id: str | None,
     subject: str | None,
@@ -147,8 +150,9 @@ async def build_chat_prompt(
     """
     prompt = CHAT_SYSTEM_PROMPT
 
-    if language != "en":
-        prompt += f"\n\nRespond in {language}."
+    lang_name = _LANGUAGE_NAMES.get(language)
+    if lang_name:
+        prompt += f"\n\nRespond entirely in {lang_name}."
 
     if not user_id:
         return prompt  # anonymous: base only, full quality
@@ -224,6 +228,7 @@ async def build_studyset_prompt(
     subject: str | None,
     material_text: str,
     user_id: str | None,
+    language: str = "en",
 ) -> str:
     """
     Returns the full system prompt for a grounded studyset chat response.
@@ -234,6 +239,10 @@ async def build_studyset_prompt(
         subject=subject or "General",
         material=material_text[:60_000],
     )
+
+    lang_name = _LANGUAGE_NAMES.get(language)
+    if lang_name:
+        prompt += f"\n\nRespond entirely in {lang_name}."
 
     if not user_id:
         return prompt

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
+import { useLanguageStore } from '@/store/languageStore';
 import { VideoStatusCard } from '@/components/chat/MessageBubble';
 import { DiagramsGallery } from '@/components/chat/DiagramsGallery';
 import {
@@ -635,6 +636,7 @@ function ActiveChat({
   loadConversation: StudySetConversation | null;
 }) {
   const { user, token, sessionId } = useSessionStore();
+  const { language }               = useLanguageStore();
   const router                     = useRouter();
   const [messages, setMessages]    = useState<ChatMsg[]>([]);
   const [input, setInput]          = useState('');
@@ -776,7 +778,7 @@ function ActiveChat({
         ss.id, text, history, token ?? undefined,
         conceptName, convId ?? undefined,
         user?.id, sessionId || undefined,
-        imageUrl,
+        imageUrl, language,
       );
       setConvId(res.conversation_id);
       setLastMsgId(res.message_id);
@@ -817,7 +819,7 @@ function ActiveChat({
       setQuizzing(true);
       try {
         const topic = currentTopic();
-        const res = await generateQuiz({ topic, conversation_id: convId ?? undefined, user_id: user?.id, subject: ss.subject || undefined }, token ?? undefined);
+        const res = await generateQuiz({ topic, conversation_id: convId ?? undefined, user_id: user?.id, subject: ss.subject || undefined, language }, token ?? undefined);
         if (res.message_id) {
           setMessages(prev => [...prev, {
             role: 'assistant', content: `Quiz: ${ss.subject || topic}`,
@@ -835,7 +837,7 @@ function ActiveChat({
       try {
         const lastAiContent = [...messages].reverse().find(m => m.role === 'assistant')?.content
           ?? currentTopic();
-        const res = await generateVideo({ prompt: lastAiContent.slice(0, 400), conversation_id: convId ?? undefined, message_id: lastMsgId ?? undefined, user_id: user?.id, session_id: sessionId ?? undefined, subject: ss.subject || undefined }, token ?? undefined);
+        const res = await generateVideo({ prompt: lastAiContent.slice(0, 400), conversation_id: convId ?? undefined, message_id: lastMsgId ?? undefined, user_id: user?.id, session_id: sessionId ?? undefined, subject: ss.subject || undefined, language }, token ?? undefined);
         if (res.supported && res.video_id) {
           setMessages(prev => {
             const up = [...prev];
@@ -910,6 +912,7 @@ function ActiveChat({
           conversation_id: convId ?? undefined,
           user_id: user?.id,
           subject: ss.subject || undefined,
+          language,
         }, token ?? undefined);
         if (res.message_id) {
           setMessages(prev => [...prev, {
@@ -933,6 +936,7 @@ function ActiveChat({
           user_id: user?.id,
           session_id: sessionId ?? undefined,
           subject: ss.subject || undefined,
+          language,
         }, token ?? undefined);
         if (res.supported && res.video_id) {
           setMessages(prev => prev.map((m2, j) =>

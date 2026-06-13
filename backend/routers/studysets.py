@@ -51,6 +51,7 @@ class ChatRequest(BaseModel):
     user_id: str | None = None
     session_id: str | None = None
     image_url: str | None = None         # R2 URL of a captured PDF region (vision input)
+    language: str = "en"
 
 
 class ReviewRequest(BaseModel):
@@ -364,6 +365,7 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest, bg: Background
         subject=ss["subject"],
         material_text=full_text,
         user_id=req.user_id,
+        language=req.language,
     )
     system_prompt = inject_conversation_context(system_prompt, conv_summary, topics_covered)
 
@@ -480,6 +482,7 @@ async def debug_studyset_prompt(study_set_id: str, req: ChatRequest):
         subject=ss["subject"],
         material_text=full_text,
         user_id=req.user_id,
+        language=req.language,
     )
     system_prompt = inject_conversation_context(system_prompt, conv_summary, topics_covered)
 

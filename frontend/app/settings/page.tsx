@@ -1,21 +1,27 @@
 'use client';
 import { useState } from 'react';
-import { Settings, LogOut, User, Shield, Bell, Palette, Sun, Moon } from 'lucide-react';
+import { Settings, LogOut, User, Shield, Bell, Palette, Sun, Moon, Globe } from 'lucide-react';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTheme } from '@/hooks/useTheme';
+import { useLanguage } from '@/hooks/useLanguage';
+import { LANGUAGE_LABELS } from '@/translations';
+import type { LanguageCode } from '@/translations';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { user, signOut } = useSessionStore();
   const { theme, setTheme } = useTheme();
+  const { language, setLanguage } = useLanguage();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   function handleSignOut() {
     signOut();
     router.replace('/');
   }
+
+  const LANGUAGES: LanguageCode[] = ['en', 'fi', 'sv'];
 
   const sections = [
     {
@@ -82,18 +88,19 @@ export default function SettingsPage() {
           )}
 
           <div className="space-y-4">
-            {/* ── Appearance (theme toggle) ─────────────────────────────── */}
+            {/* ── Appearance ────────────────────────────────────────────────── */}
             <div className="rounded-2xl bg-[var(--surface)] border border-[var(--bd)] overflow-hidden">
               <div className="flex items-center gap-2 px-5 py-3 border-b border-[var(--bd2)]">
                 <Palette size={16} className="text-violet-500" />
                 <span className="text-[var(--tx6)] text-xs font-medium uppercase tracking-wider">Appearance</span>
               </div>
-              <div className="flex items-center justify-between px-5 py-4">
+
+              {/* Theme */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--bd3)]">
                 <div>
                   <p className="text-[var(--tx2)] text-sm font-medium">Theme</p>
                   <p className="text-[var(--tx6)] text-xs mt-0.5">Choose your preferred appearance</p>
                 </div>
-                {/* Segmented toggle */}
                 <div className="flex items-center gap-1 bg-[var(--input)] rounded-xl p-1 border border-[var(--bd)]">
                   <button
                     onClick={() => setTheme('light')}
@@ -115,6 +122,32 @@ export default function SettingsPage() {
                   >
                     <Moon size={13} /> Dark
                   </button>
+                </div>
+              </div>
+
+              {/* Language */}
+              <div className="flex items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-2">
+                  <Globe size={15} className="text-[var(--tx5)]" />
+                  <div>
+                    <p className="text-[var(--tx2)] text-sm font-medium">Language</p>
+                    <p className="text-[var(--tx6)] text-xs mt-0.5">Chat and interface language</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 bg-[var(--input)] rounded-xl p-1 border border-[var(--bd)]">
+                  {LANGUAGES.map((lang) => (
+                    <button
+                      key={lang}
+                      onClick={() => setLanguage(lang)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        language === lang
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : 'text-[var(--tx5)] hover:text-[var(--tx2)]'
+                      }`}
+                    >
+                      {LANGUAGE_LABELS[lang]}
+                    </button>
+                  ))}
                 </div>
               </div>
             </div>

@@ -8,6 +8,7 @@ interface User {
   name?: string;
   tier: string;
   theme?: 'dark' | 'light';
+  language?: 'en' | 'fi' | 'sv';
 }
 
 export interface Conversation {

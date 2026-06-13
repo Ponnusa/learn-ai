@@ -75,6 +75,9 @@ export type StudentProfile = {
 export const updateTheme = (userId: string, theme: 'dark' | 'light', token?: string) =>
   request<{ ok: boolean }>('PATCH', '/api/auth/theme', { user_id: userId, theme }, token);
 
+export const updateLanguage = (userId: string, language: 'en' | 'fi' | 'sv', token?: string) =>
+  request<{ ok: boolean }>('PATCH', '/api/auth/language', { user_id: userId, language }, token);
+
 export const getStudentProfile = (userId: string, token?: string) =>
   get<StudentProfile>(`/api/auth/profile?user_id=${userId}`, token);
 
@@ -322,6 +325,7 @@ export const chatWithStudySet = (
   userId?: string,
   sessionId?: string,
   imageUrl?: string,
+  language?: string,
 ) =>
   post<{ reply: string; chips: string[]; conversation_id: string; message_id: string }>(
     `/api/studysets/${id}/chat`,
@@ -333,6 +337,7 @@ export const chatWithStudySet = (
       user_id:         userId         ?? null,
       session_id:      sessionId      ?? null,
       image_url:       imageUrl       ?? null,
+      language:        language       ?? 'en',
     },
     token,
   );

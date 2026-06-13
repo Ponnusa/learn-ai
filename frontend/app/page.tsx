@@ -15,6 +15,7 @@ const PDFViewerModal = dynamic(
 );
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useLanguageStore } from '@/store/languageStore';
 import { useSessionStore } from '@/store/sessionStore';
 import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, debugChatPrompt, getStudentProfile } from '@/lib/api';
 import { DebugPromptModal } from '@/components/chat/DebugPromptModal';
@@ -50,7 +51,8 @@ export default function HomePage() {
   const [showNudge,    setShowNudge]         = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
-  const { t }     = useTranslation();
+  const { t }        = useTranslation();
+  const { language } = useLanguageStore();
   const {
     sessionId, setSessionId, msgCount, user, token, incrementMsg,
     activeConversationId, setActiveConversationId,
@@ -205,7 +207,7 @@ export default function HomePage() {
         conversation_id: conversationId ?? undefined,
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
-        language:        'en',
+        language,
       }, token ?? undefined);
       setDebugData(data);
     } catch (e) { console.error('Debug prompt error', e); }
@@ -460,7 +462,7 @@ export default function HomePage() {
         conversation_id: conversationId ?? undefined,
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
-        language:        'en',
+        language,
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);
