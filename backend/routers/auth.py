@@ -58,6 +58,7 @@ def _user_response(row, jwt_token: str) -> dict:
             "email": row["email"],
             "name":  row["name"],
             "tier":  row["tier"],
+            "theme": row["theme"] if "theme" in row.keys() else "dark",
         },
     }
 
@@ -77,11 +78,11 @@ class VerifyTokenRequest(BaseModel):
 @router.post("/magic-link")
 async def send_magic_link(req: MagicLinkRequest):
     async with get_db() as db:
-        user = await db.fetchrow("SELECT id, tier FROM users WHERE email = $1", req.email)
+        user = await db.fetchrow("SELECT id, tier, theme FROM users WHERE email = $1", req.email)
         if not user:
             user = await db.fetchrow("""
                 INSERT INTO users (email, knowledge_level)
-                VALUES ($1, $2) RETURNING id, tier
+                VALUES ($1, $2) RETURNING id, tier, theme
             """, req.email, req.knowledge_level)
             await init_profile(str(user["id"]), req.knowledge_level)
 
@@ -127,7 +128,7 @@ async def send_magic_link(req: MagicLinkRequest):
 async def verify_magic_link(req: VerifyTokenRequest):
     async with get_db() as db:
         row = await db.fetchrow("""
-            SELECT at.user_id, at.used_at, at.expires_at, u.tier, u.email, u.name, u.id
+            SELECT at.user_id, at.used_at, at.expires_at, u.tier, u.email, u.name, u.id, u.theme
             FROM auth_tokens at
             JOIN users u ON u.id = at.user_id
             WHERE at.token = $1
@@ -180,7 +181,7 @@ async def register(req: RegisterRequest):
         try:
             user = await db.fetchrow("""
                 INSERT INTO users (email, name, password_hash, knowledge_level)
-                VALUES ($1, $2, $3, $4) RETURNING id, email, name, tier
+                VALUES ($1, $2, $3, $4) RETURNING id, email, name, tier, theme
             """, req.email, req.name, hashed, req.knowledge_level)
         except Exception as exc:
             log.exception("register INSERT failed: %s", exc)
@@ -199,7 +200,7 @@ async def register(req: RegisterRequest):
 async def login_password(req: PasswordLoginRequest):
     async with get_db() as db:
         user = await db.fetchrow(
-            "SELECT id, email, name, tier, password_hash FROM users WHERE email = $1", req.email
+            "SELECT id, email, name, tier, theme, password_hash FROM users WHERE email = $1", req.email
         )
 
     if not user or not user["password_hash"]:
@@ -292,11 +293,11 @@ async def google_callback(req: GoogleCallbackRequest):
     async with get_db() as db:
         # Try to find by google_id first, then by email
         user = await db.fetchrow(
-            "SELECT id, email, name, tier FROM users WHERE google_id = $1", google_id
+            "SELECT id, email, name, tier, theme FROM users WHERE google_id = $1", google_id
         )
         if not user:
             user = await db.fetchrow(
-                "SELECT id, email, name, tier FROM users WHERE email = $1", email
+                "SELECT id, email, name, tier, theme FROM users WHERE email = $1", email
             )
 
         if user:
@@ -309,7 +310,7 @@ async def google_callback(req: GoogleCallbackRequest):
             # New user via Google
             user = await db.fetchrow("""
                 INSERT INTO users (email, name, google_id, knowledge_level)
-                VALUES ($1, $2, $3, 'intermediate') RETURNING id, email, name, tier
+                VALUES ($1, $2, $3, 'intermediate') RETURNING id, email, name, tier, theme
             """, email, name, google_id)
             await init_profile(str(user["id"]), "intermediate")
 
@@ -377,6 +378,25 @@ async def get_user_stats(user_id: str):
         "top_subject":   top_subject_row["subject"] if top_subject_row else None,
         "member_since":  user_row["created_at"].isoformat() if user_row else None,
     }
+
+
+# ── /theme ────────────────────────────────────────────────────────────────────
+
+class ThemeUpdateRequest(BaseModel):
+    user_id: str
+    theme:   str  # 'dark' | 'light'
+
+
+@router.patch("/theme")
+async def update_theme(req: ThemeUpdateRequest):
+    if req.theme not in ("dark", "light"):
+        raise HTTPException(400, "theme must be 'dark' or 'light'")
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE users SET theme = $1 WHERE id = $2::uuid",
+            req.theme, req.user_id,
+        )
+    return {"ok": True}
 
 
 # ── /profile ──────────────────────────────────────────────────────────────────

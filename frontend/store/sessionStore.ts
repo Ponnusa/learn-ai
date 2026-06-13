@@ -7,6 +7,7 @@ interface User {
   email: string;
   name?: string;
   tier: string;
+  theme?: 'dark' | 'light';
 }
 
 export interface Conversation {

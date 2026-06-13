@@ -72,6 +72,9 @@ export type StudentProfile = {
   subject_confidence: Record<string, string>;
 };
 
+export const updateTheme = (userId: string, theme: 'dark' | 'light', token?: string) =>
+  request<{ ok: boolean }>('PATCH', '/api/auth/theme', { user_id: userId, theme }, token);
+
 export const getStudentProfile = (userId: string, token?: string) =>
   get<StudentProfile>(`/api/auth/profile?user_id=${userId}`, token);
 
