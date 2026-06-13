@@ -38,7 +38,9 @@ async def get_limit(tier: str, feature: str) -> int:
     Returns the int limit for (tier, feature).
     -1 means unlimited. 0 means not available.
     Falls back to hardcoded defaults if the tier_config table is empty.
+    Tier is normalised to lowercase so DB values like 'Pro' match 'pro'.
     """
+    tier = (tier or "free").lower()
     if time.monotonic() - _tier_ts > 300:
         await _refresh_tier_cache()
     val = _tier_cache.get(tier, {}).get(feature)
