@@ -61,6 +61,13 @@ async def generate_quiz(req: QuizRequest):
         f"Number of questions: {n_questions}\n"
         f"Difficulty: {difficulty}\n"
         f"Language: {req.language}\n\n"
+        "FORMATTING RULES (strictly follow):\n"
+        "- All mathematical expressions MUST use KaTeX/LaTeX: $...$ for inline, $$...$$ for block.\n"
+        "  Examples: $E = mc^2$, $\\Delta H$, $K_a$, $$\\int_0^\\infty e^{-x}\\,dx$$\n"
+        "- Chemical equations: use $\\rightarrow$ for reaction arrows, subscripts like $H_2O$, $CO_2$.\n"
+        "  Example: $2H_2 + O_2 \\rightarrow 2H_2O$\n"
+        "- NEVER use plain text like 'H2O', 'CO2', 'delta H' — always LaTeX.\n"
+        "- NEVER use \\[...\\] or \\(...\\) delimiters — only $...$ and $$...$$.\n\n"
         "Return a JSON object: {\"questions\": [...]}\n"
         "Each question: {\"q\": str, \"options\": [str x4], \"correct\": 0-3, \"explanation\": str, \"difficulty\": str}"
     )

@@ -5,6 +5,11 @@ import { ArrowLeft, CheckCircle, XCircle } from 'lucide-react';
 import { submitQuiz, getQuiz } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+import { preprocessMath } from '@/lib/preprocessMath';
 
 interface Question {
   q: string;
@@ -26,6 +31,20 @@ interface QuizResult {
     is_correct: boolean;
     explanation: string;
   }[];
+}
+
+// Renders any string that may contain LaTeX ($...$, $$...$$) or plain text.
+// Uses a custom <p> renderer so the output stays inline inside buttons/spans.
+function MathText({ children }: { children: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkMath]}
+      rehypePlugins={[rehypeKatex]}
+      components={{ p: ({ children }) => <span>{children}</span> }}
+    >
+      {preprocessMath(children ?? '')}
+    </ReactMarkdown>
+  );
 }
 
 export default function QuizPage() {
@@ -217,7 +236,9 @@ export default function QuizPage() {
                     ? <CheckCircle size={18} className="text-[var(--green)] shrink-0 mt-0.5" />
                     : <XCircle    size={18} className="text-[var(--red)]   shrink-0 mt-0.5" />
                   }
-                  <p className="text-[var(--tx1)] text-sm font-medium">{r.question}</p>
+                  <div className="text-[var(--tx1)] text-sm font-medium">
+                    <MathText>{r.question}</MathText>
+                  </div>
                 </div>
                 <div className="ml-7 space-y-1">
                   {r.options.map((opt, j) => (
@@ -231,12 +252,14 @@ export default function QuizPage() {
                           : 'text-[var(--tx8)]'
                       }`}
                     >
-                      {opt}
+                      <MathText>{opt}</MathText>
                     </div>
                   ))}
                 </div>
                 {r.explanation && (
-                  <p className="ml-7 mt-3 text-xs text-[var(--tx6)] italic">{r.explanation}</p>
+                  <div className="ml-7 mt-3 text-xs text-[var(--tx6)] italic">
+                    <MathText>{r.explanation}</MathText>
+                  </div>
                 )}
               </div>
             ))}
@@ -280,7 +303,9 @@ export default function QuizPage() {
       {/* Question */}
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-lg">
-          <p className="text-[var(--tx1)] text-lg font-medium mb-8 leading-relaxed">{currentQ.q}</p>
+          <div className="text-[var(--tx1)] text-lg font-medium mb-8 leading-relaxed">
+            <MathText>{currentQ.q}</MathText>
+          </div>
 
           {/* Options */}
           <div className="space-y-3">
@@ -304,7 +329,7 @@ export default function QuizPage() {
                   <span className="font-medium mr-2 text-[var(--tx6)]">
                     {String.fromCharCode(65 + i)}.
                   </span>
-                  {opt}
+                  <MathText>{opt}</MathText>
                 </button>
               );
             })}
@@ -316,7 +341,9 @@ export default function QuizPage() {
               <p className="text-xs text-[var(--tx6)] uppercase tracking-wider mb-1.5">
                 {t.quiz.explanation}
               </p>
-              <p className="text-sm text-[var(--tx3)]">{currentQ.explanation}</p>
+              <div className="text-sm text-[var(--tx3)]">
+                <MathText>{currentQ.explanation ?? ''}</MathText>
+              </div>
             </div>
           )}
 
