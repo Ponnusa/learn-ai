@@ -10,8 +10,9 @@ from pydantic import BaseModel
 from database import get_db
 from services.ai_router import openai_client, get_model
 from services.subject_detector import detect_subject
-from services.prompt_builder import build_chat_prompt, CHAT_SYSTEM_PROMPT
+from services.prompt_builder import build_chat_prompt, inject_conversation_context, CHAT_SYSTEM_PROMPT
 from services.profile_updater import update_student_profile
+from services.conversation_summarizer import maybe_summarize
 from services.tier_config import get_limit
 from services.scoring import score_signal
 
@@ -129,18 +130,23 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
             """, req.user_id, req.session_id)
             conv_id = str(row["id"])
 
-        # Get conversation context
-        conv = await db.fetchrow(
-            "SELECT subject, subtopic, title FROM conversations WHERE id = $1", conv_id
-        )
+        # Get conversation context (including rolling summary + topic map)
+        conv = await db.fetchrow("""
+            SELECT subject, subtopic, title,
+                   summary, topics_covered, summarized_msg_count
+            FROM conversations WHERE id = $1
+        """, conv_id)
         is_first_message = (conv["title"] is None)
-        subject = conv["subject"] if conv else None
+        subject          = conv["subject"] if conv else None
+        conv_summary     = conv["summary"] if conv else None
+        topics_covered   = conv["topics_covered"] if conv else None
 
-        # Get recent messages for context (last 12)
+        # Keep last 6 messages verbatim; older content lives in conv_summary.
+        # (12 → 6 because the summary already carries all earlier context.)
         history = await db.fetch("""
             SELECT role, content FROM messages
             WHERE conversation_id = $1
-            ORDER BY created_at DESC LIMIT 12
+            ORDER BY created_at DESC LIMIT 6
         """, conv_id)
         history = list(reversed(history))
 
@@ -181,6 +187,9 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         system_prompt = CHAT_SYSTEM_PROMPT
     if isinstance(subject_data, Exception):
         subject_data = {}
+
+    # Inject rolling summary + topic map so the model never re-explains covered ground
+    system_prompt = inject_conversation_context(system_prompt, conv_summary, topics_covered)
 
     # Append diagram knowledge context so AI can answer questions about generated images
     if diagram_rows:
@@ -266,7 +275,11 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
                 "UPDATE conversations SET updated_at = NOW() WHERE id = $1", conv_id
             )
 
-    # ── 8. Profile update every 5 messages (background) ─────────────────────
+    # ── 8. Conversation summariser (background) — runs whenever enough new
+    #        messages have accumulated; updates rolling summary + topic map.
+    bg.add_task(maybe_summarize, conv_id, msg_count)
+
+    # ── 9. Profile update every 5 messages (background) ──────────────────────
     if req.user_id and msg_count % 5 == 0:
         bg.add_task(
             update_student_profile,

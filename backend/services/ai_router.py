@@ -39,6 +39,7 @@ MODELS = {
     "subject_detection":         "gpt-4o-mini",
     "title_generation":          "gpt-4o-mini",
     "suggestion_chips":          "gpt-4o-mini",
+    "conversation_summary":      "gpt-4o-mini",   # rolling summary + topic extraction
 }
 
 

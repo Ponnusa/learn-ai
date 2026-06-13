@@ -27,8 +27,17 @@ When explaining concepts:
 - Highlight common misconceptions proactively
 - For ALL mathematical and chemical notation use KaTeX/LaTeX syntax.
   ALWAYS use $...$ for inline math and $$...$$ for display/block equations.
-  NEVER use \[...\] or \(...\) — those delimiters are not supported by the renderer.
+  NEVER use \\[...\\] or \\(...\\) — those delimiters are not supported by the renderer.
 - Keep explanations focused — one key idea at a time
+
+CONTINUITY RULES (critical):
+- The conversation history shows what has already been explained. Treat it as shared
+  knowledge — never re-explain a concept already covered unless the student explicitly
+  asks or shows confusion about it.
+- When building on a prior explanation, reference it briefly ("as we saw with the
+  rocket example…") rather than repeating it.
+- If the student asks something already answered, identify what specifically is still
+  unclear and probe that gap instead of giving the full explanation again.
 
 After explaining, suggest 2-3 follow-up directions the student might explore.
 Format suggestions as a JSON array in your response metadata if asked.
@@ -87,6 +96,42 @@ def _score_to_instruction(score: int, subject: str) -> str:
             "Engage as a peer or near-peer. Discuss nuances, open problems, "
             "and research-level connections. Minimal scaffolding needed."
         )
+
+
+def inject_conversation_context(
+    prompt: str,
+    summary: str | None,
+    topics_covered: dict | None,
+) -> str:
+    """
+    Appends rolling summary and topic map to an already-built system prompt.
+    Called in chat.py after build_chat_prompt returns.
+    """
+    covered   = (topics_covered or {}).get("covered") or []
+    weak      = (topics_covered or {}).get("weak_areas") or []
+    has_context = bool(summary or covered or weak)
+
+    if not has_context:
+        return prompt
+
+    block = "\n\n--- CONVERSATION CONTEXT ---"
+
+    if summary:
+        block += f"\n[What has been covered in this conversation]\n{summary}"
+
+    if covered:
+        block += f"\nTopics taught so far: {', '.join(covered)}."
+
+    if weak:
+        block += f"\nStudent showed confusion with: {', '.join(weak)} — watch for these."
+
+    block += (
+        "\nDo NOT re-explain any of the above unless the student's message shows "
+        "they are still confused. Build on this foundation instead."
+        "\n--- END CONTEXT ---"
+    )
+
+    return prompt + block
 
 
 async def build_chat_prompt(
