@@ -65,11 +65,14 @@ async def generate_quiz(req: QuizRequest):
         "Each question: {\"q\": str, \"options\": [str x4], \"correct\": 0-3, \"explanation\": str, \"difficulty\": str}"
     )
 
+    # ~350 tokens per question (text + 4 options + explanation) + 200 overhead
+    max_tokens = min(200 + n_questions * 350, 4096)
+
     try:
         resp = await openai_client.chat.completions.create(
             model=get_model("quiz_generation"),
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=2000,
+            max_tokens=max_tokens,
             temperature=0.7,
             response_format={"type": "json_object"},
         )
