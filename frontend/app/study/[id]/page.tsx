@@ -11,7 +11,7 @@ import {
   ArrowLeft, ArrowRight, Upload, Loader, LayoutGrid, MessageSquare,
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
   FileText, AlertCircle, Send, BookOpen, HelpCircle,
-  Lightbulb, Repeat2, Video, Eye, Bug,
+  Video, Eye, Bug,
   ZoomIn, ZoomOut, X as XIcon, ImageIcon,
 } from 'lucide-react';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
@@ -472,31 +472,6 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
           <ChevronRight size={16} />
         </button>
       </div>
-    </div>
-  );
-}
-
-// ─── Chips ────────────────────────────────────────────────────────────────────
-
-const CHIP_ICONS: Record<string, React.ReactNode> = {
-  'Quiz me on this':    <HelpCircle size={12} />,
-  'Create a video':     <Video size={12} />,
-  'Give me an example': <Lightbulb size={12} />,
-  'Explain differently':<Repeat2 size={12} />,
-};
-
-function Chips({ chips, onChip }: { chips: string[]; onChip: (c: string) => void }) {
-  return (
-    <div className="flex flex-wrap gap-1.5 mt-2">
-      {chips.map(c => (
-        <button key={c} onClick={() => onChip(c)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium
-                     bg-[var(--ov3)] hover:bg-indigo-500/15 hover:text-indigo-400
-                     border border-[var(--bd)] hover:border-indigo-500/30
-                     text-[var(--tx4)] transition-all">
-          {CHIP_ICONS[c] ?? null}{c}
-        </button>
-      ))}
     </div>
   );
 }
@@ -1102,30 +1077,56 @@ function ActiveChat({
                     Create a video
                   </button>
                 )}
+                {!m.imageJobId && i === messages.length - 1 && (
+                  <button
+                    onClick={() => handleChip('Sketch it')}
+                    disabled={imageing}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium
+                               bg-teal-500/10 hover:bg-teal-500/20 text-teal-400
+                               border border-teal-500/20 transition-all disabled:opacity-40">
+                    {imageing ? <Loader size={10} className="animate-spin" /> : <ImageIcon size={10} />}
+                    Sketch it
+                  </button>
+                )}
                 <button
                   onClick={() => handlePerMessageAction('Quiz me on this', m.content, m.id, i)}
                   disabled={quizzing}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium
-                             bg-[var(--ov3)] hover:bg-amber-500/15 hover:text-amber-400
-                             border border-[var(--bd)] hover:border-amber-500/30
-                             text-[var(--tx5)] transition-all disabled:opacity-40">
+                             bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400
+                             border border-indigo-500/20 transition-all disabled:opacity-40">
                   {quizzing ? <Loader size={10} className="animate-spin" /> : <HelpCircle size={10} />}
-                  Quiz me on this
+                  Quiz me
                 </button>
               </div>
             )}
-            {/* Additional chips on last message only (Sketch it, examples, etc.) */}
-            {m.role === 'assistant' && !m.quizId && m.chips && i === messages.length - 1 && !loading && (
-              <div className="max-w-[88%] mt-1">
+            {/* Suggestion chips on last message — AI-generated contextual follow-up questions */}
+            {m.role === 'assistant' && !m.quizId && i === messages.length - 1 && !loading && (
+              <div className="max-w-[88%] mt-1 flex flex-wrap gap-1.5">
                 {imageing ? (
                   <div className="flex items-center gap-1.5 text-xs text-[var(--tx6)] py-1">
                     <Loader size={11} className="animate-spin" /> Generating diagram…
                   </div>
                 ) : (
-                  <Chips
-                    chips={m.chips.filter(c => !(m.imageJobId && c === 'Sketch it'))}
-                    onChip={handleChip}
-                  />
+                  <>
+                    {(m.chips ?? [])
+                      .filter(c => !['Sketch it', 'Give me an example', 'Explain differently', 'Create a video', 'Quiz me on this'].includes(c))
+                      .map(c => (
+                        <button key={c} onClick={() => handleChip(c)}
+                          className="text-xs px-3 py-1.5 rounded-full transition-all
+                                     border border-[var(--bd)] hover:border-[var(--bd2)]
+                                     text-[var(--tx5)] hover:text-[var(--tx2)] hover:bg-[var(--ov1)]">
+                          {c}
+                        </button>
+                      ))
+                    }
+                    <button
+                      onClick={() => fireMessage('Give me a concrete real-world example of this')}
+                      className="text-xs px-3 py-1.5 rounded-full transition-all
+                                 border border-amber-500/20 hover:border-amber-500/35
+                                 text-[var(--amber)] hover:text-[var(--amber)]">
+                      💡 Show me an example
+                    </button>
+                  </>
                 )}
               </div>
             )}
