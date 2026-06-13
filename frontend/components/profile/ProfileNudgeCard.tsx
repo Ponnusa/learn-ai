@@ -13,10 +13,7 @@ const GOALS = [
   'Career change', 'Curiosity / Hobby', 'Professional development',
 ];
 
-const SUBJECTS = [
-  'Mathematics', 'Physics', 'Chemistry', 'Biology',
-  'Computer Science', 'History', 'Economics', 'Literature',
-];
+const SUBJECTS = ['Mathematics', 'Physics', 'Chemistry'];
 
 const LEVELS = ['Beginner', 'Intermediate', 'Advanced'] as const;
 

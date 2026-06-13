@@ -138,10 +138,7 @@ const GOALS = [
   'Ace my exams', 'University entrance', 'Deep understanding',
   'Career change', 'Curiosity / Hobby', 'Professional development',
 ];
-const SUBJECTS = [
-  'Mathematics', 'Physics', 'Chemistry', 'Biology',
-  'Computer Science', 'History', 'Economics', 'Literature',
-];
+const SUBJECTS = ['Mathematics', 'Physics', 'Chemistry'];
 const LEVELS = ['Beginner', 'Intermediate', 'Advanced'] as const;
 
 const LEVEL_COLORS: Record<string, string> = {
