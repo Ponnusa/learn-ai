@@ -66,6 +66,23 @@ export const getUserLimits = (userId: string, token?: string) =>
     };
   }>(`/api/auth/limits?user_id=${userId}`, token);
 
+export type StudentProfile = {
+  grade:              string | null;
+  goal:               string | null;
+  subject_confidence: Record<string, string>;
+};
+
+export const getStudentProfile = (userId: string, token?: string) =>
+  get<StudentProfile>(`/api/auth/profile?user_id=${userId}`, token);
+
+export const updateStudentProfile = (
+  data: { user_id: string; grade?: string | null; goal?: string | null; subject_confidence?: Record<string, string> },
+  token?: string,
+) => {
+  const { user_id, ...rest } = data;
+  return request<{ ok: boolean }>('PATCH', '/api/auth/profile', { user_id, ...rest }, token);
+};
+
 // ── Sessions ──────────────────────────────────────────────────────────────────
 export const createSession = (sessionId?: string) =>
   post<{ session_id: string; msg_count: number; video_count: number; quiz_count: number }>(

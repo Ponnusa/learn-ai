@@ -3,6 +3,7 @@ Auth router — magic link + email/password + Google OAuth.
 All methods return the same { token, user } shape so the frontend
 can treat them identically.
 """
+import json as _json
 import secrets
 import urllib.parse
 from datetime import datetime, timedelta
@@ -376,6 +377,71 @@ async def get_user_stats(user_id: str):
         "top_subject":   top_subject_row["subject"] if top_subject_row else None,
         "member_since":  user_row["created_at"].isoformat() if user_row else None,
     }
+
+
+# ── /profile ──────────────────────────────────────────────────────────────────
+
+class ProfileUpdateRequest(BaseModel):
+    user_id: str
+    grade:              str | None  = None
+    goal:               str | None  = None
+    subject_confidence: dict | None = None  # {"Physics": "Intermediate", ...}
+
+
+@router.get("/profile")
+async def get_student_profile(user_id: str):
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT grade, goal, subject_confidence
+            FROM student_profiles WHERE user_id = $1::uuid
+        """, user_id)
+    if not row:
+        return {"grade": None, "goal": None, "subject_confidence": {}}
+    sc = row["subject_confidence"]
+    if isinstance(sc, str):
+        try:    sc = _json.loads(sc)
+        except: sc = {}
+    return {
+        "grade":              row["grade"],
+        "goal":               row["goal"],
+        "subject_confidence": dict(sc) if sc else {},
+    }
+
+
+@router.patch("/profile")
+async def update_student_profile_fields(req: ProfileUpdateRequest):
+    async with get_db() as db:
+        # Ensure profile row exists
+        await db.execute("""
+            INSERT INTO student_profiles (user_id)
+            VALUES ($1::uuid) ON CONFLICT (user_id) DO NOTHING
+        """, req.user_id)
+
+        # Merge subject_confidence with existing values
+        sc_json = None
+        if req.subject_confidence is not None:
+            existing = await db.fetchval(
+                "SELECT subject_confidence FROM student_profiles WHERE user_id = $1::uuid",
+                req.user_id,
+            )
+            existing_sc: dict = {}
+            if existing:
+                if isinstance(existing, str):
+                    try: existing_sc = _json.loads(existing)
+                    except: pass
+                else:
+                    existing_sc = dict(existing)
+            sc_json = _json.dumps({**existing_sc, **req.subject_confidence})
+
+        await db.execute("""
+            UPDATE student_profiles SET
+                grade              = COALESCE($1, grade),
+                goal               = COALESCE($2, goal),
+                subject_confidence = COALESCE($3::jsonb, subject_confidence),
+                last_updated       = NOW()
+            WHERE user_id = $4::uuid
+        """, req.grade, req.goal, sc_json, req.user_id)
+    return {"ok": True}
 
 
 # ── /limits ───────────────────────────────────────────────────────────────────

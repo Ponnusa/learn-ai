@@ -16,8 +16,9 @@ const PDFViewerModal = dynamic(
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, debugChatPrompt } from '@/lib/api';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, debugChatPrompt, getStudentProfile } from '@/lib/api';
 import { DebugPromptModal } from '@/components/chat/DebugPromptModal';
+import { ProfileNudgeCard } from '@/components/profile/ProfileNudgeCard';
 
 interface Message {
   id: string;
@@ -46,6 +47,7 @@ export default function HomePage() {
   /** Maps message ID → image job ID for inline diagram cards */
   const [imageByMsgId, setImageByMsgId]     = useState<Record<string, string>>({});
   const [debugData,    setDebugData]         = useState<any>(null);
+  const [showNudge,    setShowNudge]         = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }     = useTranslation();
@@ -102,6 +104,15 @@ export default function HomePage() {
   useEffect(() => {
     if (user) setShowSignup(false);
   }, [user]);
+
+  // Show profile nudge for logged-in users who haven't set grade/goal yet
+  useEffect(() => {
+    if (!user?.id) return;
+    try { if (localStorage.getItem('profile_nudge_dismissed')) return; } catch {}
+    getStudentProfile(user.id, token ?? undefined)
+      .then(p => { if (!p.grade || !p.goal) setShowNudge(true); })
+      .catch(() => {});
+  }, [user?.id]);
 
   // Soft nudge after 4th message (anonymous only)
   useEffect(() => {
@@ -547,6 +558,14 @@ export default function HomePage() {
           </div>
         )}
 
+        {showNudge && user && (
+          <ProfileNudgeCard
+            userId={user.id}
+            token={token ?? undefined}
+            onComplete={() => { setShowNudge(false); try { localStorage.setItem('profile_nudge_dismissed', '1'); } catch {} }}
+            onDismiss={() => { setShowNudge(false); try { localStorage.setItem('profile_nudge_dismissed', '1'); } catch {} }}
+          />
+        )}
         <InputBar onSend={handleSend} onPdfOpen={f => setPdfFile(f)} loading={loading} onDebug={handleDebug} />
       </main>
 

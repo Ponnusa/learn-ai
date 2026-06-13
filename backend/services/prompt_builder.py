@@ -9,6 +9,7 @@ Structure:
 
 For anonymous sessions: base prompt only (no profile yet).
 """
+import json as _json
 from database import get_db
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -176,8 +177,25 @@ async def build_chat_prompt(
             f"\nKnown misconceptions to proactively address when relevant: {items}."
         )
 
+    # ── Grade, goal, subject confidence ───────────────────────────────────────
+    grade = profile["grade"] if profile["grade"] else None
+    goal  = profile["goal"]  if profile["goal"]  else None
+    sc    = profile["subject_confidence"] if profile["subject_confidence"] else {}
+    if isinstance(sc, str):
+        try:    sc = _json.loads(sc)
+        except: sc = {}
+
     personalisation = "\n\n--- STUDENT PERSONALISATION ---\n"
     personalisation += level_block
+    if grade:
+        personalisation += f"\nGrade/level: {grade}."
+    if goal:
+        personalisation += f"\nLearning goal: {goal} — frame explanations toward this goal when relevant."
+    if subject and sc.get(subject):
+        personalisation += f"\nSelf-reported confidence in {subject}: {sc[subject]}."
+    elif sc:
+        top = ", ".join(f"{s}: {lv}" for s, lv in list(sc.items())[:4])
+        personalisation += f"\nSubject confidence (self-reported): {top}."
     if modifier:
         personalisation += f"\n{modifier}"
     personalisation += misc_block
@@ -236,8 +254,25 @@ async def build_studyset_prompt(
         items      = "; ".join(misconceptions[:3])
         misc_block = f"\nKnown misconceptions to address when relevant: {items}."
 
+    # ── Grade, goal, subject confidence ───────────────────────────────────────
+    grade = profile["grade"] if profile["grade"] else None
+    goal  = profile["goal"]  if profile["goal"]  else None
+    sc    = profile["subject_confidence"] if profile["subject_confidence"] else {}
+    if isinstance(sc, str):
+        try:    sc = _json.loads(sc)
+        except: sc = {}
+
     personalisation  = "\n\n--- STUDENT PERSONALISATION ---\n"
     personalisation += level_block
+    if grade:
+        personalisation += f"\nGrade/level: {grade}."
+    if goal:
+        personalisation += f"\nLearning goal: {goal} — frame explanations toward this goal when relevant."
+    if subject and sc.get(subject):
+        personalisation += f"\nSelf-reported confidence in {subject}: {sc[subject]}."
+    elif sc:
+        top = ", ".join(f"{s}: {lv}" for s, lv in list(sc.items())[:4])
+        personalisation += f"\nSubject confidence (self-reported): {top}."
     if modifier:
         personalisation += f"\n{modifier}"
     personalisation += misc_block

@@ -1,10 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { BarChart2, MessageSquare, Video, HelpCircle, BookOpen, Star, Calendar, Image } from 'lucide-react';
+import { BarChart2, MessageSquare, Video, HelpCircle, BookOpen, Star, Calendar, Image, GraduationCap, Target, ChevronDown, ChevronUp, Pencil, Check, X } from 'lucide-react';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
-import { getUserStats, getUserLimits } from '@/lib/api';
+import { getUserStats, getUserLimits, getStudentProfile, updateStudentProfile, StudentProfile } from '@/lib/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,22 +128,58 @@ function UsageRow({
   );
 }
 
+// ─── Profile card helpers ─────────────────────────────────────────────────────
+
+const GRADES = [
+  'Grade 6–8', 'Grade 9–10', 'Grade 11–12',
+  'Undergrad Y1–2', 'Undergrad Y3–4', 'Graduate', 'Self-learner',
+];
+const GOALS = [
+  'Ace my exams', 'University entrance', 'Deep understanding',
+  'Career change', 'Curiosity / Hobby', 'Professional development',
+];
+const SUBJECTS = [
+  'Mathematics', 'Physics', 'Chemistry', 'Biology',
+  'Computer Science', 'History', 'Economics', 'Literature',
+];
+const LEVELS = ['Beginner', 'Intermediate', 'Advanced'] as const;
+
+const LEVEL_COLORS: Record<string, string> = {
+  Beginner:     'bg-orange-500/10 text-orange-400 border-orange-500/20',
+  Intermediate: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  Advanced:     'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+};
+const LEVEL_ACTIVE: Record<string, string> = {
+  Beginner:     'bg-orange-500/20 text-orange-400 border-orange-500/40',
+  Intermediate: 'bg-blue-500/20 text-blue-400 border-blue-500/40',
+  Advanced:     'bg-emerald-500/20 text-emerald-400 border-emerald-500/40',
+};
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function ProgressPage() {
   const router                          = useRouter();
   const { user, token, msgCount, videoCount, quizCount } = useSessionStore();
 
-  const [stats,        setStats]        = useState<UserStats | null>(null);
-  const [limitsData,   setLimitsData]   = useState<UserLimits | null>(null);
-  const [loading,      setLoading]      = useState(false);
-  const [limitsLoading,setLimitsLoading]= useState(false);
-  const [error,        setError]        = useState<string | null>(null);
+  const [stats,          setStats]          = useState<UserStats | null>(null);
+  const [limitsData,     setLimitsData]     = useState<UserLimits | null>(null);
+  const [loading,        setLoading]        = useState(false);
+  const [limitsLoading,  setLimitsLoading]  = useState(false);
+  const [error,          setError]          = useState<string | null>(null);
+  const [profile,        setProfile]        = useState<StudentProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [editGrade,      setEditGrade]      = useState<string | null>(null);
+  const [editGoal,       setEditGoal]       = useState<string | null>(null);
+  const [editSc,         setEditSc]         = useState<Record<string, string>>({});
+  const [profileSaving,  setProfileSaving]  = useState(false);
+  const [showAllSubjects, setShowAllSubjects] = useState(false);
 
   useEffect(() => {
     if (!user?.id) return;
     setLoading(true);
     setLimitsLoading(true);
+    setProfileLoading(true);
     setError(null);
 
     getUserStats(user.id, token ?? undefined)
@@ -153,7 +189,22 @@ export default function ProgressPage() {
     getUserLimits(user.id, token ?? undefined)
       .then(l  => { setLimitsData(l); setLimitsLoading(false); })
       .catch(() => setLimitsLoading(false));
+
+    getStudentProfile(user.id, token ?? undefined)
+      .then(p  => { setProfile(p); setEditGrade(p.grade); setEditGoal(p.goal); setEditSc(p.subject_confidence); setProfileLoading(false); })
+      .catch(() => setProfileLoading(false));
   }, [user?.id]);
+
+  async function saveProfile() {
+    if (!user?.id) return;
+    setProfileSaving(true);
+    try {
+      await updateStudentProfile({ user_id: user.id, grade: editGrade, goal: editGoal, subject_confidence: editSc }, token ?? undefined);
+      setProfile({ grade: editGrade, goal: editGoal, subject_confidence: editSc });
+      setProfileEditing(false);
+    } catch {}
+    setProfileSaving(false);
+  }
 
   // ── Stat cards config ──────────────────────────────────────────────────────
   const statCards = user && stats !== null
@@ -244,6 +295,147 @@ export default function ProgressPage() {
               <StatCard key={i} {...s} loading={loading} />
             ))}
           </div>
+
+          {/* Learning Profile — logged-in only */}
+          {user && (
+            <div className="rounded-2xl border border-[var(--bd)] bg-[var(--surface)] p-5 mb-6">
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-[var(--tx2)] text-sm font-semibold">Learning Profile</p>
+                {!profileEditing ? (
+                  <button onClick={() => setProfileEditing(true)}
+                    className="flex items-center gap-1 text-xs text-[var(--tx6)] hover:text-[var(--tx2)]
+                               border border-[var(--bd)] hover:border-[var(--bd2)] px-2.5 py-1 rounded-lg transition-all">
+                    <Pencil size={10} /> Edit
+                  </button>
+                ) : (
+                  <div className="flex gap-1.5">
+                    <button onClick={saveProfile} disabled={profileSaving}
+                      className="flex items-center gap-1 text-xs text-emerald-400 border border-emerald-500/30
+                                 hover:bg-emerald-500/10 px-2.5 py-1 rounded-lg transition-all disabled:opacity-50">
+                      <Check size={10} /> {profileSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onClick={() => { setProfileEditing(false); setEditGrade(profile?.grade ?? null); setEditGoal(profile?.goal ?? null); setEditSc(profile?.subject_confidence ?? {}); }}
+                      className="flex items-center gap-1 text-xs text-[var(--tx6)] border border-[var(--bd)]
+                                 hover:border-[var(--bd2)] px-2.5 py-1 rounded-lg transition-all">
+                      <X size={10} /> Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {profileLoading ? (
+                <div className="space-y-2">
+                  {[32, 48, 56].map(w => <div key={w} className={`h-4 w-${w} rounded bg-[var(--ov3)] animate-pulse`} />)}
+                </div>
+              ) : profileEditing ? (
+                <div className="space-y-4">
+                  {/* Grade */}
+                  <div>
+                    <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2 flex items-center gap-1">
+                      <GraduationCap size={10} /> Grade / Level
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {GRADES.map(g => (
+                        <button key={g} onClick={() => setEditGrade(editGrade === g ? null : g)}
+                          className={`px-2.5 py-1 rounded-xl text-xs font-medium border transition-all
+                            ${editGrade === g
+                              ? 'bg-purple-600 text-white border-purple-500'
+                              : 'bg-[var(--ov2)] text-[var(--tx4)] border-[var(--bd)] hover:border-purple-500/40 hover:text-purple-400'
+                            }`}>
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Goal */}
+                  <div>
+                    <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2 flex items-center gap-1">
+                      <Target size={10} /> Learning Goal
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {GOALS.map(g => (
+                        <button key={g} onClick={() => setEditGoal(editGoal === g ? null : g)}
+                          className={`px-2.5 py-1 rounded-xl text-xs font-medium border transition-all
+                            ${editGoal === g
+                              ? 'bg-indigo-600 text-white border-indigo-500'
+                              : 'bg-[var(--ov2)] text-[var(--tx4)] border-[var(--bd)] hover:border-indigo-500/40 hover:text-indigo-400'
+                            }`}>
+                          {g}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Subject confidence */}
+                  <div>
+                    <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2">Subject Confidence</p>
+                    <div className="space-y-2">
+                      {SUBJECTS.map(subj => (
+                        <div key={subj} className="flex items-center gap-2">
+                          <span className="text-[var(--tx4)] text-[11px] w-28 shrink-0">{subj}</span>
+                          <div className="flex gap-1">
+                            {LEVELS.map(lv => (
+                              <button key={lv} onClick={() => setEditSc(prev => ({ ...prev, [subj]: prev[subj] === lv ? '' : lv }))}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-all
+                                  ${editSc[subj] === lv ? LEVEL_ACTIVE[lv] : 'bg-[var(--ov2)] text-[var(--tx6)] border-[var(--bd)] hover:border-[var(--bd2)]'}`}>
+                                {lv}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Grade */}
+                  <div className="flex items-center gap-2">
+                    <GraduationCap size={13} className="text-[var(--tx6)] shrink-0" />
+                    <span className="text-[var(--tx5)] text-xs">Grade:</span>
+                    {profile?.grade
+                      ? <span className="px-2.5 py-0.5 rounded-full text-xs bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">{profile.grade}</span>
+                      : <button onClick={() => setProfileEditing(true)} className="text-[var(--tx6)] text-xs italic hover:text-purple-400 transition-colors">Not set — click Edit</button>}
+                  </div>
+                  {/* Goal */}
+                  <div className="flex items-start gap-2">
+                    <Target size={13} className="text-[var(--tx6)] shrink-0 mt-0.5" />
+                    <span className="text-[var(--tx5)] text-xs">Goal:</span>
+                    {profile?.goal
+                      ? <span className="text-[var(--tx2)] text-xs font-medium">{profile.goal}</span>
+                      : <button onClick={() => setProfileEditing(true)} className="text-[var(--tx6)] text-xs italic hover:text-purple-400 transition-colors">Not set — click Edit</button>}
+                  </div>
+                  {/* Subject confidence */}
+                  {Object.keys(profile?.subject_confidence ?? {}).filter(k => profile!.subject_confidence[k]).length > 0 && (
+                    <div className="pt-1">
+                      <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2">Subject confidence</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.entries(profile!.subject_confidence)
+                          .filter(([, v]) => v)
+                          .slice(0, showAllSubjects ? undefined : 6)
+                          .map(([subj, level]) => (
+                            <span key={subj} className={`px-2.5 py-1 rounded-full text-[10px] font-medium border ${LEVEL_COLORS[level] ?? ''}`}>
+                              {subj} · {level}
+                            </span>
+                          ))}
+                      </div>
+                      {Object.keys(profile!.subject_confidence).filter(k => profile!.subject_confidence[k]).length > 6 && (
+                        <button onClick={() => setShowAllSubjects(s => !s)}
+                          className="mt-1.5 text-[10px] text-[var(--tx6)] hover:text-[var(--tx4)] flex items-center gap-0.5">
+                          {showAllSubjects ? <><ChevronUp size={10} /> Show less</> : <><ChevronDown size={10} /> Show all</>}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {!profile?.grade && !profile?.goal && !Object.keys(profile?.subject_confidence ?? {}).length && (
+                    <p className="text-[var(--tx6)] text-xs">
+                      Complete your profile to get personalised AI responses.{' '}
+                      <button onClick={() => setProfileEditing(true)} className="text-purple-400 hover:underline">Set it up</button>
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Plan & Daily Usage — logged-in only */}
           {user && (
