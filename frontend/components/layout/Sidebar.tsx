@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { listConversations } from '@/lib/api';
+import { useTranslation } from '@/hooks/useTranslation';
 
 // Module-level callback so MobileTopBar (rendered anywhere) can open the sidebar panel
 let _openMobile: (() => void) | null = null;
@@ -60,6 +61,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
   const searchRef = useRef<HTMLInputElement>(null);
   const pathname  = usePathname();
   const router    = useRouter();
+  const { t } = useTranslation();
   const {
     user, token, sessionId,
     conversations, setConversations,
@@ -193,11 +195,11 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
   const activeId = selectedConversationId ?? activeConversationId ?? undefined;
 
   const navItems = [
-    { icon: <Video size={18} />,     label: 'Video Studio', href: '/videos'   },
-    { icon: <BookOpen size={18} />,  label: 'Study Sets', href: '/study'    },
-    { icon: <Sparkles size={18} />,  label: 'Diagrams',   href: '/images'   },
-    { icon: <BarChart2 size={18} />, label: 'Progress',   href: '/progress' },
-    { icon: <Settings size={18} />,  label: 'Settings',   href: '/settings' },
+    { icon: <Video size={18} />,     label: t.sidebar.myVideos,    href: '/videos'   },
+    { icon: <BookOpen size={18} />,  label: t.sidebar.studySets,   href: '/study'    },
+    { icon: <Sparkles size={18} />,  label: t.progress.diagrams,   href: '/images'   },
+    { icon: <BarChart2 size={18} />, label: t.sidebar.progress,    href: '/progress' },
+    { icon: <Settings size={18} />,  label: t.sidebar.settings,    href: '/settings' },
   ];
 
   return (
@@ -323,7 +325,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
 
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3.5 border-b border-[var(--bd)] shrink-0">
-              <h2 className="text-[var(--tx1)] font-semibold text-sm tracking-tight">Conversations</h2>
+              <h2 className="text-[var(--tx1)] font-semibold text-sm tracking-tight">{t.sidebar.conversations}</h2>
               <button
                 onClick={() => setChatsOpen(false)}
                 className="w-6 h-6 flex items-center justify-center rounded-lg
@@ -345,7 +347,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                   ref={searchRef}
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  placeholder="Search conversations…"
+                  placeholder={t.sidebar.searchConversations}
                   className="bg-transparent text-[var(--tx2)] text-xs outline-none w-full t-ph"
                 />
                 {search && (
@@ -367,7 +369,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
               {studyGroups.length > 0 && (
                 <div>
                   <p className="px-3 py-1.5 text-[var(--tx8)] text-[10px] uppercase tracking-widest font-medium">
-                    Study Sets
+                    {t.sidebar.studySets}
                   </p>
                   {studyGroups.map(g => (
                     <button
@@ -398,12 +400,12 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
               )}
 
               {/* ── Regular conversations — grouped by date ───────────────── */}
-              {Object.entries({
-                today:     'Today',
-                yesterday: 'Yesterday',
-                week:      'Last 7 days',
-                older:     'Older',
-              }).map(([key, label]) =>
+              {([
+                ['today',     t.sidebar.today],
+                ['yesterday', t.sidebar.yesterday],
+                ['week',      t.sidebar.lastWeek],
+                ['older',     t.sidebar.older],
+              ] as [string, string][]).map(([key, label]) =>
                 groups[key].length > 0 && (
                   <div key={key}>
                     <p className="px-3 py-1.5 text-[var(--tx8)] text-[10px] uppercase tracking-widest font-medium">
@@ -425,7 +427,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="text-[var(--tx2)] truncate text-xs leading-snug">
-                            {c.title || 'New conversation'}
+                            {c.title || t.sidebar.newConversation}
                           </p>
                           {c.subject && (
                             <p className="text-[var(--tx7)] text-[10px] mt-0.5 truncate">{c.subject}</p>
@@ -443,9 +445,9 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                   <div className="w-12 h-12 rounded-2xl bg-[var(--ov2)] flex items-center justify-center mb-3">
                     <MessageSquare size={20} className="text-[var(--tx7)]" />
                   </div>
-                  <p className="text-[var(--tx4)] text-xs font-medium">No conversations yet</p>
+                  <p className="text-[var(--tx4)] text-xs font-medium">{t.sidebar.noConversations}</p>
                   <p className="text-[var(--tx8)] text-[10px] mt-1 leading-relaxed">
-                    Start a new chat to see your history here
+                    {t.sidebar.noConversationsHint}
                   </p>
                 </div>
               )}
@@ -454,9 +456,9 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                   <div className="w-12 h-12 rounded-2xl bg-[var(--ov2)] flex items-center justify-center mb-3">
                     <Search size={20} className="text-[var(--tx7)]" />
                   </div>
-                  <p className="text-[var(--tx4)] text-xs font-medium">No results</p>
+                  <p className="text-[var(--tx4)] text-xs font-medium">{t.sidebar.noResults}</p>
                   <p className="text-[var(--tx8)] text-[10px] mt-1">
-                    Nothing matches "<span className="text-[var(--tx5)]">{search}</span>"
+                    {t.sidebar.noResultsFor.replace('{search}', search)}
                   </p>
                 </div>
               )}
@@ -470,7 +472,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                            bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium
                            transition-colors"
               >
-                <PenSquare size={13} /> New Chat
+                <PenSquare size={13} /> {t.sidebar.newChat}
               </button>
             </div>
           </div>

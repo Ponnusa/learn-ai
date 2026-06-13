@@ -2,16 +2,7 @@
 import { useState } from 'react';
 import { X, Loader } from 'lucide-react';
 import { updateStudentProfile } from '@/lib/api';
-
-const GRADES = [
-  'Grade 6–8', 'Grade 9–10', 'Grade 11–12',
-  'Undergrad Y1–2', 'Undergrad Y3–4', 'Graduate', 'Self-learner',
-];
-
-const GOALS = [
-  'Ace my exams', 'University entrance', 'Deep understanding',
-  'Career change', 'Curiosity / Hobby', 'Professional development',
-];
+import { useTranslation } from '@/hooks/useTranslation';
 
 const SUBJECTS = ['Mathematics', 'Physics', 'Chemistry'];
 
@@ -36,6 +27,7 @@ export function ProfileNudgeCard({ userId, token, onComplete, onDismiss }: Props
   const [goal, setGoal]           = useState<string | null>(null);
   const [subjectConf, setSubjectConf] = useState<Record<string, string>>({});
   const [saving, setSaving]       = useState(false);
+  const { t } = useTranslation();
 
   async function save(patch: Parameters<typeof updateStudentProfile>[0]) {
     try { await updateStudentProfile(patch, token); } catch {}
@@ -69,7 +61,7 @@ export function ProfileNudgeCard({ userId, token, onComplete, onDismiss }: Props
     onComplete();
   }
 
-  const STEPS = ['Grade', 'Goal', 'Subjects'];
+  const STEPS = [t.profile.gradeStep, t.profile.goalStep, t.profile.subjectsStep];
 
   return (
     <div className="px-4 pb-2">
@@ -77,7 +69,7 @@ export function ProfileNudgeCard({ userId, token, onComplete, onDismiss }: Props
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2.5">
-            <span className="text-[var(--tx2)] text-xs font-semibold">Personalise your experience</span>
+            <span className="text-[var(--tx2)] text-xs font-semibold">{t.profile.personalise}</span>
             <div className="flex gap-1">
               {STEPS.map((_, i) => (
                 <div key={i}
@@ -96,9 +88,9 @@ export function ProfileNudgeCard({ userId, token, onComplete, onDismiss }: Props
         {/* Step 0 — Grade */}
         {step === 0 && (
           <div>
-            <p className="text-[var(--tx4)] text-xs mb-2.5">What grade or level are you in?</p>
+            <p className="text-[var(--tx4)] text-xs mb-2.5">{t.profile.gradeQuestion}</p>
             <div className="flex flex-wrap gap-1.5">
-              {GRADES.map(g => (
+              {t.grades.map(g => (
                 <button key={g} onClick={() => selectGrade(g)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all
                     ${grade === g
@@ -111,7 +103,7 @@ export function ProfileNudgeCard({ userId, token, onComplete, onDismiss }: Props
             </div>
             <button onClick={() => setStep(1)}
               className="mt-2 text-[10px] text-[var(--tx6)] hover:text-[var(--tx4)] transition-colors">
-              Skip →
+              {t.profile.skip}
             </button>
           </div>
         )}
@@ -119,9 +111,9 @@ export function ProfileNudgeCard({ userId, token, onComplete, onDismiss }: Props
         {/* Step 1 — Goal */}
         {step === 1 && (
           <div>
-            <p className="text-[var(--tx4)] text-xs mb-2.5">What is your main learning goal?</p>
+            <p className="text-[var(--tx4)] text-xs mb-2.5">{t.profile.goalQuestion}</p>
             <div className="flex flex-wrap gap-1.5">
-              {GOALS.map(g => (
+              {t.goals.map(g => (
                 <button key={g} onClick={() => selectGoal(g)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all
                     ${goal === g
@@ -134,7 +126,7 @@ export function ProfileNudgeCard({ userId, token, onComplete, onDismiss }: Props
             </div>
             <button onClick={() => setStep(2)}
               className="mt-2 text-[10px] text-[var(--tx6)] hover:text-[var(--tx4)] transition-colors">
-              Skip →
+              {t.profile.skip}
             </button>
           </div>
         )}
@@ -143,8 +135,8 @@ export function ProfileNudgeCard({ userId, token, onComplete, onDismiss }: Props
         {step === 2 && (
           <div>
             <p className="text-[var(--tx4)] text-xs mb-2.5">
-              Rate your confidence by subject{' '}
-              <span className="text-[var(--tx6)]">(optional — skip any you don't study)</span>
+              {t.profile.confidenceQuestion}{' '}
+              <span className="text-[var(--tx6)]">{t.profile.confidenceOptional}</span>
             </p>
             <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
               {SUBJECTS.map(subj => (
@@ -169,12 +161,12 @@ export function ProfileNudgeCard({ userId, token, onComplete, onDismiss }: Props
               <button onClick={finish} disabled={saving}
                 className="flex-1 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 disabled:opacity-50
                            text-white text-xs font-medium transition-colors flex items-center justify-center gap-1.5">
-                {saving ? <><Loader size={11} className="animate-spin" /> Saving…</> : 'Save & personalise ✓'}
+                {saving ? <><Loader size={11} className="animate-spin" /> {t.profile.saving}</> : t.profile.saveAndPersonalise}
               </button>
               <button onClick={onComplete}
                 className="px-3 py-2 rounded-xl text-[var(--tx6)] hover:text-[var(--tx2)] text-xs
                            border border-[var(--bd)] hover:border-[var(--bd2)] transition-all">
-                Skip
+                {t.skip}
               </button>
             </div>
           </div>

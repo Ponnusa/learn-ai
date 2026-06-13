@@ -17,6 +17,7 @@ import {
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
 import { useLanguageStore } from '@/store/languageStore';
+import { useTranslation } from '@/hooks/useTranslation';
 import { VideoStatusCard } from '@/components/chat/MessageBubble';
 import { DiagramsGallery } from '@/components/chat/DiagramsGallery';
 import {
@@ -74,11 +75,12 @@ function formatDate(iso: string) {
 // ─── ProcessingBanner ─────────────────────────────────────────────────────────
 
 function ProcessingBanner({ status }: { status: string }) {
+  const { t } = useTranslation();
   if (status === 'ready') return null;
   const cfg = {
-    empty:      { cls: 'border-[var(--bd)] bg-[var(--ov2)]',   icon: <Upload size={15} className="text-[var(--tx5)]" />,            msg: 'Upload a PDF below to get started.' },
-    processing: { cls: 'border-yellow-500/30 bg-yellow-500/5', icon: <Loader size={15} className="text-yellow-400 animate-spin" />, msg: 'Extracting concepts and generating flashcards — ~30–60 seconds…' },
-    failed:     { cls: 'border-red-500/30 bg-red-500/5',       icon: <AlertCircle size={15} className="text-red-400" />,            msg: 'Processing failed. Try uploading again.' },
+    empty:      { cls: 'border-[var(--bd)] bg-[var(--ov2)]',   icon: <Upload size={15} className="text-[var(--tx5)]" />,            msg: t.studySets.uploadGetStarted },
+    processing: { cls: 'border-yellow-500/30 bg-yellow-500/5', icon: <Loader size={15} className="text-yellow-400 animate-spin" />, msg: t.studySets.extractingProcessing },
+    failed:     { cls: 'border-red-500/30 bg-red-500/5',       icon: <AlertCircle size={15} className="text-red-400" />,            msg: t.studySets.processingFailed },
   }[status] ?? { cls: 'border-[var(--bd)] bg-[var(--ov2)]', icon: null, msg: '' };
   return (
     <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border mb-5 ${cfg.cls}`}>
@@ -91,6 +93,7 @@ function ProcessingBanner({ status }: { status: string }) {
 
 function UploadZone({ studySetId, onUploaded }: { studySetId: string; onUploaded: () => void }) {
   const { user, token } = useSessionStore();
+  const { t } = useTranslation();
   const inputRef        = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [err, setErr]             = useState('');
@@ -117,7 +120,7 @@ function UploadZone({ studySetId, onUploaded }: { studySetId: string; onUploaded
         {uploading ? (
           <div className="flex flex-col items-center gap-3">
             <Loader size={28} className="text-indigo-400 animate-spin" />
-            <p className="text-[var(--tx4)] text-sm">Uploading…</p>
+            <p className="text-[var(--tx4)] text-sm">{t.upload.uploading}</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">
@@ -125,8 +128,8 @@ function UploadZone({ studySetId, onUploaded }: { studySetId: string; onUploaded
               <Upload size={22} className="text-indigo-400" />
             </div>
             <div>
-              <p className="text-[var(--tx1)] font-medium text-sm">Drop your PDF here</p>
-              <p className="text-[var(--tx6)] text-xs mt-1">or click to browse · max 50 MB</p>
+              <p className="text-[var(--tx1)] font-medium text-sm">{t.studySets.dropZone}</p>
+              <p className="text-[var(--tx6)] text-xs mt-1">{t.studySets.dropZoneHint}</p>
             </div>
           </div>
         )}
@@ -147,6 +150,7 @@ function OverviewTab({
   onRefresh: () => void;
   onOpenPdf: (mat: StudyMaterial) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="space-y-6">
       <ProcessingBanner status={ss.status} />
@@ -154,7 +158,7 @@ function OverviewTab({
       {/* Summary */}
       {ss.summary && (
         <div className="rounded-2xl bg-[var(--surface)] border border-[var(--bd)] p-5">
-          <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide mb-2">Summary</p>
+          <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide mb-2">{t.studySets.summary}</p>
           <p className="text-[var(--tx2)] text-sm leading-relaxed">{ss.summary}</p>
         </div>
       )}
@@ -167,7 +171,7 @@ function OverviewTab({
       {/* Materials */}
       {ss.materials.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">Materials</p>
+          <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">{t.studySets.materials}</p>
           {ss.materials.map(m => (
             <div key={m.id}>
               {m.status === 'ready' ? (
@@ -193,14 +197,14 @@ function OverviewTab({
                         {m.page_count && m.char_count ? ' · ' : ''}
                         {m.char_count ? `${Math.round(m.char_count / 1000)}k chars` : ''}
                         {(m.page_count || m.char_count) ? ' · ' : ''}
-                        <span className="text-indigo-400">Select text or region → Ask AI</span>
+                        <span className="text-indigo-400">{t.studySets.selectRegionHint}</span>
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg shrink-0
                                     bg-indigo-500/10 group-hover:bg-indigo-500/20
                                     text-indigo-400 border border-indigo-500/20 transition-colors">
                       <Eye size={12} />
-                      <span className="text-xs font-medium">Open PDF</span>
+                      <span className="text-xs font-medium">{t.studySets.openPdf}</span>
                     </div>
                   </div>
                 </button>
@@ -232,7 +236,7 @@ function OverviewTab({
         <div className="rounded-2xl bg-indigo-500/5 border border-indigo-500/15 px-5 py-4 flex items-center gap-3">
           <BookOpen size={16} className="text-indigo-400 shrink-0" />
           <p className="text-[var(--tx4)] text-sm">
-            {ss.concepts.length} key concepts extracted — go to the <strong>Concepts</strong> tab to study them.
+            {t.studySets.conceptsExtractedNote.replace('{n}', String(ss.concepts.length))}
           </p>
         </div>
       )}
@@ -260,6 +264,7 @@ function ConceptCard({
   index: number;
   onChat: (name: string) => void;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const gradient = CONCEPT_GRADIENTS[index % CONCEPT_GRADIENTS.length];
   const hasExtra = !!(concept.explanation && concept.explanation.trim());
@@ -314,7 +319,7 @@ function ConceptCard({
           className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl
                      text-xs font-medium border transition-colors
                      bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20">
-          <MessageSquare size={11} /> Chat about this
+          <MessageSquare size={11} /> {t.studySets.chatAboutThis}
         </button>
       </div>
     </div>
@@ -329,11 +334,12 @@ function ConceptsTab({
   ss: StudySetDetail;
   onChat: (conceptName: string) => void;
 }) {
+  const { t } = useTranslation();
   if (ss.concepts.length === 0) return (
     <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
       <BookOpen size={32} className="text-[var(--tx6)]" />
       <p className="text-[var(--tx4)] text-sm">
-        {ss.status === 'ready' ? 'No concepts extracted.' : 'Upload a PDF to extract key concepts.'}
+        {ss.status === 'ready' ? t.studySets.noConcepts : t.studySets.noConceptsUpload}
       </p>
     </div>
   );
@@ -342,7 +348,7 @@ function ConceptsTab({
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">
-          Key Concepts
+          {t.studySets.keyConceptsHeader}
         </p>
         <span className="text-[var(--tx6)] text-xs bg-[var(--ov3)] border border-[var(--bd)]
                          px-2 py-0.5 rounded-full">
@@ -368,6 +374,7 @@ function ConceptsTab({
 
 function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
   const { user, token } = useSessionStore();
+  const { t } = useTranslation();
   const cards = ss.flashcards;
   const [idx, setIdx]           = useState(0);
   const [flipped, setFlipped]   = useState(false);
@@ -392,7 +399,7 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
   if (!cards.length) return (
     <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
       <LayoutGrid size={32} className="text-[var(--tx6)]" />
-      <p className="text-[var(--tx4)] text-sm">No flashcards yet — upload a PDF first.</p>
+      <p className="text-[var(--tx4)] text-sm">{t.studySets.noFlashcards}</p>
     </div>
   );
 
@@ -402,15 +409,14 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
         <CheckCircle size={30} className="text-emerald-400" />
       </div>
       <div>
-        <h3 className="text-[var(--tx1)] font-semibold text-lg mb-1">Session complete!</h3>
+        <h3 className="text-[var(--tx1)] font-semibold text-lg mb-1">{t.studySets.sessionComplete}</h3>
         <p className="text-[var(--tx5)] text-sm">
-          Got it: <span className="text-emerald-400 font-medium">{done.size}</span> ·
-          Review again: <span className="text-amber-400 font-medium">{again.length}</span>
+          {t.studySets.progress.replace('{done}', String(done.size)).replace('{again}', String(again.length))}
         </p>
       </div>
       <button onClick={restart}
         className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">
-        <RefreshCw size={14} /> Study again
+        <RefreshCw size={14} /> {t.studySets.studyAgain}
       </button>
     </div>
   );
@@ -431,7 +437,7 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
                    cursor-pointer select-none flex flex-col items-center justify-center p-8 text-center gap-3
                    hover:border-indigo-500/30 transition-colors">
         <span className="text-[10px] text-[var(--tx6)] uppercase tracking-widest font-medium">
-          {flipped ? 'Answer' : 'Question — click to reveal'}
+          {flipped ? t.studySets.answerLabel : t.studySets.questionReveal}
         </span>
         <p className={`text-[var(--tx1)] leading-relaxed ${flipped ? 'text-base' : 'text-lg font-medium'}`}>
           {flipped ? card?.back : card?.front}
@@ -443,19 +449,19 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
             className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
                        bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20
                        text-amber-400 text-sm font-medium transition-colors disabled:opacity-50">
-            <RefreshCw size={14} /> Review again
+            <RefreshCw size={14} /> {t.studySets.studyAgain}
           </button>
           <button onClick={handleGotIt} disabled={submitting}
             className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
                        bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20
                        text-emerald-400 text-sm font-medium transition-colors disabled:opacity-50">
-            <CheckCircle size={14} /> Got it
+            <CheckCircle size={14} /> {t.studySets.knew}
           </button>
         </div>
       ) : (
         <button onClick={() => setFlipped(true)}
           className="px-8 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">
-          Reveal answer
+          {t.studySets.revealAnswer}
         </button>
       )}
       <div className="flex items-center gap-4">
@@ -637,6 +643,7 @@ function ActiveChat({
 }) {
   const { user, token, sessionId } = useSessionStore();
   const { language }               = useLanguageStore();
+  const { t: tChat }               = useTranslation();
   const router                     = useRouter();
   const [messages, setMessages]    = useState<ChatMsg[]>([]);
   const [input, setInput]          = useState('');
@@ -987,13 +994,13 @@ function ActiveChat({
       <div className="flex-1 chat-scroll space-y-4 pb-4">
         {histLoading && (
           <div className="flex items-center justify-center py-10 gap-2 text-[var(--tx6)] text-sm">
-            <Loader size={16} className="animate-spin" /> Loading…
+            <Loader size={16} className="animate-spin" /> {tChat.studySets.chatLoading}
           </div>
         )}
         {!histLoading && messages.length === 0 && !notReady && (
           <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
             <MessageSquare size={28} className="text-[var(--tx6)]" />
-            <p className="text-[var(--tx5)] text-sm">Ask anything about "{ss.title}"</p>
+            <p className="text-[var(--tx5)] text-sm">{tChat.studySets.askAnything.replace('{title}', ss.title)}</p>
           </div>
         )}
         {messages.map((m, i) => (
@@ -1075,7 +1082,7 @@ function ActiveChat({
                                bg-purple-600/25 hover:bg-purple-600/40 text-[var(--purple)]
                                border border-purple-500/25 disabled:opacity-40">
                     {videoing ? <Loader size={11} className="animate-spin" /> : '🎬'}
-                    Animate it
+                    {tChat.chat.animateIt.replace('🎬 ', '')}
                   </button>
                 )}
                 {!m.imageJobId && i === messages.length - 1 && (
@@ -1086,7 +1093,7 @@ function ActiveChat({
                                bg-teal-500/10 hover:bg-teal-500/20 text-teal-400
                                border border-teal-500/20 disabled:opacity-40">
                     {imageing ? <Loader size={11} className="animate-spin" /> : <ImageIcon size={12} />}
-                    Sketch it
+                    {tChat.chat.sketchIt.replace('🎨 ', '')}
                   </button>
                 )}
                 <button
@@ -1096,7 +1103,7 @@ function ActiveChat({
                              bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
                              border border-indigo-500/20 disabled:opacity-40">
                   {quizzing ? <Loader size={11} className="animate-spin" /> : '✏️'}
-                  Quiz me
+                  {tChat.chat.quizMe.replace('✏️ ', '')}
                 </button>
               </div>
             )}
@@ -1200,6 +1207,7 @@ export default function StudySetPage() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const { token, user, sessionId, setSessionId } = useSessionStore();
+  const { t } = useTranslation();
   const id           = params.id as string;
 
   const [ss,       setSs]       = useState<StudySetDetail | null>(null);
@@ -1308,11 +1316,11 @@ export default function StudySetPage() {
   }
 
   const TABS: { key: Tab; label: string; icon: React.ReactNode; disabled?: boolean }[] = [
-    { key: 'overview',   label: 'Overview',   icon: <BookOpen size={13} /> },
-    { key: 'concepts',   label: 'Concepts',   icon: <FileText size={13} />,   disabled: ss?.status !== 'ready' },
-    { key: 'flashcards', label: 'Flashcards', icon: <LayoutGrid size={13} />, disabled: ss?.status !== 'ready' },
-    { key: 'chat',       label: 'Chat',       icon: <MessageSquare size={13} />, disabled: ss?.status !== 'ready' },
-    { key: 'diagrams',   label: 'Diagrams',   icon: <ImageIcon size={13} />,  disabled: ss?.status !== 'ready' },
+    { key: 'overview',   label: t.studySets.tabOverview,   icon: <BookOpen size={13} /> },
+    { key: 'concepts',   label: t.studySets.tabConcepts,   icon: <FileText size={13} />,   disabled: ss?.status !== 'ready' },
+    { key: 'flashcards', label: t.studySets.tabFlashcards, icon: <LayoutGrid size={13} />, disabled: ss?.status !== 'ready' },
+    { key: 'chat',       label: t.studySets.tabChat,       icon: <MessageSquare size={13} />, disabled: ss?.status !== 'ready' },
+    { key: 'diagrams',   label: t.studySets.tabDiagrams,   icon: <ImageIcon size={13} />,  disabled: ss?.status !== 'ready' },
   ];
 
   if (loading) return (
@@ -1327,7 +1335,7 @@ export default function StudySetPage() {
   if (!ss) return (
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
       <Sidebar onNewChat={() => router.push('/')} />
-      <main className="flex-1 flex items-center justify-center text-[var(--tx5)]">Study set not found.</main>
+      <main className="flex-1 flex items-center justify-center text-[var(--tx5)]">{t.studySets.notFound}</main>
     </div>
   );
 

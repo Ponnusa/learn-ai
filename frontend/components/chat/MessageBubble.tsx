@@ -787,7 +787,7 @@ export function MessageBubble({
                                bg-teal-500/10 hover:bg-teal-500/20 text-teal-400
                                border border-teal-500/20"
                   >
-                    <ImageIcon size={12} /> Sketch it
+                    <ImageIcon size={12} /> {t.chat.sketchIt.replace('🎨 ', '')}
                   </button>
                 )}
                 <button
@@ -796,7 +796,7 @@ export function MessageBubble({
                              bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
                              border border-indigo-500/20"
                 >
-                  ✏️ Quiz me
+                  {t.chat.quizMe}
                 </button>
 
                 <button
@@ -829,7 +829,7 @@ export function MessageBubble({
                              border border-amber-500/20 hover:border-amber-500/35
                              text-[var(--amber)] hover:text-[var(--amber)]"
                 >
-                  💡 Show me an example
+                  {t.chat.showExample}
                 </button>
               </div>
 

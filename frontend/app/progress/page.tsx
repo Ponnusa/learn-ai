@@ -5,6 +5,7 @@ import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import { getUserStats, getUserLimits, getStudentProfile, updateStudentProfile, StudentProfile } from '@/lib/api';
+import { useTranslation } from '@/hooks/useTranslation';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -80,7 +81,7 @@ function StatCard({
 // ─── Usage row ────────────────────────────────────────────────────────────────
 
 function UsageRow({
-  icon, label, used, limit, iconBg, loading,
+  icon, label, used, limit, iconBg, loading, usedUnlimited, usedOfLimit,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -88,6 +89,8 @@ function UsageRow({
   limit: number;
   iconBg: string;
   loading?: boolean;
+  usedUnlimited: string;
+  usedOfLimit: string;
 }) {
   const unlimited = limit === -1;
   const pct       = unlimited ? 100 : Math.min(100, limit === 0 ? 100 : (used / limit) * 100);
@@ -105,7 +108,9 @@ function UsageRow({
             <div className="h-3 w-20 rounded bg-[var(--ov3)] animate-pulse" />
           ) : (
             <span className={`text-xs tabular-nums ${nearLimit ? 'text-red-400' : 'text-[var(--tx6)]'}`}>
-              {unlimited ? `${used} used · Unlimited` : `${used} / ${limit} today`}
+              {unlimited
+                ? usedUnlimited.replace('{used}', String(used))
+                : usedOfLimit.replace('{used}', String(used)).replace('{limit}', String(limit))}
             </span>
           )}
         </div>
@@ -130,14 +135,6 @@ function UsageRow({
 
 // ─── Profile card helpers ─────────────────────────────────────────────────────
 
-const GRADES = [
-  'Grade 6–8', 'Grade 9–10', 'Grade 11–12',
-  'Undergrad Y1–2', 'Undergrad Y3–4', 'Graduate', 'Self-learner',
-];
-const GOALS = [
-  'Ace my exams', 'University entrance', 'Deep understanding',
-  'Career change', 'Curiosity / Hobby', 'Professional development',
-];
 const SUBJECTS = ['Mathematics', 'Physics', 'Chemistry'];
 const LEVELS = ['Beginner', 'Intermediate', 'Advanced'] as const;
 
@@ -156,6 +153,7 @@ const LEVEL_ACTIVE: Record<string, string> = {
 
 export default function ProgressPage() {
   const router                          = useRouter();
+  const { t } = useTranslation();
   const { user, token, msgCount, videoCount, quizCount } = useSessionStore();
 
   const [stats,          setStats]          = useState<UserStats | null>(null);
@@ -181,7 +179,7 @@ export default function ProgressPage() {
 
     getUserStats(user.id, token ?? undefined)
       .then(s  => { setStats(s); setLoading(false); })
-      .catch(() => { setError('Could not load stats. Try refreshing.'); setLoading(false); });
+      .catch(() => { setError(t.progress.loadError); setLoading(false); });
 
     getUserLimits(user.id, token ?? undefined)
       .then(l  => { setLimitsData(l); setLimitsLoading(false); })
@@ -208,25 +206,25 @@ export default function ProgressPage() {
     ? [
         {
           icon:  <MessageSquare size={18} className="text-purple-400" />,
-          label: 'Messages sent',
+          label: t.progress.messagesSent,
           value: stats.messages,
           bg:    'bg-purple-500/10 border-purple-500/20',
         },
         {
           icon:  <BookOpen size={18} className="text-sky-400" />,
-          label: 'Conversations',
+          label: t.progress.conversations,
           value: stats.conversations,
           bg:    'bg-sky-500/10 border-sky-500/20',
         },
         {
           icon:  <Video size={18} className="text-blue-400" />,
-          label: 'Videos created',
+          label: t.progress.videosCreated,
           value: stats.videos,
           bg:    'bg-blue-500/10 border-blue-500/20',
         },
         {
           icon:  <HelpCircle size={18} className="text-indigo-400" />,
-          label: 'Quizzes completed',
+          label: t.progress.quizzesCompleted,
           value: stats.quizzes,
           bg:    'bg-indigo-500/10 border-indigo-500/20',
         },
@@ -234,19 +232,19 @@ export default function ProgressPage() {
     : [
         {
           icon:  <MessageSquare size={18} className="text-purple-400" />,
-          label: 'Messages this session',
+          label: t.progress.messagesSession,
           value: msgCount,
           bg:    'bg-purple-500/10 border-purple-500/20',
         },
         {
           icon:  <Video size={18} className="text-blue-400" />,
-          label: 'Videos this session',
+          label: t.progress.videosSession,
           value: videoCount,
           bg:    'bg-blue-500/10 border-blue-500/20',
         },
         {
           icon:  <HelpCircle size={18} className="text-indigo-400" />,
-          label: 'Quizzes this session',
+          label: t.progress.quizzesSession,
           value: quizCount,
           bg:    'bg-indigo-500/10 border-indigo-500/20',
         },
@@ -271,9 +269,9 @@ export default function ProgressPage() {
               <BarChart2 size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-[var(--tx1)] text-xl font-bold">Your Progress</h1>
+              <h1 className="text-[var(--tx1)] text-xl font-bold">{t.progress.title}</h1>
               <p className="text-[var(--tx6)] text-sm">
-                {user ? 'Lifetime activity from your account' : 'Session activity overview'}
+                {user ? t.progress.lifetimeActivity : t.progress.sessionActivity}
               </p>
             </div>
           </div>
@@ -297,7 +295,7 @@ export default function ProgressPage() {
           {user && (
             <div className="rounded-2xl border border-[var(--bd)] bg-[var(--surface)] p-5 mb-6">
               <div className="flex items-center justify-between mb-4">
-                <p className="text-[var(--tx2)] text-sm font-semibold">Learning Profile</p>
+                <p className="text-[var(--tx2)] text-sm font-semibold">{t.profile.learningProfile}</p>
                 {!profileEditing ? (
                   <button onClick={() => setProfileEditing(true)}
                     className="flex items-center gap-1 text-xs text-[var(--tx6)] hover:text-[var(--tx2)]
@@ -309,12 +307,12 @@ export default function ProgressPage() {
                     <button onClick={saveProfile} disabled={profileSaving}
                       className="flex items-center gap-1 text-xs text-emerald-400 border border-emerald-500/30
                                  hover:bg-emerald-500/10 px-2.5 py-1 rounded-lg transition-all disabled:opacity-50">
-                      <Check size={10} /> {profileSaving ? 'Saving…' : 'Save'}
+                      <Check size={10} /> {profileSaving ? t.profile.saving : t.save}
                     </button>
                     <button onClick={() => { setProfileEditing(false); setEditGrade(profile?.grade ?? null); setEditGoal(profile?.goal ?? null); setEditSc(profile?.subject_confidence ?? {}); }}
                       className="flex items-center gap-1 text-xs text-[var(--tx6)] border border-[var(--bd)]
                                  hover:border-[var(--bd2)] px-2.5 py-1 rounded-lg transition-all">
-                      <X size={10} /> Cancel
+                      <X size={10} /> {t.cancel}
                     </button>
                   </div>
                 )}
@@ -329,10 +327,10 @@ export default function ProgressPage() {
                   {/* Grade */}
                   <div>
                     <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2 flex items-center gap-1">
-                      <GraduationCap size={10} /> Grade / Level
+                      <GraduationCap size={10} /> {t.profile.gradeLevel}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
-                      {GRADES.map(g => (
+                      {t.grades.map(g => (
                         <button key={g} onClick={() => setEditGrade(editGrade === g ? null : g)}
                           className={`px-2.5 py-1 rounded-xl text-xs font-medium border transition-all
                             ${editGrade === g
@@ -347,10 +345,10 @@ export default function ProgressPage() {
                   {/* Goal */}
                   <div>
                     <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2 flex items-center gap-1">
-                      <Target size={10} /> Learning Goal
+                      <Target size={10} /> {t.profile.learningGoal}
                     </p>
                     <div className="flex flex-wrap gap-1.5">
-                      {GOALS.map(g => (
+                      {t.goals.map(g => (
                         <button key={g} onClick={() => setEditGoal(editGoal === g ? null : g)}
                           className={`px-2.5 py-1 rounded-xl text-xs font-medium border transition-all
                             ${editGoal === g
@@ -364,7 +362,7 @@ export default function ProgressPage() {
                   </div>
                   {/* Subject confidence */}
                   <div>
-                    <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2">Subject Confidence</p>
+                    <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2">{t.profile.subjectConfidence}</p>
                     <div className="space-y-2">
                       {SUBJECTS.map(subj => (
                         <div key={subj} className="flex items-center gap-2">
@@ -391,7 +389,7 @@ export default function ProgressPage() {
                     <span className="text-[var(--tx5)] text-xs">Grade:</span>
                     {profile?.grade
                       ? <span className="px-2.5 py-0.5 rounded-full text-xs bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">{profile.grade}</span>
-                      : <button onClick={() => setProfileEditing(true)} className="text-[var(--tx6)] text-xs italic hover:text-purple-400 transition-colors">Not set — click Edit</button>}
+                      : <button onClick={() => setProfileEditing(true)} className="text-[var(--tx6)] text-xs italic hover:text-purple-400 transition-colors">{t.profile.notSetClickEdit}</button>}
                   </div>
                   {/* Goal */}
                   <div className="flex items-start gap-2">
@@ -399,12 +397,12 @@ export default function ProgressPage() {
                     <span className="text-[var(--tx5)] text-xs">Goal:</span>
                     {profile?.goal
                       ? <span className="text-[var(--tx2)] text-xs font-medium">{profile.goal}</span>
-                      : <button onClick={() => setProfileEditing(true)} className="text-[var(--tx6)] text-xs italic hover:text-purple-400 transition-colors">Not set — click Edit</button>}
+                      : <button onClick={() => setProfileEditing(true)} className="text-[var(--tx6)] text-xs italic hover:text-purple-400 transition-colors">{t.profile.notSetClickEdit}</button>}
                   </div>
                   {/* Subject confidence */}
                   {Object.keys(profile?.subject_confidence ?? {}).filter(k => profile!.subject_confidence[k]).length > 0 && (
                     <div className="pt-1">
-                      <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2">Subject confidence</p>
+                      <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide mb-2">{t.profile.subjectConfidence}</p>
                       <div className="flex flex-wrap gap-1.5">
                         {Object.entries(profile!.subject_confidence)
                           .filter(([, v]) => v)
@@ -425,8 +423,8 @@ export default function ProgressPage() {
                   )}
                   {!profile?.grade && !profile?.goal && !Object.keys(profile?.subject_confidence ?? {}).length && (
                     <p className="text-[var(--tx6)] text-xs">
-                      Complete your profile to get personalised AI responses.{' '}
-                      <button onClick={() => setProfileEditing(true)} className="text-purple-400 hover:underline">Set it up</button>
+                      {t.profile.completeProfile}{' '}
+                      <button onClick={() => setProfileEditing(true)} className="text-purple-400 hover:underline">{t.profile.setItUp}</button>
                     </p>
                   )}
                 </div>
@@ -438,7 +436,7 @@ export default function ProgressPage() {
           {user && (
             <div className="rounded-2xl border border-[var(--bd)] bg-[var(--surface)] p-5 mb-6">
               <div className="flex items-center justify-between mb-5">
-                <p className="text-[var(--tx2)] text-sm font-semibold">Plan & Daily Usage</p>
+                <p className="text-[var(--tx2)] text-sm font-semibold">{t.progress.planDailyUsage}</p>
                 {limitsLoading ? (
                   <div className="h-5 w-20 rounded-full bg-[var(--ov3)] animate-pulse" />
                 ) : (
@@ -452,38 +450,46 @@ export default function ProgressPage() {
               <div className="space-y-4">
                 <UsageRow
                   icon={<MessageSquare size={14} className="text-purple-400" />}
-                  label="Messages"
+                  label={t.progress.messages}
                   used={u?.messages ?? 0}
                   limit={l?.messages_daily ?? 0}
                   iconBg="bg-purple-500/10"
                   loading={limitsLoading}
+                  usedUnlimited={t.progress.usedUnlimited}
+                  usedOfLimit={t.progress.usedOfLimit}
                 />
                 <UsageRow
                   icon={<Video size={14} className="text-blue-400" />}
-                  label="Videos"
+                  label={t.progress.videos}
                   used={u?.videos ?? 0}
                   limit={l?.videos_daily ?? 0}
                   iconBg="bg-blue-500/10"
                   loading={limitsLoading}
+                  usedUnlimited={t.progress.usedUnlimited}
+                  usedOfLimit={t.progress.usedOfLimit}
                 />
                 <UsageRow
                   icon={<Image size={14} className="text-pink-400" />}
-                  label="Diagrams"
+                  label={t.progress.diagrams}
                   used={u?.images ?? 0}
                   limit={l?.images_daily ?? 0}
                   iconBg="bg-pink-500/10"
                   loading={limitsLoading}
+                  usedUnlimited={t.progress.usedUnlimited}
+                  usedOfLimit={t.progress.usedOfLimit}
                 />
                 <UsageRow
                   icon={<HelpCircle size={14} className="text-indigo-400" />}
-                  label="Quizzes"
+                  label={t.progress.quizzes}
                   used={u?.quizzes ?? 0}
                   limit={l?.quiz_daily ?? 0}
                   iconBg="bg-indigo-500/10"
                   loading={limitsLoading}
+                  usedUnlimited={t.progress.usedUnlimited}
+                  usedOfLimit={t.progress.usedOfLimit}
                 />
               </div>
-              <p className="text-[var(--tx6)] text-[11px] mt-4">Resets every 24 hours.</p>
+              <p className="text-[var(--tx6)] text-[11px] mt-4">{t.progress.resetsDaily}</p>
             </div>
           )}
 
@@ -497,7 +503,7 @@ export default function ProgressPage() {
                   <Star size={18} className="text-amber-400" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[var(--tx6)] text-xs mb-0.5">Favourite subject</p>
+                  <p className="text-[var(--tx6)] text-xs mb-0.5">{t.progress.favouriteSubject}</p>
                   {loading
                     ? <div className="h-5 w-24 rounded bg-[var(--ov3)] animate-pulse" />
                     : <p className="text-[var(--tx1)] font-semibold text-sm">
@@ -514,7 +520,7 @@ export default function ProgressPage() {
                   <Calendar size={18} className="text-emerald-400" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[var(--tx6)] text-xs mb-0.5">Member since</p>
+                  <p className="text-[var(--tx6)] text-xs mb-0.5">{t.progress.memberSince}</p>
                   {loading
                     ? <div className="h-5 w-28 rounded bg-[var(--ov3)] animate-pulse" />
                     : <p className="text-[var(--tx1)] font-semibold text-sm">
@@ -529,16 +535,16 @@ export default function ProgressPage() {
           {/* Sign-in CTA for anonymous users */}
           {!user && (
             <div className="rounded-2xl bg-[var(--surface)] border border-[var(--bd)] p-6 text-center mb-6">
-              <p className="text-[var(--tx1)] font-medium mb-1">Sign in to track long-term progress</p>
+              <p className="text-[var(--tx1)] font-medium mb-1">{t.progress.signInToTrack}</p>
               <p className="text-[var(--tx6)] text-sm mb-4">
-                Lifetime stats, favourite subject, and more — available for registered users.
+                {t.progress.signInToTrackDesc}
               </p>
               <button
                 onClick={() => router.push('/auth/login')}
                 className="px-5 py-2.5 bg-purple-600 hover:bg-purple-500 text-white text-sm
                            rounded-xl font-medium transition-all"
               >
-                Sign in free
+                {t.progress.signInFree}
               </button>
             </div>
           )}
@@ -546,7 +552,7 @@ export default function ProgressPage() {
           {/* Coming soon panel */}
           <div className="rounded-2xl bg-[var(--surface)] border border-[var(--bd)] p-6 text-center">
             <p className="text-[var(--tx5)] text-sm">
-              Detailed subject breakdowns, streaks, and learning milestones — coming soon.
+              {t.progress.comingSoonNote}
             </p>
           </div>
 

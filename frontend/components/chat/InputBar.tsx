@@ -127,7 +127,7 @@ export function InputBar({ onSend, onPdfOpen, onDebug, loading = false, hasFile 
       </div>
 
       <p className="text-center text-[var(--txa)] text-[10px] mt-2">
-        Learn-AI can make mistakes — verify important information.
+        {t.chat.disclaimer}
       </p>
     </div>
   );

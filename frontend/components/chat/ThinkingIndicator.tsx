@@ -1,14 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
-
-const PHASES = [
-  'Reading your question…',
-  'Thinking…',
-  'Crafting response…',
-];
+import { useTranslation } from '@/hooks/useTranslation';
 
 export function ThinkingIndicator() {
   const [phase, setPhase] = useState(0);
+  const { t } = useTranslation();
+  const PHASES = [t.chat.readingQuestion, t.chat.thinking, t.chat.crafting];
 
   useEffect(() => {
     const t = setInterval(() => setPhase(p => (p + 1) % PHASES.length), 2200);

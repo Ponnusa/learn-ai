@@ -20,12 +20,7 @@ import { preprocessMath } from '@/lib/preprocessMath';
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STEPS = [
-  'Writing solution & script',   // pending
-  'Generating Manim animation',  // transcript_ready
-  'Queued for rendering',        // queued
-  'Rendering video',             // rendering
-];
+// STEPS is now built from translations inside VideosContent
 const LOADING_STATUSES = new Set(['pending', 'queued', 'transcript_ready', 'rendering']);
 const DONE_STATUSES    = new Set(['complete', 'completed']);
 const PAGE_SIZE        = 12;
@@ -336,12 +331,22 @@ function VideoLibraryGrid({
   onTranscript,
   onGoToConversation,
   embedded = false,
+  emptyTitle,
+  emptyDesc,
+  emptyEmbeddedTitle,
+  emptyEmbeddedDesc,
+  pastVideosLabel,
 }: {
   videos: VideoItem[];
   loading: boolean;
   onTranscript: (markdown: string) => void;
   onGoToConversation: (conversationId: string) => void;
   embedded?: boolean;
+  emptyTitle?: string;
+  emptyDesc?: string;
+  emptyEmbeddedTitle?: string;
+  emptyEmbeddedDesc?: string;
+  pastVideosLabel?: string;
 }) {
   const [page, setPage] = useState(1);
   const totalPages = Math.ceil(videos.length / PAGE_SIZE);
@@ -362,8 +367,8 @@ function VideoLibraryGrid({
           <div className="w-10 h-10 rounded-2xl bg-[var(--ov2)] border border-[var(--bd)] flex items-center justify-center">
             <Video size={18} className="text-[var(--tx6)]" />
           </div>
-          <p className="text-[var(--tx5)] text-sm">No videos generated yet.</p>
-          <p className="text-[var(--tx7)] text-xs">Type a topic above and click Generate.</p>
+          <p className="text-[var(--tx5)] text-sm">{emptyEmbeddedTitle ?? 'No videos generated yet.'}</p>
+          <p className="text-[var(--tx7)] text-xs">{emptyEmbeddedDesc ?? 'Type a topic above and click Generate.'}</p>
         </div>
       );
     }
@@ -374,9 +379,9 @@ function VideoLibraryGrid({
           <Video size={26} className="text-[var(--tx5)]" />
         </div>
         <div>
-          <h2 className="text-[var(--tx1)] font-semibold text-base mb-1">No videos yet</h2>
+          <h2 className="text-[var(--tx1)] font-semibold text-base mb-1">{emptyTitle ?? 'No videos yet'}</h2>
           <p className="text-[var(--tx5)] text-sm max-w-xs leading-relaxed">
-            Generate an animated explanation from any topic above.
+            {emptyDesc ?? 'Generate an animated explanation from any topic above.'}
           </p>
         </div>
       </div>
@@ -390,7 +395,7 @@ function VideoLibraryGrid({
         <div className="flex items-center gap-2 mb-3">
           <Video size={13} className="text-[var(--tx6)]" />
           <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">
-            Past videos · {videos.length}
+            {pastVideosLabel ?? 'Past videos'} · {videos.length}
           </p>
         </div>
       )}
@@ -498,6 +503,13 @@ function VideosContent() {
 
   const rawId   = searchParams.get('id');
   const videoId = rawId ? Number(rawId) : null;
+
+  const STEPS = [
+    t.video.writingScript,
+    t.video.generatingAnimation,
+    t.video.queuedRendering,
+    t.video.renderingVideo,
+  ];
 
   // Current video (detail view)
   const [status,     setStatus]     = useState('pending');
@@ -645,8 +657,8 @@ function VideosContent() {
           {/* Header */}
           <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-[var(--bd)] shrink-0">
             <div className="flex-1 min-w-0">
-              <h1 className="text-[var(--tx1)] font-semibold">Video Studio</h1>
-              <p className="text-[var(--tx6)] text-xs mt-0.5">Generate animated educational videos from any topic</p>
+              <h1 className="text-[var(--tx1)] font-semibold">{t.video.studio}</h1>
+              <p className="text-[var(--tx6)] text-xs mt-0.5">{t.video.studioDesc}</p>
             </div>
             {!videosLoading && videos.length > 0 && (
               <span className="px-2 py-0.5 bg-[var(--ov3)] rounded-full text-[var(--tx5)] text-xs shrink-0">
@@ -664,7 +676,7 @@ function VideosContent() {
                     value={genTopic}
                     onChange={e => setGenTopic(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }}
-                    placeholder="Describe a concept or topic to animate…"
+                    placeholder={t.video.generatePlaceholder}
                     rows={2}
                     disabled={generating}
                     className="w-full px-4 py-3.5 pr-28 rounded-2xl bg-[var(--surface)] border border-[var(--bd)]
@@ -682,7 +694,7 @@ function VideosContent() {
                     {generating
                       ? <Loader size={12} className="animate-spin" />
                       : <Sparkles size={12} />}
-                    {generating ? 'Generating…' : 'Generate'}
+                    {generating ? t.video.generatingBtn : t.video.generateBtn}
                   </button>
                 </div>
 
@@ -713,6 +725,9 @@ function VideosContent() {
                 onTranscript={openTranscript}
                 onGoToConversation={handleGoToConversation}
                 embedded
+                emptyEmbeddedTitle={t.video.noCompletedYet}
+                emptyEmbeddedDesc={t.video.generatePlaceholder}
+                pastVideosLabel={t.video.pastVideos}
               />
             </div>
           </div>
@@ -833,7 +848,7 @@ function VideosContent() {
               {isDone && !videoUrl && (
                 <div className="text-center flex flex-col items-center gap-4">
                   <CheckCircle size={48} className="text-green-400" />
-                  <p className="text-[var(--tx1)] font-semibold">Video ready — loading player…</p>
+                  <p className="text-[var(--tx1)] font-semibold">{t.video.loadingPlayer}</p>
                   {transcript && <TranscriptButton onClick={() => openTranscript(transcript)} />}
                 </div>
               )}
@@ -850,14 +865,14 @@ function VideosContent() {
                     <button
                       onClick={handleRetry}
                       disabled={retrying}
-                      title={retrying ? 'Retrying…' : transcript ? 'Retry Video Generation' : 'Regenerate Video'}
+                      title={retrying ? t.video.retrying : transcript ? t.video.retryBtn : t.video.regenerateBtn}
                       className="flex items-center gap-2 px-4 sm:px-5 py-2.5
                                  bg-purple-600 hover:bg-purple-500
                                  disabled:opacity-50 text-white text-sm rounded-xl transition-colors"
                     >
                       <RefreshCw size={14} className={retrying ? 'animate-spin' : ''} />
                       <span className="hidden sm:inline">
-                        {retrying ? 'Retrying…' : transcript ? 'Retry Video Generation' : 'Regenerate Video'}
+                        {retrying ? t.video.retrying : transcript ? t.video.retryBtn : t.video.regenerateBtn}
                       </span>
                     </button>
 
@@ -886,7 +901,7 @@ function VideosContent() {
         {/* Right sidebar: completed videos list — desktop only */}
         <aside className="hidden md:flex flex-col w-60 border-l border-[var(--bd)] overflow-hidden shrink-0">
           <div className="px-3 py-3 border-b border-[var(--bd)] shrink-0">
-            <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wide">Video Studio</p>
+            <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wide">{t.video.studio}</p>
           </div>
           {videosLoading ? (
             <div className="flex-1 flex items-center justify-center">
@@ -894,7 +909,7 @@ function VideosContent() {
             </div>
           ) : videos.length === 0 ? (
             <div className="flex-1 flex items-center justify-center px-4">
-              <p className="text-[var(--tx6)] text-xs text-center">No completed videos yet.</p>
+              <p className="text-[var(--tx6)] text-xs text-center">{t.video.noCompletedYet}</p>
             </div>
           ) : (
             <div className="flex-1 chat-scroll py-2 px-2 space-y-0.5">

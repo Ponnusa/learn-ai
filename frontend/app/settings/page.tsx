@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage } from '@/hooks/useLanguage';
+import { useTranslation } from '@/hooks/useTranslation';
 import { LANGUAGE_LABELS } from '@/translations';
 import type { LanguageCode } from '@/translations';
 
@@ -14,6 +15,7 @@ export default function SettingsPage() {
   const { user, signOut } = useSessionStore();
   const { theme, setTheme } = useTheme();
   const { language, setLanguage } = useLanguage();
+  const { t } = useTranslation();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
 
   function handleSignOut() {
@@ -25,29 +27,29 @@ export default function SettingsPage() {
 
   const sections = [
     {
-      title: 'Account',
+      title: t.settings.account,
       icon: <User size={16} className="text-purple-500" />,
       items: user
         ? [
-            { label: 'Email',        value: user.email },
-            { label: 'Display name', value: user.name || '(not set)' },
-            { label: 'Account tier', value: user.tier },
+            { label: t.settings.emailField,   value: user.email },
+            { label: t.settings.displayName,  value: user.name || t.settings.notSet },
+            { label: t.settings.accountTier,  value: user.tier },
           ]
         : [],
     },
     {
-      title: 'Privacy & Security',
+      title: t.settings.privacySecurity,
       icon: <Shield size={16} className="text-blue-500" />,
       items: [
-        { label: 'Anonymous session data', value: 'Cleared on browser close' },
-        { label: 'Conversation history',   value: 'Stored on our servers' },
+        { label: t.settings.anonymousSessionData, value: t.settings.clearedBrowserClose },
+        { label: t.settings.conversationHistory,  value: t.settings.storedServers },
       ],
     },
     {
-      title: 'Notifications',
+      title: t.settings.notifications,
       icon: <Bell size={16} className="text-amber-500" />,
       items: [
-        { label: 'Email updates', value: 'Coming soon' },
+        { label: t.settings.emailUpdates, value: t.comingSoon },
       ],
     },
   ];
@@ -66,8 +68,8 @@ export default function SettingsPage() {
               <Settings size={20} className="text-white" />
             </div>
             <div>
-              <h1 className="text-[var(--tx1)] text-xl font-bold">Settings</h1>
-              <p className="text-[var(--tx6)] text-sm">Manage your account and preferences</p>
+              <h1 className="text-[var(--tx1)] text-xl font-bold">{t.settings.title}</h1>
+              <p className="text-[var(--tx6)] text-sm">{t.settings.managePreferences}</p>
             </div>
           </div>
 
@@ -75,14 +77,14 @@ export default function SettingsPage() {
           {!user && (
             <div className="mb-6 rounded-2xl bg-purple-500/10 border border-purple-500/20 p-5 flex items-center justify-between">
               <div>
-                <p className="text-[var(--tx1)] font-medium text-sm">You're not signed in</p>
-                <p className="text-[var(--tx6)] text-xs mt-0.5">Sign in to manage your account settings</p>
+                <p className="text-[var(--tx1)] font-medium text-sm">{t.settings.notSignedIn}</p>
+                <p className="text-[var(--tx6)] text-xs mt-0.5">{t.settings.signInToManage}</p>
               </div>
               <button
                 onClick={() => router.push('/auth/login')}
                 className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl font-medium transition-all shrink-0"
               >
-                Sign in
+                {t.auth.signIn}
               </button>
             </div>
           )}
@@ -92,14 +94,14 @@ export default function SettingsPage() {
             <div className="rounded-2xl bg-[var(--surface)] border border-[var(--bd)] overflow-hidden">
               <div className="flex items-center gap-2 px-5 py-3 border-b border-[var(--bd2)]">
                 <Palette size={16} className="text-violet-500" />
-                <span className="text-[var(--tx6)] text-xs font-medium uppercase tracking-wider">Appearance</span>
+                <span className="text-[var(--tx6)] text-xs font-medium uppercase tracking-wider">{t.settings.appearance}</span>
               </div>
 
               {/* Theme */}
               <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--bd3)]">
                 <div>
-                  <p className="text-[var(--tx2)] text-sm font-medium">Theme</p>
-                  <p className="text-[var(--tx6)] text-xs mt-0.5">Choose your preferred appearance</p>
+                  <p className="text-[var(--tx2)] text-sm font-medium">{t.settings.theme}</p>
+                  <p className="text-[var(--tx6)] text-xs mt-0.5">{t.settings.chooseAppearance}</p>
                 </div>
                 <div className="flex items-center gap-1 bg-[var(--input)] rounded-xl p-1 border border-[var(--bd)]">
                   <button
@@ -110,7 +112,7 @@ export default function SettingsPage() {
                         : 'text-[var(--tx5)] hover:text-[var(--tx2)]'
                     }`}
                   >
-                    <Sun size={13} /> Light
+                    <Sun size={13} /> {t.settings.light}
                   </button>
                   <button
                     onClick={() => setTheme('dark')}
@@ -120,7 +122,7 @@ export default function SettingsPage() {
                         : 'text-[var(--tx5)] hover:text-[var(--tx2)]'
                     }`}
                   >
-                    <Moon size={13} /> Dark
+                    <Moon size={13} /> {t.settings.dark}
                   </button>
                 </div>
               </div>
@@ -130,8 +132,8 @@ export default function SettingsPage() {
                 <div className="flex items-center gap-2">
                   <Globe size={15} className="text-[var(--tx5)]" />
                   <div>
-                    <p className="text-[var(--tx2)] text-sm font-medium">Language</p>
-                    <p className="text-[var(--tx6)] text-xs mt-0.5">Chat and interface language</p>
+                    <p className="text-[var(--tx2)] text-sm font-medium">{t.settings.language}</p>
+                    <p className="text-[var(--tx6)] text-xs mt-0.5">{t.settings.languageDesc}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1 bg-[var(--input)] rounded-xl p-1 border border-[var(--bd)]">
@@ -181,23 +183,23 @@ export default function SettingsPage() {
                              border border-[var(--wrong-bd)] bg-[var(--wrong-bg)]
                              text-[var(--red)] hover:bg-red-500/10 text-sm font-medium transition-all"
                 >
-                  <LogOut size={15} /> Sign out
+                  <LogOut size={15} /> {t.auth.signOut}
                 </button>
               ) : (
                 <div className="rounded-xl border border-[var(--wrong-bd)] bg-[var(--wrong-bg)] p-4 text-center">
-                  <p className="text-[var(--tx1)] text-sm mb-3">Sign out of Learn-AI?</p>
+                  <p className="text-[var(--tx1)] text-sm mb-3">{t.settings.signOutConfirm}</p>
                   <div className="flex gap-2 justify-center">
                     <button
                       onClick={() => setConfirmSignOut(false)}
                       className="px-4 py-2 rounded-lg bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx3)] text-sm transition-all"
                     >
-                      Cancel
+                      {t.cancel}
                     </button>
                     <button
                       onClick={handleSignOut}
                       className="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium transition-all"
                     >
-                      Sign out
+                      {t.auth.signOut}
                     </button>
                   </div>
                 </div>

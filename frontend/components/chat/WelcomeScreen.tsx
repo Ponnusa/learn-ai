@@ -1,5 +1,6 @@
 'use client';
 import { useMemo } from 'react';
+import { useTranslation } from '@/hooks/useTranslation';
 
 interface User {
   id: string;
@@ -45,32 +46,22 @@ const QUOTES: { text: string; author: string }[] = [
   { text: 'The more you know, the more you realise you don\'t know.', author: 'Socrates' },
 ];
 
-const STARTER_PROMPTS = [
-  "Explain Newton's laws of motion",
-  'How does photosynthesis work?',
-  'Explain the quadratic formula',
-  'What is supply and demand?',
-  'How does a neural network learn?',
-  'Explain the periodic table',
-];
-
-function getGreeting(): { text: string; emoji: string } {
-  const h = new Date().getHours();
-  if (h >= 5  && h < 12) return { text: 'Good morning',   emoji: '☀️' };
-  if (h >= 12 && h < 17) return { text: 'Good afternoon', emoji: '🌤️' };
-  if (h >= 17 && h < 21) return { text: 'Good evening',   emoji: '🌆' };
-  return                         { text: 'Hey, night owl', emoji: '🌙' };
-}
-
 function getFirstName(user: User): string {
   if (user.name?.trim()) return user.name.trim().split(/\s+/)[0];
-  // derive from email: "sarav.kumar@..." → "Sarav"
   const raw = user.email.split('@')[0].replace(/[._\-+]/g, ' ').trim().split(/\s+/)[0];
   return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 }
 
 export function WelcomeScreen({ user, onSend }: Props) {
-  const { text: greetText, emoji } = getGreeting();
+  const { t } = useTranslation();
+
+  const h = new Date().getHours();
+  const greetText =
+    h >= 5  && h < 12 ? t.chat.greetMorning :
+    h >= 12 && h < 17 ? t.chat.greetAfternoon :
+    h >= 17 && h < 21 ? t.chat.greetEvening :
+    t.chat.greetNight;
+  const emoji = h >= 5 && h < 12 ? '☀️' : h >= 12 && h < 17 ? '🌤️' : h >= 17 && h < 21 ? '🌆' : '🌙';
 
   // Same quote all day, changes at midnight
   const quote = useMemo(() => {
@@ -81,11 +72,11 @@ export function WelcomeScreen({ user, onSend }: Props) {
   // Pick 4 random-but-stable starter prompts for the day
   const prompts = useMemo(() => {
     const seed = Math.floor(Date.now() / 86_400_000);
-    const shuffled = [...STARTER_PROMPTS].sort((a, b) =>
+    const shuffled = [...t.chat.starterPrompts].sort((a, b) =>
       Math.sin(seed + a.charCodeAt(0)) - Math.sin(seed + b.charCodeAt(0))
     );
     return shuffled.slice(0, 4);
-  }, []);
+  }, [t]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
@@ -107,7 +98,7 @@ export function WelcomeScreen({ user, onSend }: Props) {
             {greetText}, {getFirstName(user)}! 👋
           </h1>
           <p className="text-[var(--tx6)] text-sm mt-2">
-            Ready to learn something new?
+            {t.chat.welcomeReadyToLearn}
           </p>
         </div>
       ) : (
@@ -117,7 +108,7 @@ export function WelcomeScreen({ user, onSend }: Props) {
             {greetText}! {emoji}
           </h1>
           <p className="text-[var(--tx6)] text-sm mt-2">
-            Your AI tutor is ready — ask anything.
+            {t.chat.welcomeTutorReady}
           </p>
         </div>
       )}

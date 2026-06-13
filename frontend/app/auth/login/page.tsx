@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Mail, Lock, User, Eye, EyeOff, ArrowRight, Loader2, CheckCircle } from 'lucide-react';
 import { sendMagicLink, verifyMagicLink } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -13,6 +14,7 @@ type PwdMode = 'signin' | 'register';
 export default function LoginPage() {
   const router = useRouter();
   const { setUser, sessionId } = useSessionStore();
+  const { t } = useTranslation();
 
   const [method,        setMethod]        = useState<Method>('magic');
   const [pwdMode,       setPwdMode]       = useState<PwdMode>('signin');
@@ -86,16 +88,15 @@ export default function LoginPage() {
       <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4">
         <div className="text-center max-w-sm">
           <CheckCircle size={48} className="text-[var(--green)] mx-auto mb-4" />
-          <h2 className="text-[var(--tx1)] text-xl font-bold mb-2">Check your inbox</h2>
+          <h2 className="text-[var(--tx1)] text-xl font-bold mb-2">{t.auth.checkInboxTitle}</h2>
           <p className="text-[var(--tx5)] text-sm mb-6">
-            We sent a sign-in link to <span className="text-[var(--tx2)]">{email}</span>.
-            It expires in 15 minutes.
+            {t.auth.sentLinkTo.replace('{email}', email)}
           </p>
           <button
             onClick={() => setMagicSent(false)}
             className="text-[var(--purple)] hover:underline text-sm"
           >
-            Use a different email
+            {t.auth.useDifferentEmail}
           </button>
         </div>
       </div>
@@ -111,8 +112,8 @@ export default function LoginPage() {
           <div className="w-16 h-16 mx-auto mb-4">
             <img src="/logo-64.png" alt="Learn-AI" className="w-full h-full object-contain drop-shadow-xl" />
           </div>
-          <h1 className="text-[var(--tx1)] text-xl font-bold">Sign in to Learn-AI</h1>
-          <p className="text-[var(--tx6)] text-sm mt-1">Continue your learning journey</p>
+          <h1 className="text-[var(--tx1)] text-xl font-bold">{t.auth.signInToApp}</h1>
+          <p className="text-[var(--tx6)] text-sm mt-1">{t.auth.continueJourney}</p>
         </div>
 
         {/* Card */}
@@ -136,13 +137,13 @@ export default function LoginPage() {
                 <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.8 2.2-8.4 2.2-6.3 0-11.7-4.3-13.6-10l-8.1 6C6.5 42.6 14.7 48 24 48z"/>
               </svg>
             )}
-            Continue with Google
+            {t.auth.continueWithGoogle}
           </button>
 
           {/* Divider */}
           <div className="flex items-center gap-3 my-5">
             <div className="flex-1 h-px bg-[var(--bd)]" />
-            <span className="text-[var(--tx8)] text-xs">or</span>
+            <span className="text-[var(--tx8)] text-xs">{t.orShort}</span>
             <div className="flex-1 h-px bg-[var(--bd)]" />
           </div>
 
@@ -158,7 +159,7 @@ export default function LoginPage() {
                     : 'text-[var(--tx6)] hover:text-[var(--tx2)]'
                 }`}
               >
-                {m === 'magic' ? '✉️ Magic link' : '🔑 Password'}
+                {m === 'magic' ? t.auth.magicLinkTab : t.auth.passwordTab}
               </button>
             ))}
           </div>
@@ -170,7 +171,7 @@ export default function LoginPage() {
                 <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--tx8)]" />
                 <input
                   type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="you@example.com" required
+                  placeholder={t.auth.emailPlaceholder} required
                   className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl pl-9 pr-4 py-2.5
                              text-sm text-[var(--tx1)] t-ph outline-none focus:border-purple-500/60 transition-colors"
                 />
@@ -181,7 +182,7 @@ export default function LoginPage() {
                 className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl
                            bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all disabled:opacity-40"
               >
-                {loading ? <Loader2 size={15} className="animate-spin" /> : <>Send magic link <ArrowRight size={14} /></>}
+                {loading ? <Loader2 size={15} className="animate-spin" /> : <>{t.auth.sendMagicLink} <ArrowRight size={14} /></>}
               </button>
             </form>
           )}
@@ -194,7 +195,7 @@ export default function LoginPage() {
                   <User size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--tx8)]" />
                   <input
                     type="text" value={name} onChange={e => setName(e.target.value)}
-                    placeholder="Your name (optional)"
+                    placeholder={t.auth.yourNamePlaceholder}
                     className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl pl-9 pr-4 py-2.5
                                text-sm text-[var(--tx1)] t-ph outline-none focus:border-purple-500/60 transition-colors"
                   />
@@ -205,7 +206,7 @@ export default function LoginPage() {
                 <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--tx8)]" />
                 <input
                   type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="you@example.com" required
+                  placeholder={t.auth.emailPlaceholder} required
                   className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl pl-9 pr-4 py-2.5
                              text-sm text-[var(--tx1)] t-ph outline-none focus:border-purple-500/60 transition-colors"
                 />
@@ -216,7 +217,7 @@ export default function LoginPage() {
                 <input
                   type={showPwd ? 'text' : 'password'} value={password}
                   onChange={e => setPassword(e.target.value)}
-                  placeholder={pwdMode === 'register' ? 'Create password (min 8 chars)' : 'Password'}
+                  placeholder={pwdMode === 'register' ? t.auth.createPasswordPlaceholder : t.auth.passwordPlaceholder}
                   required
                   className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl pl-9 pr-10 py-2.5
                              text-sm text-[var(--tx1)] t-ph outline-none focus:border-purple-500/60 transition-colors"
@@ -236,15 +237,15 @@ export default function LoginPage() {
               >
                 {loading
                   ? <Loader2 size={15} className="animate-spin" />
-                  : pwdMode === 'signin' ? 'Sign in' : 'Create account'}
+                  : pwdMode === 'signin' ? t.auth.signInBtn : t.auth.createAccountBtn}
               </button>
 
               <p className="text-center text-xs text-[var(--tx7)]">
-                {pwdMode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+                {pwdMode === 'signin' ? `${t.auth.dontHaveAccount} ` : `${t.auth.alreadyAccountQuestion} `}
                 <button type="button"
                   onClick={() => { setPwdMode(m => m === 'signin' ? 'register' : 'signin'); setError(''); }}
                   className="text-[var(--purple)] hover:underline">
-                  {pwdMode === 'signin' ? 'Create one' : 'Sign in'}
+                  {pwdMode === 'signin' ? t.auth.createOne : t.auth.signIn}
                 </button>
               </p>
             </form>
@@ -252,7 +253,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-[var(--txa)] text-xs mt-6">
-          By signing in you agree to our Terms of Service
+          {t.auth.termsNote}
         </p>
       </div>
     </div>

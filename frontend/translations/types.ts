@@ -21,6 +21,13 @@ export interface Translation {
   open: string;
   download: string;
   share: string;
+  edit: string;
+  saving: string;
+  skip: string;
+  orShort: string;
+
+  grades: string[];
+  goals: string[];
 
   auth: {
     signIn: string;
@@ -35,6 +42,22 @@ export interface Translation {
     orContinueWith: string;
     alreadyHaveAccount: string;
     noAccount: string;
+    signInToApp: string;
+    continueJourney: string;
+    magicLinkTab: string;
+    passwordTab: string;
+    yourNamePlaceholder: string;
+    createPasswordPlaceholder: string;
+    passwordPlaceholder: string;
+    signInBtn: string;
+    createAccountBtn: string;
+    dontHaveAccount: string;
+    alreadyAccountQuestion: string;
+    createOne: string;
+    termsNote: string;
+    checkInboxTitle: string;
+    sentLinkTo: string;
+    useDifferentEmail: string;
   };
 
   sidebar: {
@@ -50,7 +73,12 @@ export interface Translation {
     lastWeek: string;
     older: string;
     noConversations: string;
+    noConversationsHint: string;
     searchConversations: string;
+    conversations: string;
+    noResults: string;
+    noResultsFor: string;
+    newConversation: string;
   };
 
   chat: {
@@ -71,6 +99,19 @@ export interface Translation {
     welcomeTitle: string;
     welcomeSubtitle: string;
     starterPrompts: string[];
+    animateIt: string;
+    sketchIt: string;
+    quizMe: string;
+    showExample: string;
+    disclaimer: string;
+    readingQuestion: string;
+    crafting: string;
+    welcomeReadyToLearn: string;
+    welcomeTutorReady: string;
+    greetMorning: string;
+    greetAfternoon: string;
+    greetEvening: string;
+    greetNight: string;
   };
 
   video: {
@@ -87,6 +128,22 @@ export interface Translation {
     noVideos: string;
     noVideosDesc: string;
     comingSoonForSubject: string;
+    studio: string;
+    studioDesc: string;
+    generatePlaceholder: string;
+    generateBtn: string;
+    generatingBtn: string;
+    solutionTranscript: string;
+    retrying: string;
+    retryBtn: string;
+    regenerateBtn: string;
+    pastVideos: string;
+    noCompletedYet: string;
+    loadingPlayer: string;
+    writingScript: string;
+    generatingAnimation: string;
+    queuedRendering: string;
+    renderingVideo: string;
   };
 
   quiz: {
@@ -103,6 +160,10 @@ export interface Translation {
     question: string;
     wellDone: string;
     keepPracticing: string;
+    notFound: string;
+    startQuizBtn: string;
+    reviewBtn: string;
+    questionsCount: string;
   };
 
   upload: {
@@ -138,6 +199,91 @@ export interface Translation {
     knew: string;
     didntKnow: string;
     limitReached: string;
+    tabOverview: string;
+    tabConcepts: string;
+    tabFlashcards: string;
+    tabChat: string;
+    tabDiagrams: string;
+    dropZone: string;
+    dropZoneHint: string;
+    statusReady: string;
+    statusProcessing: string;
+    statusLoadingPdf: string;
+    notFound: string;
+    askAnything: string;
+    chatLoading: string;
+    noConcepts: string;
+    noConceptsUpload: string;
+    chatAboutThis: string;
+    sessionComplete: string;
+    studyAgain: string;
+    questionReveal: string;
+    revealAnswer: string;
+    answerLabel: string;
+    openPdf: string;
+    fromPdf: string;
+    loadingDiagram: string;
+    generatingDiagram: string;
+    conceptsExtractedNote: string;
+    noFlashcards: string;
+    pages: string;
+    uploadGetStarted: string;
+    selectRegionHint: string;
+    extractingProcessing: string;
+    processingFailed: string;
+    summary: string;
+    materials: string;
+    keyConceptsHeader: string;
+    progress: string;
+  };
+
+  profile: {
+    personalise: string;
+    gradeQuestion: string;
+    goalQuestion: string;
+    confidenceQuestion: string;
+    confidenceOptional: string;
+    saveAndPersonalise: string;
+    skip: string;
+    saving: string;
+    gradeStep: string;
+    goalStep: string;
+    subjectsStep: string;
+    learningProfile: string;
+    gradeLevel: string;
+    learningGoal: string;
+    subjectConfidence: string;
+    completeProfile: string;
+    setItUp: string;
+    notSetClickEdit: string;
+  };
+
+  progress: {
+    title: string;
+    lifetimeActivity: string;
+    sessionActivity: string;
+    loadError: string;
+    messagesSent: string;
+    conversations: string;
+    videosCreated: string;
+    quizzesCompleted: string;
+    messagesSession: string;
+    videosSession: string;
+    quizzesSession: string;
+    planDailyUsage: string;
+    resetsDaily: string;
+    usedUnlimited: string;
+    usedOfLimit: string;
+    favouriteSubject: string;
+    memberSince: string;
+    signInToTrack: string;
+    signInToTrackDesc: string;
+    signInFree: string;
+    comingSoonNote: string;
+    messages: string;
+    videos: string;
+    diagrams: string;
+    quizzes: string;
   };
 
   credits: {
@@ -187,6 +333,24 @@ export interface Translation {
     billing: string;
     deleteAccount: string;
     deleteAccountConfirm: string;
+    appearance: string;
+    chooseAppearance: string;
+    languageDesc: string;
+    privacySecurity: string;
+    notifications: string;
+    notSignedIn: string;
+    signInToManage: string;
+    signOutConfirm: string;
+    emailField: string;
+    displayName: string;
+    accountTier: string;
+    notSet: string;
+    anonymousSessionData: string;
+    clearedBrowserClose: string;
+    conversationHistory: string;
+    storedServers: string;
+    emailUpdates: string;
+    managePreferences: string;
   };
 
   errors: {
