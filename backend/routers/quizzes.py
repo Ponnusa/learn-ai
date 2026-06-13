@@ -35,7 +35,7 @@ async def generate_quiz(req: QuizRequest):
     tier = "anonymous"
     if req.user_id:
         async with get_db() as db:
-            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1", req.user_id)
+            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1::uuid", req.user_id)
         tier = user["tier"] if user else "free"
     await _check_quiz_credit(req.user_id, req.session_id, tier)
 
@@ -65,21 +65,28 @@ async def generate_quiz(req: QuizRequest):
         "Each question: {\"q\": str, \"options\": [str x4], \"correct\": 0-3, \"explanation\": str, \"difficulty\": str}"
     )
 
-    resp = await openai_client.chat.completions.create(
-        model=get_model("quiz_generation"),
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=2000,
-        temperature=0.7,
-        response_format={"type": "json_object"},
-    )
-    data = json.loads(resp.choices[0].message.content)
-    questions = data.get("questions", [])[:n_questions]
+    try:
+        resp = await openai_client.chat.completions.create(
+            model=get_model("quiz_generation"),
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=2000,
+            temperature=0.7,
+            response_format={"type": "json_object"},
+        )
+        data = json.loads(resp.choices[0].message.content)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI generation failed: {exc}")
+
+    # AI occasionally returns {"questions": null} — guard against None[:n]
+    questions = (data.get("questions") or [])[:n_questions]
+    if not questions:
+        raise HTTPException(status_code=502, detail="AI returned no questions — please try again")
 
     # ── Save quiz + credit (must succeed — quiz doesn't exist until this runs) ──
     async with get_db() as db:
         row = await db.fetchrow("""
             INSERT INTO quizzes (conversation_id, user_id, session_id, subject, questions)
-            VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING id
+            VALUES ($1::uuid,$2::uuid,$3::uuid,$4,$5::jsonb) RETURNING id
         """, req.conversation_id, req.user_id, req.session_id, req.subject,
             json.dumps(questions))
 
@@ -88,7 +95,7 @@ async def generate_quiz(req: QuizRequest):
         # Record credit AFTER successful generation (not before)
         if req.user_id:
             await db.execute(
-                "INSERT INTO usage_events (user_id, event_type) VALUES ($1, 'quiz_taken')",
+                "INSERT INTO usage_events (user_id, event_type) VALUES ($1::uuid, 'quiz_taken')",
                 req.user_id,
             )
         elif req.session_id:
@@ -216,7 +223,7 @@ async def _check_quiz_credit(user_id: str | None, session_id: str | None, tier: 
                 return
             count = await db.fetchval("""
                 SELECT COUNT(*) FROM usage_events
-                WHERE user_id = $1 AND event_type = 'quiz_taken'
+                WHERE user_id = $1::uuid AND event_type = 'quiz_taken'
                 AND created_at > NOW() - INTERVAL '1 day'
             """, user_id)
             if count >= limit:
