@@ -711,6 +711,7 @@ function ActiveChat({
         } catch {}
       }
 
+      const lastAiRowId = [...rows].reverse().find((r: any) => r.role === 'assistant')?.id;
       const loaded: ChatMsg[] = rows.map(r => ({
         role:              r.role as 'user' | 'assistant',
         content:           r.content,
@@ -721,15 +722,12 @@ function ActiveChat({
         quizId:            r.metadata?.quiz_id as string | undefined,
         quizTopic:         r.metadata?.quiz_topic as string | undefined,
         quizQuestionCount: r.metadata?.num_questions as number | undefined,
+        // Restore AI-generated chips on the last assistant message only
+        chips: (r.role === 'assistant' && String(r.id) === String(lastAiRowId))
+          ? (Array.isArray(r.metadata?.chips) ? r.metadata.chips : [])
+          : undefined,
       }));
-      // Chips on last assistant message
-      const lastAi = loaded.map((m, i) => m.role === 'assistant' ? i : -1).filter(i => i !== -1).slice(-1)[0];
-      if (lastAi !== undefined && lastAi >= 0) {
-        loaded[lastAi] = { ...loaded[lastAi], chips: ['Sketch it', 'Give me an example', 'Explain differently'] };
-      }
-      // Set lastMsgId so Sketch it / Create a video link to the right message
-      const lastAiRow = [...rows].reverse().find((r: any) => r.role === 'assistant');
-      if (lastAiRow) setLastMsgId(String(lastAiRow.id));
+      if (lastAiRowId) setLastMsgId(String(lastAiRowId));
 
       setMessages(loaded);
     }).catch(() => {}).finally(() => { setHistLoading(false); setHistLoaded(true); });
