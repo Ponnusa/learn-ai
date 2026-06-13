@@ -5,7 +5,7 @@ Profile update runs in background after every 5 messages.
 """
 import asyncio
 import json
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks
 from pydantic import BaseModel
 from database import get_db
 from services.ai_router import openai_client, get_model
@@ -13,8 +13,8 @@ from services.subject_detector import detect_subject
 from services.prompt_builder import build_chat_prompt, inject_conversation_context, CHAT_SYSTEM_PROMPT
 from services.profile_updater import update_student_profile
 from services.conversation_summarizer import maybe_summarize
-from services.tier_config import get_limit
-from services.scoring import score_signal
+from services.credits import check_message_credit
+from services.chips import generate_chips
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -118,7 +118,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     7. Trigger profile update in background every 5 messages
     """
     # ── 1. Credit check ──────────────────────────────────────────────────────
-    await _check_message_credit(req.user_id, req.session_id)
+    await check_message_credit(req.user_id, req.session_id)
 
     async with get_db() as db:
         # ── 2. Ensure conversation exists ────────────────────────────────────
@@ -246,7 +246,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     reply_text = ai_resp.choices[0].message.content
 
     # ── 6. Generate suggestion chips (background-ish, fast) ──────────────────
-    chips = await _generate_chips(reply_text, req.language)
+    chips = await generate_chips(reply_text, req.language)
 
     # ── 7. Save AI reply + update conversation ───────────────────────────────
     async with get_db() as db:
@@ -293,69 +293,6 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         "chips": chips,
         "subject": subject_data,
     }
-
-
-async def _check_message_credit(user_id: str | None, session_id: str | None):
-    async with get_db() as db:
-        if user_id:
-            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1", user_id)
-            tier = user["tier"] if user else "free"
-            limit = await get_limit(tier, "messages_daily")
-            if limit == -1:
-                return
-            count = await db.fetchval("""
-                SELECT COUNT(*) FROM usage_events
-                WHERE user_id = $1 AND event_type = 'message_sent'
-                AND created_at > NOW() - INTERVAL '1 day'
-            """, user_id)
-            if count >= limit:
-                raise HTTPException(status_code=429, detail="Daily message limit reached")
-            await db.execute("""
-                INSERT INTO usage_events (user_id, event_type) VALUES ($1, 'message_sent')
-            """, user_id)
-        elif session_id:
-            row = await db.fetchrow(
-                "SELECT msg_count FROM anonymous_sessions WHERE id = $1", session_id
-            )
-            if not row:
-                raise HTTPException(status_code=404, detail="Session not found")
-            limit = await get_limit("anonymous", "messages_total")
-            if row["msg_count"] >= limit:
-                raise HTTPException(status_code=429, detail="session_limit_reached")
-
-
-async def _generate_chips(reply: str, language: str) -> list[str]:
-    """
-    Generate 3 topic-specific follow-up suggestion chips.
-    Mix of: deeper questions, real-world examples, common mistake checks.
-    Each must be ≤9 words and specific to the content — not generic.
-    """
-    try:
-        resp = await openai_client.chat.completions.create(
-            model=get_model("suggestion_chips"),
-            messages=[{
-                "role": "user",
-                "content": (
-                    "Generate exactly 3 short follow-up prompts a student would naturally say "
-                    "after reading this explanation. Rules:\n"
-                    "- Each prompt ≤9 words\n"
-                    "- Be SPECIFIC: mention actual concepts, formulas, or terms from the text\n"
-                    "- Mix: one deeper question, one example/application request, one common-mistake check\n"
-                    "- Do NOT use generic phrases like 'explain more' or 'tell me more'\n"
-                    f"- Language: {language}\n"
-                    "Return JSON: {\"suggestions\": [\"...\", \"...\", \"...\"]}\n\n"
-                    f"{reply[:700]}"
-                ),
-            }],
-            max_tokens=150,
-            temperature=0.7,
-            response_format={"type": "json_object"},
-        )
-        data = json.loads(resp.choices[0].message.content)
-        chips = data.get("suggestions") or data.get("chips") or []
-        return [c for c in chips if isinstance(c, str) and c.strip()][:3]
-    except Exception:
-        return []
 
 
 async def _generate_title(message: str, language: str) -> str:

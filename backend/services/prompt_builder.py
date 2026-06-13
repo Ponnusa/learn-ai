@@ -185,6 +185,66 @@ async def build_chat_prompt(
     return prompt + personalisation
 
 
+STUDYSET_SYSTEM_PROMPT_TEMPLATE = (
+    'You are a focused study tutor for the set "{title}" ({subject}).\n\n'
+    "Answer the student's questions ONLY based on the material provided below. "
+    "If the answer is not in the material, say so clearly — do not guess. "
+    "Be concise, clear, and educational. Cite specific points when helpful.\n"
+    "For mathematical or chemical notation use KaTeX/LaTeX: $...$ inline, $$...$$ for blocks.\n\n"
+    "CONTINUITY RULES (critical):\n"
+    "- Do not re-explain concepts already covered in this conversation.\n"
+    "- Reference prior explanations briefly and build on them.\n"
+    "- If the student asks something already answered, probe what's still unclear.\n\n"
+    "--- STUDY MATERIAL ---\n"
+    "{material}\n"
+    "--- END OF MATERIAL ---"
+)
+
+
+async def build_studyset_prompt(
+    title: str,
+    subject: str | None,
+    material_text: str,
+    user_id: str | None,
+) -> str:
+    """
+    Returns the full system prompt for a grounded studyset chat response.
+    Applies student personalisation from the profile if user_id is provided.
+    """
+    prompt = STUDYSET_SYSTEM_PROMPT_TEMPLATE.format(
+        title=title,
+        subject=subject or "General",
+        material=material_text[:60_000],
+    )
+
+    if not user_id:
+        return prompt
+
+    async with get_db() as db:
+        profile = await db.fetchrow(
+            "SELECT * FROM student_profiles WHERE user_id = $1", user_id
+        )
+    if not profile:
+        return prompt
+
+    score       = (profile["skill_scores"] or {}).get(subject or "General", 50)
+    level_block = _score_to_instruction(score, subject or "this subject")
+    modifier    = (profile["prompt_modifier"] or "").strip()
+    misconceptions = profile["known_misconceptions"] or []
+    misc_block  = ""
+    if misconceptions:
+        items      = "; ".join(misconceptions[:3])
+        misc_block = f"\nKnown misconceptions to address when relevant: {items}."
+
+    personalisation  = "\n\n--- STUDENT PERSONALISATION ---\n"
+    personalisation += level_block
+    if modifier:
+        personalisation += f"\n{modifier}"
+    personalisation += misc_block
+
+    return prompt + personalisation
+
+
 async def build_video_prompt(
     concept_text: str,
     user_id: str | None,

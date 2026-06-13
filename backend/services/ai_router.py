@@ -40,6 +40,7 @@ MODELS = {
     "title_generation":          "gpt-4o-mini",
     "suggestion_chips":          "gpt-4o-mini",
     "conversation_summary":      "gpt-4o-mini",   # rolling summary + topic extraction
+    "studyset_chat":             "gpt-4o",        # grounded PDF chat — needs reasoning quality
 }
 
 

@@ -11,6 +11,7 @@ StudySet router.
   POST   /api/studysets/{id}/cards/{card_id}/review         — record flashcard rating
   DELETE /api/studysets/{id}                                — delete
 """
+import json as _json
 import logging
 import uuid as _uuid
 from datetime import datetime, timezone
@@ -19,6 +20,12 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from pydantic import BaseModel
 
 from database import get_db
+from services.ai_router import openai_client, get_model
+from services.credits import check_message_credit
+from services.chips import generate_chips
+from services.prompt_builder import build_studyset_prompt, inject_conversation_context
+from services.conversation_summarizer import maybe_summarize
+from services.profile_updater import update_student_profile
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +50,6 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None   # None on first message; subsequent messages pass it back
     user_id: str | None = None
     session_id: str | None = None
-    history: list[dict] = []             # [{role, content}, ...] — last N turns from frontend
     image_url: str | None = None         # R2 URL of a captured PDF region (vision input)
 
 
@@ -262,15 +268,17 @@ async def proxy_material_pdf(study_set_id: str, material_id: str):
 
 
 @router.post("/{study_set_id}/chat")
-async def chat_with_studyset(study_set_id: str, req: ChatRequest):
+async def chat_with_studyset(study_set_id: str, req: ChatRequest, bg: BackgroundTasks):
     """
     Grounded chat — answers are strictly from the study material.
     Creates a persisted conversation on first message; all turns are
     saved to messages table so history survives page refreshes.
     Supports vision: pass image_url (R2 URL of a PDF region capture).
     """
-    import json as _json
+    # ── 1. Credit check ───────────────────────────────────────────────────────
+    await check_message_credit(req.user_id, req.session_id)
 
+    # ── 2. Fetch study set + materials ────────────────────────────────────────
     async with get_db() as db:
         ss = await db.fetchrow(
             "SELECT title, subject, summary FROM study_sets WHERE id = $1::uuid",
@@ -289,7 +297,7 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
     if not mat_rows:
         raise HTTPException(400, "No processed material yet — please wait for processing to finish")
 
-    # ── 1. Get or create conversation (one per studyset per user/session) ────
+    # ── 3. Get or create conversation (one per studyset per user/session) ─────
     conv_id = req.conversation_id
     if not conv_id:
         async with get_db() as db:
@@ -317,37 +325,55 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
                 )
             conv_id = str(conv["id"])
 
-    # ── 2. Save user message (with image metadata if present) ────────────────
+    # ── 4. Fetch history from DB + conversation context ───────────────────────
+    async with get_db() as db:
+        db_history = await db.fetch("""
+            SELECT role, content FROM messages
+            WHERE conversation_id = $1::uuid
+            ORDER BY created_at DESC LIMIT 6
+        """, conv_id)
+        db_history = list(reversed(db_history))
+
+        conv_row = await db.fetchrow("""
+            SELECT summary, topics_covered, summarized_msg_count
+            FROM conversations WHERE id = $1::uuid
+        """, conv_id)
+
+    conv_summary   = conv_row["summary"] if conv_row else None
+    topics_covered = conv_row["topics_covered"] if conv_row else None
+
+    # ── 5. Save user message (with image metadata if present) ─────────────────
     content_type = "image_url" if req.image_url else "text"
     metadata     = _json.dumps({"image_url": req.image_url}) if req.image_url else "{}"
     async with get_db() as db:
-        user_msg = await db.fetchrow(
+        await db.execute(
             """INSERT INTO messages (conversation_id, role, content, content_type, metadata)
-               VALUES ($1::uuid, 'user', $2, $3, $4::jsonb) RETURNING id""",
+               VALUES ($1::uuid, 'user', $2, $3, $4::jsonb)""",
             conv_id, req.message, content_type, metadata,
         )
+        if req.session_id:
+            await db.execute(
+                "UPDATE anonymous_sessions SET msg_count = msg_count + 1 WHERE id = $1",
+                req.session_id,
+            )
 
-    # ── 3. Build AI prompt ────────────────────────────────────────────────────
-    full_text = "\n\n".join(r["raw_text"] or "" for r in mat_rows if r["raw_text"])
-    context   = full_text[:60_000]
-
-    system_prompt = (
-        f'You are a focused tutor for the study set "{ss["title"]}" '
-        f'({ss["subject"] or "General"}).\n\n'
-        "Answer the student's questions ONLY based on the material provided below. "
-        "If the answer is not in the material, say so clearly — do not guess. "
-        "Be concise, clear, and educational. Cite specific points from the material when helpful.\n\n"
-        "--- STUDY MATERIAL ---\n"
-        f"{context}\n"
-        "--- END OF MATERIAL ---"
+    # ── 6. Build system prompt (grounded + personalised + continuity) ─────────
+    full_text     = "\n\n".join(r["raw_text"] or "" for r in mat_rows if r["raw_text"])
+    system_prompt = await build_studyset_prompt(
+        title=ss["title"],
+        subject=ss["subject"],
+        material_text=full_text,
+        user_id=req.user_id,
     )
+    system_prompt = inject_conversation_context(system_prompt, conv_summary, topics_covered)
 
+    # ── 7. Build messages for AI ──────────────────────────────────────────────
     ai_messages = [{"role": "system", "content": system_prompt}]
-    for h in req.history[-10:]:
+    for h in db_history:
         ai_messages.append({"role": h["role"], "content": h["content"]})
 
-    # Concept-seeded intro: structured lesson format
-    if req.concept_name and not req.history:
+    # Concept-seeded intro: structured lesson format (only on very first message)
+    if req.concept_name and not db_history:
         base_text = (
             f'Give me a thorough lesson on "{req.concept_name}" based on the study material. '
             f'Structure your response as:\n'
@@ -360,7 +386,6 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
     else:
         base_text = req.message
 
-    # Vision: if image_url supplied, build multipart user content
     if req.image_url:
         user_content = [
             {"type": "text", "text": base_text},
@@ -371,26 +396,34 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest):
 
     ai_messages.append({"role": "user", "content": user_content})
 
-    # ── 4. Call AI ────────────────────────────────────────────────────────────
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-    response = await client.chat.completions.create(
-        model="gpt-4o-mini",
+    # ── 8. Call AI (gpt-4o via model router) ─────────────────────────────────
+    response = await openai_client.chat.completions.create(
+        model=get_model("studyset_chat"),
         messages=ai_messages,
-        max_tokens=1000,
+        max_tokens=1500,
         temperature=0.3,
     )
     reply = response.choices[0].message.content
 
-    # ── 5. Save AI reply ──────────────────────────────────────────────────────
+    # ── 9. Generate contextual chips ──────────────────────────────────────────
+    chips = await generate_chips(reply)
+
+    # ── 10. Save AI reply ─────────────────────────────────────────────────────
     async with get_db() as db:
         ai_msg = await db.fetchrow(
-            """INSERT INTO messages (conversation_id, role, content)
-               VALUES ($1::uuid, 'assistant', $2) RETURNING id""",
-            conv_id, reply,
+            """INSERT INTO messages (conversation_id, role, content, metadata)
+               VALUES ($1::uuid, 'assistant', $2, $3::jsonb) RETURNING id""",
+            conv_id, reply, _json.dumps({"chips": chips}),
         )
+        msg_count_row = await db.fetchrow(
+            "SELECT COUNT(*) AS cnt FROM messages WHERE conversation_id = $1::uuid", conv_id
+        )
+        msg_count = msg_count_row["cnt"]
 
-    chips = ["Quiz me on this", "Create a video", "Give me an example", "Explain differently"]
+    # ── 11. Background tasks ──────────────────────────────────────────────────
+    bg.add_task(maybe_summarize, conv_id, msg_count)
+    if req.user_id and msg_count % 5 == 0:
+        bg.add_task(update_student_profile, req.user_id, conv_id, ss["subject"] or "General")
 
     return {
         "reply":           reply,
