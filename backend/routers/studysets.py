@@ -433,6 +433,70 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest, bg: Background
     }
 
 
+@router.post("/{study_set_id}/debug-prompt")
+async def debug_studyset_prompt(study_set_id: str, req: ChatRequest):
+    """
+    DEV — returns the exact system prompt + message history that would be
+    sent to the AI for this studyset chat, without calling the AI.
+    """
+    async with get_db() as db:
+        ss = await db.fetchrow(
+            "SELECT title, subject FROM study_sets WHERE id = $1::uuid", study_set_id
+        )
+        if not ss:
+            raise HTTPException(404, "Study set not found")
+        mat_rows = await db.fetch(
+            """SELECT raw_text FROM study_materials
+               WHERE study_set_id = $1::uuid AND status = 'ready'
+               ORDER BY created_at""",
+            study_set_id,
+        )
+
+    conv_id        = req.conversation_id
+    conv_summary   = None
+    topics_covered = None
+    history: list  = []
+
+    if conv_id:
+        async with get_db() as db:
+            conv_row = await db.fetchrow("""
+                SELECT summary, topics_covered
+                FROM conversations WHERE id = $1::uuid
+            """, conv_id)
+            if conv_row:
+                conv_summary   = conv_row["summary"]
+                topics_covered = conv_row["topics_covered"]
+
+            rows = await db.fetch("""
+                SELECT role, content FROM messages
+                WHERE conversation_id = $1::uuid
+                ORDER BY created_at DESC LIMIT 6
+            """, conv_id)
+            history = list(reversed(rows))
+
+    full_text     = "\n\n".join(r["raw_text"] or "" for r in mat_rows if r["raw_text"])
+    system_prompt = await build_studyset_prompt(
+        title=ss["title"],
+        subject=ss["subject"],
+        material_text=full_text,
+        user_id=req.user_id,
+    )
+    system_prompt = inject_conversation_context(system_prompt, conv_summary, topics_covered)
+
+    msgs = [{"role": h["role"], "content": h["content"]} for h in history]
+
+    return {
+        "model":               get_model("studyset_chat"),
+        "system_prompt":       system_prompt,
+        "system_prompt_chars": len(system_prompt),
+        "material_chars":      len(full_text),
+        "history":             msgs,
+        "history_count":       len(msgs),
+        "conversation_id":     conv_id,
+        "subject":             ss["subject"],
+    }
+
+
 @router.get("/{study_set_id}/conversations")
 async def get_studyset_conversations(study_set_id: str):
     """List all conversations linked to this study set, with counts."""

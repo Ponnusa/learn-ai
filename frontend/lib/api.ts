@@ -87,6 +87,34 @@ export const listConversations = (userId?: string, sessionId?: string, token?: s
 export const getMessages = (conversationId: string, token?: string) =>
   get<any[]>(`/api/chat/conversations/${conversationId}/messages`, token);
 
+type DebugPromptResponse = {
+  model: string;
+  system_prompt: string;
+  system_prompt_chars: number;
+  material_chars?: number;
+  history: { role: string; content: string }[];
+  history_count: number;
+  conversation_id: string | null;
+  subject?: string | null;
+};
+
+export const debugChatPrompt = (data: {
+  message: string;
+  conversation_id?: string;
+  user_id?: string;
+  session_id?: string;
+  language?: string;
+}, token?: string) =>
+  post<DebugPromptResponse>('/api/chat/debug-prompt', data, token);
+
+export const debugStudysetPrompt = (studySetId: string, data: {
+  message: string;
+  conversation_id?: string;
+  user_id?: string;
+  session_id?: string;
+}, token?: string) =>
+  post<DebugPromptResponse>(`/api/studysets/${studySetId}/debug-prompt`, data, token);
+
 export const sendMessage = (data: {
   message: string;
   conversation_id?: string;

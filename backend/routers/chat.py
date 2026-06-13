@@ -105,6 +105,54 @@ async def get_messages(conversation_id: str):
     return result
 
 
+@router.post("/debug-prompt")
+async def debug_prompt(req: ChatRequest):
+    """
+    DEV — returns the exact system prompt + message history that would be
+    sent to the AI for this request, without calling the AI or charging credit.
+    """
+    conv_id      = req.conversation_id
+    subject      = None
+    conv_summary = None
+    topics_covered = None
+    history: list = []
+
+    if conv_id:
+        async with get_db() as db:
+            conv = await db.fetchrow("""
+                SELECT subject, summary, topics_covered
+                FROM conversations WHERE id = $1
+            """, conv_id)
+            if conv:
+                subject        = conv["subject"]
+                conv_summary   = conv["summary"]
+                topics_covered = conv["topics_covered"]
+
+            rows = await db.fetch("""
+                SELECT role, content FROM messages
+                WHERE conversation_id = $1
+                ORDER BY created_at DESC LIMIT 6
+            """, conv_id)
+            history = list(reversed(rows))
+
+    system_prompt = await build_chat_prompt(req.user_id, subject, req.language)
+    system_prompt = inject_conversation_context(system_prompt, conv_summary, topics_covered)
+
+    task   = "chat_response_vision" if req.image_url else "chat_response"
+    model  = get_model(task)
+    msgs   = [{"role": h["role"], "content": h["content"]} for h in history]
+
+    return {
+        "model":               model,
+        "system_prompt":       system_prompt,
+        "system_prompt_chars": len(system_prompt),
+        "history":             msgs,
+        "history_count":       len(msgs),
+        "conversation_id":     conv_id,
+        "subject":             subject,
+    }
+
+
 @router.post("/send")
 async def send_message(req: ChatRequest, bg: BackgroundTasks):
     """

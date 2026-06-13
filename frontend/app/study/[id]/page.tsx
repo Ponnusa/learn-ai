@@ -11,7 +11,7 @@ import {
   ArrowLeft, ArrowRight, Upload, Loader, LayoutGrid, MessageSquare,
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
   FileText, AlertCircle, Send, BookOpen, HelpCircle,
-  Lightbulb, Repeat2, Video, Eye,
+  Lightbulb, Repeat2, Video, Eye, Bug,
   ZoomIn, ZoomOut, X as XIcon, ImageIcon,
 } from 'lucide-react';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
@@ -24,8 +24,10 @@ import {
   getConversationVideos, listEduImages, fetchMaterialPdf, uploadRegionImage, generateEduImage,
   getQuiz,
   createSession,
+  debugStudysetPrompt,
   StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial, StudyConcept,
 } from '@/lib/api';
+import { DebugPromptModal } from '@/components/chat/DebugPromptModal';
 import { ImageStatusCard } from '@/components/chat/MessageBubble';
 
 // PDFViewerModal uses browser-only APIs — never SSR
@@ -670,6 +672,7 @@ function ActiveChat({
   const [imageing, setImageing]    = useState(false);
   const [convId, setConvId]        = useState<string | null>(null);
   const [lastMsgId, setLastMsgId]  = useState<string | null>(null);
+  const [debugData,  setDebugData] = useState<any>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const firedRef  = useRef(false);
 
@@ -816,6 +819,18 @@ function ActiveChat({
   async function send() {
     const text = input.trim(); if (!text) return;
     setInput(''); await fireMessage(text);
+  }
+
+  async function handleDebug() {
+    try {
+      const data = await debugStudysetPrompt(ss.id, {
+        message:         input.trim() || '(empty)',
+        conversation_id: convId ?? undefined,
+        user_id:         user?.id,
+        session_id:      sessionId || undefined,
+      }, token ?? undefined);
+      setDebugData(data);
+    } catch (e) { console.error('Debug prompt error', e); }
   }
 
   function currentTopic() {
@@ -1135,6 +1150,11 @@ function ActiveChat({
           className="flex-1 px-4 py-2.5 rounded-xl bg-[var(--ov2)] border border-[var(--bd)]
                      text-[var(--tx1)] text-sm placeholder-[var(--tx7)]
                      focus:outline-none focus:border-indigo-500/50 disabled:opacity-50 transition-colors" />
+        <button onClick={handleDebug} title="Debug: inspect prompt sent to AI"
+          className="w-10 h-10 flex items-center justify-center rounded-xl border border-[var(--bd)]
+                     text-[var(--tx6)] hover:text-amber-400 hover:border-amber-400/30 transition-colors">
+          <Bug size={15} />
+        </button>
         <button onClick={send} disabled={!input.trim() || loading || notReady}
           className="w-10 h-10 flex items-center justify-center rounded-xl
                      bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white transition-colors">
@@ -1146,6 +1166,8 @@ function ActiveChat({
       {lightboxSrc && (
         <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       )}
+
+      {debugData && <DebugPromptModal data={debugData} onClose={() => setDebugData(null)} />}
     </div>
   );
 }

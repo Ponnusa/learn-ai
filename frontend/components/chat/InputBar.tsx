@@ -1,17 +1,18 @@
 'use client';
 import { useRef, useState, KeyboardEvent } from 'react';
-import { Send, Paperclip, X } from 'lucide-react';
+import { Send, Paperclip, X, Bug } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 
 interface InputBarProps {
   onSend: (text: string, file?: File) => void;
   onPdfOpen?: (file: File) => void;
+  onDebug?: (text: string) => void;
   loading?: boolean;
   hasFile?: boolean;
   disabled?: boolean;
 }
 
-export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, disabled = false }: InputBarProps) {
+export function InputBar({ onSend, onPdfOpen, onDebug, loading = false, hasFile = false, disabled = false }: InputBarProps) {
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -99,6 +100,17 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
           className="flex-1 bg-transparent text-[var(--tx1)] t-ph outline-none resize-none text-sm leading-6 max-h-40 overflow-y-auto no-scrollbar"
           style={{ minHeight: '24px' }}
         />
+
+        {/* Debug button — only shown when onDebug is wired up */}
+        {onDebug && (
+          <button
+            onClick={() => onDebug(text)}
+            title="Debug: inspect prompt sent to AI"
+            className="shrink-0 pb-0.5 text-[var(--tx6)] hover:text-amber-400 transition-colors"
+          >
+            <Bug size={15} />
+          </button>
+        )}
 
         {/* Send button */}
         <button
