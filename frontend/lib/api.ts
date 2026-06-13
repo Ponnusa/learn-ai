@@ -49,6 +49,23 @@ export const getUserStats = (userId: string, token?: string) =>
     member_since:  string | null;
   }>(`/api/auth/stats?user_id=${userId}`, token);
 
+export const getUserLimits = (userId: string, token?: string) =>
+  get<{
+    tier: string;
+    limits: {
+      messages_daily: number;
+      videos_daily:   number;
+      images_daily:   number;
+      quiz_daily:     number;
+    };
+    usage_today: {
+      messages: number;
+      videos:   number;
+      images:   number;
+      quizzes:  number;
+    };
+  }>(`/api/auth/limits?user_id=${userId}`, token);
+
 // ── Sessions ──────────────────────────────────────────────────────────────────
 export const createSession = (sessionId?: string) =>
   post<{ session_id: string; msg_count: number; video_count: number; quiz_count: number }>(

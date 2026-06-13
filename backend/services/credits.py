@@ -11,7 +11,7 @@ async def check_message_credit(user_id: str | None, session_id: str | None) -> N
     """
     async with get_db() as db:
         if user_id:
-            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1", user_id)
+            user = await db.fetchrow("SELECT tier FROM users WHERE id = $1::uuid", user_id)
             tier = user["tier"] if user else "free"
             limit = await get_limit(tier, "messages_daily")
             if limit == -1:

@@ -8,6 +8,7 @@ import urllib.parse
 from datetime import datetime, timedelta
 
 import bcrypt
+import asyncio
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr
@@ -16,6 +17,7 @@ from jose import jwt
 from database import get_db
 from config import settings
 from services.scoring import init_profile
+from services.tier_config import get_limit
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -374,4 +376,70 @@ async def get_user_stats(user_id: str):
         "conversations": int(conversations),
         "top_subject":   top_subject_row["subject"] if top_subject_row else None,
         "member_since":  user_row["created_at"].isoformat() if user_row else None,
+    }
+
+
+# ── /limits ───────────────────────────────────────────────────────────────────
+
+@router.get("/limits")
+async def get_user_limits(user_id: str):
+    """
+    Returns the user's tier, daily limits, and today's usage for each feature.
+    Used by the Progress page to display quota bars.
+    -1 limits mean unlimited.
+    """
+    async with get_db() as db:
+        user_row = await db.fetchrow(
+            "SELECT tier FROM users WHERE id = $1::uuid", user_id
+        )
+        if not user_row:
+            raise HTTPException(404, "User not found")
+        tier = user_row["tier"] or "free"
+
+        # Count today's usage events in parallel
+        msg_count, video_count, image_count, quiz_count = await asyncio.gather(
+            db.fetchval("""
+                SELECT COUNT(*) FROM usage_events
+                WHERE user_id = $1::uuid AND event_type = 'message_sent'
+                AND created_at > NOW() - INTERVAL '1 day'
+            """, user_id),
+            db.fetchval("""
+                SELECT COUNT(*) FROM usage_events
+                WHERE user_id = $1::uuid AND event_type = 'video_generated'
+                AND created_at > NOW() - INTERVAL '1 day'
+            """, user_id),
+            db.fetchval("""
+                SELECT COUNT(*) FROM usage_events
+                WHERE user_id = $1::uuid AND event_type = 'image_generated'
+                AND created_at > NOW() - INTERVAL '1 day'
+            """, user_id),
+            db.fetchval("""
+                SELECT COUNT(*) FROM usage_events
+                WHERE user_id = $1::uuid AND event_type = 'quiz_taken'
+                AND created_at > NOW() - INTERVAL '1 day'
+            """, user_id),
+        )
+
+    # Resolve limits for this tier (may call tier_config cache)
+    msg_limit, video_limit, image_limit, quiz_limit = await asyncio.gather(
+        get_limit(tier, "messages_daily"),
+        get_limit(tier, "videos_daily"),
+        get_limit(tier, "images_daily"),
+        get_limit(tier, "quiz_daily"),
+    )
+
+    return {
+        "tier": tier,
+        "limits": {
+            "messages_daily": msg_limit,
+            "videos_daily":   video_limit,
+            "images_daily":   image_limit,
+            "quiz_daily":     quiz_limit,
+        },
+        "usage_today": {
+            "messages": int(msg_count or 0),
+            "videos":   int(video_count or 0),
+            "images":   int(image_count or 0),
+            "quizzes":  int(quiz_count or 0),
+        },
     }
