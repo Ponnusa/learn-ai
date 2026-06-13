@@ -11,7 +11,7 @@ import {
   ArrowLeft, ArrowRight, Upload, Loader, LayoutGrid, MessageSquare,
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
   FileText, AlertCircle, Send, BookOpen, HelpCircle,
-  Video, Eye, Bug,
+  Eye, Bug,
   ZoomIn, ZoomOut, X as XIcon, ImageIcon,
 } from 'lucide-react';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
@@ -1062,37 +1062,36 @@ function ActiveChat({
             )}
             {/* Action buttons — shown under every AI message except quiz cards */}
             {m.role === 'assistant' && !m.quizId && !loading && (
-              <div className="max-w-[88%] mt-1.5 flex flex-wrap gap-1.5">
+              <div className="max-w-[88%] mt-1.5 flex flex-wrap gap-2">
                 {!m.videoId && (
                   <button
                     onClick={() => handlePerMessageAction('Create a video', m.content, m.id, i)}
                     disabled={videoing}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium
-                               bg-[var(--ov3)] hover:bg-violet-500/15 hover:text-violet-400
-                               border border-[var(--bd)] hover:border-violet-500/30
-                               text-[var(--tx5)] transition-all disabled:opacity-40">
-                    {videoing ? <Loader size={10} className="animate-spin" /> : <Video size={10} />}
-                    Create a video
+                    className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
+                               bg-purple-600/25 hover:bg-purple-600/40 text-[var(--purple)]
+                               border border-purple-500/25 disabled:opacity-40">
+                    {videoing ? <Loader size={11} className="animate-spin" /> : '🎬'}
+                    Animate it
                   </button>
                 )}
                 {!m.imageJobId && i === messages.length - 1 && (
                   <button
                     onClick={() => handleChip('Sketch it')}
                     disabled={imageing}
-                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium
+                    className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
                                bg-teal-500/10 hover:bg-teal-500/20 text-teal-400
-                               border border-teal-500/20 transition-all disabled:opacity-40">
-                    {imageing ? <Loader size={10} className="animate-spin" /> : <ImageIcon size={10} />}
+                               border border-teal-500/20 disabled:opacity-40">
+                    {imageing ? <Loader size={11} className="animate-spin" /> : <ImageIcon size={12} />}
                     Sketch it
                   </button>
                 )}
                 <button
                   onClick={() => handlePerMessageAction('Quiz me on this', m.content, m.id, i)}
                   disabled={quizzing}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium
-                             bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400
-                             border border-indigo-500/20 transition-all disabled:opacity-40">
-                  {quizzing ? <Loader size={10} className="animate-spin" /> : <HelpCircle size={10} />}
+                  className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
+                             bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
+                             border border-indigo-500/20 disabled:opacity-40">
+                  {quizzing ? <Loader size={11} className="animate-spin" /> : '✏️'}
                   Quiz me
                 </button>
               </div>
