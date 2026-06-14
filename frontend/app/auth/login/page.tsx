@@ -60,7 +60,14 @@ export default function LoginPage() {
       if (!res.ok) throw new Error(data.detail || 'Authentication failed');
 
       setUser(data.user, data.token);
-      router.replace('/');
+      const dest = data.user.account_type === 'super_admin'
+        ? '/admin'
+        : data.user.account_type === 'institution_admin'
+          ? '/institution/dashboard'
+          : data.user.account_type === 'teacher'
+            ? '/teacher/dashboard'
+            : '/';
+      router.replace(dest);
     } catch (err: any) {
       setError(err.message);
     } finally {

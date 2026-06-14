@@ -48,7 +48,14 @@ function CallbackContent() {
       .then(({ ok, data }) => {
         if (!ok) throw new Error(data.detail || 'Google sign-in failed');
         setUser(data.user, data.token);
-        router.replace('/');
+        const dest = data.user.account_type === 'super_admin'
+          ? '/admin'
+          : data.user.account_type === 'institution_admin'
+            ? '/institution/dashboard'
+            : data.user.account_type === 'teacher'
+              ? '/teacher/dashboard'
+              : '/';
+        router.replace(dest);
       })
       .catch(e => setError(e.message));
   }, []);
