@@ -154,6 +154,22 @@ export const sv: Translation = {
     generatingAnimation: 'Genererar Manim-animation',
     queuedRendering: 'I kö för rendering',
     renderingVideo: 'Renderar video',
+    videoReady: 'Video klar!',
+    animationGenerated: 'Din animering har genererats',
+    watchBtn: 'Titta',
+    videoFailed: 'Videogenerering misslyckades',
+    retryAnimation: 'Försök animering igen',
+    regenerateFromScratch: 'Regenerera från grunden',
+    generatingVideo: 'Genererar video…',
+    generatingTime: '~2 min',
+    takingTooLong: 'Tar det för lång tid?',
+    restart: 'Starta om',
+    restarting: 'Startar om…',
+    remove: 'Ta bort',
+    removing: 'Tar bort…',
+    transcript: 'Transkript',
+    videoContent: 'Videoinnehåll',
+    stepBySolution: 'Steg-för-steg-lösning',
   },
 
   quiz: {
@@ -174,6 +190,7 @@ export const sv: Translation = {
     startQuizBtn: 'Starta quiz',
     reviewBtn: 'Granska',
     questionsCount: '{n} frågor',
+    scoreLabel: 'Poäng:',
   },
 
   upload: {
@@ -283,6 +300,11 @@ export const sv: Translation = {
     processing: 'Bearbetar…',
     emptyTitle: 'Generera ditt första diagram',
     emptyDesc: 'Beskriv vilket pedagogiskt koncept som helst — fysik, kemi, biologi, geografi och mer.',
+    view: 'Visa',
+    diagramFailed: 'Diagramgenerering misslyckades',
+    retrying: 'Försöker igen…',
+    deleting: 'Tar bort…',
+    generatingInline: 'Genererar diagram…',
   },
 
   profile: {

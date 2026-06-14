@@ -29,6 +29,7 @@ interface Message {
 /* ── Quiz card ──────────────────────────────────────────────────────────────── */
 function QuizCard({ quizId, topic, numQuestions }: { quizId: string; topic: string; numQuestions?: number }) {
   const router = useRouter();
+  const { t } = useTranslation();
   const [quizStatus, setQuizStatus] = useState<{
     completed: boolean;
     score?: number | null;
@@ -53,7 +54,7 @@ function QuizCard({ quizId, topic, numQuestions }: { quizId: string; topic: stri
         <div>
           <p className="text-[var(--tx2)] text-sm font-semibold leading-snug">{topic}</p>
           {numQuestions != null && (
-            <p className="text-[var(--tx6)] text-xs mt-0.5">{numQuestions} questions</p>
+            <p className="text-[var(--tx6)] text-xs mt-0.5">{t.quiz.questionsCount.replace('{n}', String(numQuestions))}</p>
           )}
         </div>
       </div>
@@ -62,7 +63,7 @@ function QuizCard({ quizId, topic, numQuestions }: { quizId: string; topic: stri
       ) : quizStatus.completed && pct !== null ? (
         <div className="flex items-center justify-between">
           <span className="text-sm text-[var(--tx3)]">
-            ✅ Score:{' '}
+            ✅ {t.quiz.scoreLabel}{' '}
             <span className="text-[var(--tx1)] font-semibold">
               {quizStatus.score} / {quizStatus.max_score}
             </span>
@@ -74,7 +75,7 @@ function QuizCard({ quizId, topic, numQuestions }: { quizId: string; topic: stri
                        text-[var(--tx3)] hover:text-[var(--tx1)]
                        border border-[var(--bd)] transition-all"
           >
-            Review →
+            {t.quiz.reviewBtn} →
           </button>
         </div>
       ) : (
@@ -83,7 +84,7 @@ function QuizCard({ quizId, topic, numQuestions }: { quizId: string; topic: stri
           className="text-sm px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium
                      transition-all flex items-center gap-2 w-fit"
         >
-          Start Quiz <span aria-hidden>→</span>
+          {t.quiz.startQuizBtn} <span aria-hidden>→</span>
         </button>
       )}
     </div>
@@ -102,6 +103,7 @@ function TranscriptModal({
   solution?: string;
   onClose: () => void;
 }) {
+  const { t: tr } = useTranslation();
   const [tab, setTab] = useState<TranscriptTab>('transcript');
 
   // Close on Escape key
@@ -128,7 +130,7 @@ function TranscriptModal({
             <div className="w-7 h-7 rounded-lg bg-purple-600/20 flex items-center justify-center">
               <FileText size={13} className="text-[var(--purple)]" />
             </div>
-            <h2 className="text-[var(--tx1)] font-semibold text-sm">Video Content</h2>
+            <h2 className="text-[var(--tx1)] font-semibold text-sm">{tr.video.videoContent}</h2>
           </div>
           <button
             onClick={onClose}
@@ -154,7 +156,7 @@ function TranscriptModal({
                     : 'text-[var(--tx6)] hover:text-[var(--tx2)] hover:bg-[var(--ov2)]'
                 }`}
               >
-                {t === 'transcript' ? '📖 Transcript' : '🧮 Step-by-step Solution'}
+                {t === 'transcript' ? `📖 ${tr.video.transcript}` : `🧮 ${tr.video.stepBySolution}`}
               </button>
             ))}
           </div>
@@ -176,7 +178,7 @@ function TranscriptModal({
             className="px-4 py-1.5 text-xs rounded-lg bg-[var(--ov3)] hover:bg-[var(--ov4)]
                        text-[var(--tx2)] transition-colors"
           >
-            Close
+            {tr.close}
           </button>
         </div>
       </div>
@@ -185,12 +187,6 @@ function TranscriptModal({
 }
 
 /* ── Video status card ──────────────────────────────────────────────────────── */
-const VIDEO_STEPS = [
-  'Writing solution & script',   // pending
-  'Generating Manim animation',  // transcript_ready
-  'Queued for rendering',        // queued
-  'Rendering video',             // rendering
-];
 
 /** Map the exact backend status string to a step index (0-based). */
 function statusToStepIdx(status: string): number {
@@ -205,6 +201,13 @@ function statusToStepIdx(status: string): number {
 
 export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number; token?: string; onDelete?: () => void }) {
   const router = useRouter();
+  const { t } = useTranslation();
+  const VIDEO_STEPS = [
+    t.video.writingScript,
+    t.video.generatingAnimation,
+    t.video.queuedRendering,
+    t.video.renderingVideo,
+  ];
   const [status,        setStatus]        = useState<string>('pending');
   const [videoUrl,      setVideoUrl]      = useState<string | null>(null);
   const [stepIdx,       setStepIdx]       = useState(0);
@@ -300,7 +303,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
                  border border-[var(--bd)] transition-all"
     >
       <FileText size={11} />
-      Transcript
+      {t.video.transcript}
     </button>
   );
 
@@ -315,8 +318,8 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
                 <Play size={14} className="text-[var(--purple)] ml-0.5" />
               </div>
               <div>
-                <p className="text-[var(--tx2)] text-sm font-semibold">Video ready!</p>
-                <p className="text-[var(--tx7)] text-[10px]">Your animation has been generated</p>
+                <p className="text-[var(--tx2)] text-sm font-semibold">{t.video.videoReady}</p>
+                <p className="text-[var(--tx7)] text-[10px]">{t.video.animationGenerated}</p>
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
@@ -326,7 +329,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
                            bg-purple-600 hover:bg-purple-500 text-white font-medium
                            transition-colors flex items-center gap-1.5"
               >
-                Watch <span aria-hidden>→</span>
+                {t.video.watchBtn} <span aria-hidden>→</span>
               </button>
               <button
                 onClick={handleDelete}
@@ -364,7 +367,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5">
               <XCircle size={15} className="text-[var(--red)] shrink-0" />
-              <p className="text-[var(--tx2)] text-sm font-medium">Video generation failed</p>
+              <p className="text-[var(--tx2)] text-sm font-medium">{t.video.videoFailed}</p>
             </div>
             <button
               onClick={handleDelete}
@@ -389,7 +392,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
                            text-white font-medium transition-colors"
               >
                 <RefreshCw size={11} className={retrying ? 'animate-spin' : ''} />
-                {retrying ? 'Retrying…' : 'Retry animation'}
+                {retrying ? t.video.retrying : t.video.retryAnimation}
               </button>
             )}
 
@@ -402,7 +405,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
                          text-[var(--tx3)] border border-[var(--bd)] font-medium transition-colors"
             >
               <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
-              {regenerating ? 'Regenerating…' : 'Regenerate from scratch'}
+              {regenerating ? t.video.generatingBtn : t.video.regenerateFromScratch}
             </button>
 
             {transcriptBtn}
@@ -427,8 +430,8 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
         {/* Header */}
         <div className="flex items-center gap-2.5 mb-3">
           <div className="w-3.5 h-3.5 rounded-full bg-purple-500 animate-pulse shrink-0" />
-          <p className="text-[var(--tx2)] text-sm font-semibold">Generating video…</p>
-          <span className="ml-auto text-[var(--tx8)] text-[10px]">~2 min</span>
+          <p className="text-[var(--tx2)] text-sm font-semibold">{t.video.generatingVideo}</p>
+          <span className="ml-auto text-[var(--tx8)] text-[10px]">{t.video.generatingTime}</span>
         </div>
 
         {/* Steps */}
@@ -467,7 +470,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
 
         {/* Stuck controls — always visible so user can escape a hung job */}
         <div className="mt-3 pt-3 border-t border-purple-500/15 flex items-center gap-2">
-          <span className="text-[var(--tx8)] text-[10px] flex-1">Taking too long?</span>
+          <span className="text-[var(--tx8)] text-[10px] flex-1">{t.video.takingTooLong}</span>
           <button
             onClick={handleRegenerate}
             disabled={regenerating}
@@ -476,7 +479,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
                        text-[var(--tx4)] border border-[var(--bd)] transition-colors"
           >
             <RefreshCw size={9} className={regenerating ? 'animate-spin' : ''} />
-            {regenerating ? 'Restarting…' : 'Restart'}
+            {regenerating ? t.video.restarting : t.video.restart}
           </button>
           <button
             onClick={handleDelete}
@@ -486,7 +489,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
                        text-[var(--tx6)] hover:text-red-400 border border-[var(--bd)] transition-colors"
           >
             <Trash2 size={9} />
-            {deleting ? 'Removing…' : 'Remove'}
+            {deleting ? t.video.removing : t.video.remove}
           </button>
         </div>
       </div>
@@ -513,6 +516,7 @@ export function ImageStatusCard({
   const [retrying,    setRetrying]    = useState(false);
   const [deleting,    setDeleting]    = useState(false);
   const [lightbox,    setLightbox]    = useState(false);
+  const { t } = useTranslation();
 
   useEffect(() => {
     let stopped = false;
@@ -562,7 +566,7 @@ export function ImageStatusCard({
                 onClick={() => setLightbox(true)}
                 className="text-xs px-2.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-medium transition-colors flex items-center gap-1.5"
               >
-                <ZoomIn size={11} /> View
+                <ZoomIn size={11} /> {t.images.view}
               </button>
               <button
                 onClick={handleDelete}
@@ -621,7 +625,7 @@ export function ImageStatusCard({
       <div className="rounded-xl border border-[var(--wrong-bd)] bg-[var(--wrong-bg)] px-4 py-3 space-y-2.5">
         <div className="flex items-center gap-2.5">
           <XCircle size={15} className="text-[var(--red)] shrink-0" />
-          <p className="text-[var(--tx2)] text-sm font-medium">Diagram generation failed</p>
+          <p className="text-[var(--tx2)] text-sm font-medium">{t.images.diagramFailed}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -630,7 +634,7 @@ export function ImageStatusCard({
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:opacity-50 text-white font-medium transition-colors"
           >
             <RefreshCw size={11} className={retrying ? 'animate-spin' : ''} />
-            {retrying ? 'Retrying…' : 'Retry'}
+            {retrying ? t.images.retrying : t.tryAgain}
           </button>
           <button
             onClick={handleDelete}
@@ -638,7 +642,7 @@ export function ImageStatusCard({
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov2)] hover:bg-red-500/15 text-[var(--tx4)] hover:text-red-400 border border-[var(--bd)] transition-colors"
           >
             <Trash2 size={11} />
-            {deleting ? 'Deleting…' : 'Delete'}
+            {deleting ? t.images.deleting : t.delete}
           </button>
         </div>
       </div>
@@ -650,7 +654,7 @@ export function ImageStatusCard({
     <div className="rounded-xl border border-teal-500/20 bg-teal-500/5 px-4 py-3 flex items-center gap-3">
       <div className="w-3.5 h-3.5 rounded-full bg-teal-500 animate-pulse shrink-0" />
       <div>
-        <p className="text-[var(--tx2)] text-sm font-semibold">Generating diagram…</p>
+        <p className="text-[var(--tx2)] text-sm font-semibold">{t.images.generatingInline}</p>
         <p className="text-[var(--tx8)] text-[10px]">Claude spec → gpt-image-1 · ~15s</p>
       </div>
     </div>

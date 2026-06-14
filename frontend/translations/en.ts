@@ -154,6 +154,22 @@ export const en: Translation = {
     generatingAnimation: 'Generating Manim animation',
     queuedRendering: 'Queued for rendering',
     renderingVideo: 'Rendering video',
+    videoReady: 'Video ready!',
+    animationGenerated: 'Your animation has been generated',
+    watchBtn: 'Watch',
+    videoFailed: 'Video generation failed',
+    retryAnimation: 'Retry animation',
+    regenerateFromScratch: 'Regenerate from scratch',
+    generatingVideo: 'Generating video…',
+    generatingTime: '~2 min',
+    takingTooLong: 'Taking too long?',
+    restart: 'Restart',
+    restarting: 'Restarting…',
+    remove: 'Remove',
+    removing: 'Removing…',
+    transcript: 'Transcript',
+    videoContent: 'Video Content',
+    stepBySolution: 'Step-by-step Solution',
   },
 
   quiz: {
@@ -174,6 +190,7 @@ export const en: Translation = {
     startQuizBtn: 'Start Quiz',
     reviewBtn: 'Review',
     questionsCount: '{n} questions',
+    scoreLabel: 'Score:',
   },
 
   upload: {
@@ -283,6 +300,11 @@ export const en: Translation = {
     processing: 'Processing…',
     emptyTitle: 'Generate your first diagram',
     emptyDesc: 'Describe any educational concept — physics, chemistry, biology, geography, and more.',
+    view: 'View',
+    diagramFailed: 'Diagram generation failed',
+    retrying: 'Retrying…',
+    deleting: 'Deleting…',
+    generatingInline: 'Generating diagram…',
   },
 
   profile: {

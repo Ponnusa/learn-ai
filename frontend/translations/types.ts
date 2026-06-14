@@ -144,6 +144,22 @@ export interface Translation {
     generatingAnimation: string;
     queuedRendering: string;
     renderingVideo: string;
+    videoReady: string;
+    animationGenerated: string;
+    watchBtn: string;
+    videoFailed: string;
+    retryAnimation: string;
+    regenerateFromScratch: string;
+    generatingVideo: string;
+    generatingTime: string;
+    takingTooLong: string;
+    restart: string;
+    restarting: string;
+    remove: string;
+    removing: string;
+    transcript: string;
+    videoContent: string;
+    stepBySolution: string;
   };
 
   quiz: {
@@ -164,6 +180,7 @@ export interface Translation {
     startQuizBtn: string;
     reviewBtn: string;
     questionsCount: string;
+    scoreLabel: string;
   };
 
   upload: {
@@ -273,6 +290,11 @@ export interface Translation {
     processing: string;
     emptyTitle: string;
     emptyDesc: string;
+    view: string;
+    diagramFailed: string;
+    retrying: string;
+    deleting: string;
+    generatingInline: string;
   };
 
   profile: {

@@ -154,6 +154,22 @@ export const fi: Translation = {
     generatingAnimation: 'Luodaan Manim-animaatiota',
     queuedRendering: 'Jonossa renderöintiä varten',
     renderingVideo: 'Renderöidään videota',
+    videoReady: 'Video valmis!',
+    animationGenerated: 'Animaatiosi on luotu',
+    watchBtn: 'Katso',
+    videoFailed: 'Videon luominen epäonnistui',
+    retryAnimation: 'Yritä animaatiota uudelleen',
+    regenerateFromScratch: 'Luo alusta uudelleen',
+    generatingVideo: 'Luodaan videota…',
+    generatingTime: '~2 min',
+    takingTooLong: 'Kestää liian kauan?',
+    restart: 'Käynnistä uudelleen',
+    restarting: 'Käynnistetään uudelleen…',
+    remove: 'Poista',
+    removing: 'Poistetaan…',
+    transcript: 'Transkripti',
+    videoContent: 'Videosisältö',
+    stepBySolution: 'Vaiheittainen ratkaisu',
   },
 
   quiz: {
@@ -174,6 +190,7 @@ export const fi: Translation = {
     startQuizBtn: 'Aloita tentti',
     reviewBtn: 'Tarkista',
     questionsCount: '{n} kysymystä',
+    scoreLabel: 'Pisteet:',
   },
 
   upload: {
@@ -283,6 +300,11 @@ export const fi: Translation = {
     processing: 'Käsitellään…',
     emptyTitle: 'Luo ensimmäinen kaavio',
     emptyDesc: 'Kuvaile mikä tahansa opetuskäsite — fysiikka, kemia, biologia, maantieto ja paljon muuta.',
+    view: 'Näytä',
+    diagramFailed: 'Kaavion luominen epäonnistui',
+    retrying: 'Yritetään uudelleen…',
+    deleting: 'Poistetaan…',
+    generatingInline: 'Luodaan kaaviota…',
   },
 
   profile: {
