@@ -550,11 +550,290 @@ Same pipeline. Same endpoints. New context.
 
 ---
 
-### Sprint 1 — Week 1: Role + Classroom Shell
+### Sprint 0 — Week 1: Institutions + Teacher Accounts + Separate Auth Portal
 
-**Goal:** Teacher can sign up, create a classroom, generate a join code. Student can join.
+**Goal:** Two distinct onboarding paths exist — one for teachers/institutions, one for students.
+No teacher or institution can access the platform without going through the right gate.
+Students are completely unaffected by any of this.
 
-#### Migration (`009_teacher_classrooms.sql`)
+---
+
+#### Two Business Models, One Backend
+
+```
+Standalone teacher   →  invited individually by you  →  no institution_id
+Institution          →  school / tuition center signs up  →  admin activates teachers and students
+```
+
+Both use the same classrooms, courses, concepts pipeline.
+`institution_id NULL` on a classroom = standalone teacher.
+`institution_id SET` = belongs to a school, institution admin can see it.
+
+---
+
+#### Migration (`009_institutions.sql`)
+
+```sql
+-- Institution (school, tuition center, university, coaching institute)
+CREATE TABLE institutions (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name         TEXT NOT NULL,
+  type         TEXT NOT NULL,         -- school | tuition_center | university | coaching
+  email_domain TEXT,                  -- e.g. 'helsinki-hs.edu' → auto-verify members
+  country      TEXT,
+  plan         TEXT DEFAULT 'trial',  -- trial | pro | enterprise
+  max_teachers INT DEFAULT 5,         -- trial cap
+  max_students INT DEFAULT 50,        -- trial cap
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Who belongs to which institution and in what role
+CREATE TABLE institution_members (
+  institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
+  user_id        UUID REFERENCES users(id) ON DELETE CASCADE,
+  role           TEXT NOT NULL,         -- admin | teacher | student
+  status         TEXT DEFAULT 'active', -- active | suspended | pending
+  invited_by     UUID REFERENCES users(id),
+  joined_at      TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (institution_id, user_id)
+);
+
+-- Teacher invite codes (standalone teachers, not under an institution)
+CREATE TABLE teacher_invites (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  code       TEXT UNIQUE NOT NULL DEFAULT substr(md5(random()::text), 1, 12),
+  email      TEXT,           -- pre-assigned to a specific email, or NULL for open
+  created_by UUID REFERENCES users(id),  -- your admin account
+  used_by    UUID REFERENCES users(id),
+  used_at    TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '30 days',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Role on users — student by default, elevated to teacher/admin explicitly
+ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'student';
+-- values: 'student' | 'teacher' | 'institution_admin' | 'super_admin'
+```
+
+---
+
+#### Backend — new file `backend/routers/institutions.py`
+
+- [ ] `POST /api/institutions/apply` — institution submits sign-up form
+  - Creates `institutions` row (plan = 'trial')
+  - Creates admin `users` row with `account_type = 'institution_admin'`
+  - Creates `institution_members` row (role = 'admin')
+  - Sends welcome email with login link
+- [ ] `GET  /api/institutions/:id` — institution admin reads their institution details
+- [ ] `POST /api/institutions/:id/teachers/invite` — admin invites a teacher by email
+  - Sends email with a one-time join link
+  - On teacher click: creates/matches user, creates `institution_members` row (role = 'teacher'), sets `account_type = 'teacher'`
+- [ ] `POST /api/institutions/:id/students/bulk` — admin bulk-imports student roster (CSV: name, email)
+- [ ] `GET  /api/institutions/:id/members?role=teacher` — list teachers
+- [ ] `GET  /api/institutions/:id/members?role=student` — list students
+- [ ] `GET  /api/institutions/:id/overview` — cross-teacher analytics: total classrooms, total students, usage stats
+- [ ] `PATCH /api/institutions/:id/members/:user_id` — suspend / reactivate a member
+
+#### Backend — new file `backend/routers/teacher_auth.py`
+
+- [ ] `POST /api/teacher-auth/apply` — standalone teacher applies (name, email, school name, subject)
+  - Creates a pending application row (NOT a user yet — awaiting your approval)
+- [ ] `POST /api/teacher-auth/redeem-invite` — teacher redeems invite code
+  - Validates code exists, not used, not expired
+  - Creates/matches `users` row, sets `account_type = 'teacher'`
+  - Marks invite as used
+  - Returns magic link or triggers email login
+- [ ] Register both routers in `main.py`
+
+#### Backend — update `backend/routers/auth.py`
+
+- [ ] On login response, include `account_type` and `institution_id` (if member of one)
+- [ ] This lets the frontend route correctly immediately after login
+
+---
+
+#### Frontend — Separate Teacher/Institution Portal
+
+The student-facing site (`/auth`) stays completely unchanged.
+A separate auth entry point is created for teachers and institutions.
+
+**Option A (same domain, separate route):**
+`/auth` = students (existing)
+`/auth/teacher` = teachers and institutions
+
+**Option B (separate subdomain — cleaner brand separation):**
+`teach.learnx-ai.com/auth` = teacher/institution portal
+
+Start with Option A (no infra changes). Move to Option B when you have traction.
+
+---
+
+#### New pages to create
+
+**`app/auth/teacher/page.tsx` — Teacher & Institution Login Hub**
+
+This is the landing page for all non-student accounts. Three entry points:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                                                          │
+│   LearnX  for  Educators                                │
+│   Powerful AI tools for teachers and schools            │
+│                                                          │
+│   ┌──────────────────┐   ┌──────────────────────────┐  │
+│   │  I have an       │   │  I represent a school    │  │
+│   │  invite code     │   │  or tuition centre       │  │
+│   │                  │   │                          │  │
+│   │  [Enter code]    │   │  [Apply for access]      │  │
+│   └──────────────────┘   └──────────────────────────┘  │
+│                                                          │
+│   Already have an account?  [Sign in →]                 │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+**`app/auth/teacher/invite/page.tsx` — Standalone Teacher Invite Redemption**
+
+```
+┌──────────────────────────────────────────┐
+│  Welcome, Teacher                        │
+│                                          │
+│  Enter your invite code                  │
+│  [____-____-____]                        │
+│                                          │
+│  Your name: [________________]           │
+│  Your email: [_______________]           │
+│                                          │
+│  [Continue →]                            │
+│                                          │
+│  Don't have a code? Apply for access →  │
+└──────────────────────────────────────────┘
+```
+
+On submit: calls `POST /api/teacher-auth/redeem-invite` → sends magic link to email →
+teacher clicks link → lands on teacher dashboard.
+
+**`app/auth/teacher/institution/page.tsx` — Institution Sign-Up**
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Get LearnX for your school or centre                │
+├──────────────────────────────────────────────────────┤
+│  Institution name    [_________________________]     │
+│  Type                [School ▼]                      │
+│                      School / Tuition centre /       │
+│                      University / Coaching institute │
+│  Country             [Finland ▼]                     │
+│  School email domain [e.g. yourschool.edu] optional  │
+│                                                      │
+│  Your name           [_________________________]     │
+│  Your role           [Principal / IT Admin / Owner]  │
+│  Your email          [_________________________]     │
+│                                                      │
+│  Estimated teachers  [____]                          │
+│  Estimated students  [____]                          │
+│                                                      │
+│  [Get started — free trial →]                        │
+│                                                      │
+│  Free trial: up to 5 teachers, 50 students.         │
+│  No credit card required.                            │
+└──────────────────────────────────────────────────────┘
+```
+
+On submit: institution created in trial mode, admin account created, email sent with login.
+
+**`app/auth/teacher/signin/page.tsx` — Teacher/Admin Sign In**
+
+Reuses existing magic link + Google OAuth logic.
+Only difference: after login, checks `account_type` and routes to:
+- `account_type === 'teacher'` → `/teacher/dashboard`
+- `account_type === 'institution_admin'` → `/institution/dashboard`
+- `account_type === 'student'` → back to `/auth` (wrong portal — show error message)
+
+---
+
+#### Institution Admin Portal — new route group `app/institution/`
+
+**`app/institution/dashboard/page.tsx`**
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Helsinki High School                  Trial: 3/5 teachers, 12/50 students │
+├──────────────────┬──────────────────────────────────┤
+│  TEACHERS  (3)   │  INSTITUTION OVERVIEW             │
+│                  │                                   │
+│  Ms. Patel  ✅   │  Active classrooms:  7            │
+│  Mr. Smith  ✅   │  Total students:    12            │
+│  Ms. Jones  ⚠️   │  Videos generated: 23            │
+│  (inactive 5d)   │  AI messages:     847            │
+│                  │                                   │
+│  [+ Invite       │  CROSS-TEACHER SIGNALS            │
+│   teacher]       │  ⚠️ Maths Unit 3 — avg 52%       │
+│                  │     across 2 classes              │
+├──────────────────┴──────────────────────────────────┤
+│  [Invite teachers]  [Import students]  [Upgrade plan]│
+└─────────────────────────────────────────────────────┘
+```
+
+**`app/institution/teachers/page.tsx`** — add/remove/suspend teachers, see their classrooms
+**`app/institution/students/page.tsx`** — bulk import, list all students across institution
+
+---
+
+#### Login Routing Logic (centralised in `app/auth/` layout)
+
+After any successful login, check `account_type` from the auth response and redirect:
+
+| account_type | Redirect |
+|---|---|
+| `student` (default) | `/` (existing student home) |
+| `teacher` | `/teacher/dashboard` |
+| `institution_admin` | `/institution/dashboard` |
+| `super_admin` | `/admin` (your internal admin) |
+
+Add a link on the existing student login page:
+"Are you a teacher or school? → Sign in here" pointing to `/auth/teacher`
+
+---
+
+#### Teacher Onboarding Flow (Standalone)
+
+```
+1. Teacher gets invite code from you (email or direct message)
+2. Goes to learnx-ai.com/auth/teacher
+3. Clicks "I have an invite code"
+4. Enters code + name + email
+5. Magic link sent to email
+6. Clicks link → lands on /teacher/dashboard (empty state)
+7. Guided prompt: "Create your first classroom →"
+8. (Sprint 2) Upload syllabus → course extracted → publish
+9. Copy join code → share with students
+```
+
+#### Institution Onboarding Flow
+
+```
+1. Principal/owner goes to learnx-ai.com/auth/teacher
+2. Clicks "I represent a school or tuition centre"
+3. Fills institution form (name, type, country, domain, admin details)
+4. Submits → institution created in trial mode
+5. Email sent: "Welcome — here's your admin login"
+6. Admin logs in → /institution/dashboard (shows teacher cap: 0/5 used)
+7. Admin clicks "Invite teachers" → enters teacher emails → invites sent
+8. Each teacher receives email → clicks link → redeems → sets up classroom
+9. Admin imports student roster CSV → students get emails with join instructions
+10. Students sign up → join classrooms via code OR auto-join if email domain matches
+```
+
+**Effort: 4–5 days**
+
+---
+
+### Sprint 1 — Week 2: Classroom Shell
+
+**Goal:** Teacher can create a classroom, generate a join code. Student can join.
+
+#### Migration (`010_teacher_classrooms.sql`)
 
 ```sql
 -- Distinguish teacher accounts from student accounts
@@ -602,12 +881,12 @@ CREATE TABLE classroom_students (
 
 ---
 
-### Sprint 2 — Week 2: Course Structure + Syllabus Import
+### Sprint 2 — Week 3: Course Structure + Syllabus Import
 
 **Goal:** Teacher uploads a syllabus PDF → course structure extracted in 30 seconds → teacher reviews and publishes.
 This is the "aha moment" of teacher onboarding and reuses the existing study set pipeline entirely.
 
-#### Migration (`010_courses_units.sql`)
+#### Migration (`011_courses_units.sql`)
 
 ```sql
 CREATE TABLE courses (
@@ -662,11 +941,11 @@ units with grouped concepts. Estimate: half a day of prompt engineering, not cod
 
 ---
 
-### Sprint 3 — Week 3: Student Concept Page + Progress Tracking
+### Sprint 3 — Week 4: Student Concept Page + Progress Tracking
 
 **Goal:** Students can join a classroom, see the course, and work through concepts using all existing features.
 
-#### Migration (`011_student_progress.sql`)
+#### Migration (`012_student_progress.sql`)
 
 ```sql
 CREATE TABLE student_progress (
@@ -707,7 +986,7 @@ This page is the existing study set page re-skinned with a classroom context hea
 
 ---
 
-### Sprint 4 — Week 4: AI Scoping + Teacher Concept View
+### Sprint 4 — Week 5: AI Scoping + Teacher Concept View
 
 **Goal:** Student AI is constrained to the teacher's syllabus. Teacher sees class-wide signals per concept.
 
@@ -737,11 +1016,11 @@ with scoped AI → teacher sees class performance. All existing content features
 
 ### Post-MVP Phases (in priority order)
 
-#### Phase 5 — Assignments + Question Bank (Weeks 5–8, ~3 weeks)
+#### Phase 5 — Assignments + Question Bank (Weeks 6–8, ~3 weeks)
 
 No shortcuts here — this is genuinely new.
 
-**Migration (`012_assignments.sql`):**
+**Migration (`013_assignments.sql`):**
 ```sql
 CREATE TABLE questions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -973,21 +1252,38 @@ Chat immediately                 Create classroom (name, subject, grade)
 
 ## Full Timeline Summary
 
-| Sprint / Phase | Weeks | Deliverable | New vs Reused |
+| Sprint / Phase | Week | Deliverable | New vs Reused |
 |---|---|---|---|
-| Sprint 1 | 1 | Role + classroom CRUD + join flow | New: teacher router, auth middleware, teacher dashboard |
-| Sprint 2 | 2 | Course builder + syllabus import | New: courses/units tables, import UI. **Reused: entire study set pipeline** |
-| Sprint 3 | 3 | Student concept page + progress tracking | New: progress table, student course view. **Reused: study set page, quiz, chat, video** |
-| Sprint 4 | 4 | AI scoping + teacher concept view | New: classroom context in system prompt, perf endpoint. **Reused: prompt_builder.py** |
+| Sprint 0 | 1 | Institutions + teacher accounts + separate auth portal | New: institutions tables, invite system, `/auth/teacher` portal, institution admin dashboard |
+| Sprint 1 | 2 | Classroom CRUD + join flow | New: teacher router, classroom tables, teacher dashboard |
+| Sprint 2 | 3 | Course builder + syllabus import | New: courses/units tables, import UI. **Reused: entire study set pipeline** |
+| Sprint 3 | 4 | Student concept page + progress tracking | New: progress table, student course view. **Reused: study set page, quiz, chat, video** |
+| Sprint 4 | 5 | AI scoping + teacher concept view | New: classroom context in system prompt, perf endpoint. **Reused: prompt_builder.py** |
 | **← MVP complete** | | | |
-| Phase 5 | 5–7 | Assignments + question bank | Mostly new |
-| Phase 6 | 8–9 | Individual tracking + attention queue | Reads from existing progress data |
-| Phase 7 | 10 | Student grouping | Depends on Phase 6 data |
-| Phase 8 | 11–12 | Custom content (script, image, video upload) | New: upload + transcription. Reused: Manim pipeline |
-| Phase 9 | 13–14 | Teacher ↔ student interaction | New |
-| Phase 10 | 15–16 | Live sessions | New |
+| Phase 5 | 6–8 | Assignments + question bank | Mostly new |
+| Phase 6 | 9–10 | Individual tracking + attention queue | Reads from existing progress data |
+| Phase 7 | 11 | Student grouping | Depends on Phase 6 data |
+| Phase 8 | 12–13 | Custom content (script, image, video upload) | New: upload + transcription. Reused: Manim pipeline |
+| Phase 9 | 14–15 | Teacher ↔ student interaction | New |
+| Phase 10 | 16–17 | Live sessions | New |
 
-**MVP (Sprints 1–4): 4 weeks solo.**
-**Full platform: ~16 weeks solo, ~8–9 weeks with a 2-person team.**
+**MVP (Sprint 0–4): 5 weeks solo.**
+**Full platform: ~17 weeks solo, ~9–10 weeks with a 2-person team.**
 
-The syllabus import + study set reuse saves ~6 weeks vs building content infrastructure from scratch.
+Sprint 0 (institutions + separate auth portal) adds 1 week but is non-negotiable —
+without it there is no safe, scalable way to onboard teachers or schools.
+The syllabus import + study set reuse still saves ~6 weeks vs building content infrastructure from scratch.
+
+---
+
+## Auth Portal Summary
+
+| URL | Who uses it | What it does |
+|---|---|---|
+| `/auth` | Students | Existing login — unchanged |
+| `/auth/teacher` | Teachers + admins | Hub: invite code redemption OR institution sign-up OR sign in |
+| `/auth/teacher/invite` | Standalone teachers | Redeem invite code → magic link → teacher dashboard |
+| `/auth/teacher/institution` | School/centre admins | Institution sign-up form → trial account created |
+| `/auth/teacher/signin` | Returning teachers/admins | Magic link or Google → routed by account_type |
+| `/teacher/dashboard` | Teachers | Classroom management |
+| `/institution/dashboard` | Institution admins | Cross-teacher overview, member management |
