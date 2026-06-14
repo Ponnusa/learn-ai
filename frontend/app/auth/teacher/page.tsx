@@ -153,8 +153,18 @@ export default function TeacherAuthPage() {
             </button>
           </div>
 
-          <p className="text-center mt-6">
-            <button onClick={() => router.push('/auth/login')} className="text-[var(--tx7)] hover:text-[var(--purple)] text-xs transition-colors">
+          <div className="mt-6 pt-5 border-t border-[var(--bd)] text-center space-y-2">
+            <p className="text-[var(--tx6)] text-xs">Already registered as a teacher?</p>
+            <button
+              onClick={() => router.push('/auth/login')}
+              className="inline-flex items-center gap-1.5 text-sm text-purple-400 hover:text-purple-300 font-medium transition-colors"
+            >
+              Sign in here →
+            </button>
+          </div>
+
+          <p className="text-center mt-3">
+            <button onClick={() => router.push('/auth/login')} className="text-[var(--tx8)] hover:text-[var(--tx6)] text-xs transition-colors">
               ← Back to student login
             </button>
           </p>
