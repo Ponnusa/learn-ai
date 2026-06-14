@@ -193,9 +193,10 @@ export default function TeacherAuthPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  code:  fd.get('code'),
-                  name:  fd.get('name'),
-                  email: fd.get('email'),
+                  code:     fd.get('code'),
+                  name:     fd.get('name'),
+                  email:    fd.get('email'),
+                  password: fd.get('password') || undefined,
                 }),
               });
               const data = await res.json();
@@ -215,6 +216,10 @@ export default function TeacherAuthPage() {
             <input name="code" required placeholder="Invite code (e.g. AB12CD34)" className={inputCls} />
             <input name="name" required placeholder="Your full name" className={inputCls} />
             <input name="email" type="email" required placeholder="Your email address" className={inputCls} />
+            <div>
+              <input name="password" type="password" placeholder="Set a password (optional)" className={inputCls} />
+              <p className="text-[var(--tx8)] text-xs mt-1 pl-1">Leave blank to sign in via magic link email instead</p>
+            </div>
             {error && <p className="text-red-400 text-xs">{error}</p>}
             <button
               type="submit" disabled={loading}

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from database import get_db
-from routers.auth import create_jwt, _user_response
+from routers.auth import create_jwt, _user_response, _hash_password
 from services.scoring import init_profile
 
 router = APIRouter(prefix="/api/teacher-auth", tags=["teacher-auth"])
@@ -96,9 +96,10 @@ async def apply_as_institution(req: InstitutionApplyRequest):
 # ── Redeem invite code (standalone teacher) ───────────────────────────────────
 
 class RedeemInviteRequest(BaseModel):
-    code:  str
-    name:  str
-    email: EmailStr
+    code:     str
+    name:     str
+    email:    EmailStr
+    password: str | None = None  # optional — set now or use magic link later
 
 
 @router.post("/redeem-invite")
@@ -131,20 +132,26 @@ async def redeem_invite(req: RedeemInviteRequest):
             "SELECT id, email, name, tier, theme, language, account_type FROM users WHERE email = $1",
             req.email,
         )
+        pwd_hash = _hash_password(req.password) if req.password else None
+
         if user:
-            # Existing user — upgrade to teacher
+            # Existing user — upgrade to teacher, optionally set password
             await db.execute(
-                "UPDATE users SET account_type = 'teacher', name = COALESCE(name, $1), last_seen_at = NOW() WHERE id = $2",
-                req.name, user["id"],
+                """UPDATE users SET account_type = 'teacher',
+                   name = COALESCE(name, $1),
+                   password_hash = COALESCE($2, password_hash),
+                   last_seen_at = NOW()
+                   WHERE id = $3""",
+                req.name, pwd_hash, user["id"],
             )
             user_id = user["id"]
         else:
             # New user
             user = await db.fetchrow("""
-                INSERT INTO users (email, name, account_type, knowledge_level)
-                VALUES ($1, $2, 'teacher', 'intermediate')
+                INSERT INTO users (email, name, account_type, knowledge_level, password_hash)
+                VALUES ($1, $2, 'teacher', 'intermediate', $3)
                 RETURNING id, email, name, tier, theme, language, account_type
-            """, req.email, req.name)
+            """, req.email, req.name, pwd_hash)
             await init_profile(str(user["id"]), "intermediate")
             user_id = user["id"]
 
