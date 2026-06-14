@@ -505,171 +505,489 @@ attention_signals (
 
 ## Implementation Plan
 
-### Phase 1 — Foundation (Weeks 1–4)
+### Codebase Observations (as of June 2026)
 
-**Goal:** Teachers can build a course and students can follow it.
+Before estimating effort, three facts from the existing code that change the plan:
 
-#### Backend
-- [ ] DB migrations: `classrooms`, `classroom_students`, `courses`, `units`, `concepts`
-- [ ] `POST /api/teacher/classrooms` — create classroom, generate join code
-- [ ] `POST /api/teacher/classrooms/:id/students` — bulk add / invite students
+**1. No `role` on users.**
+`users` table has `tier` (free/learner/pro) but nothing that distinguishes teacher from student.
+Adding `account_type TEXT DEFAULT 'student'` is the very first change needed — everything gates on it.
+
+**2. A study set IS a concept.**
+`study_sets` + `study_concepts` + `study_materials` + `study_flashcards` + the
+chat/quiz/video/image pipeline is exactly what the teacher platform needs per concept.
+The teacher platform is an **organisational and permission wrapper around study sets**,
+not a parallel content system. No new content pipeline needs to be built.
+
+**3. `studysets.py` already has everything.**
+Upload, concept extraction, chat (with system prompt scoping), quiz generation, video trigger,
+image generation, status polling — all working. The study set chat endpoint is also the
+classroom concept chat endpoint; it just needs classroom context injected into the system prompt.
+
+**Net effect on estimates:** the original 22-week plan shrinks to ~16 weeks.
+The PDF pipeline and AI scoping being pre-built saves roughly 6 weeks.
+
+---
+
+### Key Design Decision: Concepts Reuse Study Sets
+
+Rather than creating a new `concepts` table, a concept in the teacher platform IS a study set.
+Add three columns to `study_sets`:
+
+```sql
+ALTER TABLE study_sets ADD COLUMN unit_id UUID REFERENCES units(id);
+ALTER TABLE study_sets ADD COLUMN order_index INT DEFAULT 0;
+ALTER TABLE study_sets ADD COLUMN is_classroom_concept BOOL DEFAULT FALSE;
+ALTER TABLE study_sets ADD COLUMN unlock_at TIMESTAMPTZ;
+ALTER TABLE study_sets ADD COLUMN teacher_note TEXT;
+```
+
+A `study_set` is then either:
+- A personal study set owned by a student (`is_classroom_concept = FALSE`, `unit_id = NULL`)
+- A classroom concept owned by a teacher (`is_classroom_concept = TRUE`, `unit_id` set)
+
+Same pipeline. Same endpoints. New context.
+
+---
+
+### Sprint 1 — Week 1: Role + Classroom Shell
+
+**Goal:** Teacher can sign up, create a classroom, generate a join code. Student can join.
+
+#### Migration (`009_teacher_classrooms.sql`)
+
+```sql
+-- Distinguish teacher accounts from student accounts
+ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'student';
+-- values: 'student' | 'teacher' | 'admin'
+
+CREATE TABLE classrooms (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  teacher_id  UUID REFERENCES users(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  subject     TEXT,
+  grade       TEXT,
+  join_code   TEXT UNIQUE NOT NULL DEFAULT substr(md5(random()::text), 1, 8),
+  ai_tone     TEXT DEFAULT 'direct',  -- direct | socratic | formal
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE classroom_students (
+  classroom_id UUID REFERENCES classrooms(id) ON DELETE CASCADE,
+  student_id   UUID REFERENCES users(id) ON DELETE CASCADE,
+  joined_at    TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (classroom_id, student_id)
+);
+```
+
+#### Backend — new file `backend/routers/teacher.py`
+- [ ] `POST /api/teacher/classrooms` — create, auto-generate join code
+- [ ] `GET  /api/teacher/classrooms` — list teacher's classrooms
 - [ ] `GET  /api/teacher/classrooms/:id/roster` — list students
-- [ ] `POST /api/teacher/courses` — create course with units and concepts
-- [ ] `PATCH /api/teacher/concepts/:id` — update concept content, unlock rules
-- [ ] `POST /api/student/classrooms/join` — student joins via code
-- [ ] `GET  /api/student/courses/:id` — student gets course with lock/unlock state
-- [ ] `PATCH /api/student/progress` — upsert student_progress on concept open/complete
+- [ ] Auth middleware: reject if `account_type != 'teacher'`
+- [ ] Register router in `main.py`
+
+#### Backend — add to `backend/routers/auth.py` or new `student.py`
+- [ ] `POST /api/student/classrooms/join` — look up join code, insert classroom_students row
+- [ ] Role-based redirect: on login, return `account_type` in auth response so frontend routes correctly
+
+#### Frontend
+- [ ] `app/teacher/layout.tsx` — teacher shell, separate sidebar
+- [ ] `app/teacher/dashboard/page.tsx` — classroom list, "Create classroom" button
+- [ ] `app/teacher/classrooms/[id]/page.tsx` — show join code, empty roster
+- [ ] `app/student/classrooms/page.tsx` — list classrooms the student has joined
+- [ ] Login redirect logic: `account_type === 'teacher'` → `/teacher/dashboard`, else → `/` (existing)
+
+**Effort: 3–4 days**
+
+---
+
+### Sprint 2 — Week 2: Course Structure + Syllabus Import
+
+**Goal:** Teacher uploads a syllabus PDF → course structure extracted in 30 seconds → teacher reviews and publishes.
+This is the "aha moment" of teacher onboarding and reuses the existing study set pipeline entirely.
+
+#### Migration (`010_courses_units.sql`)
+
+```sql
+CREATE TABLE courses (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  classroom_id UUID REFERENCES classrooms(id) ON DELETE CASCADE,
+  title        TEXT NOT NULL,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE units (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id   UUID REFERENCES courses(id) ON DELETE CASCADE,
+  title       TEXT NOT NULL,
+  order_index INT NOT NULL DEFAULT 0
+);
+
+-- Concepts reuse study_sets — just add classroom context columns
+ALTER TABLE study_sets ADD COLUMN unit_id        UUID REFERENCES units(id);
+ALTER TABLE study_sets ADD COLUMN order_index    INT DEFAULT 0;
+ALTER TABLE study_sets ADD COLUMN is_classroom_concept BOOL DEFAULT FALSE;
+ALTER TABLE study_sets ADD COLUMN unlock_at      TIMESTAMPTZ;
+ALTER TABLE study_sets ADD COLUMN teacher_note   TEXT;
+```
+
+#### Backend — add to `backend/routers/teacher.py`
+- [ ] `POST /api/teacher/courses` — create course attached to a classroom
+- [ ] `POST /api/teacher/units` — add unit to a course, set order
+- [ ] `POST /api/teacher/courses/:id/import-syllabus` — **the key endpoint:**
+  - Accepts PDF upload
+  - Calls existing `studyset_processor.py` concept extraction
+  - Prompt updated to return grouped output: `[{unit: "Mechanics", concepts: ["Force", "Newton's Laws", ...]}, ...]`
+  - Returns draft structure for teacher review — nothing saved yet
+- [ ] `POST /api/teacher/courses/:id/confirm-structure` — teacher approves draft:
+  - Creates `units` rows
+  - Creates one `study_set` (with `is_classroom_concept=TRUE`, `unit_id` set) per concept
+  - Triggers background processing on each study set using existing pipeline
+- [ ] `PATCH /api/teacher/units/:id` — rename, reorder
+- [ ] `DELETE /api/teacher/concepts/:id` — remove concept from course
+- [ ] `GET /api/student/courses/:id` — course with units, concepts, per-student lock state
 
 #### Frontend (Teacher)
-- [ ] `/teacher/dashboard` — classroom list, create classroom flow
-- [ ] `/teacher/classrooms/:id/roster` — student list, invite/remove
-- [ ] `/teacher/courses/:id/builder` — drag-and-drop unit + concept builder
-- [ ] `/teacher/concepts/:id/edit` — concept content editor (text, note, unlock settings)
+- [ ] `app/teacher/courses/[id]/builder/page.tsx` — drag-and-drop unit + concept list
+- [ ] Syllabus upload panel: upload PDF → spinner → show extracted structure → teacher edits → "Publish"
+- [ ] Reuse existing `StudySetCard` component for concept cards in the builder
+
+#### ⚠️ Known Risk
+`studyset_processor.py` currently extracts concepts as a flat list.
+The import-syllabus endpoint needs a **structured extraction prompt** that returns
+units with grouped concepts. Estimate: half a day of prompt engineering, not code.
+
+**Effort: 3–4 days**
+
+---
+
+### Sprint 3 — Week 3: Student Concept Page + Progress Tracking
+
+**Goal:** Students can join a classroom, see the course, and work through concepts using all existing features.
+
+#### Migration (`011_student_progress.sql`)
+
+```sql
+CREATE TABLE student_progress (
+  classroom_id  UUID REFERENCES classrooms(id) ON DELETE CASCADE,
+  student_id    UUID REFERENCES users(id) ON DELETE CASCADE,
+  study_set_id  UUID REFERENCES study_sets(id) ON DELETE CASCADE,
+  status        TEXT DEFAULT 'not_started', -- not_started | in_progress | complete
+  quiz_score    INT,
+  quiz_attempts INT DEFAULT 0,
+  time_spent_secs INT DEFAULT 0,
+  ai_chat_count INT DEFAULT 0,
+  video_rewatch_count INT DEFAULT 0,
+  last_seen_at  TIMESTAMPTZ,
+  PRIMARY KEY (classroom_id, student_id, study_set_id)
+);
+```
+
+#### Backend
+- [ ] `GET /api/student/classrooms/:id/course` — course outline with per-student progress overlaid
+- [ ] `PATCH /api/student/progress` — upsert on concept open / quiz complete / chat message
+- [ ] Existing `studysets.py` chat, quiz, video endpoints work unchanged — concept IS a study set
+- [ ] Add lock-state check to study set GET: if `unlock_at` is in future, return 403 to student
 
 #### Frontend (Student)
-- [ ] `/student/classrooms` — list of joined classrooms
-- [ ] `/student/courses/:id` — course outline, locked/unlocked state
-- [ ] `/student/concepts/:id` — concept page (checklist view)
+- [ ] `app/student/classrooms/[id]/page.tsx` — course outline, locked/unlocked concepts
+- [ ] `app/student/concepts/[id]/page.tsx` — concept page:
+  - Teacher note (shown first, if set)
+  - Watch video (existing `VideoStatusCard`)
+  - Read PDF (existing PDF viewer)
+  - Take quiz (existing quiz flow)
+  - Ask AI (existing chat, scoped — Sprint 4)
+  - Flag for teacher (Sprint 6)
+  - Personal checklist: items tick off as student completes them
+
+This page is the existing study set page re-skinned with a classroom context header and checklist UI.
+
+**Effort: 2–3 days**
 
 ---
 
-### Phase 2 — Content Creation (Weeks 5–8)
+### Sprint 4 — Week 4: AI Scoping + Teacher Concept View
 
-**Goal:** Teachers can upload and create rich content per concept; AI assists.
+**Goal:** Student AI is constrained to the teacher's syllabus. Teacher sees class-wide signals per concept.
 
 #### Backend
-- [ ] DB migrations: `concept_images`, `concept_videos`, update `concepts` for script fields
-- [ ] `POST /api/teacher/concepts/:id/images` — upload image to R2, trigger AI caption
-- [ ] `POST /api/teacher/concepts/:id/script/improve` — AI improvement (mode param)
-- [ ] `POST /api/teacher/concepts/:id/script/generate-video` — feed script to Manim pipeline
-- [ ] `POST /api/teacher/concepts/:id/videos/upload` — multipart video upload to R2
-- [ ] Background job: Whisper transcription after video upload → store transcript + chapter markers
-- [ ] `PATCH /api/teacher/concepts/:id/videos/:vid/transcript` — teacher edits transcript
+- [ ] Extend `studysets.py` chat: if `is_classroom_concept = TRUE`, inject classroom context:
+  - Teacher name, course name, ai_tone, full concept list as boundary
+  - Reuses existing `build_studyset_prompt()` — add classroom params
+  - Out-of-scope response: "That's outside what we're covering — ask your teacher directly."
+- [ ] Increment `student_progress.ai_chat_count` on each classroom concept chat message
+- [ ] `GET /api/teacher/concepts/:id/performance` — class-wide stats: completion %, quiz avg, ai_chat_count per student
+- [ ] `GET /api/teacher/students/:id` — individual student progress across all concepts in classroom
 
 #### Frontend (Teacher)
-- [ ] Image uploader in concept editor — drag/drop, AI caption panel, diff view
-- [ ] Script editor with AI improvement panel — mode picker, side-by-side diff, accept/reject
-- [ ] "Generate video from script" — triggers existing Manim flow with teacher script as narration
-- [ ] Video uploader — progress bar, transcript review panel, chapter marker editor
+- [ ] Teacher concept page: split view
+  - Left: content editor (teacher note, attached materials)
+  - Right: class performance panel — completion rate, quiz avg, top AI questions this week
+- [ ] Teacher classroom roster: per-student completion %, quiz avg, last active date
+- [ ] AI tone selector per classroom (Direct / Socratic / Formal) on classroom settings page
+
+**End of Sprint 4 = shippable MVP.**
+Teachers can: create classroom → import syllabus → students join → work through concepts
+with scoped AI → teacher sees class performance. All existing content features work.
+
+**Effort: 2–3 days**
 
 ---
 
-### Phase 3 — Assignments & Question Bank (Weeks 9–12)
+### Post-MVP Phases (in priority order)
 
-**Goal:** Teachers can assign work to students and groups; question bank grows over time.
+#### Phase 5 — Assignments + Question Bank (Weeks 5–8, ~3 weeks)
 
-#### Backend
-- [ ] DB migrations: `questions`, `assignments`, `assignment_submissions`, `student_groups`, `student_group_members`
-- [ ] `POST /api/teacher/questions/generate` — AI generates batch, returns for review
+No shortcuts here — this is genuinely new.
+
+**Migration (`012_assignments.sql`):**
+```sql
+CREATE TABLE questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  teacher_id UUID REFERENCES users(id),
+  study_set_id UUID REFERENCES study_sets(id),
+  body TEXT NOT NULL,
+  type TEXT NOT NULL,       -- mcq | short | calculation
+  options JSONB,            -- [{text, correct}] for MCQ
+  answer TEXT,
+  explanation TEXT,
+  difficulty TEXT,          -- easy | medium | hard
+  marks INT DEFAULT 1,
+  source TEXT DEFAULT 'teacher',  -- teacher | ai_approved
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE assignments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  classroom_id UUID REFERENCES classrooms(id),
+  teacher_id   UUID REFERENCES users(id),
+  title TEXT NOT NULL,
+  type TEXT NOT NULL,       -- quiz_retry | problem_set | reading | extra_concept
+  target_type TEXT,         -- student | group
+  target_id TEXT,
+  study_set_id UUID REFERENCES study_sets(id),
+  due_at TIMESTAMPTZ,
+  teacher_note TEXT,
+  config_json JSONB,
+  status TEXT DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE assignment_submissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  assignment_id UUID REFERENCES assignments(id),
+  student_id    UUID REFERENCES users(id),
+  content TEXT,
+  score INT,
+  submitted_at TIMESTAMPTZ,
+  teacher_feedback TEXT,
+  reviewed_at TIMESTAMPTZ
+);
+```
+
+**Checklist:**
+- [ ] `POST /api/teacher/questions/generate` — AI generates batch for review
 - [ ] `POST /api/teacher/questions` — save approved question to bank
-- [ ] `GET  /api/teacher/questions?topic=&difficulty=` — search question bank
-- [ ] `POST /api/teacher/assignments` — create assignment, target student or group
-- [ ] `GET  /api/student/assignments` — student sees their pending assignments
-- [ ] `POST /api/student/assignments/:id/submit` — submit assignment
-- [ ] `PATCH /api/teacher/assignments/:id/submissions/:sid` — teacher leaves feedback
-- [ ] `POST /api/teacher/groups` — create manual group
-- [ ] `POST /api/teacher/groups/dynamic` — create rule-based group, evaluate immediately
-
-#### Frontend (Teacher)
-- [ ] Question builder — write/AI generate/mix modes, per-question approve/edit/reject/regen UI
-- [ ] Question bank page — filter, search, select for assignment
-- [ ] Assignment creator — pick type, target student or group, set due date, attach questions
-- [ ] Group manager — create manual groups, set dynamic rules, see current members
-
-#### Frontend (Student)
-- [ ] "My Assignments" tab — list with due dates, status
-- [ ] Assignment detail page — work through questions with scoped AI, submit
+- [ ] `GET  /api/teacher/questions?topic=&difficulty=&type=` — search bank
+- [ ] `POST /api/teacher/assignments` — create, target student or group
+- [ ] `GET  /api/student/assignments` — student's pending assignments
+- [ ] `POST /api/student/assignments/:id/submit`
+- [ ] `PATCH /api/teacher/assignments/:id/submissions/:sid` — leave feedback
+- [ ] Question builder UI: write / AI-generate-and-approve / mix modes
+- [ ] Question bank page: filter, search, select for assignment
+- [ ] Assignment creator UI: type picker, target picker, due date, attach questions
+- [ ] Student assignment list + submission page with scoped AI
 
 ---
 
-### Phase 4 — AI Scoping & Student Chat (Weeks 13–14)
+#### Phase 6 — Individual Tracking + Needs Attention (Weeks 9–10, ~2 weeks)
 
-**Goal:** Student AI is constrained to teacher's syllabus; teacher can see chat.
+Reads from `student_progress` data that has been accumulating since Sprint 3.
 
-#### Backend
-- [ ] Build `concept_knowledge_base` at query time: script_final + image descriptions + video transcript
-- [ ] New chat endpoint `/api/student/chat` — system prompt includes syllabus boundary + knowledge base
-- [ ] `GET /api/teacher/concepts/:id/chat-logs?student_id=` — teacher reads student AI transcripts
-- [ ] AI chat volume aggregated in student_progress on each message
-
-#### Frontend
-- [ ] Student concept page: "Ask AI about this concept" → opens scoped chat, not global chat
-- [ ] Teacher concept page: "Student questions" panel showing AI chat patterns and top questions
-- [ ] Teacher settings per concept: set AI tone (Direct / Socratic / Formal)
-
----
-
-### Phase 5 — Individual Tracking & Needs Attention (Weeks 15–17)
-
-**Goal:** Teachers see who is struggling and can act in one click.
-
-#### Backend
-- [ ] Aggregate view: `GET /api/teacher/classrooms/:id/performance` — per-student signals
-- [ ] Signal detector (background job, runs hourly):
-  - Quiz failed 3+ times → create attention_signal
-  - No activity 5+ days → create attention_signal
-  - Score dropped 20%+ → create attention_signal
-  - AI chat spike on a concept → create attention_signal
-- [ ] `GET /api/teacher/classrooms/:id/attention-queue` — active unresolved signals
-- [ ] `PATCH /api/teacher/signals/:id/resolve` — mark signal handled
-
-#### Frontend (Teacher)
-- [ ] Student profile page — progress, behaviour signals, AI chat summary, one-click actions
-- [ ] Attention queue widget on dashboard — cards per signal, inline actions
-- [ ] Class performance heatmap — concept × student grid, colour by score or completion
+**Checklist:**
+- [ ] `GET /api/teacher/classrooms/:id/performance` — full per-student signal matrix
+- [ ] Background job (hourly): detect signals, write to `attention_signals` table
+  - Quiz failed 3× → signal
+  - No activity 5+ days → signal
+  - Score dropped 20%+ → signal
+  - AI chat spike on concept → signal
+- [ ] `GET /api/teacher/classrooms/:id/attention-queue`
+- [ ] `PATCH /api/teacher/signals/:id/resolve`
+- [ ] Student profile page: progress, behaviour signals, AI chat summary, one-click actions
+- [ ] Attention queue widget on teacher dashboard
+- [ ] Class performance heatmap (concept × student grid, colour by score)
 
 ---
 
-### Phase 6 — Teacher ↔ Student Interaction (Weeks 18–20)
+#### Phase 7 — Student Grouping (Week 11, ~1 week)
 
-**Goal:** Async communication anchored to specific content.
+Depends on tracking data existing first.
 
-#### Backend
-- [ ] DB migrations: `teacher_comments`, `student_flags`
-- [ ] `POST /api/teacher/concepts/:id/comments` — text or voice note (voice stored in R2)
-- [ ] `POST /api/student/concepts/:id/flags` — student raises a flag
-- [ ] `GET  /api/teacher/classrooms/:id/flags` — teacher sees all open flags
-- [ ] `PATCH /api/teacher/flags/:id` — teacher resolves flag with reply
-- [ ] Push notifications (browser + email) for: new flag, teacher reply, new comment
+```sql
+CREATE TABLE student_groups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  classroom_id UUID REFERENCES classrooms(id),
+  name TEXT NOT NULL,
+  type TEXT NOT NULL,     -- manual | dynamic
+  rule_json JSONB,        -- {field, operator, value} for dynamic groups
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE TABLE student_group_members (
+  group_id   UUID REFERENCES student_groups(id) ON DELETE CASCADE,
+  student_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  added_at   TIMESTAMPTZ DEFAULT NOW(),
+  added_by   TEXT,        -- teacher | auto
+  PRIMARY KEY (group_id, student_id)
+);
+```
 
-#### Frontend (Teacher)
-- [ ] Comment panel on concept page — add text/voice, see student replies, resolve flags
-- [ ] Flags inbox — list of open flags, filter by concept or student, one-click resolve
-
-#### Frontend (Student)
-- [ ] "Message from teacher" badge on concept card
-- [ ] Flag button on concept page and on individual AI messages
-- [ ] Notification bell: teacher replied to flag / new comment
-
----
-
-### Phase 7 — Live Sessions (Weeks 21–22)
-
-**Goal:** Real-time teacher-led sessions attached to concepts.
-
-#### Backend
-- [ ] Session management: start/end session, student join tracking
-- [ ] Question queue: students submit text questions during session
-- [ ] Auto-record session, store video, attach to concept after session ends
-
-#### Frontend
-- [ ] Teacher: "Go Live" button on any concept, question queue panel
-- [ ] Student: join notification, question submission input, live video embed
+- [ ] Manual group creator (drag students in)
+- [ ] Dynamic group rule builder (field + operator + value)
+- [ ] Hourly job: re-evaluate dynamic group membership
+- [ ] Assignments can target a group_id
 
 ---
 
-## Summary Checklist
+#### Phase 8 — Custom Content Creation (Weeks 12–13, ~2 weeks)
 
-| Phase | Weeks | Deliverable |
-|---|---|---|
-| 1 | 1–4 | Classrooms, roster, course builder, student concept page |
-| 2 | 5–8 | Image upload, script editor + AI improve, teacher video + transcription |
-| 3 | 9–12 | Question bank, assignment builder, groups, student submissions |
-| 4 | 13–14 | Scoped student AI chat, teacher chat visibility |
-| 5 | 15–17 | Individual tracking, attention queue, performance heatmap |
-| 6 | 18–20 | Teacher comments, student flags, notifications |
-| 7 | 21–22 | Live sessions, recording, question queue |
+Script editor, image upload with AI improvement, teacher video upload + transcription.
 
-**Total estimated build: ~22 weeks for a solo developer, ~10–12 weeks with a 2-person team.**
+```sql
+ALTER TABLE study_sets ADD COLUMN script_teacher TEXT;  -- teacher's raw notes
+ALTER TABLE study_sets ADD COLUMN script_final   TEXT;  -- approved version
 
-Phase 1–4 is the core MVP — classrooms, content, assignments, and scoped AI. That alone is a shippable product.
+CREATE TABLE concept_images (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  study_set_id UUID REFERENCES study_sets(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  caption TEXT,
+  ai_description TEXT,
+  teacher_approved BOOL DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE concept_videos (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  study_set_id UUID REFERENCES study_sets(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,   -- manim | teacher_upload | script
+  video_url TEXT,
+  transcript TEXT,
+  chapter_markers JSONB,
+  duration_secs INT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+- [ ] `POST /api/teacher/concepts/:id/images` — upload, trigger AI caption + description
+- [ ] `POST /api/teacher/concepts/:id/script/improve` — AI improvement (mode: polish/expand/simplify/structure)
+- [ ] `POST /api/teacher/concepts/:id/script/generate-video` — feed script to existing Manim pipeline
+- [ ] `POST /api/teacher/concepts/:id/videos/upload` — multipart to R2
+- [ ] Background job: Whisper transcription → chapter markers → store on `concept_videos`
+- [ ] Script editor with AI improvement panel + side-by-side diff UI
+- [ ] Image uploader with caption diff view
+- [ ] Teacher video upload with transcript review + chapter editor
+
+---
+
+#### Phase 9 — Teacher ↔ Student Interaction (Weeks 14–15, ~2 weeks)
+
+```sql
+CREATE TABLE teacher_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  study_set_id  UUID REFERENCES study_sets(id),
+  assignment_id UUID REFERENCES assignments(id),
+  teacher_id    UUID REFERENCES users(id),
+  student_id    UUID REFERENCES users(id),  -- NULL = visible to whole class
+  body TEXT,
+  voice_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE student_flags (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  study_set_id UUID REFERENCES study_sets(id),
+  student_id   UUID REFERENCES users(id),
+  message TEXT NOT NULL,
+  resolved     BOOL DEFAULT FALSE,
+  resolved_at  TIMESTAMPTZ,
+  teacher_reply TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+- [ ] Teacher leaves text/voice comment on a concept or assignment
+- [ ] Student flags a concept or AI response for teacher review
+- [ ] Teacher flags inbox: filter by concept/student, one-click resolve with reply
+- [ ] Browser + email push notification on: new flag, teacher reply, new comment
+- [ ] "Message from teacher" badge on student concept card
+
+---
+
+#### Phase 10 — Live Sessions (Weeks 16–17, ~2 weeks)
+
+Lowest immediate ROI — implement last.
+
+- [ ] Session create/start/end management
+- [ ] Student join flow (push notification → join link)
+- [ ] Student question queue during session
+- [ ] Auto-record session, attach recording to concept after end
+
+---
+
+## Teacher Onboarding Flow
+
+Student onboarding is frictionless (sign up → profile → chat in 60 seconds).
+Teacher onboarding is trust-first and setup-before-value.
+
+```
+Student                          Teacher
+───────────────────────────────  ───────────────────────────────
+Sign up                          Get invite code (early: manual;
+                                 later: school email domain auto-verify)
+↓                                ↓
+Profile: grade + goal (2 Q's)   Set account_type = 'teacher'
+↓                                ↓
+Chat immediately                 Create classroom (name, subject, grade)
+                                 ↓
+                                 Upload syllabus PDF
+                                 ↓
+                                 Review AI-extracted course (30 seconds)
+                                 — drag to reorder, rename, delete concepts
+                                 ↓
+                                 Generate first video + quiz for one concept
+                                 ↓
+                                 Preview student view (role-switch button)
+                                 ↓
+                                 Copy join code → invite students
+                                 ↓
+                                 Students join → classroom live
+```
+
+**Verification strategy by stage:**
+- Beta launch: invite-only (issue teacher codes manually)
+- Early growth: school email domain check (`@school.edu`, `@edu.fi`)
+- Scale: self-serve with manual review queue for non-school emails
+
+---
+
+## Full Timeline Summary
+
+| Sprint / Phase | Weeks | Deliverable | New vs Reused |
+|---|---|---|---|
+| Sprint 1 | 1 | Role + classroom CRUD + join flow | New: teacher router, auth middleware, teacher dashboard |
+| Sprint 2 | 2 | Course builder + syllabus import | New: courses/units tables, import UI. **Reused: entire study set pipeline** |
+| Sprint 3 | 3 | Student concept page + progress tracking | New: progress table, student course view. **Reused: study set page, quiz, chat, video** |
+| Sprint 4 | 4 | AI scoping + teacher concept view | New: classroom context in system prompt, perf endpoint. **Reused: prompt_builder.py** |
+| **← MVP complete** | | | |
+| Phase 5 | 5–7 | Assignments + question bank | Mostly new |
+| Phase 6 | 8–9 | Individual tracking + attention queue | Reads from existing progress data |
+| Phase 7 | 10 | Student grouping | Depends on Phase 6 data |
+| Phase 8 | 11–12 | Custom content (script, image, video upload) | New: upload + transcription. Reused: Manim pipeline |
+| Phase 9 | 13–14 | Teacher ↔ student interaction | New |
+| Phase 10 | 15–16 | Live sessions | New |
+
+**MVP (Sprints 1–4): 4 weeks solo.**
+**Full platform: ~16 weeks solo, ~8–9 weeks with a 2-person team.**
+
+The syllabus import + study set reuse saves ~6 weeks vs building content infrastructure from scratch.
