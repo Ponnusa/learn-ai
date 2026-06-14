@@ -223,17 +223,34 @@ export default function HomePage() {
       return;
     }
 
-    setMessages(prev => [...prev, { id: Date.now().toString(), role: 'user', content: text }]);
+    // Convert image file to base64 data URL for vision API
+    let imageDataUrl: string | undefined;
+    if (file && file.type.startsWith('image/')) {
+      imageDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      role: 'user',
+      content: text,
+      metadata: imageDataUrl ? { imageUrl: imageDataUrl } : undefined,
+    }]);
     setLoading(true);
     incrementMsg();
 
     try {
       const res = await sendMessage({
-        message: text,
+        message: text || 'What is in this image?',
         conversation_id: conversationId ?? undefined,
         user_id:   user?.id,
         session_id: sessionId ?? undefined,
         language,
+        image_url: imageDataUrl,
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);

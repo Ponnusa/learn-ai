@@ -716,7 +716,7 @@ export function MessageBubble({
                 style={{ maxWidth: '100%' }}
               />
               <p className="text-white/50 text-[10px] mt-1.5 flex items-center gap-1">
-                <span>📄</span> PDF region
+                <span>🖼️</span> Image
               </p>
             </div>
           )}
