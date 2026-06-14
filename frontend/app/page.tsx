@@ -233,7 +233,7 @@ export default function HomePage() {
         conversation_id: conversationId ?? undefined,
         user_id:   user?.id,
         session_id: sessionId ?? undefined,
-        language:  'en',
+        language,
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);
@@ -293,6 +293,7 @@ export default function HomePage() {
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
         subject:         subject ?? currentSubject?.subject,
+        language,
       }, token ?? undefined);
 
       if (!res.supported) {
@@ -359,6 +360,7 @@ export default function HomePage() {
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
         subject:         subject ?? currentSubject?.subject,
+        language,
       }, token ?? undefined);
 
       if (!res.questions || res.questions.length === 0) {

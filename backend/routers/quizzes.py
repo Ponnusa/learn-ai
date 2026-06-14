@@ -7,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from database import get_db
 from services.ai_router import openai_client, get_model
-from services.prompt_builder import QUIZ_GENERATION_PROMPT
+from services.prompt_builder import QUIZ_GENERATION_PROMPT, _LANGUAGE_NAMES
 from services.tier_config import get_limit
 from services.scoring import score_quiz_result, get_score
 
@@ -55,12 +55,15 @@ async def generate_quiz(req: QuizRequest):
             difficulty = "hard — include edge cases and deeper reasoning"
 
     # ── Generate questions (same prompt as AnimLearn) ─────────────────────────
+    _lang_name = _LANGUAGE_NAMES.get(req.language)
+    _lang_line = f"\nIMPORTANT: Generate ALL questions, answer options, and explanations in {_lang_name}. Do not use English.\n" if _lang_name else "\n"
     prompt = (
         f"{QUIZ_GENERATION_PROMPT}\n\n"
         f"Topic: {req.topic}\n"
         f"Number of questions: {n_questions}\n"
         f"Difficulty: {difficulty}\n"
-        f"Language: {req.language}\n\n"
+        f"Language: {req.language}"
+        f"{_lang_line}\n"
         "FORMATTING RULES (strictly follow):\n"
         "- All mathematical expressions MUST use KaTeX/LaTeX: $...$ for inline, $$...$$ for block.\n"
         "  Examples: $E = mc^2$, $\\Delta H$, $K_a$, $$\\int_0^\\infty e^{-x}\\,dx$$\n"

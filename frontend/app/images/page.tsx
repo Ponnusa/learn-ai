@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 import { generateEduImage, getEduImageJob, listEduImages, deleteEduImage, retryEduImage, EduImageJob } from '@/lib/api';
 
 // ── Domain styles (gradient bg + badge color) — mirrors video SUBJECT_STYLES ──
@@ -30,14 +31,6 @@ function DomainBadge({ domain }: { domain?: string }) {
       {domain}
     </span>
   );
-}
-
-function formatDate(iso: string): string {
-  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-  if (diff === 0) return 'Today';
-  if (diff === 1) return 'Yesterday';
-  if (diff < 7)  return `${diff}d ago`;
-  return new Date(iso).toLocaleDateString('en', { month: 'short', day: 'numeric' });
 }
 
 const EXAMPLES = [
@@ -120,13 +113,22 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
   onRemove?: (id: string) => void;
 }) {
   const { token } = useSessionStore();
+  const { t } = useTranslation();
   const { badge, gradient } = domainStyle(job.domain);
-  const date     = job.created_at ? formatDate(job.created_at) : '';
+  const date     = job.created_at ? formatRelDate(job.created_at) : '';
   const score    = job.critic_report?.score;
   const scoreColor = score == null ? '' : score >= 85 ? 'bg-emerald-500/80' : score >= 70 ? 'bg-amber-500/80' : 'bg-red-500/80';
 
   const [deleting, setDeleting] = useState(false);
   const [retrying, setRetrying] = useState(false);
+
+  function formatRelDate(iso: string): string {
+    const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    if (diff === 0) return t.sidebar.today;
+    if (diff === 1) return t.sidebar.yesterday;
+    if (diff < 7)  return t.studySets.daysAgo.replace('{n}', String(diff));
+    return new Date(iso).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+  }
 
   async function handleDelete(e: React.MouseEvent) {
     e.stopPropagation();
@@ -162,12 +164,12 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
         ) : job.status === 'processing' ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
             <Loader2 size={28} className="text-white/40 animate-spin" />
-            <p className="text-white/30 text-[10px]">Generating…</p>
+            <p className="text-white/30 text-[10px]">{t.images.generatingBtn}</p>
           </div>
         ) : (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
             <AlertCircle size={24} className="text-red-400/60" />
-            <p className="text-white/30 text-[10px]">Failed</p>
+            <p className="text-white/30 text-[10px]">{t.studySets.statusFailed}</p>
           </div>
         )}
 
@@ -182,7 +184,7 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
           </div>
         )}
 
-        {/* Quality score pill (bottom-right) — like duration pill on videos */}
+        {/* Quality score pill (bottom-right) */}
         {score != null && (
           <div className={`absolute bottom-2 right-2 px-1.5 py-0.5 rounded text-white text-[10px]
                            font-semibold leading-none ${scoreColor} backdrop-blur-sm`}>
@@ -211,18 +213,16 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
           </div>
 
           <div className="flex items-center gap-0.5 shrink-0">
-            {/* Description (if available) */}
             {job.description && (
               <button
                 onClick={e => { e.stopPropagation(); onClick(); }}
                 className="w-7 h-7 flex items-center justify-center rounded-lg
                            text-[var(--tx5)] hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
-                title="View description"
+                title={t.images.aboutDiagram}
               >
                 <FileText size={13} />
               </button>
             )}
-            {/* Go to chat */}
             {onGoToChat && job.status === 'ready' && (
               <button
                 onClick={e => { e.stopPropagation(); onGoToChat(); }}
@@ -233,25 +233,23 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
                 <MessageSquare size={13} />
               </button>
             )}
-            {/* Retry (failed) */}
             {job.status === 'failed' && (
               <button
                 onClick={handleRetry}
                 disabled={retrying}
                 className="w-7 h-7 flex items-center justify-center rounded-lg
                            text-[var(--tx5)] hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
-                title="Retry"
+                title={t.images.tryAgain}
               >
                 <RefreshCw size={13} className={retrying ? 'animate-spin' : ''} />
               </button>
             )}
-            {/* Delete */}
             <button
               onClick={handleDelete}
               disabled={deleting}
               className="w-7 h-7 flex items-center justify-center rounded-lg
                          text-[var(--tx5)] hover:text-red-400 hover:bg-red-500/10 transition-colors"
-              title="Delete"
+              title={t.delete}
             >
               <Trash2 size={13} />
             </button>
@@ -267,6 +265,7 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
 export default function ImagesPage() {
   const router             = useRouter();
   const { user, token, sessionId } = useSessionStore();
+  const { t } = useTranslation();
   const [concept, setConcept]   = useState('');
   const [jobId,   setJobId]     = useState<string | null>(null);
   const [current, setCurrent]   = useState<EduImageJob | null>(null);
@@ -332,8 +331,8 @@ export default function ImagesPage() {
         {/* Header */}
         <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[var(--bd)] shrink-0">
           <div className="flex-1 min-w-0">
-            <h1 className="text-[var(--tx1)] font-semibold">Educational Diagrams</h1>
-            <p className="text-[var(--tx6)] text-xs mt-0.5">Generate textbook-quality illustrations from any concept</p>
+            <h1 className="text-[var(--tx1)] font-semibold">{t.images.title}</h1>
+            <p className="text-[var(--tx6)] text-xs mt-0.5">{t.images.subtitle}</p>
           </div>
         </div>
 
@@ -347,7 +346,7 @@ export default function ImagesPage() {
                   value={concept}
                   onChange={e => setConcept(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }}
-                  placeholder="Describe an educational concept to visualise…"
+                  placeholder={t.images.inputPlaceholder}
                   rows={2}
                   disabled={isGenerating}
                   className="w-full px-4 py-3.5 pr-24 rounded-2xl bg-[var(--surface)] border border-[var(--bd)]
@@ -361,7 +360,7 @@ export default function ImagesPage() {
                   className="absolute right-3 bottom-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold
                              bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white transition-colors">
                   {isGenerating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                  {isGenerating ? 'Generating…' : 'Generate'}
+                  {isGenerating ? t.images.generatingBtn : t.images.generateBtn}
                 </button>
               </div>
 
@@ -387,7 +386,7 @@ export default function ImagesPage() {
                   <p className="text-[var(--tx3)] text-sm flex-1 truncate">{current.concept}</p>
                   {current.status === 'processing' && (
                     <span className="text-[11px] text-yellow-400 flex items-center gap-1.5 shrink-0">
-                      <Loader2 size={11} className="animate-spin" /> Processing…
+                      <Loader2 size={11} className="animate-spin" /> {t.images.processing}
                     </span>
                   )}
                   {current.status === 'ready' && (
@@ -396,13 +395,13 @@ export default function ImagesPage() {
                         className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg
                                    bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx4)]
                                    border border-[var(--bd)] transition-colors">
-                        <Download size={11} /> Save
+                        <Download size={11} /> {t.images.save}
                       </a>
                       <button onClick={() => { setConcept(current.concept); inputRef.current?.focus(); }}
                         className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-lg
                                    bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx4)]
                                    border border-[var(--bd)] transition-colors">
-                        <RefreshCw size={11} /> Re-generate
+                        <RefreshCw size={11} /> {t.images.reGenerate}
                       </button>
                     </div>
                   )}
@@ -419,8 +418,8 @@ export default function ImagesPage() {
                       </div>
                     </div>
                     <div className="text-center">
-                      <p className="text-[var(--tx3)] text-sm font-medium">Creating your diagram…</p>
-                      <p className="text-[var(--tx6)] text-xs mt-1">Knowledge extraction → Diagram plan → gpt-image-1 → Quality review</p>
+                      <p className="text-[var(--tx3)] text-sm font-medium">{t.images.creating}</p>
+                      <p className="text-[var(--tx6)] text-xs mt-1">{t.images.creatingSteps}</p>
                     </div>
                   </div>
                 ) : current.status === 'ready' && current.image_url ? (
@@ -436,20 +435,20 @@ export default function ImagesPage() {
                   </button>
                 ) : current.status === 'failed' ? (
                   <div className="flex flex-col items-center justify-center py-12 gap-3">
-                    <p className="text-red-400 text-sm">Generation failed</p>
+                    <p className="text-red-400 text-sm">{t.images.failedTitle}</p>
                     <p className="text-[var(--tx6)] text-xs max-w-sm text-center">{current.error_msg}</p>
                     <button onClick={() => { setConcept(current.concept); handleGenerate(); }}
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium
                                  bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx3)] border border-[var(--bd)] transition-colors">
-                      <RefreshCw size={11} /> Try again
+                      <RefreshCw size={11} /> {t.images.tryAgain}
                     </button>
                   </div>
                 ) : null}
 
-                {/* AI description — the explanation that used to live inside the image */}
+                {/* AI description */}
                 {current.status === 'ready' && current.description && (
                   <div className="px-5 py-4 border-t border-[var(--bd)] bg-[var(--surface)]">
-                    <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide font-medium mb-2">About this diagram</p>
+                    <p className="text-[var(--tx6)] text-[10px] uppercase tracking-wide font-medium mb-2">{t.images.aboutDiagram}</p>
                     <div className="text-[var(--tx3)] text-sm leading-relaxed space-y-2 whitespace-pre-wrap">
                       {current.description}
                     </div>
@@ -459,17 +458,15 @@ export default function ImagesPage() {
                 {/* Knowledge layer detail */}
                 {current.status === 'ready' && (
                   <div className="px-5 py-3 border-t border-[var(--bd)] bg-[var(--ov2)] space-y-2.5">
-                    {/* Learning goal */}
                     {current.knowledge_model?.learning_goal && (
                       <p className="text-[var(--tx5)] text-xs leading-snug">
-                        <span className="text-[var(--tx7)] font-medium">Goal: </span>
+                        <span className="text-[var(--tx7)] font-medium">{t.images.goal}</span>
                         {current.knowledge_model.learning_goal}
                       </p>
                     )}
-                    {/* Visual elements */}
                     {(current.spec?.visual_elements ?? current.knowledge_model?.must_show ?? []).length > 0 && (
                       <div>
-                        <p className="text-[var(--tx7)] text-[10px] uppercase tracking-wide font-medium mb-1">Shows</p>
+                        <p className="text-[var(--tx7)] text-[10px] uppercase tracking-wide font-medium mb-1">{t.images.shows}</p>
                         <div className="flex flex-wrap gap-1.5">
                           {(current.spec?.visual_elements ?? current.knowledge_model?.must_show ?? []).map((el: string) => (
                             <span key={el} className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--surface)]
@@ -480,10 +477,9 @@ export default function ImagesPage() {
                         </div>
                       </div>
                     )}
-                    {/* Critic score */}
                     {current.critic_report?.score != null && (
                       <div className="flex items-center gap-2">
-                        <span className="text-[var(--tx7)] text-[10px] uppercase tracking-wide font-medium">Quality score</span>
+                        <span className="text-[var(--tx7)] text-[10px] uppercase tracking-wide font-medium">{t.images.qualityScore}</span>
                         <span className={`text-xs font-semibold ${
                           (current.critic_report.score ?? 0) >= 85 ? 'text-emerald-400' :
                           (current.critic_report.score ?? 0) >= 70 ? 'text-amber-400' : 'text-red-400'
@@ -508,12 +504,12 @@ export default function ImagesPage() {
                 <div className="flex items-center gap-2">
                   <Clock size={13} className="text-[var(--tx6)]" />
                   <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide">
-                    Past diagrams
+                    {t.images.pastDiagrams}
                   </p>
                 </div>
                 {histLoading ? (
                   <div className="flex items-center justify-center py-8 gap-2 text-[var(--tx6)] text-sm">
-                    <Loader2 size={14} className="animate-spin" /> Loading…
+                    <Loader2 size={14} className="animate-spin" /> {t.loading}
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -542,9 +538,9 @@ export default function ImagesPage() {
                   <Sparkles size={28} className="text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-[var(--tx2)] font-medium">Generate your first diagram</p>
+                  <p className="text-[var(--tx2)] font-medium">{t.images.emptyTitle}</p>
                   <p className="text-[var(--tx6)] text-sm mt-1 max-w-xs">
-                    Describe any educational concept — physics, chemistry, biology, geography, and more.
+                    {t.images.emptyDesc}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 justify-center max-w-md">

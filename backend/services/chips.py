@@ -1,6 +1,7 @@
 """AI-generated contextual follow-up suggestion chips."""
 import json
 from services.ai_router import openai_client, get_model
+from services.prompt_builder import _LANGUAGE_NAMES
 
 
 async def generate_chips(reply: str, language: str = "en") -> list[str]:
@@ -23,6 +24,7 @@ async def generate_chips(reply: str, language: str = "en") -> list[str]:
                     "- Mix: one deeper question, one example/application request, one common-mistake check\n"
                     "- Do NOT use generic phrases like 'explain more' or 'tell me more'\n"
                     f"- Language: {language}\n"
+                    f"- {'Write ALL suggestions in ' + _LANGUAGE_NAMES[language] + '. Do not use English.' if language in _LANGUAGE_NAMES else 'Write suggestions in English.'}\n"
                     "Return JSON: {\"suggestions\": [\"...\", \"...\", \"...\"]}\n\n"
                     f"{reply[:700]}"
                 ),

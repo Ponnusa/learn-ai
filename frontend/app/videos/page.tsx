@@ -13,6 +13,7 @@ import {
 import { getVideoStatus, retryVideoManim, getUserVideos, getSessionVideos, generateVideo } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useLanguageStore } from '@/store/languageStore';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { preprocessMath } from '@/lib/preprocessMath';
 
@@ -499,6 +500,7 @@ function VideosContent() {
   const searchParams                  = useSearchParams();
   const router                        = useRouter();
   const { t }                         = useTranslation();
+  const { language }                  = useLanguageStore();
   const { token, user, sessionId, setActiveConversationId } = useSessionStore();
 
   const rawId   = searchParams.get('id');
@@ -598,6 +600,7 @@ function VideosContent() {
         prompt:     topic,
         user_id:    user?.id,
         session_id: sessionId ?? undefined,
+        language,
       }, token ?? undefined);
       if (!res.supported) {
         setGenError(res.message ?? 'Video generation not supported for this topic.');

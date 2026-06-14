@@ -7,30 +7,12 @@ import {
 } from 'lucide-react';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 import { createStudySet, listStudySets, deleteStudySet, StudySetSummary } from '@/lib/api';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const SUBJECT_OPTS = ['Mathematics', 'Physics', 'Chemistry', 'Biology', 'History', 'Economics', 'Computer Science', 'Other'];
-
-const STATUS_STYLE: Record<string, string> = {
-  empty:      'text-[var(--tx6)] bg-[var(--ov3)]',
-  processing: 'text-yellow-400 bg-yellow-500/10',
-  ready:      'text-emerald-400 bg-emerald-500/10',
-  failed:     'text-red-400 bg-red-500/10',
-};
-const STATUS_LABEL: Record<string, string> = {
-  empty: 'No material', processing: 'Processing…', ready: 'Ready', failed: 'Failed',
-};
-
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
-  if (diff === 0) return 'Today';
-  if (diff === 1) return 'Yesterday';
-  if (diff < 7)  return `${diff}d ago`;
-  return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
-}
 
 // ─── Create modal ─────────────────────────────────────────────────────────────
 
@@ -39,6 +21,7 @@ function CreateModal({ onClose, onCreate }: {
   onCreate: (ss: StudySetSummary) => void;
 }) {
   const { user, token, sessionId } = useSessionStore();
+  const { t } = useTranslation();
   const [title,   setTitle]   = useState('');
   const [subject, setSubject] = useState('');
   const [desc,    setDesc]    = useState('');
@@ -46,7 +29,7 @@ function CreateModal({ onClose, onCreate }: {
   const [err,     setErr]     = useState('');
 
   async function handleCreate() {
-    if (!title.trim()) { setErr('Please enter a title'); return; }
+    if (!title.trim()) { setErr(t.studySets.titleRequired); return; }
     setSaving(true); setErr('');
     try {
       const ss = await createStudySet({
@@ -58,7 +41,7 @@ function CreateModal({ onClose, onCreate }: {
       }, token ?? undefined);
       onCreate(ss);
     } catch (e: any) {
-      setErr(e.message || 'Failed to create study set');
+      setErr(e.message || t.errors.generic);
       setSaving(false);
     }
   }
@@ -73,7 +56,7 @@ function CreateModal({ onClose, onCreate }: {
             <div className="w-7 h-7 rounded-lg bg-indigo-500/20 flex items-center justify-center">
               <Brain size={13} className="text-indigo-400" />
             </div>
-            <h2 className="text-[var(--tx1)] font-semibold text-sm">New Study Set</h2>
+            <h2 className="text-[var(--tx1)] font-semibold text-sm">{t.studySets.newStudySet}</h2>
           </div>
           <button onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-lg text-[var(--tx6)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)] transition-colors">
@@ -83,37 +66,39 @@ function CreateModal({ onClose, onCreate }: {
 
         <div className="px-5 py-5 space-y-4">
           <div>
-            <label className="block text-[var(--tx5)] text-xs font-medium mb-1.5">Title *</label>
+            <label className="block text-[var(--tx5)] text-xs font-medium mb-1.5">{t.studySets.titleLabel} *</label>
             <input
               autoFocus
               value={title}
               onChange={e => setTitle(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') handleCreate(); }}
-              placeholder="e.g. Thermodynamics Chapter 3"
+              placeholder={t.studySets.titlePlaceholder}
               className="w-full px-3 py-2.5 rounded-xl bg-[var(--ov2)] border border-[var(--bd)]
                          text-[var(--tx1)] text-sm placeholder-[var(--tx7)]
                          focus:outline-none focus:border-indigo-500/50 transition-colors"
             />
           </div>
           <div>
-            <label className="block text-[var(--tx5)] text-xs font-medium mb-1.5">Subject</label>
+            <label className="block text-[var(--tx5)] text-xs font-medium mb-1.5">{t.studySets.subjectLabel}</label>
             <select
               value={subject}
               onChange={e => setSubject(e.target.value)}
               className="w-full px-3 py-2.5 rounded-xl bg-[var(--ov2)] border border-[var(--bd)]
                          text-[var(--tx2)] text-sm focus:outline-none focus:border-indigo-500/50 transition-colors"
             >
-              <option value="">Select subject…</option>
+              <option value="">{t.studySets.selectSubject}</option>
               {SUBJECT_OPTS.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-[var(--tx5)] text-xs font-medium mb-1.5">Description <span className="text-[var(--tx7)]">(optional)</span></label>
+            <label className="block text-[var(--tx5)] text-xs font-medium mb-1.5">
+              {t.studySets.descriptionLabel} <span className="text-[var(--tx7)]">(optional)</span>
+            </label>
             <textarea
               value={desc}
               onChange={e => setDesc(e.target.value)}
               rows={2}
-              placeholder="What will you be studying?"
+              placeholder={t.studySets.descriptionPlaceholder}
               className="w-full px-3 py-2.5 rounded-xl bg-[var(--ov2)] border border-[var(--bd)]
                          text-[var(--tx1)] text-sm placeholder-[var(--tx7)] resize-none
                          focus:outline-none focus:border-indigo-500/50 transition-colors"
@@ -125,14 +110,14 @@ function CreateModal({ onClose, onCreate }: {
         <div className="px-5 pb-5 flex gap-2.5 justify-end">
           <button onClick={onClose}
             className="px-4 py-2 text-sm rounded-xl bg-[var(--ov3)] hover:bg-[var(--ov4)] text-[var(--tx2)] transition-colors">
-            Cancel
+            {t.cancel}
           </button>
           <button onClick={handleCreate} disabled={saving}
             className="flex items-center gap-2 px-4 py-2 text-sm rounded-xl
                        bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50
                        text-white font-medium transition-colors">
             {saving ? <Loader size={13} className="animate-spin" /> : <Plus size={13} />}
-            Create & Upload PDF
+            {t.studySets.createAndUpload}
           </button>
         </div>
       </div>
@@ -147,6 +132,29 @@ function StudySetCard({ ss, onDelete }: {
   onDelete: (id: string) => void;
 }) {
   const router = useRouter();
+  const { t, language } = useTranslation();
+
+  function formatDate(iso: string) {
+    const d = new Date(iso);
+    const diff = Math.floor((Date.now() - d.getTime()) / 86400000);
+    if (diff === 0) return t.sidebar.today;
+    if (diff === 1) return t.sidebar.yesterday;
+    if (diff < 7)  return t.studySets.daysAgo.replace('{n}', String(diff));
+    return d.toLocaleDateString(language === 'fi' ? 'fi' : language === 'sv' ? 'sv' : 'en', { month: 'short', day: 'numeric' });
+  }
+
+  const STATUS_STYLE: Record<string, string> = {
+    empty:      'text-[var(--tx6)] bg-[var(--ov3)]',
+    processing: 'text-yellow-400 bg-yellow-500/10',
+    ready:      'text-emerald-400 bg-emerald-500/10',
+    failed:     'text-red-400 bg-red-500/10',
+  };
+  const STATUS_LABEL: Record<string, string> = {
+    empty:      t.studySets.statusNoMaterial,
+    processing: t.studySets.statusProcessing,
+    ready:      t.studySets.statusReady,
+    failed:     t.studySets.statusFailed,
+  };
 
   return (
     <div
@@ -169,7 +177,7 @@ function StudySetCard({ ss, onDelete }: {
           className="w-7 h-7 flex items-center justify-center rounded-lg
                      text-[var(--tx7)] hover:text-red-400 hover:bg-red-500/10
                      opacity-0 group-hover:opacity-100 transition-all"
-          title="Delete"
+          title={t.delete}
         >
           <Trash2 size={13} />
         </button>
@@ -192,10 +200,10 @@ function StudySetCard({ ss, onDelete }: {
         {ss.status === 'ready' ? (
           <>
             <span className="flex items-center gap-1">
-              <Brain size={11} /> {ss.concept_count} concepts
+              <Brain size={11} /> {t.studySets.concepts.replace('{n}', String(ss.concept_count))}
             </span>
             <span className="flex items-center gap-1">
-              <LayoutGrid size={11} /> {ss.flashcard_count} cards
+              <LayoutGrid size={11} /> {t.studySets.cardsCount.replace('{n}', String(ss.flashcard_count))}
             </span>
           </>
         ) : (
@@ -216,6 +224,7 @@ function StudySetCard({ ss, onDelete }: {
 export default function StudyPage() {
   const router                      = useRouter();
   const { user, token, sessionId }  = useSessionStore();
+  const { t } = useTranslation();
   const [sets,     setSets]         = useState<StudySetSummary[]>([]);
   const [loading,  setLoading]      = useState(true);
   const [showModal, setShowModal]   = useState(false);
@@ -229,12 +238,11 @@ export default function StudyPage() {
 
   function handleCreated(ss: StudySetSummary) {
     setShowModal(false);
-    // Navigate straight to the detail page to upload the PDF
     router.push(`/study/${ss.id}`);
   }
 
   async function handleDelete(id: string) {
-    if (!confirm('Delete this study set? This cannot be undone.')) return;
+    if (!confirm(t.studySets.deleteConfirm)) return;
     await deleteStudySet(id, token ?? undefined).catch(() => {});
     setSets(prev => prev.filter(s => s.id !== id));
   }
@@ -250,7 +258,7 @@ export default function StudyPage() {
         <div className="flex items-center justify-between px-5 sm:px-6 py-4
                         border-b border-[var(--bd)] shrink-0">
           <div className="flex items-center gap-2">
-            <h1 className="text-[var(--tx1)] font-semibold">Study Sets</h1>
+            <h1 className="text-[var(--tx1)] font-semibold">{t.studySets.title}</h1>
             {!loading && sets.length > 0 && (
               <span className="px-2 py-0.5 bg-[var(--ov3)] rounded-full text-[var(--tx5)] text-xs">
                 {sets.length}
@@ -263,7 +271,7 @@ export default function StudyPage() {
                        bg-indigo-600 hover:bg-indigo-500 text-white text-sm
                        font-medium transition-colors"
           >
-            <Plus size={14} /> New Study Set
+            <Plus size={14} /> {t.studySets.newStudySet}
           </button>
         </div>
 
@@ -281,9 +289,9 @@ export default function StudyPage() {
                 <BookOpen size={28} className="text-white" />
               </div>
               <div>
-                <h2 className="text-[var(--tx1)] font-semibold text-base mb-1">No study sets yet</h2>
+                <h2 className="text-[var(--tx1)] font-semibold text-base mb-1">{t.studySets.noSets}</h2>
                 <p className="text-[var(--tx5)] text-sm max-w-xs leading-relaxed">
-                  Upload a PDF, textbook chapter, or notes and AI will extract key concepts and flashcards automatically.
+                  {t.studySets.noSetsLandingDesc}
                 </p>
               </div>
               <button
@@ -292,7 +300,7 @@ export default function StudyPage() {
                            bg-indigo-600 hover:bg-indigo-500 text-white text-sm
                            font-medium transition-colors"
               >
-                <Upload size={15} /> Upload your first PDF
+                <Upload size={15} /> {t.studySets.uploadFirstPdf}
               </button>
             </div>
           ) : (

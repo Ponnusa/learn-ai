@@ -189,6 +189,7 @@ export interface Translation {
     createNew: string;
     noSets: string;
     noSetsDesc: string;
+    noSetsLandingDesc: string;
     concepts: string;
     startStudying: string;
     masteryLevel: string;
@@ -209,6 +210,8 @@ export interface Translation {
     statusReady: string;
     statusProcessing: string;
     statusLoadingPdf: string;
+    statusNoMaterial: string;
+    statusFailed: string;
     notFound: string;
     askAnything: string;
     chatLoading: string;
@@ -235,6 +238,41 @@ export interface Translation {
     materials: string;
     keyConceptsHeader: string;
     progress: string;
+    newStudySet: string;
+    titleLabel: string;
+    titlePlaceholder: string;
+    subjectLabel: string;
+    selectSubject: string;
+    descriptionLabel: string;
+    descriptionPlaceholder: string;
+    titleRequired: string;
+    createAndUpload: string;
+    uploadFirstPdf: string;
+    deleteConfirm: string;
+    cardsCount: string;
+    daysAgo: string;
+  };
+
+  images: {
+    title: string;
+    subtitle: string;
+    inputPlaceholder: string;
+    generateBtn: string;
+    generatingBtn: string;
+    creating: string;
+    creatingSteps: string;
+    failedTitle: string;
+    tryAgain: string;
+    save: string;
+    reGenerate: string;
+    aboutDiagram: string;
+    qualityScore: string;
+    shows: string;
+    goal: string;
+    pastDiagrams: string;
+    processing: string;
+    emptyTitle: string;
+    emptyDesc: string;
   };
 
   profile: {
