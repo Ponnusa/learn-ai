@@ -25,7 +25,14 @@ function VerifyContent() {
       .then(data => {
         setUser(data.user, data.token);
         setStatus('success');
-        setTimeout(() => router.replace('/'), 1500);
+        const dest = data.user.account_type === 'super_admin'
+          ? '/admin'
+          : data.user.account_type === 'institution_admin'
+            ? '/institution/dashboard'
+            : data.user.account_type === 'teacher'
+              ? '/teacher/dashboard'
+              : '/';
+        setTimeout(() => router.replace(dest), 1500);
       })
       .catch(e => {
         setStatus('error');

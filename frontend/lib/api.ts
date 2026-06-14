@@ -35,7 +35,7 @@ export const sendMagicLink = (email: string, sessionId?: string, knowledgeLevel?
   post('/api/auth/magic-link', { email, session_id: sessionId, knowledge_level: knowledgeLevel });
 
 export const verifyMagicLink = (token: string) =>
-  post<{ token: string; user: { id: string; email: string; name: string; tier: string } }>(
+  post<{ token: string; user: { id: string; email: string; name: string; tier: string; account_type?: 'student' | 'teacher' | 'institution_admin' | 'super_admin' } }>(
     '/api/auth/verify', { token }
   );
 

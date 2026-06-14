@@ -255,6 +255,12 @@ export default function LoginPage() {
         <p className="text-center text-[var(--txa)] text-xs mt-6">
           {t.auth.termsNote}
         </p>
+
+        <p className="text-center text-xs mt-4">
+          <a href="/auth/teacher" className="text-[var(--tx7)] hover:text-[var(--purple)] transition-colors">
+            For teachers &amp; schools →
+          </a>
+        </p>
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ interface User {
   tier: string;
   theme?: 'dark' | 'light';
   language?: 'en' | 'fi' | 'sv';
+  account_type?: 'student' | 'teacher' | 'institution_admin' | 'super_admin';
 }
 
 export interface Conversation {

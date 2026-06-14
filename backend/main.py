@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from database import init_pool, close_pool
 from config import settings
 from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
+from routers import teacher_auth, institutions, admin
 
 
 @asynccontextmanager
@@ -146,6 +147,9 @@ app.include_router(quizzes.router)
 app.include_router(uploads.router)
 app.include_router(studysets.router)
 app.include_router(images.router)
+app.include_router(teacher_auth.router)
+app.include_router(institutions.router)
+app.include_router(admin.router)
 
 
 @app.get("/health")
