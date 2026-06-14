@@ -207,10 +207,11 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
 
         # ── 3. Save user message ─────────────────────────────────────────────
         content_type = "image_url" if req.image_url else "text"
+        user_meta = json.dumps({"image_url": req.image_url}) if req.image_url else None
         await db.execute("""
-            INSERT INTO messages (conversation_id, role, content, content_type)
-            VALUES ($1, 'user', $2, $3)
-        """, conv_id, req.message, content_type)
+            INSERT INTO messages (conversation_id, role, content, content_type, metadata)
+            VALUES ($1, 'user', $2, $3, $4)
+        """, conv_id, req.message, content_type, user_meta)
 
         # Increment session counter
         if req.session_id:

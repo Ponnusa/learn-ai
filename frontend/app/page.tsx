@@ -17,7 +17,7 @@ import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLanguageStore } from '@/store/languageStore';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, debugChatPrompt, getStudentProfile } from '@/lib/api';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, debugChatPrompt, getStudentProfile, uploadRegionImage } from '@/lib/api';
 import { DebugPromptModal } from '@/components/chat/DebugPromptModal';
 import { ProfileNudgeCard } from '@/components/profile/ProfileNudgeCard';
 
@@ -146,6 +146,10 @@ export default function HomePage() {
         if (typeof meta === 'string') {
           try { meta = JSON.parse(meta); } catch { meta = undefined; }
         }
+        // Restore uploaded image URL from persisted metadata
+        if (m.role === 'user' && meta?.image_url) {
+          meta = { ...meta, imageUrl: meta.image_url };
+        }
         return {
           id:       m.id,
           role:     m.role as 'user' | 'assistant',
@@ -223,22 +227,28 @@ export default function HomePage() {
       return;
     }
 
-    // Convert image file to base64 data URL for vision API
-    let imageDataUrl: string | undefined;
+    // Upload image to R2 for a permanent URL (persists in chat history)
+    let imageUrl: string | undefined;
     if (file && file.type.startsWith('image/')) {
-      imageDataUrl = await new Promise<string>((resolve, reject) => {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
+      try {
+        imageUrl = await uploadRegionImage(dataUrl, user?.id, sessionId ?? undefined, token ?? undefined);
+      } catch {
+        // Fall back to base64 so the current turn still works even if upload fails
+        imageUrl = dataUrl;
+      }
     }
 
     setMessages(prev => [...prev, {
       id: Date.now().toString(),
       role: 'user',
       content: text,
-      metadata: imageDataUrl ? { imageUrl: imageDataUrl } : undefined,
+      metadata: imageUrl ? { imageUrl } : undefined,
     }]);
     setLoading(true);
     incrementMsg();
@@ -250,7 +260,7 @@ export default function HomePage() {
         user_id:   user?.id,
         session_id: sessionId ?? undefined,
         language,
-        image_url: imageDataUrl,
+        image_url: imageUrl,
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);
