@@ -4,7 +4,7 @@ optionally imported from a syllabus PDF, then assign to classrooms.
 """
 import json
 import logging
-from fastapi import APIRouter, HTTPException, Header, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, UploadFile, File, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -13,6 +13,80 @@ from routers.auth import decode_jwt
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/courses", tags=["courses"])
+
+
+async def _summarize_concepts_bg(concept_ids: list[str], course_id: str):
+    """Background: generate AI summary + transcript per concept, one at a time."""
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT name, subject FROM courses WHERE id = $1::uuid", course_id
+        )
+
+    for concept_id in concept_ids:
+        try:
+            async with get_db() as db:
+                concept = await db.fetchrow(
+                    "SELECT title, description, source_text FROM course_concepts WHERE id = $1::uuid",
+                    concept_id,
+                )
+            if not concept:
+                continue
+
+            source = concept["source_text"] or concept["description"] or concept["title"]
+            subject = (course["subject"] if course else None) or "General"
+
+            prompt = f"""You are an expert educator creating study material for students.
+
+Concept: {concept['title']}
+Subject: {subject}
+
+Source material (from the chapter):
+---
+{source}
+---
+
+Create two things grounded strictly in the source above:
+
+1. SUMMARY — 3-4 clear paragraphs for a student:
+   • Start with a plain-language definition
+   • Explain the key ideas with a concrete example
+   • Keep it engaging and jargon-free
+
+2. TRANSCRIPT — a 2-minute video narration script:
+   • Conversational spoken-word style
+   • Open with "In this lesson, we'll explore [concept]..."
+   • Mirror the summary content but as natural speech
+   • End with a brief recap sentence
+
+Return ONLY valid JSON:
+{{"summary": "...", "transcript": "..."}}"""
+
+            response = await client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"},
+                max_tokens=2000,
+                temperature=0.4,
+            )
+            result = json.loads(response.choices[0].message.content)
+
+            async with get_db() as db:
+                await db.execute("""
+                    UPDATE course_concepts
+                    SET ai_summary = $1, ai_transcript = $2, pipeline_status = 'ready'
+                    WHERE id = $3::uuid
+                """, result.get("summary", ""), result.get("transcript", ""), concept_id)
+
+        except Exception as exc:
+            logger.error("[pipeline] concept %s failed: %s", concept_id, exc)
+            async with get_db() as db:
+                await db.execute(
+                    "UPDATE course_concepts SET pipeline_status = 'failed' WHERE id = $1::uuid",
+                    concept_id,
+                )
 
 
 async def _require_teacher(authorization: str):
@@ -570,6 +644,163 @@ async def activate_concept(concept_id: str, authorization: str = Header(...)):
     return {"study_set_id": str(study_set_id)}
 
 
+# ── Chapter upload → AI pipeline ─────────────────────────────────────────────
+
+@router.post("/{course_id}/chapters")
+async def upload_chapter(
+    course_id:     str,
+    bg:            BackgroundTasks,
+    authorization: str        = Header(...),
+    file:          UploadFile = File(...),
+):
+    """
+    Upload a chapter PDF:
+    1. AI extracts concepts with verbatim source chunks (sync, fast)
+    2. Creates a unit + concepts in DB with pipeline_status='summarizing'
+    3. Background job generates ai_summary + ai_transcript per concept
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT id, name, subject FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+    if not course:
+        raise HTTPException(404, "Course not found")
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files are supported")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 30 * 1024 * 1024:
+        raise HTTPException(400, "File too large — max 30 MB")
+
+    from services.studyset_processor import extract_text_from_pdf
+    from openai import AsyncOpenAI
+
+    text, page_count = extract_text_from_pdf(file_bytes)
+    truncated = text[:80_000]
+
+    client = AsyncOpenAI()
+    extract_prompt = f"""You are an expert educator. Analyze this chapter and extract the key concepts students must learn.
+
+Course: {course['name']}
+Subject: {course['subject'] or 'General'}
+
+For EACH concept, include the EXACT verbatim paragraph(s) from the text it is based on.
+
+Return ONLY valid JSON:
+{{
+  "chapter_title": "...",
+  "concepts": [
+    {{
+      "title": "Concise concept name",
+      "description": "One sentence: what the student will understand",
+      "source_text": "The exact verbatim sentences/paragraphs from the text that cover this concept"
+    }}
+  ]
+}}
+
+Rules:
+- 4–12 concepts, in the order they appear in the text
+- source_text must be a direct quote from the document
+- Each concept = one distinct learnable idea
+
+--- CHAPTER ---
+{truncated}"""
+
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": extract_prompt}],
+        response_format={"type": "json_object"},
+        max_tokens=6000,
+        temperature=0.2,
+    )
+    result       = json.loads(response.choices[0].message.content)
+    concepts_raw = result.get("concepts", [])
+    chapter_title = result.get("chapter_title") or file.filename.replace(".pdf", "")
+
+    async with get_db() as db:
+        chapter_row = await db.fetchrow("""
+            INSERT INTO course_chapters (course_id, filename, page_count, concept_count, status)
+            VALUES ($1::uuid, $2, $3, $4, 'ready') RETURNING id
+        """, course_id, file.filename, page_count, len(concepts_raw))
+
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM course_units WHERE course_id = $1::uuid",
+            course_id,
+        )
+        unit_row = await db.fetchrow("""
+            INSERT INTO course_units (course_id, title, description, position)
+            VALUES ($1::uuid, $2, $3, $4) RETURNING id
+        """, course_id, chapter_title, f"Source: {file.filename}", int(max_pos) + 1)
+
+        concept_ids = []
+        for pos, c in enumerate(concepts_raw):
+            row = await db.fetchrow("""
+                INSERT INTO course_concepts
+                  (unit_id, title, description, source_text, pipeline_status, position, chapter_ref)
+                VALUES ($1::uuid, $2, $3, $4, 'summarizing', $5, $6)
+                RETURNING id
+            """, str(unit_row["id"]),
+                c.get("title", ""), c.get("description", ""),
+                c.get("source_text", ""), pos, str(chapter_row["id"]))
+            concept_ids.append(str(row["id"]))
+
+    bg.add_task(_summarize_concepts_bg, concept_ids, course_id)
+
+    return {
+        "chapter_id":    str(chapter_row["id"]),
+        "chapter_title": chapter_title,
+        "unit_id":       str(unit_row["id"]),
+        "concept_count": len(concept_ids),
+        "concept_ids":   concept_ids,
+        "page_count":    page_count,
+    }
+
+
+# ── Pipeline status (teacher polls while concepts are summarizing) ─────────────
+
+@router.get("/{course_id}/pipeline")
+async def get_pipeline_status(course_id: str, authorization: str = Header(...)):
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        ok = await db.fetchval(
+            "SELECT 1 FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+        if not ok:
+            raise HTTPException(404, "Course not found")
+
+        rows = await db.fetch("""
+            SELECT cc.id, cc.title, cc.pipeline_status, cc.approved_at,
+                   cu.title AS unit_title
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid
+            ORDER BY cu.position, cc.position
+        """, course_id)
+
+    counts: dict[str, int] = {}
+    for r in rows:
+        counts[r["pipeline_status"]] = counts.get(r["pipeline_status"], 0) + 1
+
+    return {
+        "is_processing": counts.get("summarizing", 0) > 0,
+        "counts":        counts,
+        "concepts": [
+            {
+                "id":              str(r["id"]),
+                "title":           r["title"],
+                "pipeline_status": r["pipeline_status"],
+                "unit_title":      r["unit_title"],
+                "approved_at":     r["approved_at"].isoformat() if r["approved_at"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
 # ── Syllabus PDF ──────────────────────────────────────────────────────────────
 
 @router.get("/{course_id}/syllabus")
@@ -594,18 +825,23 @@ async def get_course_syllabus(course_id: str, authorization: str = Header(...)):
 # ── Concept detail (teacher write, student read) ───────────────────────────────
 
 class ConceptDetailPatch(BaseModel):
-    content_text: str | None = None
-    study_set_id: str | None = None
+    content_text:  str | None = None
+    study_set_id:  str | None = None
+    ai_summary:    str | None = None
+    ai_transcript: str | None = None
+    approve:       bool       = False
 
 
 @router.get("/concepts/{concept_id}/detail")
 async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
-    """Any authenticated user can fetch concept detail (explanation + images)."""
+    """Any authenticated user can fetch concept detail."""
     decode_jwt(authorization.removeprefix("Bearer ").strip())
     async with get_db() as db:
         concept = await db.fetchrow("""
             SELECT cc.id, cc.title, cc.description, cc.content_text,
-                   cc.study_set_id, cu.course_id
+                   cc.study_set_id, cc.source_text, cc.ai_summary,
+                   cc.ai_transcript, cc.pipeline_status, cc.approved_at,
+                   cu.course_id
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
             WHERE cc.id = $1::uuid
@@ -621,12 +857,17 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
         """, concept_id)
 
     return {
-        "id":           str(concept["id"]),
-        "title":        concept["title"],
-        "description":  concept["description"],
-        "content_text": concept["content_text"],
-        "study_set_id": str(concept["study_set_id"]) if concept["study_set_id"] else None,
-        "course_id":    str(concept["course_id"]),
+        "id":              str(concept["id"]),
+        "title":           concept["title"],
+        "description":     concept["description"],
+        "content_text":    concept["content_text"],
+        "study_set_id":    str(concept["study_set_id"]) if concept["study_set_id"] else None,
+        "course_id":       str(concept["course_id"]),
+        "source_text":     concept["source_text"],
+        "ai_summary":      concept["ai_summary"],
+        "ai_transcript":   concept["ai_transcript"],
+        "pipeline_status": concept["pipeline_status"],
+        "approved_at":     concept["approved_at"].isoformat() if concept["approved_at"] else None,
         "images": [
             {
                 "id":       str(img["id"]),
@@ -648,11 +889,16 @@ async def update_concept_detail(
     await _require_teacher(authorization)
     sets, params = [], [concept_id]
     if req.content_text is not None:
-        params.append(req.content_text)
-        sets.append(f"content_text = ${len(params)}")
+        params.append(req.content_text);  sets.append(f"content_text = ${len(params)}")
     if req.study_set_id is not None:
-        params.append(req.study_set_id)
-        sets.append(f"study_set_id = ${len(params)}::uuid")
+        params.append(req.study_set_id);  sets.append(f"study_set_id = ${len(params)}::uuid")
+    if req.ai_summary is not None:
+        params.append(req.ai_summary);    sets.append(f"ai_summary = ${len(params)}")
+    if req.ai_transcript is not None:
+        params.append(req.ai_transcript); sets.append(f"ai_transcript = ${len(params)}")
+    if req.approve:
+        sets.append("pipeline_status = 'approved'")
+        sets.append("approved_at = NOW()")
     if not sets:
         return {"ok": True}
     async with get_db() as db:

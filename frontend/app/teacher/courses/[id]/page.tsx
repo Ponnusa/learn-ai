@@ -4,13 +4,14 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
   Upload, Loader2, Check, BookOpen, FileText, Users,
-  CheckCircle, Globe,
+  CheckCircle, Globe, Zap, Circle,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-interface Concept { id: string; title: string; description?: string; study_set_id?: string; ss_status?: string; position: number; }
+type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
+interface Concept { id: string; title: string; description?: string; study_set_id?: string; ss_status?: string; pipeline_status?: PipelineStatus; position: number; }
 interface Unit    { id: string; title: string; description?: string; position: number; concepts: Concept[]; }
 interface Classroom { id: string; name: string; }
 interface Course  {
@@ -36,12 +37,20 @@ export default function CourseDetailPage() {
   const [addingConcept, setAddingConcept] = useState<string | null>(null);
   const [conceptTitle, setConceptTitle]  = useState('');
 
-  // Syllabus import
+  // Syllabus import (quick structure-only)
   const fileRef    = useRef<HTMLInputElement>(null);
   const [importing,  setImporting]    = useState(false);
   const [preview,    setPreview]      = useState<PreviewUnit[] | null>(null);
   const [confirming, setConfirming]   = useState(false);
   const [importMsg,  setImportMsg]    = useState('');
+
+  // Chapter upload (full AI pipeline)
+  const chapterRef = useRef<HTMLInputElement>(null);
+  const [uploading,     setUploading]     = useState(false);
+  const [pipelineMsg,   setPipelineMsg]   = useState('');
+  const [isProcessing,  setIsProcessing]  = useState(false);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [totalCount,    setTotalCount]    = useState(0);
 
   // Assign to classroom
   const [myClassrooms, setMyClassrooms] = useState<Classroom[]>([]);
@@ -69,6 +78,52 @@ export default function CourseDetailPage() {
   async function loadClassrooms() {
     const res = await fetch(`${API_BASE}/api/classrooms/teaching`, { headers });
     if (res.ok) setMyClassrooms(await res.json());
+  }
+
+  // ── Pipeline polling ───────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (!isProcessing) return;
+    const iv = setInterval(async () => {
+      const res = await fetch(`${API_BASE}/api/courses/${courseId}/pipeline`, { headers });
+      if (!res.ok) return;
+      const data = await res.json();
+      const done = (data.counts?.approved ?? 0) + (data.counts?.ready ?? 0) + (data.counts?.failed ?? 0);
+      setProcessedCount(done);
+      if (!data.is_processing) {
+        setIsProcessing(false);
+        setPipelineMsg('');
+        load();
+      }
+    }, 3000);
+    return () => clearInterval(iv);
+  }, [isProcessing, courseId]);
+
+  // ── Chapter upload ──────────────────────────────────────────────────────────
+
+  async function handleChapterUpload(file: File) {
+    setUploading(true); setPipelineMsg('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API_BASE}/api/courses/${courseId}/chapters`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Upload failed');
+      setTotalCount(data.concept_count);
+      setProcessedCount(0);
+      setIsProcessing(true);
+      setPipelineMsg(`"${data.chapter_title}" — generating content for ${data.concept_count} concepts…`);
+      load();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUploading(false);
+      if (chapterRef.current) chapterRef.current.value = '';
+    }
   }
 
   // ── Units ──────────────────────────────────────────────────────────────────
@@ -232,7 +287,45 @@ export default function CourseDetailPage() {
         </button>
       </div>
 
-      {/* Syllabus import */}
+      {/* Pipeline status banner */}
+      {isProcessing && (
+        <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 mb-4 flex items-center gap-3">
+          <Loader2 size={16} className="text-purple-400 animate-spin shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-purple-300 text-sm font-medium">AI is generating content…</p>
+            <p className="text-purple-400/70 text-xs mt-0.5 truncate">{pipelineMsg}</p>
+          </div>
+          {totalCount > 0 && (
+            <span className="text-purple-300 text-xs font-mono shrink-0">
+              {processedCount}/{totalCount}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Chapter upload — AI pipeline */}
+      <div className="bg-[var(--surface)] border border-purple-500/20 rounded-2xl p-5 mb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[var(--tx1)] text-sm font-semibold flex items-center gap-1.5">
+              <Zap size={14} className="text-purple-400" /> Upload chapter — AI generates everything
+            </p>
+            <p className="text-[var(--tx7)] text-xs mt-1">
+              Upload a chapter PDF → AI extracts concepts, writes summaries and video transcripts.
+              You review and approve before students see anything.
+            </p>
+          </div>
+          <button onClick={() => chapterRef.current?.click()} disabled={uploading || isProcessing}
+            className="shrink-0 flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-500
+                       text-white text-sm rounded-xl transition-all disabled:opacity-40">
+            {uploading ? <Loader2 size={14} className="animate-spin" /> : <><Upload size={14} /> Upload chapter</>}
+          </button>
+          <input ref={chapterRef} type="file" accept=".pdf" className="hidden"
+            onChange={e => e.target.files?.[0] && handleChapterUpload(e.target.files[0])} />
+        </div>
+      </div>
+
+      {/* Syllabus import — structure only */}
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-6">
         <div className="flex items-center justify-between mb-3">
           <div>
@@ -320,10 +413,17 @@ export default function CourseDetailPage() {
                       onClick={() => router.push(`/teacher/courses/${courseId}/concepts/${c.id}`)}
                       className="flex-1 min-w-0 text-left hover:text-purple-400 transition-colors">
                       <p className="text-[var(--tx2)] text-sm truncate group-hover:text-purple-400 transition-colors">{c.title}</p>
-                      {c.ss_status === 'ready'
-                        ? <span className="text-xs text-green-400 flex items-center gap-1"><BookOpen size={9} /> Study set ready</span>
-                        : <span className="text-xs text-[var(--tx8)]">Click to add explanation &amp; materials</span>
-                      }
+                      <span className="text-xs flex items-center gap-1 mt-0.5">
+                        {c.pipeline_status === 'summarizing' && <><Loader2 size={9} className="animate-spin text-amber-400" /><span className="text-amber-400">Generating…</span></>}
+                        {c.pipeline_status === 'ready'       && <><Circle size={9} className="fill-blue-400 text-blue-400" /><span className="text-blue-400">Ready for review</span></>}
+                        {c.pipeline_status === 'approved'    && <><CheckCircle size={9} className="text-green-400" /><span className="text-green-400">Approved</span></>}
+                        {c.pipeline_status === 'failed'      && <span className="text-red-400">Generation failed</span>}
+                        {(!c.pipeline_status || c.pipeline_status === 'draft') && (
+                          c.ss_status === 'ready'
+                            ? <span className="text-green-400 flex items-center gap-1"><BookOpen size={9} /> Study set ready</span>
+                            : <span className="text-[var(--tx8)]">Click to edit</span>
+                        )}
+                      </span>
                     </button>
                     <button onClick={() => deleteConcept(unit.id, c.id)}
                       className="opacity-0 group-hover:opacity-100 text-[var(--tx8)] hover:text-red-400

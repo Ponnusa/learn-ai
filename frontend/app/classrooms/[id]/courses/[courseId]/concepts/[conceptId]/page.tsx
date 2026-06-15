@@ -10,6 +10,7 @@ interface ConceptImage { id: string; url: string; caption: string; }
 interface ConceptDetail {
   id: string; title: string; description?: string;
   content_text?: string; study_set_id?: string;
+  ai_summary?: string; pipeline_status?: string;
   images: ConceptImage[];
 }
 
@@ -57,7 +58,11 @@ export default function StudentConceptDetailPage() {
   );
   if (!concept) return null;
 
-  const hasContent = concept.content_text || concept.images.length > 0;
+  // Show AI summary if approved, otherwise teacher explanation
+  const explanation = concept.pipeline_status === 'approved' && concept.ai_summary
+    ? concept.ai_summary
+    : concept.content_text;
+  const hasContent = explanation || concept.images.length > 0;
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -73,14 +78,15 @@ export default function StudentConceptDetailPage() {
         <p className="text-[var(--tx6)] text-sm mb-6">{concept.description}</p>
       )}
 
-      {/* Teacher explanation */}
-      {concept.content_text && (
+      {/* Concept explanation — AI summary (approved) or teacher notes */}
+      {explanation && (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-6 mb-6">
           <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <BookOpen size={12} /> Explanation
+            <BookOpen size={12} />
+            {concept.pipeline_status === 'approved' ? 'Summary' : 'Explanation'}
           </h2>
           <div className="text-[var(--tx2)] text-sm leading-relaxed whitespace-pre-wrap">
-            {concept.content_text}
+            {explanation}
           </div>
         </div>
       )}
