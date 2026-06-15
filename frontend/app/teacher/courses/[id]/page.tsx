@@ -316,14 +316,15 @@ export default function CourseDetailPage() {
                 {unit.concepts.map((c, ci) => (
                   <div key={c.id} className="flex items-center gap-3 group py-1">
                     <span className="text-[var(--tx8)] text-xs w-5 text-right shrink-0">{ci + 1}.</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[var(--tx2)] text-sm truncate">{c.title}</p>
-                      {c.ss_status === 'ready' && (
-                        <span className="text-xs text-green-400 flex items-center gap-1">
-                          <BookOpen size={9} /> Study set ready
-                        </span>
-                      )}
-                    </div>
+                    <button
+                      onClick={() => router.push(`/teacher/courses/${courseId}/concepts/${c.id}`)}
+                      className="flex-1 min-w-0 text-left hover:text-purple-400 transition-colors">
+                      <p className="text-[var(--tx2)] text-sm truncate group-hover:text-purple-400 transition-colors">{c.title}</p>
+                      {c.ss_status === 'ready'
+                        ? <span className="text-xs text-green-400 flex items-center gap-1"><BookOpen size={9} /> Study set ready</span>
+                        : <span className="text-xs text-[var(--tx8)]">Click to add explanation &amp; materials</span>
+                      }
+                    </button>
                     <button onClick={() => deleteConcept(unit.id, c.id)}
                       className="opacity-0 group-hover:opacity-100 text-[var(--tx8)] hover:text-red-400
                                  transition-all p-1 shrink-0">

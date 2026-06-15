@@ -5,6 +5,7 @@ optionally imported from a syllabus PDF, then assign to classrooms.
 import json
 import logging
 from fastapi import APIRouter, HTTPException, Header, UploadFile, File, Form
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from database import get_db
@@ -360,6 +361,13 @@ Requirements:
     result = json.loads(response.choices[0].message.content)
     units = result.get("units", [])
 
+    # Persist the PDF so teachers can reference it in the concept editor
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE courses SET syllabus_pdf = $1, syllabus_filename = $2 WHERE id = $3::uuid",
+            file_bytes, file.filename, course_id,
+        )
+
     return {
         "page_count":    page_count,
         "unit_count":    len(units),
@@ -549,21 +557,7 @@ async def activate_concept(concept_id: str, authorization: str = Header(...)):
 
         study_set_id = concept["study_set_id"]
 
-        # Create study set on first visit if not yet linked
-        if not study_set_id:
-            ss = await db.fetchrow("""
-                INSERT INTO study_sets (user_id, title, subject, description, status)
-                VALUES ($1::uuid, $2, $3, $4, 'empty')
-                RETURNING id
-            """, student_id, concept["title"], concept["subject"],
-                concept["description"])
-            study_set_id = ss["id"]
-
-            await db.execute("""
-                UPDATE course_concepts SET study_set_id = $1 WHERE id = $2::uuid
-            """, study_set_id, concept_id)
-
-        # Upsert progress
+        # Upsert progress (do NOT auto-create study set — teacher creates it)
         await db.execute("""
             INSERT INTO student_concept_progress
               (student_id, concept_id, course_id, visited, visited_at, last_seen_at)
@@ -574,6 +568,185 @@ async def activate_concept(concept_id: str, authorization: str = Header(...)):
         """, student_id, concept_id, str(concept["course_id"]))
 
     return {"study_set_id": str(study_set_id)}
+
+
+# ── Syllabus PDF ──────────────────────────────────────────────────────────────
+
+@router.get("/{course_id}/syllabus")
+async def get_course_syllabus(course_id: str, authorization: str = Header(...)):
+    """Return the stored syllabus PDF for the concept editor."""
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT syllabus_pdf, syllabus_filename FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+    if not row or not row["syllabus_pdf"]:
+        raise HTTPException(404, "No syllabus PDF on file — import a syllabus first")
+    fname = (row["syllabus_filename"] or "syllabus.pdf").replace('"', '')
+    return Response(
+        content=bytes(row["syllabus_pdf"]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
+
+
+# ── Concept detail (teacher write, student read) ───────────────────────────────
+
+class ConceptDetailPatch(BaseModel):
+    content_text: str | None = None
+    study_set_id: str | None = None
+
+
+@router.get("/concepts/{concept_id}/detail")
+async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
+    """Any authenticated user can fetch concept detail (explanation + images)."""
+    decode_jwt(authorization.removeprefix("Bearer ").strip())
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.id, cc.title, cc.description, cc.content_text,
+                   cc.study_set_id, cu.course_id
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+        if not concept:
+            raise HTTPException(404, "Concept not found")
+
+        images = await db.fetch("""
+            SELECT id, mime_type, caption, position
+            FROM concept_images
+            WHERE concept_id = $1::uuid
+            ORDER BY position, created_at
+        """, concept_id)
+
+    return {
+        "id":           str(concept["id"]),
+        "title":        concept["title"],
+        "description":  concept["description"],
+        "content_text": concept["content_text"],
+        "study_set_id": str(concept["study_set_id"]) if concept["study_set_id"] else None,
+        "course_id":    str(concept["course_id"]),
+        "images": [
+            {
+                "id":       str(img["id"]),
+                "url":      f"/api/courses/concepts/images/{img['id']}",
+                "caption":  img["caption"] or "",
+                "position": img["position"],
+            }
+            for img in images
+        ],
+    }
+
+
+@router.patch("/concepts/{concept_id}/detail")
+async def update_concept_detail(
+    concept_id: str,
+    req: ConceptDetailPatch,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    sets, params = [], [concept_id]
+    if req.content_text is not None:
+        params.append(req.content_text)
+        sets.append(f"content_text = ${len(params)}")
+    if req.study_set_id is not None:
+        params.append(req.study_set_id)
+        sets.append(f"study_set_id = ${len(params)}::uuid")
+    if not sets:
+        return {"ok": True}
+    async with get_db() as db:
+        await db.execute(
+            f"UPDATE course_concepts SET {', '.join(sets)} WHERE id = $1::uuid", *params
+        )
+    return {"ok": True}
+
+
+# ── Concept images ────────────────────────────────────────────────────────────
+
+@router.post("/concepts/{concept_id}/images")
+async def upload_concept_image(
+    concept_id:    str,
+    authorization: str        = Header(...),
+    file:          UploadFile = File(...),
+    caption:       str        = Form(""),
+):
+    await _require_teacher(authorization)
+    mime = file.content_type or "image/jpeg"
+    if not mime.startswith("image/"):
+        raise HTTPException(400, "Only image files are supported")
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(400, "Image too large — max 10 MB")
+
+    async with get_db() as db:
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM concept_images WHERE concept_id = $1::uuid",
+            concept_id,
+        )
+        row = await db.fetchrow("""
+            INSERT INTO concept_images (concept_id, data, mime_type, caption, position)
+            VALUES ($1::uuid, $2, $3, $4, $5)
+            RETURNING id, caption, position
+        """, concept_id, data, mime, caption, int(max_pos) + 1)
+
+    return {
+        "id":       str(row["id"]),
+        "url":      f"/api/courses/concepts/images/{row['id']}",
+        "caption":  row["caption"] or "",
+        "position": row["position"],
+    }
+
+
+class ImagePatch(BaseModel):
+    caption: str
+
+
+@router.patch("/concepts/{concept_id}/images/{image_id}")
+async def update_concept_image(
+    concept_id: str,
+    image_id:   str,
+    req:        ImagePatch,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE concept_images SET caption = $1 WHERE id = $2::uuid AND concept_id = $3::uuid",
+            req.caption, image_id, concept_id,
+        )
+    return {"ok": True}
+
+
+@router.delete("/concepts/{concept_id}/images/{image_id}")
+async def delete_concept_image(
+    concept_id: str,
+    image_id:   str,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM concept_images WHERE id = $1::uuid AND concept_id = $2::uuid",
+            image_id, concept_id,
+        )
+    return {"ok": True}
+
+
+@router.get("/concepts/images/{image_id}")
+async def serve_concept_image(image_id: str):
+    """Serve a concept image — no auth needed (UUID is unguessable)."""
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT data, mime_type FROM concept_images WHERE id = $1::uuid", image_id
+        )
+    if not row:
+        raise HTTPException(404, "Image not found")
+    return Response(
+        content=bytes(row["data"]),
+        media_type=row["mime_type"],
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────

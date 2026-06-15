@@ -47,7 +47,7 @@ export default function StudentCoursePage() {
   const [course,    setCourse]    = useState<Course | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [expanded,  setExpanded]  = useState<Set<string>>(new Set());
-  const [activating, setActivating] = useState<string | null>(null);
+  // concepts navigate to detail page — no activating state needed here
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -76,19 +76,8 @@ export default function StudentCoursePage() {
     });
   }
 
-  async function openConcept(concept: Concept) {
-    if (activating) return;
-    setActivating(concept.id);
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${concept.id}/activate`, {
-        method: 'POST', headers,
-      });
-      if (!res.ok) throw new Error();
-      const { study_set_id } = await res.json();
-      router.push(`/study/${study_set_id}`);
-    } catch {
-      setActivating(null);
-    }
+  function openConcept(concept: Concept) {
+    router.push(`/classrooms/${classroomId}/courses/${courseId}/concepts/${concept.id}`);
   }
 
   if (loading) return (
@@ -173,16 +162,12 @@ export default function StudentCoursePage() {
                   {unit.concepts.length === 0 ? (
                     <p className="px-5 py-4 text-[var(--tx7)] text-sm italic">No concepts yet</p>
                   ) : unit.concepts.map(concept => {
-                    const isActivating = activating === concept.id;
                     return (
                       <button key={concept.id}
                         onClick={() => openConcept(concept)}
-                        disabled={!!activating}
                         className="w-full text-left flex items-start gap-3 px-5 py-3.5
-                                   hover:bg-[var(--ov1)] transition-colors disabled:opacity-60">
-                        {isActivating ? (
-                          <Loader2 size={16} className="text-purple-400 animate-spin shrink-0 mt-0.5" />
-                        ) : concept.visited ? (
+                                   hover:bg-[var(--ov1)] transition-colors">
+                        {concept.visited ? (
                           <CheckCircle2 size={16} className="text-green-400 shrink-0 mt-0.5" />
                         ) : (
                           <Circle size={16} className="text-[var(--tx8)] shrink-0 mt-0.5" />
