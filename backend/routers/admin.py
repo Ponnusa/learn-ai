@@ -130,6 +130,7 @@ class UpdateUserRequest(BaseModel):
     is_active:    bool | None = None
     account_type: str | None = None
     tier:         str | None = None
+    new_password: str | None = None
 
 
 @router.patch("/users/{user_id}")
@@ -142,6 +143,9 @@ async def update_user(
     if user_id == admin_id:
         raise HTTPException(400, "Cannot modify your own account here")
 
+    if req.new_password is not None and len(req.new_password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+
     sets, params = [], []
 
     if req.is_active is not None:
@@ -153,6 +157,9 @@ async def update_user(
     if req.tier is not None:
         params.append(req.tier)
         sets.append(f"tier = ${len(params)}")
+    if req.new_password is not None:
+        params.append(_hash_password(req.new_password))
+        sets.append(f"password_hash = ${len(params)}")
 
     if not sets:
         raise HTTPException(400, "Nothing to update")

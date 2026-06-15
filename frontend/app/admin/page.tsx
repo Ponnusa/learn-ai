@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import {
   CheckCircle, XCircle, Plus, Loader2, Building2, Users,
   KeyRound, ClipboardList, MessageSquare, Video, Search,
-  ToggleLeft, ToggleRight, Copy, Check,
+  ToggleLeft, ToggleRight, Copy, Check, KeySquare,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -61,6 +61,9 @@ export default function AdminPage() {
   const [creating,    setCreating]    = useState(false);
   const [lastCreds,   setLastCreds]   = useState<{ email: string; password: string; code: string } | null>(null);
   const [copied,      setCopied]      = useState(false);
+  const [pwdUserId,   setPwdUserId]   = useState<string | null>(null);
+  const [pwdValue,    setPwdValue]    = useState('');
+  const [pwdLoading,  setPwdLoading]  = useState(false);
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -103,6 +106,23 @@ export default function AdminPage() {
       body: JSON.stringify({ is_active: !u.is_active }),
     });
     loadUsers();
+  }
+
+  async function changePassword(userId: string) {
+    if (!pwdValue || pwdValue.length < 8) { alert('Password must be at least 8 characters'); return; }
+    setPwdLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users/${userId}`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ new_password: pwdValue }),
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.detail); }
+      setPwdUserId(null); setPwdValue('');
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setPwdLoading(false);
+    }
   }
 
   async function review(id: string, action: 'approve' | 'reject') {
@@ -257,44 +277,83 @@ export default function AdminPage() {
 
             <div className="space-y-2">
               {users.map(u => (
-                <div key={u.id} className={`flex items-center gap-4 p-4 bg-[var(--surface)] border rounded-xl transition-all ${
+                <div key={u.id} className={`p-4 bg-[var(--surface)] border rounded-xl transition-all ${
                   u.is_active ? 'border-[var(--bd)]' : 'border-red-500/20 opacity-60'
                 }`}>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-[var(--tx1)] text-sm font-medium truncate">{u.name ?? u.email}</p>
-                      {u.name && <p className="text-[var(--tx7)] text-xs truncate">{u.email}</p>}
-                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                        u.account_type === 'teacher'           ? 'bg-blue-500/15 text-blue-400' :
-                        u.account_type === 'institution_admin' ? 'bg-green-500/15 text-green-400' :
-                        u.account_type === 'super_admin'       ? 'bg-purple-500/15 text-purple-400' :
-                        'bg-[var(--ov1)] text-[var(--tx7)]'
-                      }`}>{u.account_type}</span>
-                      <span className="text-xs text-[var(--tx8)]">{u.tier}</span>
-                    </div>
-                    <div className="flex items-center gap-4 mt-1">
-                      <span className="text-[var(--tx7)] text-xs flex items-center gap-1">
-                        <MessageSquare size={10} /> {u.msg_count.toLocaleString()} msgs
-                      </span>
-                      <span className="text-[var(--tx7)] text-xs flex items-center gap-1">
-                        <Video size={10} /> {u.video_count} videos
-                      </span>
-                      {u.last_seen_at && (
-                        <span className="text-[var(--tx8)] text-xs">
-                          Last seen {new Date(u.last_seen_at).toLocaleDateString()}
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-[var(--tx1)] text-sm font-medium truncate">{u.name ?? u.email}</p>
+                        {u.name && <p className="text-[var(--tx7)] text-xs truncate">{u.email}</p>}
+                        <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                          u.account_type === 'teacher'           ? 'bg-blue-500/15 text-blue-400' :
+                          u.account_type === 'institution_admin' ? 'bg-green-500/15 text-green-400' :
+                          u.account_type === 'super_admin'       ? 'bg-purple-500/15 text-purple-400' :
+                          'bg-[var(--ov1)] text-[var(--tx7)]'
+                        }`}>{u.account_type}</span>
+                        <span className="text-xs text-[var(--tx8)]">{u.tier}</span>
+                      </div>
+                      <div className="flex items-center gap-4 mt-1">
+                        <span className="text-[var(--tx7)] text-xs flex items-center gap-1">
+                          <MessageSquare size={10} /> {u.msg_count.toLocaleString()} msgs
                         </span>
-                      )}
+                        <span className="text-[var(--tx7)] text-xs flex items-center gap-1">
+                          <Video size={10} /> {u.video_count} videos
+                        </span>
+                        {u.last_seen_at && (
+                          <span className="text-[var(--tx8)] text-xs">
+                            Last seen {new Date(u.last_seen_at).toLocaleDateString()}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => { setPwdUserId(pwdUserId === u.id ? null : u.id); setPwdValue(''); }}
+                        title="Change password"
+                        className="text-[var(--tx8)] hover:text-purple-400 transition-colors"
+                      >
+                        <KeySquare size={18} />
+                      </button>
+                      <button
+                        onClick={() => toggleActive(u)}
+                        title={u.is_active ? 'Disable user' : 'Enable user'}
+                        className="text-[var(--tx7)] hover:text-[var(--tx2)] transition-colors"
+                      >
+                        {u.is_active
+                          ? <ToggleRight size={24} className="text-green-400" />
+                          : <ToggleLeft  size={24} className="text-red-400" />}
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={() => toggleActive(u)}
-                    title={u.is_active ? 'Disable user' : 'Enable user'}
-                    className="shrink-0 text-[var(--tx7)] hover:text-[var(--tx2)] transition-colors"
-                  >
-                    {u.is_active
-                      ? <ToggleRight size={24} className="text-green-400" />
-                      : <ToggleLeft  size={24} className="text-red-400" />}
-                  </button>
+
+                  {/* Inline password reset */}
+                  {pwdUserId === u.id && (
+                    <div className="mt-3 pt-3 border-t border-[var(--bd)] flex gap-2">
+                      <input
+                        autoFocus
+                        type="password"
+                        placeholder="New password (min 8 chars)"
+                        value={pwdValue}
+                        onChange={e => setPwdValue(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && changePassword(u.id)}
+                        className={`${inputCls} flex-1`}
+                      />
+                      <button
+                        onClick={() => changePassword(u.id)}
+                        disabled={pwdLoading}
+                        className="px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs rounded-lg transition-all disabled:opacity-40"
+                      >
+                        {pwdLoading ? <Loader2 size={13} className="animate-spin" /> : 'Set'}
+                      </button>
+                      <button
+                        onClick={() => { setPwdUserId(null); setPwdValue(''); }}
+                        className="px-3 py-2 text-[var(--tx7)] hover:text-[var(--tx2)] text-xs rounded-lg transition-all"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
               {users.length === 0 && (
