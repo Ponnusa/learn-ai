@@ -209,8 +209,11 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     { icon: <Sparkles size={18} />,  label: t.progress.diagrams, href: '/images'   },
     { icon: <BarChart2 size={18} />, label: t.sidebar.progress,  href: '/progress' },
     ...(isTeacher || isSuperAdmin
-      ? [{ icon: <Users size={18} />, label: 'Classrooms', href: '/teacher/classrooms' }]
-      : [{ icon: <Users size={18} />, label: 'Classrooms', href: '/classrooms'         }]),
+      ? [
+          { icon: <Users size={18} />,    label: 'Classrooms',     href: '/teacher/classrooms' },
+          { icon: <BookOpen size={18} />, label: 'Course Builder',  href: '/teacher/courses'    },
+        ]
+      : [{ icon: <Users size={18} />, label: 'Classrooms', href: '/classrooms' }]),
     { icon: <Settings size={18} />,  label: t.sidebar.settings,  href: '/settings' },
   ];
 
