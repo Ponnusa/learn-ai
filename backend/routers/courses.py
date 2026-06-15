@@ -2,9 +2,13 @@
 Course builder router — teachers create courses (units + concepts),
 optionally imported from a syllabus PDF, then assign to classrooms.
 """
+import asyncio
 import json
 import logging
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, UploadFile, File, Form
+import re
+import tempfile
+import os
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request, UploadFile, File, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -722,9 +726,9 @@ Rules:
 
     async with get_db() as db:
         chapter_row = await db.fetchrow("""
-            INSERT INTO course_chapters (course_id, filename, page_count, concept_count, status)
-            VALUES ($1::uuid, $2, $3, $4, 'ready') RETURNING id
-        """, course_id, file.filename, page_count, len(concepts_raw))
+            INSERT INTO course_chapters (course_id, filename, page_count, concept_count, status, pdf_data)
+            VALUES ($1::uuid, $2, $3, $4, 'ready', $5) RETURNING id
+        """, course_id, file.filename, page_count, len(concepts_raw), file_bytes)
 
         max_pos = await db.fetchval(
             "SELECT COALESCE(MAX(position), -1) FROM course_units WHERE course_id = $1::uuid",
@@ -801,6 +805,26 @@ async def get_pipeline_status(course_id: str, authorization: str = Header(...)):
     }
 
 
+# ── Chapter PDF ───────────────────────────────────────────────────────────────
+
+@router.get("/chapters/{chapter_id}/pdf")
+async def get_chapter_pdf(chapter_id: str, authorization: str = Header(...)):
+    """Serve the original chapter PDF that was uploaded."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT pdf_data, filename FROM course_chapters WHERE id = $1::uuid", chapter_id
+        )
+    if not row or not row["pdf_data"]:
+        raise HTTPException(404, "Chapter PDF not found")
+    fname = (row["filename"] or "chapter.pdf").replace('"', '')
+    return Response(
+        content=bytes(row["pdf_data"]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{fname}"'},
+    )
+
+
 # ── Syllabus PDF ──────────────────────────────────────────────────────────────
 
 @router.get("/{course_id}/syllabus")
@@ -841,8 +865,10 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
             SELECT cc.id, cc.title, cc.description, cc.content_text,
                    cc.study_set_id, cc.source_text, cc.ai_summary,
                    cc.ai_transcript, cc.pipeline_status, cc.approved_at,
-                   cc.quiz_status, cc.flashcard_status, cc.audio_status,
+                   cc.quiz_status, cc.flashcard_status, cc.audio_status, cc.video_status,
+                   cc.chapter_ref,
                    (cc.audio_data IS NOT NULL) AS has_audio,
+                   (cc.video_data IS NOT NULL) AS has_video,
                    cu.course_id
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
@@ -870,11 +896,15 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
         "ai_transcript":   concept["ai_transcript"],
         "pipeline_status": concept["pipeline_status"],
         "approved_at":      concept["approved_at"].isoformat() if concept["approved_at"] else None,
+        "chapter_ref":      concept["chapter_ref"],
         "quiz_status":      concept["quiz_status"],
         "flashcard_status": concept["flashcard_status"],
         "audio_status":     concept["audio_status"],
+        "video_status":     concept["video_status"],
         "has_audio":        bool(concept["has_audio"]),
+        "has_video":        bool(concept["has_video"]),
         "audio_url":        f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
+        "video_url":        f"/api/courses/concepts/{concept_id}/video" if concept["has_video"] else None,
         "images": [
             {
                 "id":       str(img["id"]),
@@ -999,6 +1029,52 @@ async def serve_concept_image(image_id: str):
         content=bytes(row["data"]),
         media_type=row["mime_type"],
         headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/concepts/{concept_id}/video")
+async def serve_concept_video(concept_id: str, request: Request):
+    """
+    Serve concept MP4 — no auth (UUID is unguessable).
+    Supports HTTP range requests so the browser video player can seek.
+    """
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT video_data FROM course_concepts WHERE id = $1::uuid AND video_status IN ('ready','approved')",
+            concept_id,
+        )
+    if not row or not row["video_data"]:
+        raise HTTPException(404, "Video not available")
+
+    video_bytes = bytes(row["video_data"])
+    file_size   = len(video_bytes)
+    range_header = request.headers.get("range")
+
+    if range_header:
+        m = re.match(r"bytes=(\d+)-(\d*)", range_header)
+        if m:
+            start = int(m.group(1))
+            end   = int(m.group(2)) if m.group(2) else file_size - 1
+            end   = min(end, file_size - 1)
+            return Response(
+                content=video_bytes[start:end + 1],
+                status_code=206,
+                media_type="video/mp4",
+                headers={
+                    "Content-Range":  f"bytes {start}-{end}/{file_size}",
+                    "Accept-Ranges":  "bytes",
+                    "Content-Length": str(end - start + 1),
+                },
+            )
+
+    return Response(
+        content=video_bytes,
+        media_type="video/mp4",
+        headers={
+            "Accept-Ranges":  "bytes",
+            "Content-Length": str(file_size),
+            "Cache-Control":  "public, max-age=86400",
+        },
     )
 
 
@@ -1133,6 +1209,82 @@ Return ONLY valid JSON:
             )
 
 
+async def _generate_video_bg(concept_id: str):
+    """
+    Background: create MP4 from TTS audio + title card using ffmpeg.
+    Requires ffmpeg to be installed on the server.
+    Falls back to text-only slide if drawtext filter is unavailable.
+    """
+    try:
+        async with get_db() as db:
+            concept = await db.fetchrow(
+                "SELECT title, audio_data FROM course_concepts WHERE id = $1::uuid", concept_id
+            )
+        if not concept or not concept["audio_data"]:
+            raise ValueError("No audio — generate and approve audio first")
+
+        audio_bytes = bytes(concept["audio_data"])
+        # Sanitise title for ffmpeg drawtext (escape special chars)
+        raw_title = (concept["title"] or "Concept")[:60]
+        safe_title = raw_title.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            audio_path = os.path.join(tmpdir, "audio.mp3")
+            video_path = os.path.join(tmpdir, "video.mp4")
+
+            with open(audio_path, "wb") as f:
+                f.write(audio_bytes)
+
+            # Try with drawtext; if ffmpeg returns error (e.g. no fontconfig) retry without
+            for attempt, vf in enumerate([
+                f"drawtext=text='{safe_title}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.4:boxborderw=20",
+                None,
+            ]):
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-f", "lavfi",
+                    "-i", "color=c=0x1a1a2e:size=1280x720:rate=24",
+                    "-i", audio_path,
+                ]
+                if vf:
+                    cmd += ["-vf", vf]
+                cmd += [
+                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "35",
+                    "-c:a", "aac", "-b:a", "64k",
+                    "-shortest", "-movflags", "+faststart",
+                    video_path,
+                ]
+
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+
+                if proc.returncode == 0:
+                    break
+                if attempt == 1:
+                    raise RuntimeError(f"ffmpeg failed: {stderr.decode()[-500:]}")
+
+            with open(video_path, "rb") as f:
+                video_bytes = f.read()
+
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE course_concepts
+                SET video_data = $1, video_status = 'ready'
+                WHERE id = $2::uuid
+            """, video_bytes, concept_id)
+
+    except Exception as exc:
+        logger.error("[video] concept %s failed: %s", concept_id, exc)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET video_status = 'failed' WHERE id = $1::uuid", concept_id
+            )
+
+
 async def _generate_audio_bg(concept_id: str):
     """Background: TTS via OpenAI — converts ai_transcript to MP3 and stores as bytea."""
     from openai import AsyncOpenAI
@@ -1183,7 +1335,8 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
 
     async with get_db() as db:
         concept = await db.fetchrow("""
-            SELECT quiz_status, flashcard_status, audio_status, audio_duration_sec,
+            SELECT quiz_status, flashcard_status, audio_status, video_status,
+                   audio_duration_sec,
                    (audio_data IS NOT NULL) AS has_audio
             FROM course_concepts WHERE id = $1::uuid
         """, concept_id)
@@ -1208,9 +1361,11 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
         "quiz_status":       concept["quiz_status"],
         "flashcard_status":  concept["flashcard_status"],
         "audio_status":      concept["audio_status"],
-        "has_audio":         bool(concept["has_audio"]),
+        "has_audio":          bool(concept["has_audio"]),
         "audio_duration_sec": concept["audio_duration_sec"],
-        "audio_url":         f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
+        "audio_url":          f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
+        "video_status":       concept["video_status"],
+        "video_url":          f"/api/courses/concepts/{concept_id}/video" if concept["video_status"] in ("ready", "approved") else None,
         "quiz": [
             {
                 "id":          str(q["id"]),
@@ -1319,6 +1474,7 @@ class AssetApproveRequest(BaseModel):
     quiz:       bool = False
     flashcards: bool = False
     audio:      bool = False
+    video:      bool = False
 
 
 @router.post("/concepts/{concept_id}/assets/approve")
@@ -1332,6 +1488,7 @@ async def approve_concept_assets(
     if req.quiz:       sets.append("quiz_status = 'approved'")
     if req.flashcards: sets.append("flashcard_status = 'approved'")
     if req.audio:      sets.append("audio_status = 'approved'")
+    if req.video:      sets.append("video_status = 'approved'")
     if not sets:
         return {"ok": True}
     async with get_db() as db:
@@ -1365,6 +1522,34 @@ async def delete_concept_flashcards(concept_id: str, authorization: str = Header
             "UPDATE course_concepts SET flashcard_status = 'none' WHERE id = $1::uuid", concept_id
         )
     return {"ok": True}
+
+
+@router.post("/concepts/{concept_id}/generate/video")
+async def generate_concept_video(
+    concept_id: str,
+    bg: BackgroundTasks,
+    authorization: str = Header(...),
+):
+    """Trigger MP4 video generation from approved TTS audio + title slide (requires ffmpeg)."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        concept = await db.fetchrow(
+            "SELECT id, video_status, audio_status, audio_data FROM course_concepts WHERE id = $1::uuid",
+            concept_id,
+        )
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+    if concept["video_status"] == "generating":
+        raise HTTPException(409, "Video generation already in progress")
+    if not concept["audio_data"]:
+        raise HTTPException(400, "Generate and approve audio first — video uses TTS audio as narration")
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE course_concepts SET video_status = 'generating' WHERE id = $1::uuid", concept_id
+        )
+    bg.add_task(_generate_video_bg, concept_id)
+    return {"ok": True, "video_status": "generating"}
 
 
 @router.get("/concepts/{concept_id}/audio")

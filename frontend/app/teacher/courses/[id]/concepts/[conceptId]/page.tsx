@@ -5,7 +5,7 @@ import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, ExternalLink, Plus, FileText, Mic2,
   CheckCircle, Circle, AlertCircle, Zap, HelpCircle, Layers,
-  RefreshCw, Volume2,
+  RefreshCw, Volume2, Video,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -24,14 +24,20 @@ interface ConceptDetail {
   content_text?: string; study_set_id?: string; course_id: string;
   source_text?: string; ai_summary?: string; ai_transcript?: string;
   pipeline_status: PipelineStatus; approved_at?: string;
-  quiz_status: AssetStatus; flashcard_status: AssetStatus; audio_status: AssetStatus;
-  has_audio: boolean; audio_url?: string;
+  chapter_ref?: string;
+  quiz_status: AssetStatus; flashcard_status: AssetStatus;
+  audio_status: AssetStatus; video_status: AssetStatus;
+  has_audio: boolean; has_video: boolean;
+  audio_url?: string; video_url?: string;
   images: ConceptImage[];
 }
 
 interface Assets {
-  quiz_status: AssetStatus; flashcard_status: AssetStatus; audio_status: AssetStatus;
-  has_audio: boolean; audio_url?: string; audio_duration_sec?: number;
+  quiz_status: AssetStatus; flashcard_status: AssetStatus;
+  audio_status: AssetStatus; video_status: AssetStatus;
+  has_audio: boolean;
+  audio_url?: string; video_url?: string;
+  audio_duration_sec?: number;
   quiz: QuizQuestion[]; flashcards: Flashcard[];
 }
 
@@ -61,7 +67,6 @@ export default function ConceptEditorPage() {
   const [leftPanel,  setLeftPanel]  = useState<'source' | 'pdf'>('source');
   const [showLeft,   setShowLeft]   = useState(true);
 
-  // Summary / transcript
   const [summary,    setSummary]    = useState('');
   const [transcript, setTranscript] = useState('');
   const [savingSum,  setSavingSum]  = useState(false);
@@ -70,62 +75,84 @@ export default function ConceptEditorPage() {
   const [savedTr,    setSavedTr]    = useState(false);
   const [approving,  setApproving]  = useState(false);
 
-  // PDF
   const [pdfUrl,   setPdfUrl]   = useState<string | null>(null);
   const [pdfReady, setPdfReady] = useState(false);
   const pdfRef = useRef<string | null>(null);
 
-  // Images
   const [uploading,  setUploading]  = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Study set
   const [creatingStudySet, setCreatingStudySet] = useState(false);
 
-  // Assets
-  const [assets,          setAssets]          = useState<Assets | null>(null);
-  const [assetsLoaded,    setAssetsLoaded]     = useState(false);
-  const [generatingQuiz,  setGeneratingQuiz]   = useState(false);
-  const [generatingCards, setGeneratingCards]  = useState(false);
-  const [generatingAudio, setGeneratingAudio]  = useState(false);
-  const [approvingA,      setApprovingA]       = useState<Record<string, boolean>>({});
+  const [assets,          setAssets]         = useState<Assets | null>(null);
+  const [assetsLoaded,    setAssetsLoaded]    = useState(false);
+  const [generatingQuiz,  setGeneratingQuiz]  = useState(false);
+  const [generatingCards, setGeneratingCards] = useState(false);
+  const [generatingAudio, setGeneratingAudio] = useState(false);
+  const [generatingVideo, setGeneratingVideo] = useState(false);
+  const [approvingA,      setApprovingA]      = useState<Record<string, boolean>>({});
 
-  // Polling flags
   const [pipelinePolling, setPipelinePolling] = useState(false);
   const [assetPolling,    setAssetPolling]    = useState(false);
 
   const authH = { Authorization: `Bearer ${token}` };
   const jsonH = { ...authH, 'Content-Type': 'application/json' };
 
-  const loadConcept = useCallback(async () => {
-    const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, { headers: authH });
-    if (res.ok) {
-      const d: ConceptDetail = await res.json();
-      setConcept(d);
-      setSummary(d.ai_summary || d.content_text || '');
-      setTranscript(d.ai_transcript || '');
-      if (d.pipeline_status === 'summarizing') setPipelinePolling(true);
-    }
-    setLoading(false);
-  }, [conceptId, token]);
+  // Load PDF using chapter_ref if available, else fall back to course syllabus
+  async function loadPdf(chapterRef?: string) {
+    try {
+      let blob: Blob | null = null;
+
+      if (chapterRef) {
+        const res = await fetch(`${API_BASE}/api/courses/chapters/${chapterRef}/pdf`, { headers: authH });
+        if (res.ok) blob = await res.blob();
+      }
+
+      if (!blob) {
+        const res = await fetch(`${API_BASE}/api/courses/${courseId}/syllabus`, { headers: authH });
+        if (res.ok) blob = await res.blob();
+      }
+
+      if (blob) {
+        if (pdfRef.current) URL.revokeObjectURL(pdfRef.current);
+        const url = URL.createObjectURL(blob);
+        pdfRef.current = url;
+        setPdfUrl(url);
+      }
+    } finally { setPdfReady(true); }
+  }
 
   const loadAssets = useCallback(async () => {
     const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/assets`, { headers: authH });
     if (res.ok) {
       const d: Assets = await res.json();
       setAssets(d);
-      const anyGen = d.quiz_status === 'generating' || d.flashcard_status === 'generating' || d.audio_status === 'generating';
+      const anyGen = d.quiz_status === 'generating' || d.flashcard_status === 'generating'
+        || d.audio_status === 'generating' || d.video_status === 'generating';
       setAssetPolling(anyGen);
     }
     setAssetsLoaded(true);
   }, [conceptId, token]);
 
+  // Sequential init: load concept → then PDF (needs chapter_ref from concept)
   useEffect(() => {
     if (!user) { router.replace('/auth/login'); return; }
-    loadConcept();
-    loadPdf();
+
+    (async () => {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, { headers: authH });
+      if (res.ok) {
+        const d: ConceptDetail = await res.json();
+        setConcept(d);
+        setSummary(d.ai_summary || d.content_text || '');
+        setTranscript(d.ai_transcript || '');
+        if (d.pipeline_status === 'summarizing') setPipelinePolling(true);
+        loadPdf(d.chapter_ref);
+      }
+      setLoading(false);
+    })();
+
     return () => { if (pdfRef.current) URL.revokeObjectURL(pdfRef.current); };
-  }, [user]);
+  }, [user, conceptId]);
 
   // Load assets when Assets tab first opens
   useEffect(() => {
@@ -147,7 +174,7 @@ export default function ConceptEditorPage() {
     return () => clearInterval(iv);
   }, [pipelinePolling, conceptId, token]);
 
-  // Poll while assets are generating
+  // Poll while any asset is generating
   useEffect(() => {
     if (!assetPolling) return;
     const iv = setInterval(async () => {
@@ -155,25 +182,16 @@ export default function ConceptEditorPage() {
       if (!res.ok) return;
       const d: Assets = await res.json();
       setAssets(d);
-      const anyGen = d.quiz_status === 'generating' || d.flashcard_status === 'generating' || d.audio_status === 'generating';
+      const anyGen = d.quiz_status === 'generating' || d.flashcard_status === 'generating'
+        || d.audio_status === 'generating' || d.video_status === 'generating';
       if (!anyGen) {
         setAssetPolling(false);
-        setGeneratingQuiz(false); setGeneratingCards(false); setGeneratingAudio(false);
+        setGeneratingQuiz(false); setGeneratingCards(false);
+        setGeneratingAudio(false); setGeneratingVideo(false);
       }
     }, 3000);
     return () => clearInterval(iv);
   }, [assetPolling, conceptId, token]);
-
-  async function loadPdf() {
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/${courseId}/syllabus`, { headers: authH });
-      if (res.ok) {
-        const blob = await res.blob();
-        const url  = URL.createObjectURL(blob);
-        pdfRef.current = url; setPdfUrl(url);
-      }
-    } finally { setPdfReady(true); }
-  }
 
   async function saveSummary() {
     setSavingSum(true); setSavedSum(false);
@@ -238,8 +256,7 @@ export default function ConceptEditorPage() {
     setCreatingStudySet(true);
     try {
       const ssRes = await fetch(`${API_BASE}/api/studysets`, {
-        method: 'POST', headers: jsonH,
-        body: JSON.stringify({ title: concept.title, user_id: user.id }),
+        method: 'POST', headers: jsonH, body: JSON.stringify({ title: concept.title, user_id: user.id }),
       });
       const ss = await ssRes.json();
       await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, {
@@ -250,13 +267,23 @@ export default function ConceptEditorPage() {
     } catch { setCreatingStudySet(false); }
   }
 
-  async function triggerGenerate(type: 'quiz' | 'flashcards' | 'audio') {
+  async function triggerGenerate(type: 'quiz' | 'flashcards' | 'audio' | 'video') {
     if (type === 'quiz')       setGeneratingQuiz(true);
     if (type === 'flashcards') setGeneratingCards(true);
     if (type === 'audio')      setGeneratingAudio(true);
-    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/generate/${type}`, {
+    if (type === 'video')      setGeneratingVideo(true);
+    const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/generate/${type}`, {
       method: 'POST', headers: authH,
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Generation failed' }));
+      alert(err.detail || 'Failed to start generation');
+      if (type === 'quiz')       setGeneratingQuiz(false);
+      if (type === 'flashcards') setGeneratingCards(false);
+      if (type === 'audio')      setGeneratingAudio(false);
+      if (type === 'video')      setGeneratingVideo(false);
+      return;
+    }
     setAssetPolling(true);
     await loadAssets();
   }
@@ -266,7 +293,7 @@ export default function ConceptEditorPage() {
     await loadAssets();
   }
 
-  async function approveAsset(type: 'quiz' | 'flashcards' | 'audio') {
+  async function approveAsset(type: 'quiz' | 'flashcards' | 'audio' | 'video') {
     setApprovingA(prev => ({ ...prev, [type]: true }));
     await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/assets/approve`, {
       method: 'POST', headers: jsonH, body: JSON.stringify({ [type]: true }),
@@ -302,28 +329,38 @@ export default function ConceptEditorPage() {
                   className={`flex-1 py-2 text-xs font-medium transition-colors ${leftPanel === p
                     ? 'text-purple-400 border-b-2 border-purple-400'
                     : 'text-[var(--tx7)] hover:text-[var(--tx3)]'}`}>
-                  {p === 'source' ? '📄 Source text' : '📑 Full PDF'}
+                  {p === 'source' ? '📄 Source text' : '📑 Chapter PDF'}
                 </button>
               ))}
             </div>
             {leftPanel === 'source' ? (
               concept.source_text ? (
                 <div className="flex-1 overflow-y-auto p-4">
-                  <p className="text-[var(--tx8)] text-xs mb-3 uppercase tracking-wider font-medium">What AI read</p>
+                  <p className="text-[var(--tx8)] text-xs mb-3 uppercase tracking-wider font-medium">
+                    What AI read for this concept
+                  </p>
                   <p className="text-[var(--tx3)] text-sm leading-relaxed whitespace-pre-wrap">{concept.source_text}</p>
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)] p-6 text-center">
                   <FileText size={28} />
                   <p className="text-sm">No source text</p>
-                  <p className="text-xs text-[var(--tx8)]">Upload a chapter PDF to auto-map source text per concept</p>
+                  <p className="text-xs text-[var(--tx8)]">Upload a chapter PDF to auto-map source per concept</p>
                 </div>
               )
             ) : (
               pdfUrl
-                ? <iframe src={pdfUrl} className="flex-1 w-full" title="Course PDF" />
-                : <div className="flex-1 flex items-center justify-center text-[var(--tx7)]">
-                    {!pdfReady ? <Loader2 size={20} className="animate-spin text-purple-400" /> : <p className="text-sm">No PDF on file</p>}
+                ? <iframe src={pdfUrl} className="flex-1 w-full" title="Chapter PDF" />
+                : <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)]">
+                    {!pdfReady
+                      ? <Loader2 size={20} className="animate-spin text-purple-400" />
+                      : <>
+                          <FileText size={28} />
+                          <p className="text-sm">No PDF available</p>
+                          <p className="text-xs text-[var(--tx8)] text-center px-4">
+                            PDF is stored when you upload a chapter. Old uploads won&apos;t have it — re-upload to enable.
+                          </p>
+                        </>}
                   </div>
             )}
           </>
@@ -366,7 +403,7 @@ export default function ConceptEditorPage() {
           </div>
 
           {/* Tab bar */}
-          <div className="flex gap-1 border-b border-[var(--bd)] mb-6">
+          <div className="flex gap-1 border-b border-[var(--bd)] mb-6 overflow-x-auto">
             {([
               ['summary',    'Summary',    BookOpen],
               ['transcript', 'Transcript', Mic2],
@@ -375,7 +412,7 @@ export default function ConceptEditorPage() {
               ['studyset',   'Study Set',  ExternalLink],
             ] as const).map(([t, label, Icon]) => (
               <button key={t} onClick={() => setActiveTab(t)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
                   activeTab === t ? 'text-purple-400 border-purple-400' : 'text-[var(--tx7)] border-transparent hover:text-[var(--tx3)]'
                 }`}>
                 <Icon size={12} />{label}
@@ -507,14 +544,13 @@ export default function ConceptEditorPage() {
                     title="Quiz" icon={<HelpCircle size={14} />}
                     status={assets.quiz_status}
                     isGenerating={generatingQuiz || assets.quiz_status === 'generating'}
-                    canGenerate={hasAISrc}
-                    canApprove={assets.quiz_status === 'ready'}
+                    canGenerate={hasAISrc} canApprove={assets.quiz_status === 'ready'}
                     approving={!!approvingA['quiz']}
                     onGenerate={() => triggerGenerate('quiz')}
                     onApprove={() => approveAsset('quiz')}
                     onClear={() => clearAsset('quiz')}
                   >
-                    {assets.quiz.length > 0 && !assets.quiz_status.match(/generating/) && (
+                    {assets.quiz.length > 0 && assets.quiz_status !== 'generating' && (
                       <div className="space-y-3 mt-3 px-4 pb-4">
                         {assets.quiz.map((q, qi) => (
                           <div key={q.id} className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-4">
@@ -543,14 +579,13 @@ export default function ConceptEditorPage() {
                     title="Flashcards" icon={<Layers size={14} />}
                     status={assets.flashcard_status}
                     isGenerating={generatingCards || assets.flashcard_status === 'generating'}
-                    canGenerate={hasAISrc}
-                    canApprove={assets.flashcard_status === 'ready'}
+                    canGenerate={hasAISrc} canApprove={assets.flashcard_status === 'ready'}
                     approving={!!approvingA['flashcards']}
                     onGenerate={() => triggerGenerate('flashcards')}
                     onApprove={() => approveAsset('flashcards')}
                     onClear={() => clearAsset('flashcards')}
                   >
-                    {assets.flashcards.length > 0 && !assets.flashcard_status.match(/generating/) && (
+                    {assets.flashcards.length > 0 && assets.flashcard_status !== 'generating' && (
                       <div className="grid grid-cols-2 gap-2 mt-3 px-4 pb-4">
                         {assets.flashcards.map(card => (
                           <div key={card.id} className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-3">
@@ -573,16 +608,38 @@ export default function ConceptEditorPage() {
                     onApprove={() => approveAsset('audio')}
                     noReset
                   >
-                    {assets.has_audio && assets.audio_url && (
+                    {assets.audio_url && assets.audio_status !== 'generating' && (
                       <div className="px-4 pb-4 mt-3">
                         <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-4">
                           <audio controls src={`${API_BASE}${assets.audio_url}`} className="w-full" />
                           {assets.audio_duration_sec && (
-                            <p className="text-[var(--tx8)] text-xs mt-1.5">
-                              ~{Math.round(assets.audio_duration_sec / 60)} min · from transcript
-                            </p>
+                            <p className="text-[var(--tx8)] text-xs mt-1.5">~{Math.round(assets.audio_duration_sec / 60)} min · from transcript</p>
                           )}
                         </div>
+                      </div>
+                    )}
+                  </AssetSection>
+
+                  <AssetSection
+                    title="Video" icon={<Video size={14} />}
+                    status={assets.video_status}
+                    isGenerating={generatingVideo || assets.video_status === 'generating'}
+                    canGenerate={!!assets.audio_url}
+                    canApprove={assets.video_status === 'ready'}
+                    approving={!!approvingA['video']}
+                    onGenerate={() => triggerGenerate('video')}
+                    onApprove={() => approveAsset('video')}
+                    noReset
+                    hint={!assets.audio_url ? 'Generate and approve audio first — video uses it as narration.' : undefined}
+                  >
+                    {assets.video_url && assets.video_status !== 'generating' && (
+                      <div className="px-4 pb-4 mt-3">
+                        <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl overflow-hidden">
+                          <video controls src={`${API_BASE}${assets.video_url}`} className="w-full aspect-video" />
+                        </div>
+                        <p className="text-[var(--tx8)] text-xs mt-2">
+                          MP4 generated with ffmpeg — title card + TTS audio narration
+                        </p>
                       </div>
                     )}
                   </AssetSection>
@@ -609,7 +666,7 @@ export default function ConceptEditorPage() {
               ) : (
                 <div className="bg-[var(--surface)] border border-dashed border-[var(--bd)] rounded-xl p-6 text-center">
                   <p className="text-[var(--tx3)] text-sm mb-1">No study materials yet</p>
-                  <p className="text-[var(--tx7)] text-xs mb-4">Create a study set to add videos, PDFs and flashcards for students</p>
+                  <p className="text-[var(--tx7)] text-xs mb-4">Create a study set to add videos, PDFs and flashcards</p>
                   <button onClick={createStudySet} disabled={creatingStudySet}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium rounded-xl transition-all disabled:opacity-40">
                     {creatingStudySet ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
@@ -625,15 +682,15 @@ export default function ConceptEditorPage() {
   );
 }
 
-// ── AssetSection component ────────────────────────────────────────────────────
+// ── AssetSection helper ───────────────────────────────────────────────────────
 
 function AssetSection({
-  title, icon, status, isGenerating, canGenerate, canApprove, approving, noReset,
+  title, icon, status, isGenerating, canGenerate, canApprove, approving, noReset, hint,
   onGenerate, onApprove, onClear, children,
 }: {
   title: string; icon: React.ReactNode;
   status: AssetStatus; isGenerating: boolean; canGenerate: boolean;
-  canApprove: boolean; approving: boolean; noReset?: boolean;
+  canApprove: boolean; approving: boolean; noReset?: boolean; hint?: string;
   onGenerate: () => void; onApprove: () => void; onClear?: () => void;
   children?: React.ReactNode;
 }) {
@@ -665,15 +722,16 @@ function AssetSection({
               <CheckCircle size={10} /> Approved
             </span>
           )}
-          {hasContent && !isGenerating && !noReset && (
+          {!noReset && hasContent && !isGenerating && (
             <button onClick={onClear}
-              className="p-1.5 text-[var(--tx7)] hover:text-red-400 rounded-lg transition-colors" title="Clear">
+              className="p-1.5 text-[var(--tx7)] hover:text-red-400 rounded-lg transition-colors" title="Clear and regenerate">
               <Trash2 size={11} />
             </button>
           )}
           {(!hasContent || status === 'failed') && !isGenerating && (
             <button onClick={onGenerate} disabled={!canGenerate}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed">
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              title={!canGenerate ? (hint || 'Prerequisites not met') : undefined}>
               <Zap size={10} /> Generate
             </button>
           )}
@@ -695,9 +753,7 @@ function AssetSection({
 
       {!isGenerating && status === 'none' && (
         <div className="px-4 py-6 text-center text-[var(--tx8)] text-xs">
-          {canGenerate
-            ? `Click Generate to create ${title.toLowerCase()} using AI.`
-            : 'Generate and save a summary first to enable this.'}
+          {hint || (canGenerate ? `Click Generate to create ${title.toLowerCase()} using AI.` : 'Generate and save a summary first.')}
         </div>
       )}
 

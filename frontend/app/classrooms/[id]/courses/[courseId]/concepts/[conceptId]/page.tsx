@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, BookOpen, Zap, Loader2, ImageIcon,
-  HelpCircle, Layers, Volume2, ChevronLeft, ChevronRight,
+  HelpCircle, Layers, Volume2, Video, ChevronLeft, ChevronRight,
   CheckCircle2, XCircle,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
@@ -24,8 +24,8 @@ interface ConceptDetail {
 }
 
 interface Assets {
-  quiz_status: string; flashcard_status: string; audio_status: string;
-  has_audio: boolean; audio_url?: string;
+  quiz_status: string; flashcard_status: string; audio_status: string; video_status: string;
+  has_audio: boolean; audio_url?: string; video_url?: string;
   quiz: QuizQuestion[]; flashcards: Flashcard[];
 }
 
@@ -104,7 +104,8 @@ export default function StudentConceptDetailPage() {
     ? concept.ai_summary
     : concept.content_text;
 
-  const showAudio      = assets?.audio_status === 'approved' && assets.has_audio && assets.audio_url;
+  const showVideo      = assets?.video_status === 'approved' && assets.video_url;
+  const showAudio      = !showVideo && assets?.audio_status === 'approved' && assets.has_audio && assets.audio_url;
   const showFlashcards = assets?.flashcard_status === 'approved' && (assets.flashcards?.length ?? 0) > 0;
   const showQuiz       = assets?.quiz_status === 'approved' && (assets.quiz?.length ?? 0) > 0;
   const flashcards     = assets?.flashcards ?? [];
@@ -124,7 +125,17 @@ export default function StudentConceptDetailPage() {
       <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{concept.title}</h1>
       {concept.description && <p className="text-[var(--tx6)] text-sm mb-6">{concept.description}</p>}
 
-      {/* Audio player */}
+      {/* Video player (preferred over audio-only) */}
+      {showVideo && (
+        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mb-6">
+          <video controls src={`${API_BASE}${assets!.video_url}`} className="w-full aspect-video" />
+          <p className="px-4 py-2 text-[var(--tx8)] text-xs flex items-center gap-1.5">
+            <Video size={11} /> Video lesson
+          </p>
+        </div>
+      )}
+
+      {/* Audio-only fallback when no video */}
       {showAudio && (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4 mb-6">
           <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
