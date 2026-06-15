@@ -258,7 +258,7 @@ export default function CourseDetailPage() {
           <div className="mt-4 border-t border-[var(--bd)] pt-4">
             <p className="text-[var(--tx2)] text-sm font-medium mb-1">{importMsg}</p>
             <p className="text-[var(--tx7)] text-xs mb-3">Review the extracted structure below, then confirm to save.</p>
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+            <div className="space-y-2">
               {preview.map((unit, ui) => (
                 <div key={ui} className="bg-[var(--ov1)] rounded-xl p-3">
                   <p className="text-[var(--tx2)] text-sm font-medium">{ui + 1}. {unit.title}</p>
