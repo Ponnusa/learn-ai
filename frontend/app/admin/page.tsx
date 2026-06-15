@@ -1,57 +1,66 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle, XCircle, Plus, Loader2, Building2, Users, KeyRound, ClipboardList } from 'lucide-react';
+import {
+  CheckCircle, XCircle, Plus, Loader2, Building2, Users,
+  KeyRound, ClipboardList, MessageSquare, Video, Search,
+  ToggleLeft, ToggleRight, Copy, Check,
+} from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-interface Application {
+type Tab = 'users' | 'applications' | 'invites';
+
+interface UserRow {
   id: string;
-  type: string;
-  name: string;
   email: string;
-  school_name?: string;
-  subject?: string;
-  inst_type?: string;
-  country?: string;
-  est_teachers?: number;
-  est_students?: number;
-  message?: string;
+  name?: string;
+  account_type: string;
+  tier: string;
+  is_active: boolean;
   created_at: string;
+  last_seen_at?: string;
+  msg_count: number;
+  video_count: number;
+}
+
+interface Application {
+  id: string; type: string; name: string; email: string;
+  school_name?: string; subject?: string; inst_type?: string;
+  country?: string; est_teachers?: number; est_students?: number;
+  message?: string; created_at: string;
 }
 
 interface Invite {
-  id: string;
-  code: string;
-  email?: string;
-  note?: string;
-  used_at?: string;
-  expires_at: string;
-  used_by_email?: string;
+  id: string; code: string; email?: string; note?: string;
+  used_at?: string; expires_at: string; used_by_email?: string;
 }
 
 interface Stats {
-  users_total: number;
-  teachers_total: number;
-  institutions: number;
-  pending_applications: number;
-  unused_invites: number;
+  users_total: number; users_active: number; teachers_total: number;
+  institutions: number; pending_applications: number; unused_invites: number;
+  total_messages: number; total_videos: number;
 }
 
 export default function AdminPage() {
-  const router  = useRouter();
+  const router = useRouter();
   const { user, token } = useSessionStore();
 
-  const [stats,    setStats]    = useState<Stats | null>(null);
-  const [apps,     setApps]     = useState<Application[]>([]);
-  const [invites,  setInvites]  = useState<Invite[]>([]);
-  const [tab,      setTab]      = useState<'applications' | 'invites'>('applications');
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState('');
-  const [newEmail, setNewEmail] = useState('');
-  const [newNote,  setNewNote]  = useState('');
-  const [creating, setCreating] = useState(false);
+  const [stats,       setStats]       = useState<Stats | null>(null);
+  const [users,       setUsers]       = useState<UserRow[]>([]);
+  const [userTotal,   setUserTotal]   = useState(0);
+  const [apps,        setApps]        = useState<Application[]>([]);
+  const [invites,     setInvites]     = useState<Invite[]>([]);
+  const [tab,         setTab]         = useState<Tab>('users');
+  const [loading,     setLoading]     = useState(true);
+  const [search,      setSearch]      = useState('');
+  const [typeFilter,  setTypeFilter]  = useState('');
+  const [newEmail,    setNewEmail]    = useState('');
+  const [newNote,     setNewNote]     = useState('');
+  const [creating,    setCreating]    = useState(false);
+  const [lastCreds,   setLastCreds]   = useState<{ email: string; password: string; code: string } | null>(null);
+  const [copied,      setCopied]      = useState(false);
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -72,21 +81,41 @@ export default function AdminPage() {
       setStats(await sRes.json());
       setApps(await aRes.json());
       setInvites(await iRes.json());
-    } catch {
-      setError('Failed to load data');
-    } finally {
-      setLoading(false);
-    }
+    } catch { /* ignore */ } finally { setLoading(false); }
+  }
+
+  const loadUsers = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (search)     params.set('search', search);
+    if (typeFilter) params.set('account_type', typeFilter);
+    const res = await fetch(`${API_BASE}/api/admin/users?${params}`, { headers });
+    const data = await res.json();
+    setUsers(data.users ?? []);
+    setUserTotal(data.total ?? 0);
+  }, [search, typeFilter, token]);
+
+  useEffect(() => { if (tab === 'users' && !loading) loadUsers(); }, [tab, search, typeFilter]);
+  useEffect(() => { if (!loading) loadUsers(); }, [loading]);
+
+  async function toggleActive(u: UserRow) {
+    await fetch(`${API_BASE}/api/admin/users/${u.id}`, {
+      method: 'PATCH', headers,
+      body: JSON.stringify({ is_active: !u.is_active }),
+    });
+    loadUsers();
   }
 
   async function review(id: string, action: 'approve' | 'reject') {
     const res = await fetch(`${API_BASE}/api/admin/applications/${id}/review`, {
-      method: 'POST', headers,
-      body: JSON.stringify({ action }),
+      method: 'POST', headers, body: JSON.stringify({ action }),
     });
     const data = await res.json();
     if (!res.ok) { alert(data.detail || 'Failed'); return; }
-    if (data.invite_code) alert(`Invite code generated: ${data.invite_code}`);
+    if (data.temp_password) {
+      setLastCreds({ email: data.email, password: data.temp_password, code: data.invite_code ?? '' });
+    } else if (data.invite_code) {
+      alert(`Invite code: ${data.invite_code}`);
+    }
     loadAll();
   }
 
@@ -100,7 +129,11 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed');
-      alert(`Invite code created: ${data.code}`);
+      if (data.temp_password) {
+        setLastCreds({ email: data.email, password: data.temp_password, code: data.code });
+      } else {
+        alert(`Invite code: ${data.code}`);
+      }
       setNewEmail(''); setNewNote('');
       loadAll();
     } catch (err: any) {
@@ -110,8 +143,16 @@ export default function AdminPage() {
     }
   }
 
-  const inputCls = `bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)]
-                    outline-none focus:border-purple-500/60 transition-colors`;
+  function copyCredentials() {
+    if (!lastCreds) return;
+    const text = `Login: ${lastCreds.email}\nPassword: ${lastCreds.password}${lastCreds.code ? `\nInvite code: ${lastCreds.code}` : ''}`;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const inputCls = `bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
+                    text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors`;
 
   if (loading) {
     return (
@@ -123,48 +164,147 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg)] p-6">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-5xl mx-auto">
 
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-[var(--tx1)] text-2xl font-bold">Super Admin</h1>
-          <p className="text-[var(--tx6)] text-sm mt-1">Platform overview and teacher management</p>
+          <p className="text-[var(--tx6)] text-sm mt-1">Platform overview and user management</p>
         </div>
 
         {/* Stats */}
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-8">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
             {[
-              { label: 'Total users',   value: stats.users_total,          icon: Users },
-              { label: 'Teachers',      value: stats.teachers_total,        icon: Users },
-              { label: 'Institutions',  value: stats.institutions,          icon: Building2 },
-              { label: 'Pending apps',  value: stats.pending_applications,  icon: ClipboardList },
-              { label: 'Active invites', value: stats.unused_invites,       icon: KeyRound },
+              { label: 'Total users',    value: stats.users_total,          icon: Users },
+              { label: 'Teachers',       value: stats.teachers_total,        icon: Users },
+              { label: 'Messages sent',  value: stats.total_messages,        icon: MessageSquare },
+              { label: 'Videos made',    value: stats.total_videos,          icon: Video },
+              { label: 'Institutions',   value: stats.institutions,          icon: Building2 },
+              { label: 'Pending apps',   value: stats.pending_applications,  icon: ClipboardList },
+              { label: 'Active invites', value: stats.unused_invites,        icon: KeyRound },
+              { label: 'Active users',   value: stats.users_active,          icon: Users },
             ].map(s => (
               <div key={s.label} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4 text-center">
-                <s.icon size={18} className="text-purple-400 mx-auto mb-1" />
-                <p className="text-[var(--tx1)] text-xl font-bold">{s.value}</p>
+                <s.icon size={16} className="text-purple-400 mx-auto mb-1" />
+                <p className="text-[var(--tx1)] text-lg font-bold">{s.value.toLocaleString()}</p>
                 <p className="text-[var(--tx7)] text-xs mt-0.5">{s.label}</p>
               </div>
             ))}
           </div>
         )}
 
-        {error && <p className="text-red-400 text-sm mb-4">{error}</p>}
+        {/* Credentials popup */}
+        {lastCreds && (
+          <div className="mb-6 bg-green-500/10 border border-green-500/30 rounded-2xl p-5">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-green-400 font-semibold text-sm mb-2">Account created — share these credentials</p>
+                <p className="text-[var(--tx2)] text-sm font-mono">Email: <span className="text-white">{lastCreds.email}</span></p>
+                <p className="text-[var(--tx2)] text-sm font-mono">Password: <span className="text-white">{lastCreds.password}</span></p>
+                {lastCreds.code && <p className="text-[var(--tx2)] text-sm font-mono">Invite code: <span className="text-white">{lastCreds.code}</span></p>}
+                <p className="text-[var(--tx7)] text-xs mt-2">Teacher can change the password from Settings after first login.</p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button onClick={copyCredentials}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 text-xs rounded-lg transition-all">
+                  {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                </button>
+                <button onClick={() => setLastCreds(null)}
+                  className="text-[var(--tx8)] hover:text-[var(--tx4)] text-xs px-2">✕</button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex gap-1 bg-[var(--surface)] border border-[var(--bd)] rounded-xl p-1 mb-6 w-fit">
-          {(['applications', 'invites'] as const).map(t => (
+          {([
+            ['users',        `Users (${userTotal})`],
+            ['applications', `Applications (${apps.length})`],
+            ['invites',      `Invites (${invites.filter(i => !i.used_at).length} active)`],
+          ] as const).map(([t, label]) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-all ${
                 tab === t ? 'bg-purple-600 text-white' : 'text-[var(--tx6)] hover:text-[var(--tx2)]'
               }`}>
-              {t === 'applications' ? `Applications (${apps.length})` : `Invite codes (${invites.filter(i => !i.used_at).length} active)`}
+              {label}
             </button>
           ))}
         </div>
 
-        {/* Applications */}
+        {/* ── Users tab ──────────────────────────────────────────────────────── */}
+        {tab === 'users' && (
+          <div>
+            {/* Filters */}
+            <div className="flex gap-2 mb-4">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--tx8)]" />
+                <input
+                  placeholder="Search by name or email…"
+                  value={search} onChange={e => setSearch(e.target.value)}
+                  className={`${inputCls} w-full pl-8`}
+                />
+              </div>
+              <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className={inputCls}>
+                <option value="">All types</option>
+                <option value="student">Students</option>
+                <option value="teacher">Teachers</option>
+                <option value="institution_admin">Institution admins</option>
+                <option value="super_admin">Super admins</option>
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              {users.map(u => (
+                <div key={u.id} className={`flex items-center gap-4 p-4 bg-[var(--surface)] border rounded-xl transition-all ${
+                  u.is_active ? 'border-[var(--bd)]' : 'border-red-500/20 opacity-60'
+                }`}>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-[var(--tx1)] text-sm font-medium truncate">{u.name ?? u.email}</p>
+                      {u.name && <p className="text-[var(--tx7)] text-xs truncate">{u.email}</p>}
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                        u.account_type === 'teacher'           ? 'bg-blue-500/15 text-blue-400' :
+                        u.account_type === 'institution_admin' ? 'bg-green-500/15 text-green-400' :
+                        u.account_type === 'super_admin'       ? 'bg-purple-500/15 text-purple-400' :
+                        'bg-[var(--ov1)] text-[var(--tx7)]'
+                      }`}>{u.account_type}</span>
+                      <span className="text-xs text-[var(--tx8)]">{u.tier}</span>
+                    </div>
+                    <div className="flex items-center gap-4 mt-1">
+                      <span className="text-[var(--tx7)] text-xs flex items-center gap-1">
+                        <MessageSquare size={10} /> {u.msg_count.toLocaleString()} msgs
+                      </span>
+                      <span className="text-[var(--tx7)] text-xs flex items-center gap-1">
+                        <Video size={10} /> {u.video_count} videos
+                      </span>
+                      {u.last_seen_at && (
+                        <span className="text-[var(--tx8)] text-xs">
+                          Last seen {new Date(u.last_seen_at).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => toggleActive(u)}
+                    title={u.is_active ? 'Disable user' : 'Enable user'}
+                    className="shrink-0 text-[var(--tx7)] hover:text-[var(--tx2)] transition-colors"
+                  >
+                    {u.is_active
+                      ? <ToggleRight size={24} className="text-green-400" />
+                      : <ToggleLeft  size={24} className="text-red-400" />}
+                  </button>
+                </div>
+              ))}
+              {users.length === 0 && (
+                <p className="text-[var(--tx6)] text-sm text-center py-12">No users found</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Applications tab ───────────────────────────────────────────────── */}
         {tab === 'applications' && (
           <div className="space-y-3">
             {apps.length === 0 && (
@@ -186,7 +326,9 @@ export default function AdminPage() {
                     <p className="text-[var(--tx5)] text-sm">{a.email}</p>
                     {a.school_name && <p className="text-[var(--tx6)] text-xs mt-1">{a.school_name}{a.country ? ` · ${a.country}` : ''}</p>}
                     {a.subject && <p className="text-[var(--tx6)] text-xs">Subjects: {a.subject}</p>}
-                    {a.est_teachers && <p className="text-[var(--tx6)] text-xs">~{a.est_teachers} teachers, ~{a.est_students} students</p>}
+                    {(a.est_teachers || a.est_students) && (
+                      <p className="text-[var(--tx6)] text-xs">~{a.est_teachers} teachers, ~{a.est_students} students</p>
+                    )}
                     {a.message && <p className="text-[var(--tx7)] text-xs mt-2 italic">"{a.message}"</p>}
                   </div>
                   <div className="flex gap-2 shrink-0">
@@ -205,22 +347,24 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Invite codes */}
+        {/* ── Invites tab ────────────────────────────────────────────────────── */}
         {tab === 'invites' && (
           <div className="space-y-4">
-            {/* Create new invite */}
             <form onSubmit={createInvite} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
-              <p className="text-[var(--tx2)] text-sm font-medium mb-3">Generate invite code</p>
-              <div className="flex gap-2">
+              <p className="text-[var(--tx2)] text-sm font-medium mb-1">Generate invite code</p>
+              <p className="text-[var(--tx7)] text-xs mb-3">
+                If you enter an email, an account is created with a temporary password you can share immediately.
+              </p>
+              <div className="flex gap-2 flex-wrap">
                 <input
-                  type="email" placeholder="Email (optional — leave blank for open invite)"
+                  type="email" placeholder="Email (optional)"
                   value={newEmail} onChange={e => setNewEmail(e.target.value)}
-                  className={`${inputCls} flex-1`}
+                  className={`${inputCls} flex-1 min-w-[200px]`}
                 />
                 <input
                   placeholder="Note (optional)"
                   value={newNote} onChange={e => setNewNote(e.target.value)}
-                  className={`${inputCls} flex-1`}
+                  className={`${inputCls} flex-1 min-w-[160px]`}
                 />
                 <button type="submit" disabled={creating}
                   className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40">
@@ -229,7 +373,6 @@ export default function AdminPage() {
               </div>
             </form>
 
-            {/* Invite list */}
             <div className="space-y-2">
               {invites.map(inv => (
                 <div key={inv.id} className={`flex items-center justify-between p-4 bg-[var(--surface)] border rounded-xl ${
@@ -243,7 +386,7 @@ export default function AdminPage() {
                     {inv.email && <p className="text-[var(--tx6)] text-xs mt-0.5">For: {inv.email}</p>}
                     {inv.note  && <p className="text-[var(--tx7)] text-xs italic">{inv.note}</p>}
                   </div>
-                  <span className="text-[var(--tx8)] text-xs">
+                  <span className="text-[var(--tx8)] text-xs shrink-0">
                     {inv.used_at ? 'Used' : `Expires ${new Date(inv.expires_at).toLocaleDateString()}`}
                   </span>
                 </div>
@@ -251,6 +394,7 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
       </div>
     </div>
   );

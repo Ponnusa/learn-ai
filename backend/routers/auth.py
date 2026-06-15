@@ -132,7 +132,7 @@ async def verify_magic_link(req: VerifyTokenRequest):
     async with get_db() as db:
         row = await db.fetchrow("""
             SELECT at.user_id, at.used_at, at.expires_at,
-                   u.tier, u.email, u.name, u.id, u.theme, u.language, u.account_type
+                   u.tier, u.email, u.name, u.id, u.theme, u.language, u.account_type, u.is_active
             FROM auth_tokens at
             JOIN users u ON u.id = at.user_id
             WHERE at.token = $1
@@ -144,6 +144,8 @@ async def verify_magic_link(req: VerifyTokenRequest):
             raise HTTPException(400, "This link has already been used")
         if datetime.utcnow() > row["expires_at"].replace(tzinfo=None):
             raise HTTPException(400, "This link has expired — please request a new one")
+        if not row.get("is_active", True):
+            raise HTTPException(403, "Your account has been disabled. Please contact support.")
 
         await db.execute("UPDATE auth_tokens SET used_at = NOW() WHERE token = $1", req.token)
         await db.execute("UPDATE users SET last_seen_at = NOW() WHERE id = $1", row["user_id"])
@@ -204,13 +206,15 @@ async def register(req: RegisterRequest):
 async def login_password(req: PasswordLoginRequest):
     async with get_db() as db:
         user = await db.fetchrow(
-            "SELECT id, email, name, tier, theme, language, account_type, password_hash FROM users WHERE email = $1", req.email
+            "SELECT id, email, name, tier, theme, language, account_type, password_hash, is_active FROM users WHERE email = $1", req.email
         )
 
     if not user or not user["password_hash"]:
         raise HTTPException(401, "Invalid email or password")
     if not _verify_password(req.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password")
+    if not user["is_active"]:
+        raise HTTPException(403, "Your account has been disabled. Please contact support.")
 
     async with get_db() as db:
         await db.execute("UPDATE users SET last_seen_at = NOW() WHERE id = $1", user["id"])
