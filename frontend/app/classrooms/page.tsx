@@ -40,7 +40,11 @@ export default function StudentClassroomsPage() {
     setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/classrooms/enrolled`, { headers });
-      if (res.ok) setClassrooms(await res.json());
+      if (res.ok) {
+        setClassrooms(await res.json());
+      } else {
+        console.error('enrolled fetch failed', res.status, await res.text());
+      }
     } finally {
       setLoading(false);
     }

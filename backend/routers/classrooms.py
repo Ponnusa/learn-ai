@@ -114,13 +114,14 @@ async def my_classrooms(authorization: str = Header(...)):
         rows = await db.fetch("""
             SELECT c.id, c.name, c.subject, c.grade, c.join_code, c.is_active, c.created_at,
                    u.name AS teacher_name, u.email AS teacher_email,
+                   cs.joined_at,
                    COUNT(cs2.student_id) AS student_count
             FROM classroom_students cs
             JOIN classrooms c       ON c.id  = cs.classroom_id
             JOIN users u            ON u.id  = c.teacher_id
             LEFT JOIN classroom_students cs2 ON cs2.classroom_id = c.id
             WHERE cs.student_id = $1::uuid
-            GROUP BY c.id, u.name, u.email
+            GROUP BY c.id, u.id, cs.joined_at
             ORDER BY cs.joined_at DESC
         """, user_id)
     return [
