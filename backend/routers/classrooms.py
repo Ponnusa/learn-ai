@@ -1,6 +1,9 @@
 """
 Classrooms router.
 Teachers create and manage classrooms; students join via a 6-char code.
+
+IMPORTANT: static path segments (/join, /enrolled, /teaching) are registered
+BEFORE parameterized routes (/{classroom_id}) so FastAPI matches them correctly.
 """
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
@@ -67,6 +70,69 @@ async def list_my_classrooms(authorization: str = Header(...)):
     return [_fmt_classroom(r, int(r["student_count"] or 0)) for r in rows]
 
 
+# ── Student: join classroom by code ──────────────────────────────────────────
+
+class JoinClassroomRequest(BaseModel):
+    code: str
+
+
+@router.post("/join")
+async def join_classroom(req: JoinClassroomRequest, authorization: str = Header(...)):
+    user_id, _ = await _get_user(authorization)
+    async with get_db() as db:
+        cls = await db.fetchrow("""
+            SELECT id, name, subject, grade, join_code, is_active
+            FROM classrooms WHERE join_code = $1
+        """, req.code.upper().strip())
+
+        if not cls:
+            raise HTTPException(404, "Invalid join code — check with your teacher")
+        if not cls["is_active"]:
+            raise HTTPException(400, "This classroom is no longer active")
+
+        already = await db.fetchval("""
+            SELECT 1 FROM classroom_students
+            WHERE classroom_id = $1 AND student_id = $2::uuid
+        """, cls["id"], user_id)
+        if already:
+            return {"message": "Already enrolled", "classroom": _fmt_classroom(cls, 0)}
+
+        await db.execute("""
+            INSERT INTO classroom_students (classroom_id, student_id)
+            VALUES ($1, $2::uuid)
+        """, cls["id"], user_id)
+
+    return {"message": f"Joined {cls['name']}", "classroom": _fmt_classroom(cls, 0)}
+
+
+# ── Student: list joined classrooms ──────────────────────────────────────────
+
+@router.get("/enrolled")
+async def my_classrooms(authorization: str = Header(...)):
+    user_id, _ = await _get_user(authorization)
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT c.id, c.name, c.subject, c.grade, c.join_code, c.is_active, c.created_at,
+                   u.name AS teacher_name, u.email AS teacher_email,
+                   COUNT(cs2.student_id) AS student_count
+            FROM classroom_students cs
+            JOIN classrooms c       ON c.id  = cs.classroom_id
+            JOIN users u            ON u.id  = c.teacher_id
+            LEFT JOIN classroom_students cs2 ON cs2.classroom_id = c.id
+            WHERE cs.student_id = $1::uuid
+            GROUP BY c.id, u.name, u.email
+            ORDER BY cs.joined_at DESC
+        """, user_id)
+    return [
+        {
+            **_fmt_classroom(r, int(r["student_count"] or 0)),
+            "teacher_name":  r["teacher_name"],
+            "teacher_email": r["teacher_email"],
+        }
+        for r in rows
+    ]
+
+
 # ── Teacher: classroom detail + roster ────────────────────────────────────────
 
 @router.get("/{classroom_id}")
@@ -80,7 +146,6 @@ async def get_classroom(classroom_id: str, authorization: str = Header(...)):
         if not cls:
             raise HTTPException(404, "Classroom not found")
 
-        # Teachers can see their own; students can see ones they joined
         is_teacher = account_type in ("teacher", "institution_admin", "super_admin")
         if is_teacher and str(cls["teacher_id"]) != user_id:
             raise HTTPException(403, "Not your classroom")
@@ -174,77 +239,13 @@ async def remove_student(
     return {"ok": True}
 
 
-# ── Student: join classroom by code ──────────────────────────────────────────
-
-class JoinClassroomRequest(BaseModel):
-    code: str
-
-
-@router.post("/join")
-async def join_classroom(req: JoinClassroomRequest, authorization: str = Header(...)):
-    user_id, _ = await _get_user(authorization)
-    async with get_db() as db:
-        cls = await db.fetchrow("""
-            SELECT id, name, subject, grade, is_active
-            FROM classrooms WHERE join_code = $1
-        """, req.code.upper().strip())
-
-        if not cls:
-            raise HTTPException(404, "Invalid join code — check with your teacher")
-        if not cls["is_active"]:
-            raise HTTPException(400, "This classroom is no longer active")
-
-        already = await db.fetchval("""
-            SELECT 1 FROM classroom_students
-            WHERE classroom_id = $1 AND student_id = $2::uuid
-        """, cls["id"], user_id)
-        if already:
-            return {"message": "Already enrolled", "classroom": _fmt_classroom(cls, 0)}
-
-        await db.execute("""
-            INSERT INTO classroom_students (classroom_id, student_id)
-            VALUES ($1, $2::uuid)
-        """, cls["id"], user_id)
-
-    return {"message": f"Joined {cls['name']}", "classroom": _fmt_classroom(cls, 0)}
-
-
-# ── Student: list joined classrooms ──────────────────────────────────────────
-
-@router.get("/enrolled")
-async def my_classrooms(authorization: str = Header(...)):
-    user_id, _ = await _get_user(authorization)
-    async with get_db() as db:
-        rows = await db.fetch("""
-            SELECT c.id, c.name, c.subject, c.grade, c.join_code, c.is_active, c.created_at,
-                   u.name AS teacher_name, u.email AS teacher_email,
-                   COUNT(cs2.student_id) AS student_count
-            FROM classroom_students cs
-            JOIN classrooms c       ON c.id  = cs.classroom_id
-            JOIN users u            ON u.id  = c.teacher_id
-            LEFT JOIN classroom_students cs2 ON cs2.classroom_id = c.id
-            WHERE cs.student_id = $1::uuid
-            GROUP BY c.id, u.name, u.email
-            ORDER BY cs.joined_at DESC
-        """, user_id)
-    return [
-        {
-            **_fmt_classroom(r, int(r["student_count"] or 0)),
-            "teacher_name":  r["teacher_name"],
-            "teacher_email": r["teacher_email"],
-        }
-        for r in rows
-    ]
-
-
 # ── Student: courses in a classroom ──────────────────────────────────────────
 
 @router.get("/{classroom_id}/courses")
 async def get_classroom_courses(classroom_id: str, authorization: str = Header(...)):
-    """Student sees courses assigned to a classroom they're enrolled in."""
+    """Student sees published courses assigned to a classroom they're enrolled in."""
     user_id, _ = await _get_user(authorization)
     async with get_db() as db:
-        # Verify student is enrolled (or is the teacher)
         enrolled = await db.fetchval("""
             SELECT 1 FROM classroom_students
             WHERE classroom_id = $1::uuid AND student_id = $2::uuid
@@ -262,7 +263,7 @@ async def get_classroom_courses(classroom_id: str, authorization: str = Header(.
                    COUNT(DISTINCT scp.concept_id) FILTER (WHERE scp.student_id = $2::uuid AND scp.visited)
                                           AS visited_count
             FROM classroom_courses clc
-            JOIN courses c         ON c.id  = clc.course_id
+            JOIN courses c             ON c.id  = clc.course_id
             LEFT JOIN course_units cu  ON cu.course_id = c.id
             LEFT JOIN course_concepts cc ON cc.unit_id = cu.id
             LEFT JOIN student_concept_progress scp ON scp.concept_id = cc.id
