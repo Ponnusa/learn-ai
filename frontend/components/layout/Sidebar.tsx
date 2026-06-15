@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Video, BookOpen, BarChart2, Settings,
-  Search, Menu, X, PenSquare, User, Sparkles, Users,
+  Search, Menu, X, PenSquare, User, Sparkles, Users, LayoutDashboard,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { listConversations } from '@/lib/api';
@@ -194,17 +194,24 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
 
   const activeId = selectedConversationId ?? activeConversationId ?? undefined;
 
-  const isTeacher = ['teacher', 'institution_admin', 'super_admin'].includes(user?.account_type ?? '');
+  const isTeacher  = ['teacher', 'institution_admin'].includes(user?.account_type ?? '');
+  const isSuperAdmin = user?.account_type === 'super_admin';
 
   const navItems = [
-    { icon: <Video size={18} />,     label: t.sidebar.myVideos,    href: '/videos'              },
-    { icon: <BookOpen size={18} />,  label: t.sidebar.studySets,   href: '/study'               },
-    { icon: <Sparkles size={18} />,  label: t.progress.diagrams,   href: '/images'              },
-    { icon: <BarChart2 size={18} />, label: t.sidebar.progress,    href: '/progress'            },
     ...(isTeacher
+      ? [{ icon: <LayoutDashboard size={18} />, label: 'Dashboard', href: '/teacher/dashboard' }]
+      : []),
+    ...(isSuperAdmin
+      ? [{ icon: <LayoutDashboard size={18} />, label: 'Admin', href: '/admin' }]
+      : []),
+    { icon: <Video size={18} />,     label: t.sidebar.myVideos,  href: '/videos'   },
+    { icon: <BookOpen size={18} />,  label: t.sidebar.studySets, href: '/study'    },
+    { icon: <Sparkles size={18} />,  label: t.progress.diagrams, href: '/images'   },
+    { icon: <BarChart2 size={18} />, label: t.sidebar.progress,  href: '/progress' },
+    ...(isTeacher || isSuperAdmin
       ? [{ icon: <Users size={18} />, label: 'Classrooms', href: '/teacher/classrooms' }]
       : [{ icon: <Users size={18} />, label: 'Classrooms', href: '/classrooms'         }]),
-    { icon: <Settings size={18} />,  label: t.sidebar.settings,    href: '/settings'            },
+    { icon: <Settings size={18} />,  label: t.sidebar.settings,  href: '/settings' },
   ];
 
   return (
