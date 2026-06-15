@@ -46,7 +46,7 @@ async def create_classroom(req: CreateClassroomRequest, authorization: str = Hea
             VALUES ($1::uuid, $2, $3, $4)
             RETURNING id, name, subject, grade, join_code, is_active, created_at
         """, teacher_id, req.name, req.subject, req.grade)
-    return _fmt_classroom(row, teacher_count=0)
+    return _fmt_classroom(row, student_count=0)
 
 
 # ── Teacher: list my classrooms ───────────────────────────────────────────────
