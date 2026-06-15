@@ -841,6 +841,8 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
             SELECT cc.id, cc.title, cc.description, cc.content_text,
                    cc.study_set_id, cc.source_text, cc.ai_summary,
                    cc.ai_transcript, cc.pipeline_status, cc.approved_at,
+                   cc.quiz_status, cc.flashcard_status, cc.audio_status,
+                   (cc.audio_data IS NOT NULL) AS has_audio,
                    cu.course_id
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
@@ -867,7 +869,12 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
         "ai_summary":      concept["ai_summary"],
         "ai_transcript":   concept["ai_transcript"],
         "pipeline_status": concept["pipeline_status"],
-        "approved_at":     concept["approved_at"].isoformat() if concept["approved_at"] else None,
+        "approved_at":      concept["approved_at"].isoformat() if concept["approved_at"] else None,
+        "quiz_status":      concept["quiz_status"],
+        "flashcard_status": concept["flashcard_status"],
+        "audio_status":     concept["audio_status"],
+        "has_audio":        bool(concept["has_audio"]),
+        "audio_url":        f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
         "images": [
             {
                 "id":       str(img["id"]),
@@ -991,6 +998,388 @@ async def serve_concept_image(image_id: str):
     return Response(
         content=bytes(row["data"]),
         media_type=row["mime_type"],
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+# ── Asset generation backgrounds ─────────────────────────────────────────────
+
+async def _generate_quiz_bg(concept_id: str, course_id: str):
+    """Background: generate quiz questions via GPT-4o, store in concept_quiz_questions."""
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+
+    try:
+        async with get_db() as db:
+            concept = await db.fetchrow(
+                "SELECT title, ai_summary, source_text FROM course_concepts WHERE id = $1::uuid",
+                concept_id,
+            )
+            course = await db.fetchrow("SELECT subject FROM courses WHERE id = $1::uuid", course_id)
+
+        source  = (concept["source_text"] or concept["ai_summary"] or concept["title"])
+        subject = (course["subject"] if course else None) or "General"
+
+        prompt = f"""You are an expert educator. Create 6 multiple-choice quiz questions to test student understanding.
+
+Concept: {concept['title']}
+Subject: {subject}
+
+Source material:
+---
+{source[:6000]}
+---
+
+Rules:
+- Each question must be answerable from the source material
+- All 4 options must be plausible (avoid obviously wrong distractors)
+- Include a 1-2 sentence explanation for the correct answer
+- Vary difficulty: 2 recall, 2 comprehension, 2 application questions
+
+Return ONLY valid JSON:
+{{"questions": [{{"question": "...", "options": ["A", "B", "C", "D"], "correct_idx": 0, "explanation": "..."}}]}}"""
+
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            max_tokens=3000,
+            temperature=0.3,
+        )
+        result = json.loads(response.choices[0].message.content)
+        questions = result.get("questions", [])
+
+        async with get_db() as db:
+            await db.execute(
+                "DELETE FROM concept_quiz_questions WHERE concept_id = $1::uuid", concept_id
+            )
+            for pos, q in enumerate(questions):
+                await db.execute("""
+                    INSERT INTO concept_quiz_questions
+                      (concept_id, question, options, correct_idx, explanation, position)
+                    VALUES ($1::uuid, $2, $3::jsonb, $4, $5, $6)
+                """, concept_id, q["question"], json.dumps(q["options"]),
+                    q["correct_idx"], q.get("explanation", ""), pos)
+            await db.execute(
+                "UPDATE course_concepts SET quiz_status = 'ready' WHERE id = $1::uuid", concept_id
+            )
+    except Exception as exc:
+        logger.error("[quiz] concept %s failed: %s", concept_id, exc)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET quiz_status = 'failed' WHERE id = $1::uuid", concept_id
+            )
+
+
+async def _generate_flashcards_bg(concept_id: str, course_id: str):
+    """Background: generate flashcard pairs via GPT-4o."""
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+
+    try:
+        async with get_db() as db:
+            concept = await db.fetchrow(
+                "SELECT title, ai_summary, source_text FROM course_concepts WHERE id = $1::uuid",
+                concept_id,
+            )
+
+        source = (concept["source_text"] or concept["ai_summary"] or concept["title"])
+
+        prompt = f"""You are an expert educator. Create 10 flashcards to help students memorise key terms and ideas.
+
+Concept: {concept['title']}
+
+Source material:
+---
+{source[:6000]}
+---
+
+Rules:
+- Front: term, definition prompt, or short question (max 12 words)
+- Back: precise answer or definition (1-2 sentences)
+- Cover key vocabulary, key facts, and cause-effect relationships
+- Keep language student-friendly
+
+Return ONLY valid JSON:
+{{"flashcards": [{{"front": "...", "back": "..."}}]}}"""
+
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            max_tokens=2500,
+            temperature=0.3,
+        )
+        result = json.loads(response.choices[0].message.content)
+        cards = result.get("flashcards", [])
+
+        async with get_db() as db:
+            await db.execute(
+                "DELETE FROM concept_flashcards WHERE concept_id = $1::uuid", concept_id
+            )
+            for pos, card in enumerate(cards):
+                await db.execute("""
+                    INSERT INTO concept_flashcards (concept_id, front, back, position)
+                    VALUES ($1::uuid, $2, $3, $4)
+                """, concept_id, card["front"], card["back"], pos)
+            await db.execute(
+                "UPDATE course_concepts SET flashcard_status = 'ready' WHERE id = $1::uuid", concept_id
+            )
+    except Exception as exc:
+        logger.error("[flashcards] concept %s failed: %s", concept_id, exc)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET flashcard_status = 'failed' WHERE id = $1::uuid", concept_id
+            )
+
+
+async def _generate_audio_bg(concept_id: str):
+    """Background: TTS via OpenAI — converts ai_transcript to MP3 and stores as bytea."""
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+
+    try:
+        async with get_db() as db:
+            concept = await db.fetchrow(
+                "SELECT ai_transcript, ai_summary, title FROM course_concepts WHERE id = $1::uuid",
+                concept_id,
+            )
+
+        script = concept["ai_transcript"] or concept["ai_summary"] or concept["title"]
+        if not script:
+            raise ValueError("No transcript or summary to convert")
+
+        response = await client.audio.speech.create(
+            model="tts-1",
+            voice="nova",
+            input=script[:4096],
+        )
+        audio_bytes = response.content
+
+        # Rough duration: TTS ~150 words/min, ~5 chars/word
+        duration_sec = max(1, len(script) // 25)
+
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE course_concepts
+                SET audio_data = $1, audio_duration_sec = $2, audio_status = 'ready'
+                WHERE id = $3::uuid
+            """, audio_bytes, duration_sec, concept_id)
+
+    except Exception as exc:
+        logger.error("[audio] concept %s failed: %s", concept_id, exc)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET audio_status = 'failed' WHERE id = $1::uuid", concept_id
+            )
+
+
+# ── Asset endpoints ───────────────────────────────────────────────────────────
+
+@router.get("/concepts/{concept_id}/assets")
+async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
+    """Return asset statuses + content (quiz questions, flashcards)."""
+    decode_jwt(authorization.removeprefix("Bearer ").strip())
+
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT quiz_status, flashcard_status, audio_status, audio_duration_sec,
+                   (audio_data IS NOT NULL) AS has_audio
+            FROM course_concepts WHERE id = $1::uuid
+        """, concept_id)
+        if not concept:
+            raise HTTPException(404, "Concept not found")
+
+        questions = await db.fetch("""
+            SELECT id, question, options, correct_idx, explanation, position
+            FROM concept_quiz_questions
+            WHERE concept_id = $1::uuid
+            ORDER BY position
+        """, concept_id)
+
+        flashcards = await db.fetch("""
+            SELECT id, front, back, position
+            FROM concept_flashcards
+            WHERE concept_id = $1::uuid
+            ORDER BY position
+        """, concept_id)
+
+    return {
+        "quiz_status":       concept["quiz_status"],
+        "flashcard_status":  concept["flashcard_status"],
+        "audio_status":      concept["audio_status"],
+        "has_audio":         bool(concept["has_audio"]),
+        "audio_duration_sec": concept["audio_duration_sec"],
+        "audio_url":         f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
+        "quiz": [
+            {
+                "id":          str(q["id"]),
+                "question":    q["question"],
+                "options":     q["options"] if isinstance(q["options"], list) else json.loads(q["options"]),
+                "correct_idx": q["correct_idx"],
+                "explanation": q["explanation"] or "",
+                "position":    q["position"],
+            }
+            for q in questions
+        ],
+        "flashcards": [
+            {
+                "id":       str(f["id"]),
+                "front":    f["front"],
+                "back":     f["back"],
+                "position": f["position"],
+            }
+            for f in flashcards
+        ],
+    }
+
+
+@router.post("/concepts/{concept_id}/generate/quiz")
+async def generate_concept_quiz(
+    concept_id: str,
+    bg: BackgroundTasks,
+    authorization: str = Header(...),
+):
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.id, cc.quiz_status, cu.course_id
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+    if concept["quiz_status"] == "generating":
+        raise HTTPException(409, "Quiz generation already in progress")
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE course_concepts SET quiz_status = 'generating' WHERE id = $1::uuid", concept_id
+        )
+    bg.add_task(_generate_quiz_bg, concept_id, str(concept["course_id"]))
+    return {"ok": True, "quiz_status": "generating"}
+
+
+@router.post("/concepts/{concept_id}/generate/flashcards")
+async def generate_concept_flashcards(
+    concept_id: str,
+    bg: BackgroundTasks,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.id, cc.flashcard_status, cu.course_id
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+    if concept["flashcard_status"] == "generating":
+        raise HTTPException(409, "Flashcard generation already in progress")
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE course_concepts SET flashcard_status = 'generating' WHERE id = $1::uuid", concept_id
+        )
+    bg.add_task(_generate_flashcards_bg, concept_id, str(concept["course_id"]))
+    return {"ok": True, "flashcard_status": "generating"}
+
+
+@router.post("/concepts/{concept_id}/generate/audio")
+async def generate_concept_audio(
+    concept_id: str,
+    bg: BackgroundTasks,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        concept = await db.fetchrow(
+            "SELECT id, audio_status, ai_transcript, ai_summary FROM course_concepts WHERE id = $1::uuid",
+            concept_id,
+        )
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+    if concept["audio_status"] == "generating":
+        raise HTTPException(409, "Audio generation already in progress")
+    if not concept["ai_transcript"] and not concept["ai_summary"]:
+        raise HTTPException(400, "Generate a summary/transcript first")
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE course_concepts SET audio_status = 'generating' WHERE id = $1::uuid", concept_id
+        )
+    bg.add_task(_generate_audio_bg, concept_id)
+    return {"ok": True, "audio_status": "generating"}
+
+
+class AssetApproveRequest(BaseModel):
+    quiz:       bool = False
+    flashcards: bool = False
+    audio:      bool = False
+
+
+@router.post("/concepts/{concept_id}/assets/approve")
+async def approve_concept_assets(
+    concept_id: str,
+    req: AssetApproveRequest,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    sets: list[str] = []
+    if req.quiz:       sets.append("quiz_status = 'approved'")
+    if req.flashcards: sets.append("flashcard_status = 'approved'")
+    if req.audio:      sets.append("audio_status = 'approved'")
+    if not sets:
+        return {"ok": True}
+    async with get_db() as db:
+        await db.execute(
+            f"UPDATE course_concepts SET {', '.join(sets)} WHERE id = $1::uuid", concept_id
+        )
+    return {"ok": True}
+
+
+@router.delete("/concepts/{concept_id}/quiz")
+async def delete_concept_quiz(concept_id: str, authorization: str = Header(...)):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM concept_quiz_questions WHERE concept_id = $1::uuid", concept_id
+        )
+        await db.execute(
+            "UPDATE course_concepts SET quiz_status = 'none' WHERE id = $1::uuid", concept_id
+        )
+    return {"ok": True}
+
+
+@router.delete("/concepts/{concept_id}/flashcards")
+async def delete_concept_flashcards(concept_id: str, authorization: str = Header(...)):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM concept_flashcards WHERE concept_id = $1::uuid", concept_id
+        )
+        await db.execute(
+            "UPDATE course_concepts SET flashcard_status = 'none' WHERE id = $1::uuid", concept_id
+        )
+    return {"ok": True}
+
+
+@router.get("/concepts/{concept_id}/audio")
+async def serve_concept_audio(concept_id: str):
+    """Serve concept audio MP3 — no auth (UUID is unguessable, audio tag can't send headers)."""
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT audio_data FROM course_concepts WHERE id = $1::uuid AND audio_status IN ('ready','approved')",
+            concept_id,
+        )
+    if not row or not row["audio_data"]:
+        raise HTTPException(404, "Audio not available")
+    return Response(
+        content=bytes(row["audio_data"]),
+        media_type="audio/mpeg",
         headers={"Cache-Control": "public, max-age=86400"},
     )
 
