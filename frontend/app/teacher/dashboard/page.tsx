@@ -25,7 +25,7 @@ export default function TeacherDashboard() {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'My Classrooms', icon: Users,         href: '/teacher/classrooms', soon: false },
+            { label: 'Classrooms',    icon: Users,         href: '/teacher/classrooms', soon: false },
             { label: 'Course Builder', icon: BookOpen,     href: '/teacher/courses',    soon: true },
             { label: 'Student Progress', icon: BarChart2,  href: '/teacher/progress',   soon: true },
             { label: 'Study Sets',     icon: GraduationCap, href: '/study',             soon: false },
