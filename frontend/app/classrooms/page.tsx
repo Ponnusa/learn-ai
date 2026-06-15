@@ -120,8 +120,10 @@ export default function StudentClassroomsPage() {
         ) : (
           <div className="space-y-3">
             {classrooms.map(cls => (
-              <div key={cls.id}
-                className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 hover:border-purple-500/30 transition-all">
+              <button key={cls.id}
+                onClick={() => router.push(`/classrooms/${cls.id}`)}
+                className="w-full text-left bg-[var(--surface)] border border-[var(--bd)]
+                           hover:border-purple-500/30 rounded-2xl p-5 transition-all group">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <h3 className="text-[var(--tx1)] font-semibold mb-1">{cls.name}</h3>
@@ -136,9 +138,9 @@ export default function StudentClassroomsPage() {
                       </p>
                     )}
                   </div>
-                  <ArrowRight size={16} className="text-[var(--tx8)] shrink-0 mt-1" />
+                  <ArrowRight size={16} className="text-[var(--tx8)] group-hover:text-purple-400 transition-colors shrink-0 mt-1" />
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}

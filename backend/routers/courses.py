@@ -443,6 +443,139 @@ async def unassign_from_classroom(course_id: str, classroom_id: str, authorizati
     return {"ok": True}
 
 
+# ── Student: view course with progress ────────────────────────────────────────
+
+async def _get_student(authorization: str):
+    user_id = decode_jwt(authorization.removeprefix("Bearer ").strip())
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT id, is_active FROM users WHERE id = $1::uuid", user_id
+        )
+    if not row or not row["is_active"]:
+        raise HTTPException(403, "Account inactive")
+    return str(row["id"])
+
+
+@router.get("/{course_id}/student")
+async def get_course_student_view(course_id: str, authorization: str = Header(...)):
+    """
+    Student view of a course — units + concepts with their own progress overlay.
+    """
+    student_id = await _get_student(authorization)
+
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT id, name, description, subject, grade, status FROM courses WHERE id = $1::uuid",
+            course_id,
+        )
+        if not course:
+            raise HTTPException(404, "Course not found")
+
+        units = await db.fetch("""
+            SELECT id, title, description, position FROM course_units
+            WHERE course_id = $1::uuid ORDER BY position, created_at
+        """, course_id)
+
+        unit_ids = [str(u["id"]) for u in units]
+        concepts = []
+        if unit_ids:
+            concepts = await db.fetch("""
+                SELECT cc.id, cc.unit_id, cc.title, cc.description,
+                       cc.study_set_id, cc.position,
+                       scp.visited, scp.visited_at, scp.quiz_score
+                FROM course_concepts cc
+                LEFT JOIN student_concept_progress scp
+                       ON scp.concept_id = cc.id AND scp.student_id = $2::uuid
+                WHERE cc.unit_id = ANY($1::uuid[])
+                ORDER BY cc.unit_id, cc.position, cc.created_at
+            """, unit_ids, student_id)
+
+    concept_map: dict[str, list] = {uid: [] for uid in unit_ids}
+    for c in concepts:
+        uid = str(c["unit_id"])
+        if uid in concept_map:
+            concept_map[uid].append({
+                "id":           str(c["id"]),
+                "title":        c["title"],
+                "description":  c["description"],
+                "study_set_id": str(c["study_set_id"]) if c["study_set_id"] else None,
+                "position":     c["position"],
+                "visited":      bool(c["visited"]),
+                "visited_at":   c["visited_at"].isoformat() if c["visited_at"] else None,
+                "quiz_score":   c["quiz_score"],
+            })
+
+    total    = sum(len(v) for v in concept_map.values())
+    visited  = sum(1 for v in concept_map.values() for c in v if c["visited"])
+
+    return {
+        **_fmt_course(course),
+        "progress":      {"visited": visited, "total": total},
+        "units": [
+            {
+                "id":          str(u["id"]),
+                "title":       u["title"],
+                "description": u["description"],
+                "position":    u["position"],
+                "concepts":    concept_map.get(str(u["id"]), []),
+            }
+            for u in units
+        ],
+    }
+
+
+@router.post("/concepts/{concept_id}/activate")
+async def activate_concept(concept_id: str, authorization: str = Header(...)):
+    """
+    Student taps a concept:
+    1. Auto-create a study_set if none exists yet (links it to the concept)
+    2. Record progress (mark visited)
+    Returns study_set_id so frontend can navigate to /study/[id]
+    """
+    student_id = await _get_student(authorization)
+
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.id, cc.title, cc.description, cc.study_set_id, cc.unit_id,
+                   cu.course_id, c.subject
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id  = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+
+        if not concept:
+            raise HTTPException(404, "Concept not found")
+
+        study_set_id = concept["study_set_id"]
+
+        # Create study set on first visit if not yet linked
+        if not study_set_id:
+            ss = await db.fetchrow("""
+                INSERT INTO study_sets (user_id, title, subject, description, status)
+                VALUES ($1::uuid, $2, $3, $4, 'empty')
+                RETURNING id
+            """, student_id, concept["title"], concept["subject"],
+                concept["description"])
+            study_set_id = ss["id"]
+
+            await db.execute("""
+                UPDATE course_concepts SET study_set_id = $1 WHERE id = $2::uuid
+            """, study_set_id, concept_id)
+
+        # Upsert progress
+        await db.execute("""
+            INSERT INTO student_concept_progress
+              (student_id, concept_id, course_id, visited, visited_at, last_seen_at)
+            VALUES ($1::uuid, $2::uuid, $3::uuid, true, NOW(), NOW())
+            ON CONFLICT (student_id, concept_id)
+            DO UPDATE SET visited = true, visited_at = COALESCE(student_concept_progress.visited_at, NOW()),
+                          last_seen_at = NOW()
+        """, student_id, concept_id, str(concept["course_id"]))
+
+    return {"study_set_id": str(study_set_id)}
+
+
 # ── Helper ────────────────────────────────────────────────────────────────────
 
 def _fmt_course(r):

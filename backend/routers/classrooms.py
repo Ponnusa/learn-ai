@@ -237,6 +237,55 @@ async def my_classrooms(authorization: str = Header(...)):
     ]
 
 
+# ── Student: courses in a classroom ──────────────────────────────────────────
+
+@router.get("/{classroom_id}/courses")
+async def get_classroom_courses(classroom_id: str, authorization: str = Header(...)):
+    """Student sees courses assigned to a classroom they're enrolled in."""
+    user_id, _ = await _get_user(authorization)
+    async with get_db() as db:
+        # Verify student is enrolled (or is the teacher)
+        enrolled = await db.fetchval("""
+            SELECT 1 FROM classroom_students
+            WHERE classroom_id = $1::uuid AND student_id = $2::uuid
+        """, classroom_id, user_id)
+        is_teacher = await db.fetchval("""
+            SELECT 1 FROM classrooms WHERE id = $1::uuid AND teacher_id = $2::uuid
+        """, classroom_id, user_id)
+        if not enrolled and not is_teacher:
+            raise HTTPException(403, "Not enrolled in this classroom")
+
+        rows = await db.fetch("""
+            SELECT c.id, c.name, c.description, c.subject, c.grade, c.status, c.created_at,
+                   COUNT(DISTINCT cu.id)  AS unit_count,
+                   COUNT(DISTINCT cc.id)  AS concept_count,
+                   COUNT(DISTINCT scp.concept_id) FILTER (WHERE scp.student_id = $2::uuid AND scp.visited)
+                                          AS visited_count
+            FROM classroom_courses clc
+            JOIN courses c         ON c.id  = clc.course_id
+            LEFT JOIN course_units cu  ON cu.course_id = c.id
+            LEFT JOIN course_concepts cc ON cc.unit_id = cu.id
+            LEFT JOIN student_concept_progress scp ON scp.concept_id = cc.id
+            WHERE clc.classroom_id = $1::uuid AND c.status = 'published'
+            GROUP BY c.id
+            ORDER BY c.created_at
+        """, classroom_id, user_id)
+
+    return [
+        {
+            "id":            str(r["id"]),
+            "name":          r["name"],
+            "description":   r["description"],
+            "subject":       r["subject"],
+            "grade":         r["grade"],
+            "unit_count":    int(r["unit_count"]    or 0),
+            "concept_count": int(r["concept_count"] or 0),
+            "visited_count": int(r["visited_count"] or 0),
+        }
+        for r in rows
+    ]
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _fmt_classroom(r, student_count: int = 0):
