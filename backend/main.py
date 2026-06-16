@@ -110,6 +110,235 @@ async def lifespan(app: FastAPI):
                 reviewed_at  TIMESTAMPTZ DEFAULT NOW()
             )
             """,
+            # ── Sprint 0: institutions / teacher accounts / invites (009) ─────
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'student'",
+            """
+            CREATE TABLE IF NOT EXISTS institutions (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name         TEXT NOT NULL,
+                type         TEXT NOT NULL,
+                email_domain TEXT,
+                country      TEXT,
+                plan         TEXT NOT NULL DEFAULT 'trial',
+                max_teachers INT  NOT NULL DEFAULT 5,
+                max_students INT  NOT NULL DEFAULT 50,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS institution_members (
+                institution_id UUID REFERENCES institutions(id) ON DELETE CASCADE,
+                user_id        UUID REFERENCES users(id)        ON DELETE CASCADE,
+                role           TEXT NOT NULL,
+                status         TEXT NOT NULL DEFAULT 'active',
+                invited_by     UUID REFERENCES users(id),
+                joined_at      TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (institution_id, user_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_institution_members_user ON institution_members(user_id)",
+            """
+            CREATE TABLE IF NOT EXISTS teacher_invites (
+                id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                code       TEXT UNIQUE NOT NULL DEFAULT upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 8)),
+                email      TEXT,
+                note       TEXT,
+                created_by UUID REFERENCES users(id),
+                used_by    UUID REFERENCES users(id),
+                used_at    TIMESTAMPTZ,
+                expires_at TIMESTAMPTZ DEFAULT NOW() + INTERVAL '30 days',
+                created_at TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS teacher_applications (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                type         TEXT NOT NULL,
+                name         TEXT NOT NULL,
+                email        TEXT NOT NULL,
+                school_name  TEXT,
+                subject      TEXT,
+                message      TEXT,
+                inst_type    TEXT,
+                country      TEXT,
+                est_teachers INT,
+                est_students INT,
+                email_domain TEXT,
+                status       TEXT NOT NULL DEFAULT 'pending',
+                reviewed_by  UUID REFERENCES users(id),
+                reviewed_at  TIMESTAMPTZ,
+                reject_reason TEXT,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_teacher_applications_status ON teacher_applications(status)",
+            "CREATE INDEX IF NOT EXISTS idx_teacher_applications_email  ON teacher_applications(email)",
+            # ── Sprint 0 patch: user active flag (010) ─────────────────────────
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true",
+            "CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active) WHERE is_active = false",
+            # ── Sprint 1: classrooms (011) ──────────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS classrooms (
+                id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                teacher_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                institution_id UUID REFERENCES institutions(id)   ON DELETE SET NULL,
+                name           TEXT NOT NULL,
+                subject        TEXT,
+                grade          TEXT,
+                join_code      TEXT UNIQUE NOT NULL
+                                 DEFAULT upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6)),
+                is_active      BOOLEAN NOT NULL DEFAULT true,
+                created_at     TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS classroom_students (
+                classroom_id UUID REFERENCES classrooms(id) ON DELETE CASCADE,
+                student_id   UUID REFERENCES users(id)      ON DELETE CASCADE,
+                joined_at    TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (classroom_id, student_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_classrooms_teacher          ON classrooms(teacher_id)",
+            "CREATE INDEX IF NOT EXISTS idx_classrooms_join_code        ON classrooms(join_code)",
+            "CREATE INDEX IF NOT EXISTS idx_classroom_students_student  ON classroom_students(student_id)",
+            "CREATE INDEX IF NOT EXISTS idx_classroom_students_class    ON classroom_students(classroom_id)",
+            # ── Sprint 2: course builder (012) ──────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS courses (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                teacher_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name        TEXT NOT NULL,
+                description TEXT,
+                subject     TEXT,
+                grade       TEXT,
+                status      TEXT NOT NULL DEFAULT 'draft',
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS course_units (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                course_id   UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                title       TEXT NOT NULL,
+                description TEXT,
+                position    INT  NOT NULL DEFAULT 0,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS course_concepts (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                unit_id      UUID NOT NULL REFERENCES course_units(id) ON DELETE CASCADE,
+                title        TEXT NOT NULL,
+                description  TEXT,
+                study_set_id UUID REFERENCES study_sets(id) ON DELETE SET NULL,
+                position     INT  NOT NULL DEFAULT 0,
+                created_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS classroom_courses (
+                classroom_id UUID REFERENCES classrooms(id) ON DELETE CASCADE,
+                course_id    UUID REFERENCES courses(id)    ON DELETE CASCADE,
+                assigned_at  TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (classroom_id, course_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_courses_teacher          ON courses(teacher_id)",
+            "CREATE INDEX IF NOT EXISTS idx_course_units_course      ON course_units(course_id, position)",
+            "CREATE INDEX IF NOT EXISTS idx_course_concepts_unit     ON course_concepts(unit_id, position)",
+            "CREATE INDEX IF NOT EXISTS idx_classroom_courses_course ON classroom_courses(course_id)",
+            # ── Sprint 3: student concept progress (013) ────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS student_concept_progress (
+                id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                student_id    UUID NOT NULL REFERENCES users(id)            ON DELETE CASCADE,
+                concept_id    UUID NOT NULL REFERENCES course_concepts(id)  ON DELETE CASCADE,
+                course_id     UUID NOT NULL REFERENCES courses(id)          ON DELETE CASCADE,
+                visited       BOOLEAN     NOT NULL DEFAULT false,
+                visited_at    TIMESTAMPTZ,
+                quiz_score    FLOAT,
+                quiz_taken_at TIMESTAMPTZ,
+                last_seen_at  TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (student_id, concept_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_scp_student        ON student_concept_progress(student_id)",
+            "CREATE INDEX IF NOT EXISTS idx_scp_student_course ON student_concept_progress(student_id, course_id)",
+            # ── Sprint 4: concept content / syllabus storage (014) ─────────────
+            "ALTER TABLE courses ADD COLUMN IF NOT EXISTS syllabus_pdf      BYTEA",
+            "ALTER TABLE courses ADD COLUMN IF NOT EXISTS syllabus_filename TEXT",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS content_text TEXT",
+            """
+            CREATE TABLE IF NOT EXISTS concept_images (
+                id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+                concept_id UUID         NOT NULL REFERENCES course_concepts(id) ON DELETE CASCADE,
+                data       BYTEA        NOT NULL,
+                mime_type  TEXT         NOT NULL DEFAULT 'image/jpeg',
+                caption    TEXT,
+                position   INT          NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ           DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_concept_images_concept ON concept_images(concept_id, position)",
+            # ── Sprint 5: AI concept pipeline (015) ─────────────────────────────
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS source_text     TEXT",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS ai_summary      TEXT",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS ai_transcript   TEXT",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS pipeline_status TEXT NOT NULL DEFAULT 'draft'",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS approved_at     TIMESTAMPTZ",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS chapter_ref     TEXT",
+            """
+            CREATE TABLE IF NOT EXISTS course_chapters (
+                id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                course_id     UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                filename      TEXT NOT NULL,
+                page_count    INT,
+                concept_count INT,
+                status        TEXT NOT NULL DEFAULT 'processing',
+                error_msg     TEXT,
+                created_at    TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_course_chapters_course ON course_chapters(course_id)",
+            "CREATE INDEX IF NOT EXISTS idx_concept_pipeline       ON course_concepts(pipeline_status)",
+            # ── Sprint 6: AI asset generation per concept (016) ─────────────────
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS quiz_status        TEXT NOT NULL DEFAULT 'none'",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS flashcard_status   TEXT NOT NULL DEFAULT 'none'",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS audio_status       TEXT NOT NULL DEFAULT 'none'",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS audio_data         BYTEA",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS audio_duration_sec INT",
+            """
+            CREATE TABLE IF NOT EXISTS concept_quiz_questions (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                concept_id  UUID NOT NULL REFERENCES course_concepts(id) ON DELETE CASCADE,
+                question    TEXT NOT NULL,
+                options     JSONB NOT NULL,
+                correct_idx INT  NOT NULL,
+                explanation TEXT,
+                position    INT  NOT NULL DEFAULT 0,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS concept_flashcards (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                concept_id  UUID NOT NULL REFERENCES course_concepts(id) ON DELETE CASCADE,
+                front       TEXT NOT NULL,
+                back        TEXT NOT NULL,
+                position    INT  NOT NULL DEFAULT 0,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_quiz_concept        ON concept_quiz_questions(concept_id)",
+            "CREATE INDEX IF NOT EXISTS idx_flashcards_concept  ON concept_flashcards(concept_id)",
+            "CREATE INDEX IF NOT EXISTS idx_concept_audio       ON course_concepts(audio_status)",
+            # ── Sprint 6 follow-up: chapter PDF storage + concept video (017) ──
+            "ALTER TABLE course_chapters ADD COLUMN IF NOT EXISTS pdf_data BYTEA",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_data   BYTEA",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_status TEXT NOT NULL DEFAULT 'none'",
+            "CREATE INDEX IF NOT EXISTS idx_concept_video ON course_concepts(video_status)",
         ]:
             try:
                 await db.execute(sql)

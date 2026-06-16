@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
-  Upload, Loader2, Check, BookOpen, FileText, Users,
+  Upload, Loader2, Check, BookOpen, Users,
   CheckCircle, Globe, Zap, Circle,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
@@ -20,9 +20,6 @@ interface Course  {
   units: Unit[]; classrooms: Classroom[];
 }
 
-// Import preview shape
-interface PreviewUnit { title: string; description?: string; concepts: { title: string; description?: string }[]; }
-
 export default function CourseDetailPage() {
   const router  = useRouter();
   const params  = useParams();
@@ -36,13 +33,6 @@ export default function CourseDetailPage() {
   const [unitTitle,   setUnitTitle]   = useState('');
   const [addingConcept, setAddingConcept] = useState<string | null>(null);
   const [conceptTitle, setConceptTitle]  = useState('');
-
-  // Syllabus import (quick structure-only)
-  const fileRef    = useRef<HTMLInputElement>(null);
-  const [importing,  setImporting]    = useState(false);
-  const [preview,    setPreview]      = useState<PreviewUnit[] | null>(null);
-  const [confirming, setConfirming]   = useState(false);
-  const [importMsg,  setImportMsg]    = useState('');
 
   // Chapter upload (full AI pipeline)
   const chapterRef = useRef<HTMLInputElement>(null);
@@ -174,43 +164,6 @@ export default function CourseDetailPage() {
     } : prev);
   }
 
-  // ── Syllabus import ────────────────────────────────────────────────────────
-
-  async function handleFileUpload(file: File) {
-    setImporting(true); setPreview(null); setImportMsg('');
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch(`${API_BASE}/api/courses/${courseId}/import-syllabus`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Import failed');
-      setPreview(data.units);
-      setImportMsg(`Found ${data.unit_count} units and ${data.concept_count} concepts from ${data.page_count} pages`);
-    } catch (err: any) {
-      alert(err.message);
-    } finally { setImporting(false); }
-  }
-
-  async function confirmImport() {
-    if (!preview) return;
-    setConfirming(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/${courseId}/confirm-import`, {
-        method: 'POST', headers,
-        body: JSON.stringify({ units: preview }),
-      });
-      if (!res.ok) throw new Error('Failed to save');
-      setPreview(null); setImportMsg('');
-      load();
-    } catch (err: any) {
-      alert(err.message);
-    } finally { setConfirming(false); }
-  }
-
   // ── Assign to classroom ────────────────────────────────────────────────────
 
   async function toggleAssign(classroomId: string, assigned: boolean) {
@@ -304,7 +257,7 @@ export default function CourseDetailPage() {
       )}
 
       {/* Chapter upload — AI pipeline */}
-      <div className="bg-[var(--surface)] border border-purple-500/20 rounded-2xl p-5 mb-4">
+      <div className="bg-[var(--surface)] border border-purple-500/20 rounded-2xl p-5 mb-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[var(--tx1)] text-sm font-semibold flex items-center gap-1.5">
@@ -323,59 +276,6 @@ export default function CourseDetailPage() {
           <input ref={chapterRef} type="file" accept=".pdf" className="hidden"
             onChange={e => e.target.files?.[0] && handleChapterUpload(e.target.files[0])} />
         </div>
-      </div>
-
-      {/* Syllabus import — structure only */}
-      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <p className="text-[var(--tx2)] text-sm font-medium">Import from syllabus PDF</p>
-            <p className="text-[var(--tx7)] text-xs mt-0.5">AI will extract units and concepts automatically</p>
-          </div>
-          <button
-            onClick={() => fileRef.current?.click()}
-            disabled={importing}
-            className="flex items-center gap-2 px-3 py-2 bg-purple-600/15 hover:bg-purple-600/25
-                       text-purple-400 text-sm rounded-xl transition-all disabled:opacity-40"
-          >
-            {importing ? <Loader2 size={14} className="animate-spin" /> : <><Upload size={14} /> Upload PDF</>}
-          </button>
-          <input ref={fileRef} type="file" accept=".pdf" className="hidden"
-            onChange={e => e.target.files?.[0] && handleFileUpload(e.target.files[0])} />
-        </div>
-
-        {importMsg && !preview && <p className="text-[var(--tx6)] text-xs">{importMsg}</p>}
-
-        {/* Import preview */}
-        {preview && (
-          <div className="mt-4 border-t border-[var(--bd)] pt-4">
-            <p className="text-[var(--tx2)] text-sm font-medium mb-1">{importMsg}</p>
-            <p className="text-[var(--tx7)] text-xs mb-3">Review the extracted structure below, then confirm to save.</p>
-            <div className="space-y-2">
-              {preview.map((unit, ui) => (
-                <div key={ui} className="bg-[var(--ov1)] rounded-xl p-3">
-                  <p className="text-[var(--tx2)] text-sm font-medium">{ui + 1}. {unit.title}</p>
-                  <div className="mt-1.5 space-y-1 pl-3">
-                    {unit.concepts.map((c, ci) => (
-                      <p key={ci} className="text-[var(--tx6)] text-xs">· {c.title}</p>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-3">
-              <button onClick={confirmImport} disabled={confirming}
-                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-500
-                           text-white text-sm rounded-xl transition-all disabled:opacity-40">
-                {confirming ? <Loader2 size={14} className="animate-spin" /> : <><Check size={14} /> Confirm &amp; save</>}
-              </button>
-              <button onClick={() => { setPreview(null); setImportMsg(''); }}
-                className="px-4 py-2 text-[var(--tx6)] hover:text-[var(--tx2)] text-sm transition-colors">
-                Discard
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Units + concepts */}
