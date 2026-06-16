@@ -341,6 +341,9 @@ async def lifespan(app: FastAPI):
             "CREATE INDEX IF NOT EXISTS idx_concept_video ON course_concepts(video_status)",
             # ── Surface concept video generation errors to the teacher UI (018) ─
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_error TEXT",
+            # ── Concept videos now render via the Manim/Cloud Run pipeline (019) ─
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_job_id INTEGER REFERENCES videos(id) ON DELETE SET NULL",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_url TEXT",
         ]:
             try:
                 await db.execute(sql)

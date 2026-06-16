@@ -35,12 +35,19 @@ interface ConceptDetail {
 interface Assets {
   quiz_status: AssetStatus; flashcard_status: AssetStatus;
   audio_status: AssetStatus; video_status: AssetStatus;
-  video_error?: string;
+  video_error?: string; video_stage?: string;
   has_audio: boolean;
   audio_url?: string; video_url?: string;
   audio_duration_sec?: number;
   quiz: QuizQuestion[]; flashcards: Flashcard[];
 }
+
+const VIDEO_STAGE_LABEL: Record<string, string> = {
+  pending:           'Writing the scene…',
+  transcript_ready:  'Transcript ready, generating animation code…',
+  queued:            'Queued for rendering…',
+  rendering:         'Rendering animation…',
+};
 
 const PIPELINE_LABEL: Record<PipelineStatus, string> = {
   draft: 'No pipeline', summarizing: 'Generating…',
@@ -625,21 +632,28 @@ export default function ConceptEditorPage() {
                     title="Video" icon={<Video size={14} />}
                     status={assets.video_status}
                     isGenerating={generatingVideo || assets.video_status === 'generating'}
-                    canGenerate={!!assets.audio_url}
+                    canGenerate={!!(concept.ai_transcript || concept.ai_summary)}
                     canApprove={assets.video_status === 'ready'}
                     approving={!!approvingA['video']}
                     onGenerate={() => triggerGenerate('video')}
                     onApprove={() => approveAsset('video')}
                     noReset
-                    hint={!assets.audio_url ? 'Generate and approve audio first — video uses it as narration.' : undefined}
+                    hint={!(concept.ai_transcript || concept.ai_summary) ? 'Generate a summary first — the video is animated from it.' : undefined}
                   >
+                    {assets.video_status === 'generating' && (
+                      <div className="px-4 pb-4 mt-3">
+                        <p className="text-[var(--tx7)] text-xs">
+                          {(assets.video_stage && VIDEO_STAGE_LABEL[assets.video_stage]) || 'Generating animated video — this can take several minutes…'}
+                        </p>
+                      </div>
+                    )}
                     {assets.video_url && assets.video_status !== 'generating' && (
                       <div className="px-4 pb-4 mt-3">
                         <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl overflow-hidden">
                           <video controls src={`${API_BASE}${assets.video_url}`} className="w-full aspect-video" />
                         </div>
                         <p className="text-[var(--tx8)] text-xs mt-2">
-                          MP4 generated with ffmpeg — title card + TTS audio narration
+                          Animated with Manim — generated and rendered from the approved summary
                         </p>
                       </div>
                     )}

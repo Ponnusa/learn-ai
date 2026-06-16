@@ -6,10 +6,8 @@ import asyncio
 import json
 import logging
 import re
-import tempfile
-import os
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request, UploadFile, File, Form
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from pydantic import BaseModel
 
 from database import get_db
@@ -868,7 +866,7 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
                    cc.quiz_status, cc.flashcard_status, cc.audio_status, cc.video_status,
                    cc.chapter_ref,
                    (cc.audio_data IS NOT NULL) AS has_audio,
-                   (cc.video_data IS NOT NULL) AS has_video,
+                   (cc.video_url IS NOT NULL) AS has_video,
                    cu.course_id
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
@@ -1033,49 +1031,20 @@ async def serve_concept_image(image_id: str):
 
 
 @router.get("/concepts/{concept_id}/video")
-async def serve_concept_video(concept_id: str, request: Request):
+async def serve_concept_video(concept_id: str):
     """
-    Serve concept MP4 — no auth (UUID is unguessable).
-    Supports HTTP range requests so the browser video player can seek.
+    Redirect to the rendered video's R2/Cloudflare URL — no auth (UUID is unguessable).
+    The video itself is rendered by the Manim Cloud Run pipeline and stored in R2,
+    not in Postgres, so the browser is sent straight to the CDN URL.
     """
     async with get_db() as db:
         row = await db.fetchrow(
-            "SELECT video_data FROM course_concepts WHERE id = $1::uuid AND video_status IN ('ready','approved')",
+            "SELECT video_url FROM course_concepts WHERE id = $1::uuid AND video_status IN ('ready','approved')",
             concept_id,
         )
-    if not row or not row["video_data"]:
+    if not row or not row["video_url"]:
         raise HTTPException(404, "Video not available")
-
-    video_bytes = bytes(row["video_data"])
-    file_size   = len(video_bytes)
-    range_header = request.headers.get("range")
-
-    if range_header:
-        m = re.match(r"bytes=(\d+)-(\d*)", range_header)
-        if m:
-            start = int(m.group(1))
-            end   = int(m.group(2)) if m.group(2) else file_size - 1
-            end   = min(end, file_size - 1)
-            return Response(
-                content=video_bytes[start:end + 1],
-                status_code=206,
-                media_type="video/mp4",
-                headers={
-                    "Content-Range":  f"bytes {start}-{end}/{file_size}",
-                    "Accept-Ranges":  "bytes",
-                    "Content-Length": str(end - start + 1),
-                },
-            )
-
-    return Response(
-        content=video_bytes,
-        media_type="video/mp4",
-        headers={
-            "Accept-Ranges":  "bytes",
-            "Content-Length": str(file_size),
-            "Cache-Control":  "public, max-age=86400",
-        },
-    )
+    return RedirectResponse(row["video_url"])
 
 
 # ── Asset generation backgrounds ─────────────────────────────────────────────
@@ -1209,103 +1178,93 @@ Return ONLY valid JSON:
             )
 
 
-def _render_title_slide(title: str, out_path: str, size=(1280, 720)):
-    """Render a dark title slide with centered, word-wrapped text using Pillow."""
-    from PIL import Image, ImageDraw, ImageFont
-
-    img = Image.new("RGB", size, color=(26, 26, 46))
-    draw = ImageDraw.Draw(img)
-
-    font_size = 54
-    font = ImageFont.load_default(size=font_size)
-
-    max_width = size[0] - 160
-    words = title.split()
-    lines, current = [], ""
-    for word in words:
-        trial = f"{current} {word}".strip()
-        if draw.textlength(trial, font=font) <= max_width:
-            current = trial
-        else:
-            if current:
-                lines.append(current)
-            current = word
-    if current:
-        lines.append(current)
-
-    line_height = font_size + 16
-    total_height = line_height * len(lines)
-    y = (size[1] - total_height) / 2
-    for line in lines:
-        w = draw.textlength(line, font=font)
-        x = (size[0] - w) / 2
-        draw.text((x, y), line, font=font, fill=(255, 255, 255))
-        y += line_height
-
-    img.save(out_path)
+_MANIM_SUBJECTS = {
+    "physics": "physics", "chemistry": "chemistry",
+    "mathematics": "mathematics", "math": "mathematics", "maths": "mathematics",
+    "economics": "economics", "biology": "biology",
+}
 
 
-async def _generate_video_bg(concept_id: str):
+def _map_manim_subject(course_subject: str | None) -> str:
+    """Map a course's free-text subject to one of the Manim pipeline's known subjects."""
+    s = (course_subject or "").strip().lower()
+    for key, mapped in _MANIM_SUBJECTS.items():
+        if key in s:
+            return mapped
+    return "general"
+
+
+async def _generate_concept_video_bg(concept_id: str, course_id: str):
     """
-    Background: create MP4 from TTS audio + a rendered title slide using ffmpeg.
-    Requires ffmpeg to be installed on the server (provided via imageio-ffmpeg).
+    Background: generate a real Manim-animated video for a concept by reusing the
+    AnimLearn pipeline (services/manim.py) — same Claude code-gen + Cloud Run render
+    used for study-set videos, skipping Stage 1 (GPT-4o) since the concept's
+    summary/transcript is already the verified solution.
     """
+    from services.manim import generate_manim_from_solution, fix_manim_colors, ensure_numpy_import, _trigger_video_generation
+
+    video_id = None
     try:
         async with get_db() as db:
             concept = await db.fetchrow(
-                "SELECT title, audio_data FROM course_concepts WHERE id = $1::uuid", concept_id
+                "SELECT title, ai_summary, ai_transcript FROM course_concepts WHERE id = $1::uuid",
+                concept_id,
             )
-        if not concept or not concept["audio_data"]:
-            raise ValueError("No audio — generate and approve audio first")
+            course = await db.fetchrow("SELECT subject FROM courses WHERE id = $1::uuid", course_id)
 
-        audio_bytes = bytes(concept["audio_data"])
-        raw_title = (concept["title"] or "Concept")[:80]
+        script = concept["ai_transcript"] or concept["ai_summary"]
+        if not concept or not script:
+            raise ValueError("No transcript or summary — generate and approve a summary first")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            audio_path = os.path.join(tmpdir, "audio.mp3")
-            slide_path = os.path.join(tmpdir, "slide.png")
-            video_path = os.path.join(tmpdir, "video.mp4")
+        subject = _map_manim_subject(course["subject"] if course else None)
+        duration = max(45, min(180, len(script) // 12))
 
-            with open(audio_path, "wb") as f:
-                f.write(audio_bytes)
+        solution_data = {
+            "verified_solution":   script,
+            "transcript_markdown": script,
+            "video_script":        script,
+            "subject":             subject,
+            "tags":                [],
+        }
 
-            _render_title_slide(raw_title, slide_path)
-
-            import imageio_ffmpeg
-            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
-
-            cmd = [
-                ffmpeg_exe, "-y",
-                "-loop", "1", "-i", slide_path,
-                "-i", audio_path,
-                "-c:v", "libx264", "-tune", "stillimage", "-preset", "ultrafast", "-crf", "30",
-                "-c:a", "aac", "-b:a", "64k",
-                "-pix_fmt", "yuv420p",
-                "-shortest", "-movflags", "+faststart",
-                video_path,
-            ]
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+        async with get_db() as db:
+            video = await db.fetchrow("""
+                INSERT INTO videos (prompt, subject, language, aspect_ratio, max_duration, status)
+                VALUES ($1, $2, 'en', '16:9', $3, 'pending')
+                RETURNING id
+            """, concept["title"], subject, duration)
+            video_id = video["id"]
+            await db.execute(
+                "UPDATE course_concepts SET video_job_id = $1, video_status = 'generating', video_error = NULL WHERE id = $2::uuid",
+                video_id, concept_id,
             )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
-            if proc.returncode != 0:
-                raise RuntimeError(f"ffmpeg failed: {stderr.decode()[-500:]}")
 
-            with open(video_path, "rb") as f:
-                video_bytes = f.read()
+        code_data = await asyncio.wait_for(
+            generate_manim_from_solution(solution_data, "en", duration, "16:9"),
+            timeout=900,
+        )
+        code     = fix_manim_colors(code_data["code"])
+        code     = ensure_numpy_import(code)
+        svg_urls = code_data.get("svg_urls") or {}
 
         async with get_db() as db:
             await db.execute("""
-                UPDATE course_concepts
-                SET video_data = $1, video_status = 'ready', video_error = NULL
-                WHERE id = $2::uuid
-            """, video_bytes, concept_id)
+                UPDATE videos
+                SET generated_code = $1, scene_name = $2, svg_urls = $3::jsonb, status = 'queued', updated_at = NOW()
+                WHERE id = $4
+            """, code, code_data.get("scene_name", "MainScene"), json.dumps(svg_urls), video_id)
+
+        logger.info("[video] concept %s: Manim code ready, triggering Cloud Run render (video %s)", concept_id, video_id)
+        _trigger_video_generation(video_id, svg_urls)
 
     except Exception as exc:
         logger.error("[video] concept %s failed: %s", concept_id, exc, exc_info=True)
         async with get_db() as db:
+            if video_id:
+                await db.execute(
+                    "UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW() WHERE id = $2",
+                    str(exc)[:2000], video_id,
+                )
             await db.execute(
                 "UPDATE course_concepts SET video_status = 'failed', video_error = $1 WHERE id = $2::uuid",
                 str(exc)[:2000], concept_id,
@@ -1362,13 +1321,42 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
 
     async with get_db() as db:
         concept = await db.fetchrow("""
-            SELECT quiz_status, flashcard_status, audio_status, video_status, video_error,
+            SELECT quiz_status, flashcard_status, audio_status, video_status, video_error, video_job_id,
                    audio_duration_sec,
                    (audio_data IS NOT NULL) AS has_audio
             FROM course_concepts WHERE id = $1::uuid
         """, concept_id)
         if not concept:
             raise HTTPException(404, "Concept not found")
+
+        video_status = concept["video_status"]
+        video_error  = concept["video_error"]
+        video_stage  = None
+
+        # Video rendering happens out-of-band on Cloud Run, which writes directly
+        # to the `videos` table — sync that result onto the concept on read.
+        if video_status == "generating" and concept["video_job_id"]:
+            video_job = await db.fetchrow(
+                "SELECT status, video_url, error_message FROM videos WHERE id = $1",
+                concept["video_job_id"],
+            )
+            if video_job:
+                if video_job["status"] in ("complete", "completed"):
+                    video_status = "ready"
+                    video_error = None
+                    await db.execute(
+                        "UPDATE course_concepts SET video_status = 'ready', video_url = $1, video_error = NULL WHERE id = $2::uuid",
+                        video_job["video_url"], concept_id,
+                    )
+                elif video_job["status"] == "failed":
+                    video_status = "failed"
+                    video_error = video_job["error_message"]
+                    await db.execute(
+                        "UPDATE course_concepts SET video_status = 'failed', video_error = $1 WHERE id = $2::uuid",
+                        video_error, concept_id,
+                    )
+                else:
+                    video_stage = video_job["status"]  # pending|transcript_ready|queued|rendering
 
         questions = await db.fetch("""
             SELECT id, question, options, correct_idx, explanation, position
@@ -1391,9 +1379,10 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
         "has_audio":          bool(concept["has_audio"]),
         "audio_duration_sec": concept["audio_duration_sec"],
         "audio_url":          f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
-        "video_status":       concept["video_status"],
-        "video_error":        concept["video_error"],
-        "video_url":          f"/api/courses/concepts/{concept_id}/video" if concept["video_status"] in ("ready", "approved") else None,
+        "video_status":       video_status,
+        "video_error":        video_error,
+        "video_stage":        video_stage,
+        "video_url":          f"/api/courses/concepts/{concept_id}/video" if video_status in ("ready", "approved") else None,
         "quiz": [
             {
                 "id":          str(q["id"]),
@@ -1558,26 +1547,28 @@ async def generate_concept_video(
     bg: BackgroundTasks,
     authorization: str = Header(...),
 ):
-    """Trigger MP4 video generation from approved TTS audio + title slide (requires ffmpeg)."""
+    """Trigger a Manim-animated video for this concept via the AnimLearn Cloud Run pipeline."""
     await _require_teacher(authorization)
     async with get_db() as db:
-        concept = await db.fetchrow(
-            "SELECT id, video_status, audio_status, audio_data FROM course_concepts WHERE id = $1::uuid",
-            concept_id,
-        )
+        concept = await db.fetchrow("""
+            SELECT cc.id, cc.video_status, cc.ai_summary, cc.ai_transcript, cu.course_id
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
     if not concept:
         raise HTTPException(404, "Concept not found")
     if concept["video_status"] == "generating":
         raise HTTPException(409, "Video generation already in progress")
-    if not concept["audio_data"]:
-        raise HTTPException(400, "Generate and approve audio first — video uses TTS audio as narration")
+    if not concept["ai_transcript"] and not concept["ai_summary"]:
+        raise HTTPException(400, "Generate a summary first — the video is built from it")
 
     async with get_db() as db:
         await db.execute(
             "UPDATE course_concepts SET video_status = 'generating', video_error = NULL WHERE id = $1::uuid",
             concept_id,
         )
-    bg.add_task(_generate_video_bg, concept_id)
+    bg.add_task(_generate_concept_video_bg, concept_id, str(concept["course_id"]))
     return {"ok": True, "video_status": "generating"}
 
 

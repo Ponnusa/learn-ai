@@ -20,4 +20,3 @@ python-jose[cryptography]==3.3.0
 bcrypt==4.2.1
 aiofiles==24.1.0
 requests==2.32.3
-imageio-ffmpeg==0.5.1
