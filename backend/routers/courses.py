@@ -1194,58 +1194,82 @@ def _map_manim_subject(course_subject: str | None) -> str:
     return "general"
 
 
+def _build_concept_video_prompt(title: str, source_text: str | None, summary: str | None) -> str:
+    """
+    Ground Stage 1 (GPT-4o) in the concept's actual source material — same idea as
+    build_studyset_prompt's "answer ONLY from the material" grounding — instead of
+    handing it a bare title. Falls back to the approved summary if no source text
+    was captured for this concept.
+    """
+    material = (source_text or summary or title)[:8000]
+    return f"""Teach the concept "{title}" to students.
+
+Base your explanation strictly on the material below — do not invent facts,
+numbers, or examples that aren't supported by it. If the material describes a
+worked example or process, use that as the CALCULATION/worked section.
+
+SOURCE MATERIAL:
+---
+{material}
+---"""
+
+
 async def _generate_concept_video_bg(concept_id: str, course_id: str):
     """
     Background: generate a real Manim-animated video for a concept by reusing the
-    AnimLearn pipeline (services/manim.py) — same Claude code-gen + Cloud Run render
-    used for study-set videos, skipping Stage 1 (GPT-4o) since the concept's
-    summary/transcript is already the verified solution.
+    AnimLearn pipeline (services/manim.py) — the exact two-phase flow used for
+    student-triggered study-set videos (routers/videos.py::_generate_video_bg),
+    just sourced from the concept's approved material instead of a chat prompt.
+      Phase 1 (GPT-4o)  — structured solution + cinematic [BEAT]-marked script
+      Phase 2 (Claude)  — Manim scene code + SVG assets + critic pass
     """
-    from services.manim import generate_manim_from_solution, fix_manim_colors, ensure_numpy_import, _trigger_video_generation
+    from services.manim import (
+        generate_solution_only, generate_manim_from_solution,
+        fix_manim_colors, ensure_numpy_import, _trigger_video_generation,
+    )
 
     video_id = None
     try:
         async with get_db() as db:
             concept = await db.fetchrow(
-                "SELECT title, ai_summary, ai_transcript FROM course_concepts WHERE id = $1::uuid",
+                "SELECT title, ai_summary, ai_transcript, source_text FROM course_concepts WHERE id = $1::uuid",
                 concept_id,
             )
             course = await db.fetchrow("SELECT subject FROM courses WHERE id = $1::uuid", course_id)
 
-        script = concept["ai_transcript"] or concept["ai_summary"]
-        if not concept or not script:
+        if not concept or not (concept["ai_transcript"] or concept["ai_summary"]):
             raise ValueError("No transcript or summary — generate and approve a summary first")
 
-        subject = _map_manim_subject(course["subject"] if course else None)
+        subject  = _map_manim_subject(course["subject"] if course else None)
+        script   = concept["ai_transcript"] or concept["ai_summary"]
         duration = max(45, min(180, len(script) // 12))
-
-        solution_data = {
-            "verified_solution":   script,
-            "transcript_markdown": script,
-            "video_script":        script,
-            "subject":             subject,
-            "tags":                [],
-        }
+        prompt   = _build_concept_video_prompt(concept["title"], concept["source_text"], script)
 
         async with get_db() as db:
             video = await db.fetchrow("""
                 INSERT INTO videos (prompt, subject, language, aspect_ratio, max_duration, status)
                 VALUES ($1, $2, 'en', '16:9', $3, 'pending')
                 RETURNING id
-            """, concept["title"], subject, duration)
+            """, prompt, subject, duration)
             video_id = video["id"]
             await db.execute(
                 "UPDATE course_concepts SET video_job_id = $1, video_status = 'generating', video_error = NULL WHERE id = $2::uuid",
                 video_id, concept_id,
             )
-            # We already have the transcript (the approved summary) — mark this stage
-            # immediately so the teacher UI shows progress instead of a frozen 'pending' row
-            # while the multi-call Claude code-gen pipeline (SVG, storyboard, scene, critic) runs.
-            await db.execute(
-                "UPDATE videos SET status = 'transcript_ready', updated_at = NOW() WHERE id = $1", video_id
-            )
 
-        logger.info("[video] concept %s: starting Manim code generation (video %s)", concept_id, video_id)
+        # ── Phase 1: GPT-4o structured solution + cinematic script ───────────
+        logger.info("[video] concept %s: Phase 1 (GPT-4o solution) starting (video %s)", concept_id, video_id)
+        solution_data = await generate_solution_only(prompt, "en", duration)
+
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos
+                SET transcript_markdown = $1, verified_solution = $2, status = 'transcript_ready', updated_at = NOW()
+                WHERE id = $3
+            """, solution_data["transcript_markdown"], solution_data["verified_solution"], video_id)
+
+        # ── Phase 2: Claude Manim code + SVG assets + critic pass ────────────
+        logger.info("[video] concept %s: Phase 2 (Manim code) starting (video %s)", concept_id, video_id)
         code_data = await asyncio.wait_for(
             generate_manim_from_solution(solution_data, "en", duration, "16:9"),
             timeout=900,
@@ -1264,6 +1288,18 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str):
         logger.info("[video] concept %s: Manim code ready, triggering Cloud Run render (video %s)", concept_id, video_id)
         _trigger_video_generation(video_id, svg_urls)
 
+    except asyncio.TimeoutError:
+        logger.error("[video] concept %s: Phase 2 timed out after 15 min (video %s)", concept_id, video_id)
+        async with get_db() as db:
+            if video_id:
+                await db.execute(
+                    "UPDATE videos SET status = 'failed', error_message = 'Manim generation timed out — please retry', updated_at = NOW() WHERE id = $1",
+                    video_id,
+                )
+            await db.execute(
+                "UPDATE course_concepts SET video_status = 'failed', video_error = 'Manim generation timed out — please retry' WHERE id = $1::uuid",
+                concept_id,
+            )
     except Exception as exc:
         logger.error("[video] concept %s failed: %s", concept_id, exc, exc_info=True)
         async with get_db() as db:
