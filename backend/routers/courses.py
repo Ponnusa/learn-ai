@@ -1235,13 +1235,16 @@ async def _generate_video_bg(concept_id: str):
             with open(audio_path, "wb") as f:
                 f.write(audio_bytes)
 
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+
             # Try with drawtext; if ffmpeg returns error (e.g. no fontconfig) retry without
             for attempt, vf in enumerate([
                 f"drawtext=text='{safe_title}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.4:boxborderw=20",
                 None,
             ]):
                 cmd = [
-                    "ffmpeg", "-y",
+                    ffmpeg_exe, "-y",
                     "-f", "lavfi",
                     "-i", "color=c=0x1a1a2e:size=1280x720:rate=24",
                     "-i", audio_path,
