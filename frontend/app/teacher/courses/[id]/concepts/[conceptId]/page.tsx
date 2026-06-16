@@ -35,6 +35,7 @@ interface ConceptDetail {
 interface Assets {
   quiz_status: AssetStatus; flashcard_status: AssetStatus;
   audio_status: AssetStatus; video_status: AssetStatus;
+  video_error?: string;
   has_audio: boolean;
   audio_url?: string; video_url?: string;
   audio_duration_sec?: number;
@@ -640,6 +641,13 @@ export default function ConceptEditorPage() {
                         <p className="text-[var(--tx8)] text-xs mt-2">
                           MP4 generated with ffmpeg — title card + TTS audio narration
                         </p>
+                      </div>
+                    )}
+                    {assets.video_status === 'failed' && assets.video_error && (
+                      <div className="px-4 pb-4 mt-3">
+                        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+                          <p className="text-red-400 text-xs font-mono break-words">{assets.video_error}</p>
+                        </div>
                       </div>
                     )}
                   </AssetSection>

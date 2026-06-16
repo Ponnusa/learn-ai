@@ -1273,15 +1273,16 @@ async def _generate_video_bg(concept_id: str):
         async with get_db() as db:
             await db.execute("""
                 UPDATE course_concepts
-                SET video_data = $1, video_status = 'ready'
+                SET video_data = $1, video_status = 'ready', video_error = NULL
                 WHERE id = $2::uuid
             """, video_bytes, concept_id)
 
     except Exception as exc:
-        logger.error("[video] concept %s failed: %s", concept_id, exc)
+        logger.error("[video] concept %s failed: %s", concept_id, exc, exc_info=True)
         async with get_db() as db:
             await db.execute(
-                "UPDATE course_concepts SET video_status = 'failed' WHERE id = $1::uuid", concept_id
+                "UPDATE course_concepts SET video_status = 'failed', video_error = $1 WHERE id = $2::uuid",
+                str(exc)[:2000], concept_id,
             )
 
 
@@ -1335,7 +1336,7 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
 
     async with get_db() as db:
         concept = await db.fetchrow("""
-            SELECT quiz_status, flashcard_status, audio_status, video_status,
+            SELECT quiz_status, flashcard_status, audio_status, video_status, video_error,
                    audio_duration_sec,
                    (audio_data IS NOT NULL) AS has_audio
             FROM course_concepts WHERE id = $1::uuid
@@ -1365,6 +1366,7 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
         "audio_duration_sec": concept["audio_duration_sec"],
         "audio_url":          f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
         "video_status":       concept["video_status"],
+        "video_error":        concept["video_error"],
         "video_url":          f"/api/courses/concepts/{concept_id}/video" if concept["video_status"] in ("ready", "approved") else None,
         "quiz": [
             {
@@ -1546,7 +1548,8 @@ async def generate_concept_video(
 
     async with get_db() as db:
         await db.execute(
-            "UPDATE course_concepts SET video_status = 'generating' WHERE id = $1::uuid", concept_id
+            "UPDATE course_concepts SET video_status = 'generating', video_error = NULL WHERE id = $1::uuid",
+            concept_id,
         )
     bg.add_task(_generate_video_bg, concept_id)
     return {"ok": True, "video_status": "generating"}

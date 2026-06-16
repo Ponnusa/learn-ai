@@ -339,6 +339,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_data   BYTEA",
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_status TEXT NOT NULL DEFAULT 'none'",
             "CREATE INDEX IF NOT EXISTS idx_concept_video ON course_concepts(video_status)",
+            # ── Surface concept video generation errors to the teacher UI (018) ─
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_error TEXT",
         ]:
             try:
                 await db.execute(sql)
