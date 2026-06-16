@@ -1209,11 +1209,46 @@ Return ONLY valid JSON:
             )
 
 
+def _render_title_slide(title: str, out_path: str, size=(1280, 720)):
+    """Render a dark title slide with centered, word-wrapped text using Pillow."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    img = Image.new("RGB", size, color=(26, 26, 46))
+    draw = ImageDraw.Draw(img)
+
+    font_size = 54
+    font = ImageFont.load_default(size=font_size)
+
+    max_width = size[0] - 160
+    words = title.split()
+    lines, current = [], ""
+    for word in words:
+        trial = f"{current} {word}".strip()
+        if draw.textlength(trial, font=font) <= max_width:
+            current = trial
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+
+    line_height = font_size + 16
+    total_height = line_height * len(lines)
+    y = (size[1] - total_height) / 2
+    for line in lines:
+        w = draw.textlength(line, font=font)
+        x = (size[0] - w) / 2
+        draw.text((x, y), line, font=font, fill=(255, 255, 255))
+        y += line_height
+
+    img.save(out_path)
+
+
 async def _generate_video_bg(concept_id: str):
     """
-    Background: create MP4 from TTS audio + title card using ffmpeg.
-    Requires ffmpeg to be installed on the server.
-    Falls back to text-only slide if drawtext filter is unavailable.
+    Background: create MP4 from TTS audio + a rendered title slide using ffmpeg.
+    Requires ffmpeg to be installed on the server (provided via imageio-ffmpeg).
     """
     try:
         async with get_db() as db:
@@ -1224,51 +1259,39 @@ async def _generate_video_bg(concept_id: str):
             raise ValueError("No audio — generate and approve audio first")
 
         audio_bytes = bytes(concept["audio_data"])
-        # Sanitise title for ffmpeg drawtext (escape special chars)
-        raw_title = (concept["title"] or "Concept")[:60]
-        safe_title = raw_title.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+        raw_title = (concept["title"] or "Concept")[:80]
 
         with tempfile.TemporaryDirectory() as tmpdir:
             audio_path = os.path.join(tmpdir, "audio.mp3")
+            slide_path = os.path.join(tmpdir, "slide.png")
             video_path = os.path.join(tmpdir, "video.mp4")
 
             with open(audio_path, "wb") as f:
                 f.write(audio_bytes)
 
+            _render_title_slide(raw_title, slide_path)
+
             import imageio_ffmpeg
             ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
 
-            # Try with drawtext; if ffmpeg returns error (e.g. no fontconfig) retry without
-            for attempt, vf in enumerate([
-                f"drawtext=text='{safe_title}':fontcolor=white:fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2:box=1:boxcolor=black@0.4:boxborderw=20",
-                None,
-            ]):
-                cmd = [
-                    ffmpeg_exe, "-y",
-                    "-f", "lavfi",
-                    "-i", "color=c=0x1a1a2e:size=1280x720:rate=24",
-                    "-i", audio_path,
-                ]
-                if vf:
-                    cmd += ["-vf", vf]
-                cmd += [
-                    "-c:v", "libx264", "-preset", "ultrafast", "-crf", "35",
-                    "-c:a", "aac", "-b:a", "64k",
-                    "-shortest", "-movflags", "+faststart",
-                    video_path,
-                ]
-
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
-
-                if proc.returncode == 0:
-                    break
-                if attempt == 1:
-                    raise RuntimeError(f"ffmpeg failed: {stderr.decode()[-500:]}")
+            cmd = [
+                ffmpeg_exe, "-y",
+                "-loop", "1", "-i", slide_path,
+                "-i", audio_path,
+                "-c:v", "libx264", "-tune", "stillimage", "-preset", "ultrafast", "-crf", "30",
+                "-c:a", "aac", "-b:a", "64k",
+                "-pix_fmt", "yuv420p",
+                "-shortest", "-movflags", "+faststart",
+                video_path,
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+            if proc.returncode != 0:
+                raise RuntimeError(f"ffmpeg failed: {stderr.decode()[-500:]}")
 
             with open(video_path, "rb") as f:
                 video_bytes = f.read()
