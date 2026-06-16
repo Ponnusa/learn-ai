@@ -1238,7 +1238,14 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str):
                 "UPDATE course_concepts SET video_job_id = $1, video_status = 'generating', video_error = NULL WHERE id = $2::uuid",
                 video_id, concept_id,
             )
+            # We already have the transcript (the approved summary) — mark this stage
+            # immediately so the teacher UI shows progress instead of a frozen 'pending' row
+            # while the multi-call Claude code-gen pipeline (SVG, storyboard, scene, critic) runs.
+            await db.execute(
+                "UPDATE videos SET status = 'transcript_ready', updated_at = NOW() WHERE id = $1", video_id
+            )
 
+        logger.info("[video] concept %s: starting Manim code generation (video %s)", concept_id, video_id)
         code_data = await asyncio.wait_for(
             generate_manim_from_solution(solution_data, "en", duration, "16:9"),
             timeout=900,
