@@ -27,7 +27,7 @@ export default function TeacherDashboard() {
           {[
             { label: 'Classrooms',    icon: Users,         href: '/teacher/classrooms', soon: false },
             { label: 'Course Builder', icon: BookOpen,     href: '/teacher/courses',    soon: false },
-            { label: 'Student Progress', icon: BarChart2,  href: '/teacher/courses',    soon: false },
+            { label: 'Student Progress', icon: BarChart2,  href: '/teacher/progress',   soon: false },
             { label: 'Study Sets',     icon: GraduationCap, href: '/study',             soon: false },
           ].map(card => (
             <button

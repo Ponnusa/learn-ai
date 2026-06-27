@@ -156,6 +156,78 @@ async def list_my_courses(authorization: str = Header(...)):
     ]
 
 
+@router.get("/progress-overview")
+async def get_progress_overview(authorization: str = Header(...)):
+    """
+    Teacher-only summary across all of a teacher's courses: enrolled student
+    count, average % of concepts visited, average quiz score, and failed-asset
+    count — used as the landing view for "Student Progress" before drilling
+    into a specific course's full grid (GET /{course_id}/progress).
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        courses = await db.fetch("""
+            SELECT c.id, c.name, c.status, c.created_at,
+                   COUNT(DISTINCT cc.id) AS concept_count,
+                   COUNT(DISTINCT cc.id) FILTER (
+                       WHERE cc.quiz_status = 'failed' OR cc.flashcard_status = 'failed'
+                          OR cc.audio_status = 'failed' OR cc.video_status = 'failed'
+                   ) AS failed_count
+            FROM courses c
+            LEFT JOIN course_units    cu ON cu.course_id = c.id
+            LEFT JOIN course_concepts cc ON cc.unit_id   = cu.id
+            WHERE c.teacher_id = $1::uuid
+            GROUP BY c.id
+            ORDER BY c.created_at DESC
+        """, teacher_id)
+
+        student_counts = await db.fetch("""
+            SELECT clc.course_id, COUNT(DISTINCT cs.student_id) AS student_count
+            FROM classroom_courses clc
+            JOIN classrooms cl         ON cl.id = clc.classroom_id AND cl.teacher_id = $1::uuid
+            JOIN classroom_students cs ON cs.classroom_id = cl.id
+            GROUP BY clc.course_id
+        """, teacher_id)
+
+        progress = await db.fetch("""
+            SELECT cu.course_id,
+                   COUNT(*) FILTER (WHERE scp.visited) AS visited_rows,
+                   AVG(scp.quiz_score) AS avg_quiz_score
+            FROM student_concept_progress scp
+            JOIN course_concepts cc ON cc.id = scp.concept_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            JOIN courses c          ON c.id = cu.course_id AND c.teacher_id = $1::uuid
+            GROUP BY cu.course_id
+        """, teacher_id)
+
+    student_count_map = {str(r["course_id"]): int(r["student_count"]) for r in student_counts}
+    progress_map = {str(r["course_id"]): r for r in progress}
+
+    result = []
+    for c in courses:
+        cid           = str(c["id"])
+        student_count = student_count_map.get(cid, 0)
+        concept_count = int(c["concept_count"] or 0)
+        prog          = progress_map.get(cid)
+        possible      = student_count * concept_count
+        visited_pct   = (
+            round(100 * int(prog["visited_rows"]) / possible) if prog and possible > 0 else None
+        )
+        avg_quiz_score = round(prog["avg_quiz_score"]) if prog and prog["avg_quiz_score"] is not None else None
+
+        result.append({
+            "id":             cid,
+            "name":           c["name"],
+            "status":         c["status"],
+            "student_count":  student_count,
+            "concept_count":  concept_count,
+            "failed_count":   int(c["failed_count"] or 0),
+            "visited_pct":    visited_pct,
+            "avg_quiz_score": avg_quiz_score,
+        })
+    return result
+
+
 @router.get("/{course_id}")
 async def get_course(course_id: str, authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)
