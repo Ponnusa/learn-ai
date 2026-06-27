@@ -6,6 +6,7 @@ import {
   ChevronDown, ChevronUp, CheckCircle2, XCircle,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -79,13 +80,17 @@ export default function AssignmentsPage() {
     }
   }
 
-  if (loading) return (
-    <div className="flex-1 flex items-center justify-center">
-      <Loader2 size={28} className="text-purple-400 animate-spin" />
-    </div>
-  );
-
   return (
+    <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
+      <Sidebar onNewChat={() => router.push('/')} />
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <MobileTopBar />
+        <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center h-full">
+            <Loader2 size={28} className="text-purple-400 animate-spin" />
+          </div>
+        ) : (
     <div className="p-6 max-w-2xl mx-auto pb-16">
       <div className="mb-6">
         <h1 className="text-[var(--tx1)] text-2xl font-bold flex items-center gap-2">
@@ -192,6 +197,10 @@ export default function AssignmentsPage() {
           })}
         </div>
       )}
+    </div>
+        )}
+        </div>
+      </main>
     </div>
   );
 }
