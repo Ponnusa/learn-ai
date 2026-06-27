@@ -646,6 +646,43 @@ async def activate_concept(concept_id: str, authorization: str = Header(...)):
     return {"study_set_id": str(study_set_id)}
 
 
+class QuizScoreRequest(BaseModel):
+    score: float  # 0-100
+
+
+@router.post("/concepts/{concept_id}/quiz/score")
+async def submit_quiz_score(
+    concept_id: str,
+    req: QuizScoreRequest,
+    authorization: str = Header(...),
+):
+    """Record a student's quiz attempt score (0-100) for progress tracking."""
+    student_id = await _get_student(authorization)
+    score = max(0.0, min(100.0, req.score))
+
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cu.course_id
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+        if not concept:
+            raise HTTPException(404, "Concept not found")
+
+        await db.execute("""
+            INSERT INTO student_concept_progress
+              (student_id, concept_id, course_id, visited, visited_at, quiz_score, quiz_taken_at, last_seen_at)
+            VALUES ($1::uuid, $2::uuid, $3::uuid, true, NOW(), $4, NOW(), NOW())
+            ON CONFLICT (student_id, concept_id)
+            DO UPDATE SET quiz_score = $4, quiz_taken_at = NOW(),
+                          visited = true, visited_at = COALESCE(student_concept_progress.visited_at, NOW()),
+                          last_seen_at = NOW()
+        """, student_id, concept_id, str(concept["course_id"]), score)
+
+    return {"ok": True, "quiz_score": score}
+
+
 # ── Chapter upload → AI pipeline ─────────────────────────────────────────────
 
 @router.post("/{course_id}/chapters")

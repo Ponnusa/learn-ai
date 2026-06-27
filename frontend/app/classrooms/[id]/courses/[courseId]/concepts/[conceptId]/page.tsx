@@ -43,7 +43,8 @@ export default function StudentConceptDetailPage() {
   const [activating, setActivating] = useState(false);
 
   // Quiz state
-  const [quizAnswers, setQuizAnswers] = useState<Record<number, number>>({});
+  const [quizAnswers, setQuizAnswers]   = useState<Record<number, number>>({});
+  const [scoreSubmitted, setScoreSubmitted] = useState(false);
 
   // Flashcard state
   const [cardIndex,   setCardIndex]  = useState(0);
@@ -54,6 +55,9 @@ export default function StudentConceptDetailPage() {
   useEffect(() => {
     if (!user) { router.replace('/auth/login'); return; }
     loadAll();
+    // Mark this concept as visited just by opening the unified page —
+    // progress no longer requires going through the chat-based "Start learning" flow.
+    fetch(`${API_BASE}/api/courses/concepts/${conceptId}/activate`, { method: 'POST', headers: authH }).catch(() => {});
   }, [user, conceptId]);
 
   async function loadAll() {
@@ -80,7 +84,20 @@ export default function StudentConceptDetailPage() {
   }
 
   function selectAnswer(qi: number, oi: number) {
-    setQuizAnswers(prev => prev[qi] !== undefined ? prev : { ...prev, [qi]: oi });
+    setQuizAnswers(prev => {
+      if (prev[qi] !== undefined) return prev;
+      const next = { ...prev, [qi]: oi };
+      const quiz = assets?.quiz ?? [];
+      if (!scoreSubmitted && Object.keys(next).length === quiz.length && quiz.length > 0) {
+        const correct = Object.entries(next).filter(([i, o]) => o === quiz[Number(i)].correct_idx).length;
+        const score   = (correct / quiz.length) * 100;
+        setScoreSubmitted(true);
+        fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz/score`, {
+          method: 'POST', headers: authH, body: JSON.stringify({ score }),
+        }).catch(() => {});
+      }
+      return next;
+    });
   }
 
   function nextCard() {
