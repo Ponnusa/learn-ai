@@ -230,14 +230,20 @@ export default function CourseDetailPage() {
             }`}>{course.status}</span>
           </div>
         </div>
-        <button onClick={publish}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all ${
-            course.status === 'published'
-              ? 'border-green-500/30 text-green-400 hover:bg-green-500/10'
-              : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400'
-          }`}>
-          {course.status === 'published' ? <><CheckCircle size={14} /> Published</> : <><Globe size={14} /> Publish</>}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => router.push(`/teacher/courses/${courseId}/progress`)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
+            <Users size={14} /> Progress
+          </button>
+          <button onClick={publish}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all ${
+              course.status === 'published'
+                ? 'border-green-500/30 text-green-400 hover:bg-green-500/10'
+                : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400'
+            }`}>
+            {course.status === 'published' ? <><CheckCircle size={14} /> Published</> : <><Globe size={14} /> Publish</>}
+          </button>
+        </div>
       </div>
 
       {/* Pipeline status banner */}

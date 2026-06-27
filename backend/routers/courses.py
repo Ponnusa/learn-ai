@@ -212,6 +212,89 @@ async def get_course(course_id: str, authorization: str = Header(...)):
     }
 
 
+@router.get("/{course_id}/progress")
+async def get_course_progress(course_id: str, authorization: str = Header(...)):
+    """
+    Teacher-only grid: every student enrolled (via any classroom this course is
+    assigned to) x every concept in the course, with visited/quiz_score cells.
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT id, name FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+        if not course:
+            raise HTTPException(404, "Course not found")
+
+        concepts = await db.fetch("""
+            SELECT cc.id, cc.title, cu.title AS unit_title, cu.position AS unit_position, cc.position
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid
+            ORDER BY cu.position, cu.created_at, cc.position, cc.created_at
+        """, course_id)
+
+        students = await db.fetch("""
+            SELECT DISTINCT u.id, u.name, u.email
+            FROM classroom_courses clc
+            JOIN classrooms cl            ON cl.id = clc.classroom_id
+            JOIN classroom_students cs    ON cs.classroom_id = cl.id
+            JOIN users u                  ON u.id = cs.student_id
+            WHERE clc.course_id = $1::uuid AND cl.teacher_id = $2::uuid
+            ORDER BY u.name
+        """, course_id, teacher_id)
+
+        progress = await db.fetch("""
+            SELECT scp.student_id, scp.concept_id, scp.visited, scp.quiz_score
+            FROM student_concept_progress scp
+            JOIN course_concepts cc ON cc.id = scp.concept_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid
+        """, course_id)
+
+    progress_map: dict[tuple, dict] = {
+        (str(p["student_id"]), str(p["concept_id"])): {
+            "visited": p["visited"], "quiz_score": p["quiz_score"],
+        }
+        for p in progress
+    }
+
+    concept_list = [
+        {"id": str(c["id"]), "title": c["title"], "unit_title": c["unit_title"]}
+        for c in concepts
+    ]
+
+    student_rows = []
+    for s in students:
+        sid = str(s["id"])
+        cells = {}
+        visited_count = 0
+        scores = []
+        for c in concept_list:
+            cell = progress_map.get((sid, c["id"]), {"visited": False, "quiz_score": None})
+            cells[c["id"]] = cell
+            if cell["visited"]:
+                visited_count += 1
+            if cell["quiz_score"] is not None:
+                scores.append(cell["quiz_score"])
+        student_rows.append({
+            "id":            sid,
+            "name":          s["name"],
+            "email":         s["email"],
+            "visited_count": visited_count,
+            "avg_quiz_score": (sum(scores) / len(scores)) if scores else None,
+            "cells":         cells,
+        })
+
+    return {
+        "course_id":   course_id,
+        "course_name": course["name"],
+        "concepts":    concept_list,
+        "students":    student_rows,
+    }
+
+
 class UpdateCourseRequest(BaseModel):
     name:        str | None = None
     description: str | None = None
