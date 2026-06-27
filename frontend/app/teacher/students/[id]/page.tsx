@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, CheckCircle2, Circle, Brain, MessageSquare, ChevronDown, ChevronUp,
+  Sparkles, HelpCircle, Layers, Video, BookOpen, AlertTriangle,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -30,6 +31,17 @@ interface ConversationSummary {
 }
 interface ChatMessage { role: string; content: string; created_at: string | null; }
 
+interface Assignment {
+  id: string; concept_id: string | null; kind: string; title: string; status: string; created_at: string | null;
+}
+
+const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
+  quiz:       { label: 'Quiz',        icon: HelpCircle },
+  flashcards: { label: 'Flashcards',  icon: Layers },
+  video:      { label: 'Video',       icon: Video },
+  studyset:   { label: 'Study set',   icon: BookOpen },
+};
+
 export default function TeacherStudentDetailPage() {
   const router    = useRouter();
   const params    = useParams();
@@ -45,7 +57,11 @@ export default function TeacherStudentDetailPage() {
   const [convMessages,   setConvMessages]   = useState<ChatMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
 
-  const headers = { Authorization: `Bearer ${token}` };
+  const [assignments,    setAssignments]    = useState<Assignment[]>([]);
+  const [selectedConcept, setSelectedConcept] = useState('');
+  const [assigning,      setAssigning]      = useState<string | null>(null);
+
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   useEffect(() => {
     if (!user) { router.replace('/auth/teacher'); return; }
@@ -55,16 +71,38 @@ export default function TeacherStudentDetailPage() {
   async function load() {
     setLoading(true);
     try {
-      const [progressRes, profileRes, convRes] = await Promise.all([
+      const [progressRes, profileRes, convRes, assignRes] = await Promise.all([
         fetch(`${API_BASE}/api/students/${studentId}/progress`, { headers }),
         fetch(`${API_BASE}/api/students/${studentId}/profile`, { headers }),
         fetch(`${API_BASE}/api/students/${studentId}/conversations`, { headers }),
+        fetch(`${API_BASE}/api/assignments/student/${studentId}`, { headers }),
       ]);
       if (!progressRes.ok) { router.replace('/teacher/students'); return; }
-      setData(await progressRes.json());
+      const progress = await progressRes.json();
+      setData(progress);
       if (profileRes.ok) setProfile(await profileRes.json());
       if (convRes.ok)    setConversations(await convRes.json());
+      if (assignRes.ok)  setAssignments(await assignRes.json());
+      if (!selectedConcept) {
+        const firstConcept = progress.courses?.[0]?.concepts?.[0]?.id;
+        if (firstConcept) setSelectedConcept(firstConcept);
+      }
     } finally { setLoading(false); }
+  }
+
+  async function assign(kind: string) {
+    if (!selectedConcept) return;
+    setAssigning(kind);
+    try {
+      const res = await fetch(`${API_BASE}/api/assignments`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ student_id: studentId, concept_id: selectedConcept, kind }),
+      });
+      if (res.ok) {
+        const assignRes = await fetch(`${API_BASE}/api/assignments/student/${studentId}`, { headers });
+        if (assignRes.ok) setAssignments(await assignRes.json());
+      }
+    } finally { setAssigning(null); }
   }
 
   async function toggleConversation(convId: string) {
@@ -145,6 +183,59 @@ export default function TeacherStudentDetailPage() {
               {profile.goal && <span>Goal: {profile.goal}</span>}
               <span>{profile.total_messages} AI tutor messages</span>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Assign extra practice */}
+      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
+        <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <Sparkles size={12} /> Assign extra practice
+        </h2>
+
+        {data.courses.length === 0 ? (
+          <p className="text-[var(--tx7)] text-sm">No concepts available to assign yet.</p>
+        ) : (
+          <>
+            <select value={selectedConcept} onChange={e => setSelectedConcept(e.target.value)}
+              className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
+                         text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors mb-3">
+              {data.courses.map(c => (
+                <optgroup key={c.id} label={c.name}>
+                  {c.concepts.map(concept => (
+                    <option key={concept.id} value={concept.id}>{concept.title}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+
+            <div className="flex gap-2 flex-wrap">
+              {Object.entries(KIND_LABEL).map(([kind, { label, icon: Icon }]) => (
+                <button key={kind} onClick={() => assign(kind)} disabled={!!assigning}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)]
+                             text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
+                  {assigning === kind ? <Loader2 size={14} className="animate-spin" /> : <Icon size={14} />}
+                  {label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {assignments.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-[var(--bd)] space-y-1.5">
+            {assignments.map(a => {
+              const meta = KIND_LABEL[a.kind];
+              return (
+                <div key={a.id} className="flex items-center gap-2 text-sm">
+                  {meta && <meta.icon size={13} className="text-[var(--tx7)] shrink-0" />}
+                  <span className="flex-1 text-[var(--tx2)] truncate">{a.title}</span>
+                  {a.status === 'generating' && <span className="text-xs text-amber-400 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Generating…</span>}
+                  {a.status === 'ready'      && <span className="text-xs text-green-400">Ready</span>}
+                  {a.status === 'failed'     && <span className="text-xs text-red-400 flex items-center gap-1"><AlertTriangle size={11} /> Failed</span>}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

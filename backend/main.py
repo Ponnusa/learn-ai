@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from database import init_pool, close_pool
 from config import settings
 from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
-from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages
+from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments
 
 
 @asynccontextmanager
@@ -399,6 +399,25 @@ async def lifespan(app: FastAPI):
             """,
             "CREATE INDEX IF NOT EXISTS idx_tsm_pair    ON teacher_student_messages(teacher_id, student_id, created_at)",
             "CREATE INDEX IF NOT EXISTS idx_tsm_student  ON teacher_student_messages(student_id, created_at)",
+            # ── Sprint 9: differentiated per-student assignments (023) ────────────
+            """
+            CREATE TABLE IF NOT EXISTS student_assignments (
+                id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                teacher_id    UUID NOT NULL REFERENCES users(id)            ON DELETE CASCADE,
+                student_id    UUID NOT NULL REFERENCES users(id)            ON DELETE CASCADE,
+                concept_id    UUID REFERENCES course_concepts(id)           ON DELETE SET NULL,
+                kind          TEXT NOT NULL,
+                title         TEXT NOT NULL,
+                status        TEXT NOT NULL DEFAULT 'generating',
+                payload       JSONB,
+                study_set_id  UUID REFERENCES study_sets(id)                ON DELETE SET NULL,
+                video_job_id  INTEGER REFERENCES videos(id)                 ON DELETE SET NULL,
+                error_message TEXT,
+                created_at    TIMESTAMPTZ DEFAULT NOW(),
+                completed_at  TIMESTAMPTZ
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_sa_student ON student_assignments(student_id, created_at)",
         ]:
             try:
                 await db.execute(sql)
@@ -443,6 +462,7 @@ app.include_router(classrooms.router)
 app.include_router(courses.router)
 app.include_router(students.router)
 app.include_router(messages.router)
+app.include_router(assignments.router)
 
 
 @app.get("/health")

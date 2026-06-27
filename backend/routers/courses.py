@@ -1421,6 +1421,49 @@ async def serve_concept_video(concept_id: str):
 
 # ── Asset generation backgrounds ─────────────────────────────────────────────
 
+def build_quiz_prompt(title: str, subject: str, source: str, extra: str = "") -> str:
+    """Shared by the per-concept quiz generator and the per-student assignment generator."""
+    return f"""You are an expert educator. Create 6 multiple-choice quiz questions to test student understanding.
+
+Concept: {title}
+Subject: {subject}
+{extra}
+Source material:
+---
+{source[:6000]}
+---
+
+Rules:
+- Each question must be answerable from the source material
+- All 4 options must be plausible (avoid obviously wrong distractors)
+- Include a 1-2 sentence explanation for the correct answer
+- Vary difficulty: 2 recall, 2 comprehension, 2 application questions
+
+Return ONLY valid JSON:
+{{"questions": [{{"question": "...", "options": ["A", "B", "C", "D"], "correct_idx": 0, "explanation": "..."}}]}}"""
+
+
+def build_flashcard_prompt(title: str, source: str, extra: str = "") -> str:
+    """Shared by the per-concept flashcard generator and the per-student assignment generator."""
+    return f"""You are an expert educator. Create 10 flashcards to help students memorise key terms and ideas.
+
+Concept: {title}
+{extra}
+Source material:
+---
+{source[:6000]}
+---
+
+Rules:
+- Front: term, definition prompt, or short question (max 12 words)
+- Back: precise answer or definition (1-2 sentences)
+- Cover key vocabulary, key facts, and cause-effect relationships
+- Keep language student-friendly
+
+Return ONLY valid JSON:
+{{"flashcards": [{{"front": "...", "back": "..."}}]}}"""
+
+
 async def _generate_quiz_bg(concept_id: str, course_id: str):
     """Background: generate quiz questions via GPT-4o, store in concept_quiz_questions."""
     from openai import AsyncOpenAI
@@ -1437,24 +1480,7 @@ async def _generate_quiz_bg(concept_id: str, course_id: str):
         source  = (concept["source_text"] or concept["ai_summary"] or concept["title"])
         subject = (course["subject"] if course else None) or "General"
 
-        prompt = f"""You are an expert educator. Create 6 multiple-choice quiz questions to test student understanding.
-
-Concept: {concept['title']}
-Subject: {subject}
-
-Source material:
----
-{source[:6000]}
----
-
-Rules:
-- Each question must be answerable from the source material
-- All 4 options must be plausible (avoid obviously wrong distractors)
-- Include a 1-2 sentence explanation for the correct answer
-- Vary difficulty: 2 recall, 2 comprehension, 2 application questions
-
-Return ONLY valid JSON:
-{{"questions": [{{"question": "...", "options": ["A", "B", "C", "D"], "correct_idx": 0, "explanation": "..."}}]}}"""
+        prompt = build_quiz_prompt(concept["title"], subject, source)
 
         response = await client.chat.completions.create(
             model="gpt-4o",
@@ -1502,23 +1528,7 @@ async def _generate_flashcards_bg(concept_id: str, course_id: str):
 
         source = (concept["source_text"] or concept["ai_summary"] or concept["title"])
 
-        prompt = f"""You are an expert educator. Create 10 flashcards to help students memorise key terms and ideas.
-
-Concept: {concept['title']}
-
-Source material:
----
-{source[:6000]}
----
-
-Rules:
-- Front: term, definition prompt, or short question (max 12 words)
-- Back: precise answer or definition (1-2 sentences)
-- Cover key vocabulary, key facts, and cause-effect relationships
-- Keep language student-friendly
-
-Return ONLY valid JSON:
-{{"flashcards": [{{"front": "...", "back": "..."}}]}}"""
+        prompt = build_flashcard_prompt(concept["title"], source)
 
         response = await client.chat.completions.create(
             model="gpt-4o",
@@ -1566,16 +1576,17 @@ def _map_manim_subject(course_subject: str | None) -> str:
     return "general"
 
 
-def _build_concept_video_prompt(title: str, source_text: str | None, summary: str | None) -> str:
+def _build_concept_video_prompt(title: str, source_text: str | None, summary: str | None, extra: str = "") -> str:
     """
     Ground Stage 1 (GPT-4o) in the concept's actual source material — same idea as
     build_studyset_prompt's "answer ONLY from the material" grounding — instead of
     handing it a bare title. Falls back to the approved summary if no source text
-    was captured for this concept.
+    was captured for this concept. `extra` lets callers (e.g. per-student remedial
+    assignments) add framing without duplicating this prompt.
     """
     material = (source_text or summary or title)[:8000]
     return f"""Teach the concept "{title}" to students.
-
+{extra}
 Base your explanation strictly on the material below — do not invent facts,
 numbers, or examples that aren't supported by it. If the material describes a
 worked example or process, use that as the CALCULATION/worked section.
