@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Loader2, HelpCircle, Layers, Video, BookOpen, CheckCircle2 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
@@ -18,6 +18,18 @@ const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
 };
 
 export default function BulkAssignPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 size={28} className="text-purple-400 animate-spin" />
+      </div>
+    }>
+      <BulkAssignContent />
+    </Suspense>
+  );
+}
+
+function BulkAssignContent() {
   const router = useRouter();
   const search  = useSearchParams();
   const studentIds = (search.get('ids') ?? '').split(',').filter(Boolean);
