@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, BookOpen, ArrowRight, Loader2, LogIn } from 'lucide-react';
+import { Users, BookOpen, ArrowRight, Loader2, LogIn, Layers } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -16,6 +16,7 @@ interface Classroom {
   student_count: number;
   teacher_name?: string;
   teacher_email?: string;
+  due_flashcards: number;
 }
 
 export default function StudentClassroomsPage() {
@@ -88,6 +89,18 @@ export default function StudentClassroomsPage() {
           <p className="text-[var(--tx6)] text-sm mt-1">Classrooms your teacher has enrolled you in</p>
         </div>
 
+        {(() => {
+          const totalDue = classrooms.reduce((sum, c) => sum + c.due_flashcards, 0);
+          return totalDue > 0 ? (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6 flex items-center gap-3">
+              <Layers size={18} className="text-amber-400 shrink-0" />
+              <p className="text-amber-300 text-sm">
+                <span className="font-semibold">{totalDue} flashcard{totalDue === 1 ? '' : 's'}</span> due for review across your classrooms
+              </p>
+            </div>
+          ) : null;
+        })()}
+
         {/* Join form */}
         <form onSubmit={joinClassroom}
           className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-8">
@@ -140,6 +153,11 @@ export default function StudentClassroomsPage() {
                       <p className="text-[var(--tx7)] text-xs mt-2">
                         Teacher: {cls.teacher_name ?? cls.teacher_email}
                       </p>
+                    )}
+                    {cls.due_flashcards > 0 && (
+                      <span className="inline-flex items-center gap-1 mt-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-0.5">
+                        <Layers size={10} /> {cls.due_flashcards} due
+                      </span>
                     )}
                   </div>
                   <ArrowRight size={16} className="text-[var(--tx8)] group-hover:text-purple-400 transition-colors shrink-0 mt-1" />

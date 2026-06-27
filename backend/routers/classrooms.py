@@ -115,11 +115,19 @@ async def my_classrooms(authorization: str = Header(...)):
             SELECT c.id, c.name, c.subject, c.grade, c.join_code, c.is_active, c.created_at,
                    u.name AS teacher_name, u.email AS teacher_email,
                    cs.joined_at,
-                   COUNT(cs2.student_id) AS student_count
+                   COUNT(DISTINCT cs2.student_id) AS student_count,
+                   COUNT(DISTINCT cf.id) FILTER (
+                       WHERE cfs.due_at IS NULL OR cfs.due_at <= NOW()
+                   ) AS due_flashcards
             FROM classroom_students cs
             JOIN classrooms c       ON c.id  = cs.classroom_id
             JOIN users u            ON u.id  = c.teacher_id
-            LEFT JOIN classroom_students cs2 ON cs2.classroom_id = c.id
+            LEFT JOIN classroom_students cs2     ON cs2.classroom_id = c.id
+            LEFT JOIN classroom_courses clc       ON clc.classroom_id = c.id
+            LEFT JOIN course_units cu             ON cu.course_id = clc.course_id
+            LEFT JOIN course_concepts cc          ON cc.unit_id = cu.id AND cc.flashcard_status = 'approved'
+            LEFT JOIN concept_flashcards cf       ON cf.concept_id = cc.id
+            LEFT JOIN concept_flashcard_state cfs ON cfs.flashcard_id = cf.id AND cfs.student_id = $1::uuid
             WHERE cs.student_id = $1::uuid
             GROUP BY c.id, u.id, cs.joined_at
             ORDER BY cs.joined_at DESC
@@ -127,8 +135,9 @@ async def my_classrooms(authorization: str = Header(...)):
     return [
         {
             **_fmt_classroom(r, int(r["student_count"] or 0)),
-            "teacher_name":  r["teacher_name"],
-            "teacher_email": r["teacher_email"],
+            "teacher_name":   r["teacher_name"],
+            "teacher_email":  r["teacher_email"],
+            "due_flashcards": int(r["due_flashcards"] or 0),
         }
         for r in rows
     ]

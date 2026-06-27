@@ -27,7 +27,7 @@ export default function TeacherDashboard() {
           {[
             { label: 'Classrooms',    icon: Users,         href: '/teacher/classrooms', soon: false },
             { label: 'Course Builder', icon: BookOpen,     href: '/teacher/courses',    soon: false },
-            { label: 'Student Progress', icon: BarChart2,  href: '/teacher/progress',   soon: true },
+            { label: 'Student Progress', icon: BarChart2,  href: '/teacher/courses',    soon: false },
             { label: 'Study Sets',     icon: GraduationCap, href: '/study',             soon: false },
           ].map(card => (
             <button
@@ -47,9 +47,6 @@ export default function TeacherDashboard() {
           ))}
         </div>
 
-        <p className="text-[var(--tx7)] text-xs text-center mt-12">
-          Sprint 1 features (classrooms, assignments, student tracking) are coming soon.
-        </p>
       </div>
     </div>
   );

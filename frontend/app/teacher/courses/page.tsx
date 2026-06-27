@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, BookOpen, ArrowRight, Loader2, FileText, Layers } from 'lucide-react';
+import { Plus, BookOpen, ArrowRight, Loader2, FileText, Layers, AlertTriangle } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -15,6 +15,7 @@ interface Course {
   status: string;
   unit_count: number;
   concept_count: number;
+  failed_count: number;
   created_at: string;
 }
 
@@ -142,6 +143,11 @@ export default function TeacherCoursesPage() {
                         ? 'bg-green-500/15 text-green-400'
                         : 'bg-[var(--ov1)] text-[var(--tx7)]'
                     }`}>{c.status}</span>
+                    {c.failed_count > 0 && (
+                      <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-red-500/15 text-red-400">
+                        <AlertTriangle size={10} /> {c.failed_count} failed
+                      </span>
+                    )}
                   </div>
                   {c.description && <p className="text-[var(--tx6)] text-sm mb-2 line-clamp-1">{c.description}</p>}
                   <div className="flex items-center gap-4 text-xs text-[var(--tx7)]">

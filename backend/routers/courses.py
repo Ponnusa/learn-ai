@@ -133,7 +133,11 @@ async def list_my_courses(authorization: str = Header(...)):
         rows = await db.fetch("""
             SELECT c.id, c.name, c.description, c.subject, c.grade, c.status, c.created_at,
                    COUNT(DISTINCT cu.id) AS unit_count,
-                   COUNT(DISTINCT cc.id) AS concept_count
+                   COUNT(DISTINCT cc.id) AS concept_count,
+                   COUNT(DISTINCT cc.id) FILTER (
+                       WHERE cc.quiz_status = 'failed' OR cc.flashcard_status = 'failed'
+                          OR cc.audio_status = 'failed' OR cc.video_status = 'failed'
+                   ) AS failed_count
             FROM courses c
             LEFT JOIN course_units    cu ON cu.course_id = c.id
             LEFT JOIN course_concepts cc ON cc.unit_id   = cu.id
@@ -142,7 +146,12 @@ async def list_my_courses(authorization: str = Header(...)):
             ORDER BY c.created_at DESC
         """, teacher_id)
     return [
-        {**_fmt_course(r), "unit_count": int(r["unit_count"] or 0), "concept_count": int(r["concept_count"] or 0)}
+        {
+            **_fmt_course(r),
+            "unit_count":    int(r["unit_count"] or 0),
+            "concept_count": int(r["concept_count"] or 0),
+            "failed_count":  int(r["failed_count"] or 0),
+        }
         for r in rows
     ]
 
