@@ -226,14 +226,15 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     { icon: <Video size={18} />,     label: t.sidebar.myVideos,  href: '/videos'   },
     { icon: <BookOpen size={18} />,  label: t.sidebar.studySets, href: '/study'    },
     { icon: <Sparkles size={18} />,  label: t.progress.diagrams, href: '/images'   },
-    { icon: <BarChart2 size={18} />, label: t.sidebar.progress,  href: '/progress' },
+    ...(isTeacher || isSuperAdmin
+      ? []
+      : [{ icon: <BarChart2 size={18} />, label: t.sidebar.progress, href: '/progress' }]),
     { icon: <Mail size={18} />, label: 'Messages', href: '/messages', badge: unreadMessages },
     ...(isTeacher || isSuperAdmin
       ? [
           { icon: <Users size={18} />,        label: 'Classrooms',     href: '/teacher/classrooms' },
           { icon: <BookOpen size={18} />,     label: 'Course Builder', href: '/teacher/courses'    },
           { icon: <GraduationCap size={18} />, label: 'Students',      href: '/teacher/students'   },
-          { icon: <BarChart2 size={18} />,     label: 'Progress',      href: '/teacher/progress'   },
         ]
       : [
           { icon: <Users size={18} />,         label: 'Classrooms',  href: '/classrooms' },
