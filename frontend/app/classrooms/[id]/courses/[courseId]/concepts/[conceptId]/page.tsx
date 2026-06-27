@@ -46,9 +46,13 @@ export default function StudentConceptDetailPage() {
   const [quizAnswers, setQuizAnswers]   = useState<Record<number, number>>({});
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
 
-  // Flashcard state
-  const [cardIndex,   setCardIndex]  = useState(0);
-  const [flipped,     setFlipped]    = useState(false);
+  // Flashcard state — same Again/Got it review pattern as study-set flashcards
+  const [cardIndex,    setCardIndex]    = useState(0);
+  const [flipped,      setFlipped]      = useState(false);
+  const [cardsDone,    setCardsDone]    = useState<Set<number>>(new Set());
+  const [cardsAgain,   setCardsAgain]   = useState<number[]>([]);
+  const [deckFinished, setDeckFinished] = useState(false);
+  const [reviewing,    setReviewing]    = useState(false);
 
   const authH = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -108,6 +112,36 @@ export default function StudentConceptDetailPage() {
   function prevCard() {
     setFlipped(false);
     setTimeout(() => setCardIndex(i => Math.max(i - 1, 0)), 150);
+  }
+
+  async function recordCardReview(rating: 1 | 4) {
+    const card = assets?.flashcards[cardIndex];
+    if (!card) return;
+    setReviewing(true);
+    await fetch(`${API_BASE}/api/courses/concepts/flashcards/${card.id}/review`, {
+      method: 'POST', headers: authH, body: JSON.stringify({ rating }),
+    }).catch(() => {});
+    setReviewing(false);
+  }
+  async function handleCardGotIt() {
+    await recordCardReview(4);
+    setCardsDone(p => new Set([...p, cardIndex]));
+    advanceCard();
+  }
+  async function handleCardAgain() {
+    await recordCardReview(1);
+    setCardsAgain(p => [...p, cardIndex]);
+    advanceCard();
+  }
+  function advanceCard() {
+    setFlipped(false);
+    const total = assets?.flashcards.length ?? 0;
+    const n = cardIndex + 1;
+    if (n >= total) setDeckFinished(true); else setCardIndex(n);
+  }
+  function restartDeck() {
+    setCardIndex(0); setFlipped(false);
+    setCardsDone(new Set()); setCardsAgain([]); setDeckFinished(false);
   }
 
   if (loading) return (
@@ -194,53 +228,90 @@ export default function StudentConceptDetailPage() {
       )}
 
       {/* Flashcards */}
-      {showFlashcards && currentCard && (
+      {showFlashcards && (
         <div className="mb-6">
           <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <Layers size={12} /> Flashcards · {cardIndex + 1} of {flashcards.length}
+            <Layers size={12} /> Flashcards · {Math.min(cardIndex + 1, flashcards.length)} of {flashcards.length}
           </h2>
 
-          {/* Card */}
-          <div
-            onClick={() => setFlipped(f => !f)}
-            className="relative cursor-pointer select-none"
-            style={{ perspective: '1000px' }}
-          >
-            <div className={`relative w-full transition-transform duration-300`}
-              style={{ transformStyle: 'preserve-3d', transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}>
+          {deckFinished ? (
+            <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 flex flex-col items-center text-center gap-3">
+              <CheckCircle2 size={28} className="text-green-400" />
+              <p className="text-[var(--tx1)] font-semibold">Deck complete</p>
+              <p className="text-[var(--tx7)] text-sm">{cardsDone.size} got it · {cardsAgain.length} to review again</p>
+              <button onClick={restartDeck}
+                className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all">
+                Study again
+              </button>
+            </div>
+          ) : currentCard && (
+            <>
+              {/* Card */}
+              <div
+                onClick={() => setFlipped(f => !f)}
+                className="relative cursor-pointer select-none"
+                style={{ perspective: '1000px' }}
+              >
+                <div className={`relative w-full transition-transform duration-300`}
+                  style={{ transformStyle: 'preserve-3d', transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}>
 
-              {/* Front */}
-              <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 min-h-[140px] flex flex-col items-center justify-center text-center"
-                style={{ backfaceVisibility: 'hidden' }}>
-                <p className="text-[var(--tx1)] text-base font-semibold">{currentCard.front}</p>
-                <p className="text-[var(--tx8)] text-xs mt-3">Tap to reveal</p>
+                  {/* Front */}
+                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 min-h-[140px] flex flex-col items-center justify-center text-center"
+                    style={{ backfaceVisibility: 'hidden' }}>
+                    <p className="text-[var(--tx1)] text-base font-semibold">{currentCard.front}</p>
+                    <p className="text-[var(--tx8)] text-xs mt-3">Tap to reveal</p>
+                  </div>
+
+                  {/* Back */}
+                  <div className="absolute inset-0 bg-purple-600/10 border border-purple-500/30 rounded-2xl p-8 flex flex-col items-center justify-center text-center"
+                    style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
+                    <p className="text-[var(--tx1)] text-sm leading-relaxed">{currentCard.back}</p>
+                  </div>
+                </div>
               </div>
 
-              {/* Back */}
-              <div className="absolute inset-0 bg-purple-600/10 border border-purple-500/30 rounded-2xl p-8 flex flex-col items-center justify-center text-center"
-                style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
-                <p className="text-[var(--tx1)] text-sm leading-relaxed">{currentCard.back}</p>
-              </div>
-            </div>
-          </div>
+              {/* Again / Got it */}
+              {flipped ? (
+                <div className="flex gap-3 mt-3">
+                  <button onClick={handleCardAgain} disabled={reviewing}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
+                               bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20
+                               text-amber-400 text-sm font-medium transition-colors disabled:opacity-50">
+                    Again
+                  </button>
+                  <button onClick={handleCardGotIt} disabled={reviewing}
+                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
+                               bg-green-500/10 hover:bg-green-500/20 border border-green-500/20
+                               text-green-400 text-sm font-medium transition-colors disabled:opacity-50">
+                    <CheckCircle2 size={14} /> Got it
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setFlipped(true)}
+                  className="w-full mt-3 px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all">
+                  Reveal answer
+                </button>
+              )}
 
-          {/* Navigation */}
-          <div className="flex items-center justify-center gap-4 mt-3">
-            <button onClick={prevCard} disabled={cardIndex === 0}
-              className="p-2 rounded-xl bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] disabled:opacity-30 transition-all">
-              <ChevronLeft size={18} />
-            </button>
-            <div className="flex gap-1">
-              {flashcards.map((_, i) => (
-                <button key={i} onClick={() => { setFlipped(false); setCardIndex(i); }}
-                  className={`w-1.5 h-1.5 rounded-full transition-all ${i === cardIndex ? 'bg-purple-400 w-4' : 'bg-[var(--tx8)]'}`} />
-              ))}
-            </div>
-            <button onClick={nextCard} disabled={cardIndex === flashcards.length - 1}
-              className="p-2 rounded-xl bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] disabled:opacity-30 transition-all">
-              <ChevronRight size={18} />
-            </button>
-          </div>
+              {/* Manual navigation */}
+              <div className="flex items-center justify-center gap-4 mt-3">
+                <button onClick={prevCard} disabled={cardIndex === 0}
+                  className="p-2 rounded-xl bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] disabled:opacity-30 transition-all">
+                  <ChevronLeft size={18} />
+                </button>
+                <div className="flex gap-1">
+                  {flashcards.map((_, i) => (
+                    <button key={i} onClick={() => { setFlipped(false); setCardIndex(i); }}
+                      className={`w-1.5 h-1.5 rounded-full transition-all ${i === cardIndex ? 'bg-purple-400 w-4' : 'bg-[var(--tx8)]'}`} />
+                  ))}
+                </div>
+                <button onClick={nextCard} disabled={cardIndex === flashcards.length - 1}
+                  className="p-2 rounded-xl bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] disabled:opacity-30 transition-all">
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

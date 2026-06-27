@@ -766,6 +766,36 @@ async def submit_quiz_score(
     return {"ok": True, "quiz_score": score}
 
 
+class FlashcardReviewRequest(BaseModel):
+    rating: int  # 1 = again, 4 = got it (same scale as study-set flashcard reviews)
+
+
+@router.post("/concepts/flashcards/{flashcard_id}/review")
+async def review_concept_flashcard(
+    flashcard_id: str,
+    req: FlashcardReviewRequest,
+    authorization: str = Header(...),
+):
+    """Log a self-rated flashcard review — same Again/Got it pattern as study-set flashcards."""
+    student_id = await _get_student(authorization)
+    if req.rating not in (1, 4):
+        raise HTTPException(400, "rating must be 1 (again) or 4 (got it)")
+
+    async with get_db() as db:
+        card = await db.fetchrow(
+            "SELECT id FROM concept_flashcards WHERE id = $1::uuid", flashcard_id
+        )
+        if not card:
+            raise HTTPException(404, "Flashcard not found")
+
+        await db.execute(
+            "INSERT INTO concept_flashcard_reviews (student_id, flashcard_id, rating) VALUES ($1::uuid, $2::uuid, $3)",
+            student_id, flashcard_id, req.rating,
+        )
+
+    return {"ok": True}
+
+
 # ── Chapter upload → AI pipeline ─────────────────────────────────────────────
 
 @router.post("/{course_id}/chapters")

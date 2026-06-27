@@ -344,6 +344,18 @@ async def lifespan(app: FastAPI):
             # ── Concept videos now render via the Manim/Cloud Run pipeline (019) ─
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_job_id INTEGER REFERENCES videos(id) ON DELETE SET NULL",
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS video_url TEXT",
+            # ── Sprint 7: spaced-repetition review log for concept flashcards (020) ─
+            """
+            CREATE TABLE IF NOT EXISTS concept_flashcard_reviews (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                student_id   UUID NOT NULL REFERENCES users(id)              ON DELETE CASCADE,
+                flashcard_id UUID NOT NULL REFERENCES concept_flashcards(id) ON DELETE CASCADE,
+                rating       INT NOT NULL,
+                reviewed_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_concept_flashcard_reviews_student ON concept_flashcard_reviews(student_id)",
+            "CREATE INDEX IF NOT EXISTS idx_concept_flashcard_reviews_card    ON concept_flashcard_reviews(flashcard_id)",
         ]:
             try:
                 await db.execute(sql)
