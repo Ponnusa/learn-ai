@@ -266,7 +266,7 @@ export type StudyConcept = {
 };
 
 export type StudyFlashcard = {
-  id: string; front: string; back: string; order_index: number;
+  id: string; front: string; back: string; order_index: number; is_due?: boolean;
 };
 
 export type StudyMaterial = {
@@ -292,8 +292,8 @@ export const listStudySets = (userId?: string, sessionId?: string, token?: strin
   return get<StudySetSummary[]>(`/api/studysets?${param}`, token);
 };
 
-export const getStudySet = (id: string, token?: string) =>
-  get<StudySetDetail>(`/api/studysets/${id}`, token);
+export const getStudySet = (id: string, token?: string, userId?: string) =>
+  get<StudySetDetail>(`/api/studysets/${id}${userId ? `?user_id=${userId}` : ''}`, token);
 
 export const getStudySetStatus = (id: string, token?: string) =>
   get<{ status: string; summary?: string; concept_count: number; flashcard_count: number }>(

@@ -384,6 +384,7 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
   const [submitting, setSubmitting] = useState(false);
   const card = cards[idx] as StudyFlashcard | undefined;
   const progress = Math.round((done.size / cards.length) * 100);
+  const dueCount = cards.filter(c => c.is_due).length;
 
   async function recordReview(rating: 1 | 4) {
     if (!card || !user?.id) return;
@@ -425,7 +426,7 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
     <div className="flex flex-col items-center gap-6 max-w-xl mx-auto">
       <div className="w-full">
         <div className="flex justify-between text-xs text-[var(--tx6)] mb-1.5">
-          <span>{idx + 1} / {cards.length}</span>
+          <span>{idx + 1} / {cards.length}{dueCount > 0 && ` · ${dueCount} due for review`}</span>
           <span>{progress}% done</span>
         </div>
         <div className="h-1.5 rounded-full bg-[var(--ov3)] overflow-hidden">
@@ -1240,13 +1241,13 @@ export default function StudySetPage() {
 
   const load = useCallback(async () => {
     try {
-      const data = await getStudySet(id, token ?? undefined);
+      const data = await getStudySet(id, token ?? undefined, user?.id);
       setSs(data);
       if (data.status === 'processing') setTab('overview');
       return data.status;
     } catch { return 'error'; }
     finally { setLoading(false); }
-  }, [id, token]);
+  }, [id, token, user?.id]);
 
   useEffect(() => {
     load().then(s => { if (s === 'processing') startPoll(); });

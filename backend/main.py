@@ -356,6 +356,35 @@ async def lifespan(app: FastAPI):
             """,
             "CREATE INDEX IF NOT EXISTS idx_concept_flashcard_reviews_student ON concept_flashcard_reviews(student_id)",
             "CREATE INDEX IF NOT EXISTS idx_concept_flashcard_reviews_card    ON concept_flashcard_reviews(flashcard_id)",
+            # ── Sprint 7: real spaced-repetition scheduling state (021) ──────────
+            """
+            CREATE TABLE IF NOT EXISTS study_flashcard_state (
+                id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                student_id       UUID NOT NULL REFERENCES users(id)            ON DELETE CASCADE,
+                flashcard_id     UUID NOT NULL REFERENCES study_flashcards(id) ON DELETE CASCADE,
+                repetitions      INT NOT NULL DEFAULT 0,
+                ease_factor      FLOAT NOT NULL DEFAULT 2.5,
+                interval_days    FLOAT NOT NULL DEFAULT 0,
+                due_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_reviewed_at TIMESTAMPTZ,
+                UNIQUE (student_id, flashcard_id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS concept_flashcard_state (
+                id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                student_id       UUID NOT NULL REFERENCES users(id)              ON DELETE CASCADE,
+                flashcard_id     UUID NOT NULL REFERENCES concept_flashcards(id) ON DELETE CASCADE,
+                repetitions      INT NOT NULL DEFAULT 0,
+                ease_factor      FLOAT NOT NULL DEFAULT 2.5,
+                interval_days    FLOAT NOT NULL DEFAULT 0,
+                due_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_reviewed_at TIMESTAMPTZ,
+                UNIQUE (student_id, flashcard_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_sfs_student_due ON study_flashcard_state(student_id, due_at)",
+            "CREATE INDEX IF NOT EXISTS idx_cfs_student_due ON concept_flashcard_state(student_id, due_at)",
         ]:
             try:
                 await db.execute(sql)

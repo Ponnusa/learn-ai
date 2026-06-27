@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request, UploadFile, File, Form
 from fastapi.responses import Response, RedirectResponse
 from pydantic import BaseModel
@@ -776,7 +777,9 @@ async def review_concept_flashcard(
     req: FlashcardReviewRequest,
     authorization: str = Header(...),
 ):
-    """Log a self-rated flashcard review — same Again/Got it pattern as study-set flashcards."""
+    """Log a self-rated flashcard review and schedule its next due date (SM-2-style)."""
+    from services.srs import next_state, DEFAULT_EASE
+
     student_id = await _get_student(authorization)
     if req.rating not in (1, 4):
         raise HTTPException(400, "rating must be 1 (again) or 4 (got it)")
@@ -793,7 +796,29 @@ async def review_concept_flashcard(
             student_id, flashcard_id, req.rating,
         )
 
-    return {"ok": True}
+        state = await db.fetchrow(
+            """SELECT repetitions, ease_factor, interval_days
+               FROM concept_flashcard_state WHERE student_id = $1::uuid AND flashcard_id = $2::uuid""",
+            student_id, flashcard_id,
+        )
+        repetitions, ease_factor, interval_days = (
+            (state["repetitions"], state["ease_factor"], state["interval_days"]) if state
+            else (0, DEFAULT_EASE, 0.0)
+        )
+        repetitions, ease_factor, interval_days, due_at = next_state(
+            req.rating, repetitions, ease_factor, interval_days
+        )
+
+        await db.execute("""
+            INSERT INTO concept_flashcard_state
+              (student_id, flashcard_id, repetitions, ease_factor, interval_days, due_at, last_reviewed_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW())
+            ON CONFLICT (student_id, flashcard_id)
+            DO UPDATE SET repetitions = $3, ease_factor = $4, interval_days = $5,
+                          due_at = $6, last_reviewed_at = NOW()
+        """, student_id, flashcard_id, repetitions, ease_factor, interval_days, due_at)
+
+    return {"ok": True, "due_at": due_at.isoformat(), "interval_days": interval_days}
 
 
 # ── Chapter upload → AI pipeline ─────────────────────────────────────────────
@@ -1510,7 +1535,7 @@ async def _generate_audio_bg(concept_id: str):
 @router.get("/concepts/{concept_id}/assets")
 async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
     """Return asset statuses + content (quiz questions, flashcards)."""
-    decode_jwt(authorization.removeprefix("Bearer ").strip())
+    viewer_id = decode_jwt(authorization.removeprefix("Bearer ").strip())
 
     async with get_db() as db:
         concept = await db.fetchrow("""
@@ -1559,12 +1584,15 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
         """, concept_id)
 
         flashcards = await db.fetch("""
-            SELECT id, front, back, position
-            FROM concept_flashcards
-            WHERE concept_id = $1::uuid
-            ORDER BY position
-        """, concept_id)
+            SELECT cf.id, cf.front, cf.back, cf.position, cfs.due_at
+            FROM concept_flashcards cf
+            LEFT JOIN concept_flashcard_state cfs
+                   ON cfs.flashcard_id = cf.id AND cfs.student_id = $2::uuid
+            WHERE cf.concept_id = $1::uuid
+            ORDER BY COALESCE(cfs.due_at, TIMESTAMP '1970-01-01') ASC, cf.position
+        """, concept_id, viewer_id)
 
+    now = datetime.now(tz=timezone.utc)
     return {
         "quiz_status":       concept["quiz_status"],
         "flashcard_status":  concept["flashcard_status"],
@@ -1593,6 +1621,7 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
                 "front":    f["front"],
                 "back":     f["back"],
                 "position": f["position"],
+                "is_due":   f["due_at"] is None or f["due_at"] <= now,
             }
             for f in flashcards
         ],

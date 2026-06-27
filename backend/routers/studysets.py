@@ -104,7 +104,7 @@ async def list_study_sets(
 
 
 @router.get("/{study_set_id}")
-async def get_study_set(study_set_id: str):
+async def get_study_set(study_set_id: str, user_id: str | None = None):
     async with get_db() as db:
         ss = await db.fetchrow(
             """SELECT id, title, subject, description, status, summary,
@@ -121,12 +121,25 @@ async def get_study_set(study_set_id: str):
                ORDER BY order_index""",
             study_set_id,
         )
-        flashcards = await db.fetch(
-            """SELECT id, front, back, order_index
-               FROM study_flashcards WHERE study_set_id = $1::uuid
-               ORDER BY order_index""",
-            study_set_id,
-        )
+        # When logged in, surface each card's spaced-repetition due date and sort
+        # cards never reviewed (or overdue) first so the deck prioritises what's due.
+        if user_id:
+            flashcards = await db.fetch(
+                """SELECT sf.id, sf.front, sf.back, sf.order_index, sfs.due_at
+                   FROM study_flashcards sf
+                   LEFT JOIN study_flashcard_state sfs
+                          ON sfs.flashcard_id = sf.id AND sfs.student_id = $2::uuid
+                   WHERE sf.study_set_id = $1::uuid
+                   ORDER BY COALESCE(sfs.due_at, TIMESTAMP '1970-01-01') ASC, sf.order_index""",
+                study_set_id, user_id,
+            )
+        else:
+            flashcards = await db.fetch(
+                """SELECT id, front, back, order_index, NULL::timestamptz AS due_at
+                   FROM study_flashcards WHERE study_set_id = $1::uuid
+                   ORDER BY order_index""",
+                study_set_id,
+            )
         materials = await db.fetch(
             """SELECT id, filename, page_count, char_count, status, error_msg, created_at
                FROM study_materials WHERE study_set_id = $1::uuid
@@ -134,10 +147,14 @@ async def get_study_set(study_set_id: str):
             study_set_id,
         )
 
+    now = datetime.now(tz=timezone.utc)
     return {
         **dict(ss),
         "concepts":   [dict(c) for c in concepts],
-        "flashcards": [dict(f) for f in flashcards],
+        "flashcards": [
+            {**dict(f), "is_due": f["due_at"] is None or f["due_at"] <= now}
+            for f in flashcards
+        ],
         "materials":  [dict(m) for m in materials],
     }
 
@@ -525,7 +542,9 @@ async def get_studyset_conversations(study_set_id: str):
 
 @router.post("/{study_set_id}/cards/{card_id}/review")
 async def review_card(study_set_id: str, card_id: str, req: ReviewRequest):
-    """Record a flashcard rating: 1=again  2=hard  3=good  4=easy."""
+    """Record a flashcard rating: 1=again  2=hard  3=good  4=easy. Schedules next review (SM-2-style)."""
+    from services.srs import next_state, DEFAULT_EASE
+
     if req.rating not in (1, 2, 3, 4):
         raise HTTPException(400, "rating must be 1, 2, 3, or 4")
 
@@ -535,7 +554,30 @@ async def review_card(study_set_id: str, card_id: str, req: ReviewRequest):
                VALUES ($1::uuid, $2::uuid, $3)""",
             req.user_id, card_id, req.rating,
         )
-    return {"ok": True}
+
+        state = await db.fetchrow(
+            """SELECT repetitions, ease_factor, interval_days
+               FROM study_flashcard_state WHERE student_id = $1::uuid AND flashcard_id = $2::uuid""",
+            req.user_id, card_id,
+        )
+        repetitions, ease_factor, interval_days = (
+            (state["repetitions"], state["ease_factor"], state["interval_days"]) if state
+            else (0, DEFAULT_EASE, 0.0)
+        )
+        repetitions, ease_factor, interval_days, due_at = next_state(
+            req.rating, repetitions, ease_factor, interval_days
+        )
+
+        await db.execute("""
+            INSERT INTO study_flashcard_state
+              (student_id, flashcard_id, repetitions, ease_factor, interval_days, due_at, last_reviewed_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, NOW())
+            ON CONFLICT (student_id, flashcard_id)
+            DO UPDATE SET repetitions = $3, ease_factor = $4, interval_days = $5,
+                          due_at = $6, last_reviewed_at = NOW()
+        """, req.user_id, card_id, repetitions, ease_factor, interval_days, due_at)
+
+    return {"ok": True, "due_at": due_at.isoformat(), "interval_days": interval_days}
 
 
 @router.delete("/{study_set_id}")

@@ -12,7 +12,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface ConceptImage  { id: string; url: string; caption: string; }
 interface QuizQuestion  { id: string; question: string; options: string[]; correct_idx: number; explanation: string; }
-interface Flashcard     { id: string; front: string; back: string; }
+interface Flashcard     { id: string; front: string; back: string; is_due?: boolean; }
 
 interface ConceptDetail {
   id: string; title: string; description?: string;
@@ -232,6 +232,7 @@ export default function StudentConceptDetailPage() {
         <div className="mb-6">
           <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <Layers size={12} /> Flashcards · {Math.min(cardIndex + 1, flashcards.length)} of {flashcards.length}
+            {flashcards.filter(c => c.is_due).length > 0 && ` · ${flashcards.filter(c => c.is_due).length} due for review`}
           </h2>
 
           {deckFinished ? (
