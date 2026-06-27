@@ -76,3 +76,98 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
         "email":   student["email"],
         "courses": list(courses.values()),
     }
+
+
+@router.get("/{student_id}/profile")
+async def get_student_learning_profile(student_id: str, authorization: str = Header(...)):
+    """
+    AI-tutor-derived learning profile (services/profile_updater.py writes this after
+    every 5 messages or a quiz). Returns a null-ish empty shape if the student hasn't
+    chatted enough yet to have a profile row — not an error.
+    """
+    await _require_teacher_of_student(authorization, student_id)
+
+    async with get_db() as db:
+        profile = await db.fetchrow("""
+            SELECT skill_scores, known_misconceptions, struggle_areas, mastered_concepts,
+                   grade, goal, subject_confidence, avg_quiz_score, total_messages, last_updated
+            FROM student_profiles WHERE user_id = $1::uuid
+        """, student_id)
+
+    if not profile:
+        return {
+            "has_profile": False, "skill_scores": {}, "known_misconceptions": [],
+            "struggle_areas": [], "mastered_concepts": [], "grade": None, "goal": None,
+            "subject_confidence": {}, "avg_quiz_score": None, "total_messages": 0, "last_updated": None,
+        }
+
+    return {
+        "has_profile":           True,
+        "skill_scores":          profile["skill_scores"] or {},
+        "known_misconceptions":  profile["known_misconceptions"] or [],
+        "struggle_areas":        profile["struggle_areas"] or [],
+        "mastered_concepts":     profile["mastered_concepts"] or [],
+        "grade":                 profile["grade"],
+        "goal":                  profile["goal"],
+        "subject_confidence":    profile["subject_confidence"] or {},
+        "avg_quiz_score":        profile["avg_quiz_score"],
+        "total_messages":        profile["total_messages"] or 0,
+        "last_updated":          profile["last_updated"].isoformat() if profile["last_updated"] else None,
+    }
+
+
+@router.get("/{student_id}/conversations")
+async def get_student_conversations(student_id: str, authorization: str = Header(...)):
+    """Read-only feed of this student's full AI-tutor chat history (all subjects, all study sets)."""
+    await _require_teacher_of_student(authorization, student_id)
+
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT c.id, c.title, c.subject, c.created_at, c.updated_at,
+                   COUNT(m.id) AS message_count, MAX(m.created_at) AS last_message_at
+            FROM conversations c
+            LEFT JOIN messages m ON m.conversation_id = c.id
+            WHERE c.user_id = $1::uuid
+            GROUP BY c.id
+            ORDER BY c.updated_at DESC
+            LIMIT 50
+        """, student_id)
+
+    return [
+        {
+            "id":              str(r["id"]),
+            "title":           r["title"],
+            "subject":         r["subject"],
+            "message_count":   int(r["message_count"] or 0),
+            "last_message_at": r["last_message_at"].isoformat() if r["last_message_at"] else None,
+            "created_at":      r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/{student_id}/conversations/{conversation_id}/messages")
+async def get_student_conversation_messages(
+    student_id: str, conversation_id: str, authorization: str = Header(...)
+):
+    """Read-only message list for one of this student's conversations."""
+    await _require_teacher_of_student(authorization, student_id)
+
+    async with get_db() as db:
+        conv = await db.fetchrow(
+            "SELECT id FROM conversations WHERE id = $1::uuid AND user_id = $2::uuid",
+            conversation_id, student_id,
+        )
+        if not conv:
+            raise HTTPException(404, "Conversation not found")
+
+        rows = await db.fetch("""
+            SELECT role, content, created_at FROM messages
+            WHERE conversation_id = $1::uuid
+            ORDER BY created_at ASC
+        """, conversation_id)
+
+    return [
+        {"role": r["role"], "content": r["content"], "created_at": r["created_at"].isoformat() if r["created_at"] else None}
+        for r in rows
+    ]

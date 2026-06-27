@@ -1,7 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import { ArrowLeft, Loader2, CheckCircle2, Circle } from 'lucide-react';
+import {
+  ArrowLeft, Loader2, CheckCircle2, Circle, Brain, MessageSquare, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -10,14 +12,40 @@ interface ConceptProgress { id: string; title: string; visited: boolean; quiz_sc
 interface CourseProgress  { id: string; name: string; concepts: ConceptProgress[]; }
 interface StudentProgress { id: string; name: string; email: string; courses: CourseProgress[]; }
 
+interface Profile {
+  has_profile: boolean;
+  skill_scores: Record<string, number>;
+  known_misconceptions: string[];
+  struggle_areas: string[];
+  mastered_concepts: string[];
+  grade: string | null;
+  goal: string | null;
+  avg_quiz_score: number | null;
+  total_messages: number;
+}
+
+interface ConversationSummary {
+  id: string; title: string; subject: string | null;
+  message_count: number; last_message_at: string | null;
+}
+interface ChatMessage { role: string; content: string; created_at: string | null; }
+
 export default function TeacherStudentDetailPage() {
   const router    = useRouter();
   const params    = useParams();
   const studentId = params.id as string;
   const { user, token } = useSessionStore();
 
-  const [data,    setData]    = useState<StudentProgress | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data,          setData]          = useState<StudentProgress | null>(null);
+  const [profile,       setProfile]       = useState<Profile | null>(null);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [loading,       setLoading]       = useState(true);
+
+  const [expandedConvId, setExpandedConvId] = useState<string | null>(null);
+  const [convMessages,   setConvMessages]   = useState<ChatMessage[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+
+  const headers = { Authorization: `Bearer ${token}` };
 
   useEffect(() => {
     if (!user) { router.replace('/auth/teacher'); return; }
@@ -27,12 +55,26 @@ export default function TeacherStudentDetailPage() {
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/students/${studentId}/progress`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) { router.replace('/teacher/students'); return; }
-      setData(await res.json());
+      const [progressRes, profileRes, convRes] = await Promise.all([
+        fetch(`${API_BASE}/api/students/${studentId}/progress`, { headers }),
+        fetch(`${API_BASE}/api/students/${studentId}/profile`, { headers }),
+        fetch(`${API_BASE}/api/students/${studentId}/conversations`, { headers }),
+      ]);
+      if (!progressRes.ok) { router.replace('/teacher/students'); return; }
+      setData(await progressRes.json());
+      if (profileRes.ok) setProfile(await profileRes.json());
+      if (convRes.ok)    setConversations(await convRes.json());
     } finally { setLoading(false); }
+  }
+
+  async function toggleConversation(convId: string) {
+    if (expandedConvId === convId) { setExpandedConvId(null); return; }
+    setExpandedConvId(convId);
+    setLoadingMessages(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/students/${studentId}/conversations/${convId}/messages`, { headers });
+      setConvMessages(res.ok ? await res.json() : []);
+    } finally { setLoadingMessages(false); }
   }
 
   if (loading) return (
@@ -52,6 +94,94 @@ export default function TeacherStudentDetailPage() {
       <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{data.name ?? data.email}</h1>
       <p className="text-[var(--tx7)] text-sm mb-6">{data.email}</p>
 
+      {/* Learning profile */}
+      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
+        <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <Brain size={12} /> Learning profile <span className="text-[var(--tx8)] font-normal">· from AI tutor sessions</span>
+        </h2>
+        {!profile?.has_profile ? (
+          <p className="text-[var(--tx7)] text-sm">Not enough AI tutor activity yet to build a profile.</p>
+        ) : (
+          <div className="space-y-3">
+            {Object.keys(profile.skill_scores).length > 0 && (
+              <div className="space-y-1.5">
+                {Object.entries(profile.skill_scores).map(([subject, score]) => (
+                  <div key={subject} className="flex items-center gap-2 text-xs">
+                    <span className="w-28 text-[var(--tx6)] truncate shrink-0">{subject}</span>
+                    <div className="flex-1 h-1.5 rounded-full bg-[var(--ov3)] overflow-hidden">
+                      <div className={`h-full rounded-full ${score >= 70 ? 'bg-green-500' : score >= 40 ? 'bg-amber-500' : 'bg-red-500'}`}
+                        style={{ width: `${score}%` }} />
+                    </div>
+                    <span className="text-[var(--tx6)] w-8 text-right shrink-0">{Math.round(score)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {profile.struggle_areas.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {profile.struggle_areas.map((a, i) => (
+                  <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">{a}</span>
+                ))}
+              </div>
+            )}
+            {profile.known_misconceptions.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {profile.known_misconceptions.map((m, i) => (
+                  <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">{m}</span>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-3 text-xs text-[var(--tx7)]">
+              {profile.grade && <span>Grade: {profile.grade}</span>}
+              {profile.goal && <span>Goal: {profile.goal}</span>}
+              <span>{profile.total_messages} AI tutor messages</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* AI tutor conversations (read-only) */}
+      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
+        <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+          <MessageSquare size={12} /> AI Tutor Conversations
+        </h2>
+        {conversations.length === 0 ? (
+          <p className="text-[var(--tx7)] text-sm">No AI tutor conversations yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {conversations.map(c => (
+              <div key={c.id} className="border border-[var(--bd)] rounded-xl overflow-hidden">
+                <button onClick={() => toggleConversation(c.id)}
+                  className="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-[var(--ov1)] transition-colors">
+                  <div className="min-w-0">
+                    <p className="text-[var(--tx1)] text-sm font-medium truncate">{c.title || 'Untitled conversation'}</p>
+                    <p className="text-[var(--tx7)] text-xs">
+                      {c.subject && `${c.subject} · `}{c.message_count} messages
+                      {c.last_message_at && ` · ${new Date(c.last_message_at).toLocaleDateString()}`}
+                    </p>
+                  </div>
+                  {expandedConvId === c.id ? <ChevronUp size={14} className="text-[var(--tx7)] shrink-0" /> : <ChevronDown size={14} className="text-[var(--tx7)] shrink-0" />}
+                </button>
+                {expandedConvId === c.id && (
+                  <div className="border-t border-[var(--bd)] p-3 space-y-2 max-h-80 overflow-y-auto bg-[var(--ov1)]">
+                    {loadingMessages ? (
+                      <Loader2 size={16} className="animate-spin text-[var(--tx7)] mx-auto" />
+                    ) : convMessages.map((m, i) => (
+                      <div key={i} className={`text-xs p-2 rounded-lg max-w-[85%] ${
+                        m.role === 'user' ? 'bg-purple-500/10 text-[var(--tx2)] ml-auto' : 'bg-[var(--ov2)] text-[var(--tx2)]'
+                      }`}>
+                        {m.content}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Course progress */}
       {data.courses.length === 0 ? (
         <div className="bg-[var(--ov1)] border border-dashed border-[var(--bd)] rounded-2xl p-6 text-center">
           <p className="text-[var(--tx6)] text-sm">No courses assigned to this student's classrooms yet.</p>
