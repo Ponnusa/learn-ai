@@ -228,6 +228,122 @@ async def get_progress_overview(authorization: str = Header(...)):
     return result
 
 
+def _compute_risk(avg_quiz_score, visited_pct, concept_count, last_seen_at) -> str:
+    """Deterministic risk flag — no AI call, just thresholds on existing progress data."""
+    now = datetime.now(tz=timezone.utc)
+    days_inactive = (now - last_seen_at).days if last_seen_at else None
+
+    at_risk = (
+        (avg_quiz_score is not None and avg_quiz_score < 40)
+        or (days_inactive is not None and days_inactive >= 7)
+        or (concept_count > 0 and visited_pct is not None and visited_pct < 30)
+    )
+    if at_risk:
+        return "at_risk"
+    watch = (
+        (avg_quiz_score is not None and avg_quiz_score < 60)
+        or (days_inactive is not None and days_inactive >= 3)
+    )
+    return "watch" if watch else "ok"
+
+
+@router.get("/students-overview")
+async def get_students_overview(authorization: str = Header(...)):
+    """
+    Teacher-only roster across ALL of a teacher's classrooms (student-first,
+    as opposed to /progress-overview's course-first view): per student,
+    classrooms, % concepts visited, avg quiz score, due flashcards, last
+    active, and a deterministic risk flag for spotting struggling students.
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        roster = await db.fetch("""
+            SELECT cs.student_id, u.name, u.email, u.last_seen_at,
+                   cl.id AS classroom_id, cl.name AS classroom_name
+            FROM classroom_students cs
+            JOIN classrooms cl ON cl.id = cs.classroom_id AND cl.teacher_id = $1::uuid
+            JOIN users u       ON u.id = cs.student_id
+        """, teacher_id)
+
+        concept_counts = await db.fetch("""
+            SELECT cs.student_id, COUNT(DISTINCT cc.id) AS concept_count
+            FROM classroom_students cs
+            JOIN classrooms cl         ON cl.id = cs.classroom_id AND cl.teacher_id = $1::uuid
+            JOIN classroom_courses clc ON clc.classroom_id = cl.id
+            JOIN course_units cu       ON cu.course_id = clc.course_id
+            JOIN course_concepts cc    ON cc.unit_id = cu.id
+            GROUP BY cs.student_id
+        """, teacher_id)
+
+        progress = await db.fetch("""
+            SELECT scp.student_id,
+                   COUNT(DISTINCT scp.concept_id) FILTER (WHERE scp.visited) AS visited_count,
+                   AVG(scp.quiz_score) AS avg_quiz_score
+            FROM student_concept_progress scp
+            JOIN course_concepts cc ON cc.id = scp.concept_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            JOIN courses c          ON c.id = cu.course_id AND c.teacher_id = $1::uuid
+            GROUP BY scp.student_id
+        """, teacher_id)
+
+        due_flashcards = await db.fetch("""
+            SELECT cs.student_id,
+                   COUNT(DISTINCT cf.id) FILTER (
+                       WHERE cfs.due_at IS NULL OR cfs.due_at <= NOW()
+                   ) AS due_count
+            FROM classroom_students cs
+            JOIN classrooms cl         ON cl.id = cs.classroom_id AND cl.teacher_id = $1::uuid
+            JOIN classroom_courses clc ON clc.classroom_id = cl.id
+            JOIN course_units cu       ON cu.course_id = clc.course_id
+            JOIN course_concepts cc    ON cc.unit_id = cu.id AND cc.flashcard_status = 'approved'
+            JOIN concept_flashcards cf ON cf.concept_id = cc.id
+            LEFT JOIN concept_flashcard_state cfs
+                   ON cfs.flashcard_id = cf.id AND cfs.student_id = cs.student_id
+            GROUP BY cs.student_id
+        """, teacher_id)
+
+    concept_count_map = {str(r["student_id"]): int(r["concept_count"] or 0) for r in concept_counts}
+    progress_map      = {str(r["student_id"]): r for r in progress}
+    due_map           = {str(r["student_id"]): int(r["due_count"] or 0) for r in due_flashcards}
+
+    students: dict[str, dict] = {}
+    for r in roster:
+        sid = str(r["student_id"])
+        if sid not in students:
+            students[sid] = {
+                "id": sid, "name": r["name"], "email": r["email"],
+                "last_seen_at": r["last_seen_at"], "classrooms": [],
+            }
+        students[sid]["classrooms"].append({"id": str(r["classroom_id"]), "name": r["classroom_name"]})
+
+    result = []
+    for sid, s in students.items():
+        concept_count = concept_count_map.get(sid, 0)
+        prog          = progress_map.get(sid)
+        visited_pct   = (
+            round(100 * int(prog["visited_count"]) / concept_count)
+            if prog and concept_count > 0 else None
+        )
+        avg_quiz_score = round(prog["avg_quiz_score"]) if prog and prog["avg_quiz_score"] is not None else None
+        last_seen_at   = s["last_seen_at"]
+
+        result.append({
+            "id":             sid,
+            "name":           s["name"],
+            "email":          s["email"],
+            "classrooms":     s["classrooms"],
+            "concept_count":  concept_count,
+            "visited_pct":    visited_pct,
+            "avg_quiz_score": avg_quiz_score,
+            "due_flashcards": due_map.get(sid, 0),
+            "last_seen_at":   last_seen_at.isoformat() if last_seen_at else None,
+            "risk":           _compute_risk(avg_quiz_score, visited_pct, concept_count, last_seen_at),
+        })
+
+    result.sort(key=lambda s: (s["risk"] != "at_risk", s["risk"] != "watch", s["name"] or ""))
+    return result
+
+
 @router.get("/{course_id}")
 async def get_course(course_id: str, authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Video, BookOpen, BarChart2, Settings,
-  Search, Menu, X, PenSquare, User, Sparkles, Users, LayoutDashboard,
+  Search, Menu, X, PenSquare, User, Sparkles, Users, LayoutDashboard, GraduationCap,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { listConversations } from '@/lib/api';
@@ -210,8 +210,10 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     { icon: <BarChart2 size={18} />, label: t.sidebar.progress,  href: '/progress' },
     ...(isTeacher || isSuperAdmin
       ? [
-          { icon: <Users size={18} />,    label: 'Classrooms',     href: '/teacher/classrooms' },
-          { icon: <BookOpen size={18} />, label: 'Course Builder',  href: '/teacher/courses'    },
+          { icon: <Users size={18} />,        label: 'Classrooms',     href: '/teacher/classrooms' },
+          { icon: <BookOpen size={18} />,     label: 'Course Builder', href: '/teacher/courses'    },
+          { icon: <GraduationCap size={18} />, label: 'Students',      href: '/teacher/students'   },
+          { icon: <BarChart2 size={18} />,     label: 'Progress',      href: '/teacher/progress'   },
         ]
       : [{ icon: <Users size={18} />, label: 'Classrooms', href: '/classrooms' }]),
     { icon: <Settings size={18} />,  label: t.sidebar.settings,  href: '/settings' },
