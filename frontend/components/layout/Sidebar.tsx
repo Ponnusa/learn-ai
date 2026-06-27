@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Video, BookOpen, BarChart2, Settings,
-  Search, Menu, X, PenSquare, User, Sparkles, Users, LayoutDashboard, GraduationCap, ClipboardList,
+  Search, Menu, X, PenSquare, User, Sparkles, Users, LayoutDashboard, GraduationCap, ClipboardList, Mail,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { listConversations } from '@/lib/api';
@@ -227,7 +227,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     { icon: <BookOpen size={18} />,  label: t.sidebar.studySets, href: '/study'    },
     { icon: <Sparkles size={18} />,  label: t.progress.diagrams, href: '/images'   },
     { icon: <BarChart2 size={18} />, label: t.sidebar.progress,  href: '/progress' },
-    { icon: <MessageSquare size={18} />, label: 'Messages', href: '/messages', badge: unreadMessages },
+    { icon: <Mail size={18} />, label: 'Messages', href: '/messages', badge: unreadMessages },
     ...(isTeacher || isSuperAdmin
       ? [
           { icon: <Users size={18} />,        label: 'Classrooms',     href: '/teacher/classrooms' },
