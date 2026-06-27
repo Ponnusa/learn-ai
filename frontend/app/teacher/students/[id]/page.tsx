@@ -91,8 +91,17 @@ export default function TeacherStudentDetailPage() {
         <ArrowLeft size={15} /> Back to students
       </button>
 
-      <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{data.name ?? data.email}</h1>
-      <p className="text-[var(--tx7)] text-sm mb-6">{data.email}</p>
+      <div className="flex items-start justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{data.name ?? data.email}</h1>
+          <p className="text-[var(--tx7)] text-sm">{data.email}</p>
+        </div>
+        <button onClick={() => router.push(`/messages/${studentId}`)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)]
+                     text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all shrink-0">
+          <MessageSquare size={14} /> Message
+        </button>
+      </div>
 
       {/* Learning profile */}
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">

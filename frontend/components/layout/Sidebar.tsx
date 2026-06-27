@@ -74,6 +74,25 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     return () => { _openMobile = null; };
   }, []);
 
+  // ── Poll unread direct-message count (teacher <-> student) ───────────────
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  useEffect(() => {
+    if (!user) return;
+    let stopped = false;
+    const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    async function poll() {
+      try {
+        const res = await fetch(`${API_BASE}/api/messages/unread-count`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!stopped && res.ok) setUnreadMessages((await res.json()).unread_count ?? 0);
+      } catch { /* ignore */ }
+      if (!stopped) setTimeout(poll, 20000);
+    }
+    poll();
+    return () => { stopped = true; };
+  }, [user, token]);
+
   // ── Auto-open chats panel when navigated here from another page ──────────
   useEffect(() => {
     if (pendingOpenChats && onConversationSelect) {
@@ -208,6 +227,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     { icon: <BookOpen size={18} />,  label: t.sidebar.studySets, href: '/study'    },
     { icon: <Sparkles size={18} />,  label: t.progress.diagrams, href: '/images'   },
     { icon: <BarChart2 size={18} />, label: t.sidebar.progress,  href: '/progress' },
+    { icon: <MessageSquare size={18} />, label: 'Messages', href: '/messages', badge: unreadMessages },
     ...(isTeacher || isSuperAdmin
       ? [
           { icon: <Users size={18} />,        label: 'Classrooms',     href: '/teacher/classrooms' },
@@ -291,18 +311,24 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
 
           {/* Nav links */}
           <div className="flex flex-col items-center gap-1 px-2 py-2 shrink-0">
-            {navItems.map(({ icon, label, href }) => (
+            {navItems.map(({ icon, label, href, badge }) => (
               <Link
                 key={href}
                 href={href}
                 title={label}
-                className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors ${
+                className={`relative w-10 h-10 flex items-center justify-center rounded-xl transition-colors ${
                   pathname === href
                     ? 'bg-[var(--ov4)] text-[var(--tx1)]'
                     : 'text-[var(--tx5)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)]'
                 }`}
               >
                 {icon}
+                {!!badge && (
+                  <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 rounded-full
+                                    bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {badge > 9 ? '9+' : badge}
+                  </span>
+                )}
               </Link>
             ))}
           </div>

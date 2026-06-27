@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from database import init_pool, close_pool
 from config import settings
 from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
-from routers import teacher_auth, institutions, admin, classrooms, courses, students
+from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages
 
 
 @asynccontextmanager
@@ -385,6 +385,20 @@ async def lifespan(app: FastAPI):
             """,
             "CREATE INDEX IF NOT EXISTS idx_sfs_student_due ON study_flashcard_state(student_id, due_at)",
             "CREATE INDEX IF NOT EXISTS idx_cfs_student_due ON concept_flashcard_state(student_id, due_at)",
+            # ── Sprint 9: direct teacher <-> student messaging (022) ──────────────
+            """
+            CREATE TABLE IF NOT EXISTS teacher_student_messages (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                teacher_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                student_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                sender_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                body        TEXT NOT NULL,
+                read_at     TIMESTAMPTZ,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_tsm_pair    ON teacher_student_messages(teacher_id, student_id, created_at)",
+            "CREATE INDEX IF NOT EXISTS idx_tsm_student  ON teacher_student_messages(student_id, created_at)",
         ]:
             try:
                 await db.execute(sql)
@@ -428,6 +442,7 @@ app.include_router(admin.router)
 app.include_router(classrooms.router)
 app.include_router(courses.router)
 app.include_router(students.router)
+app.include_router(messages.router)
 
 
 @app.get("/health")
