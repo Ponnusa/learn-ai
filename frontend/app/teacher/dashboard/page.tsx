@@ -1,7 +1,7 @@
 'use client';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { GraduationCap, BookOpen, Users, BarChart2 } from 'lucide-react';
+import { GraduationCap, BookOpen, Users, Layers } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 export default function TeacherDashboard() {
@@ -25,10 +25,10 @@ export default function TeacherDashboard() {
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
-            { label: 'Classrooms',    icon: Users,         href: '/teacher/classrooms', soon: false },
-            { label: 'Course Builder', icon: BookOpen,     href: '/teacher/courses',    soon: false },
-            { label: 'Student Progress', icon: BarChart2,  href: '/teacher/progress',   soon: false },
-            { label: 'Study Sets',     icon: GraduationCap, href: '/study',             soon: false },
+            { label: 'Classrooms',    icon: Users,          href: '/teacher/classrooms', soon: false },
+            { label: 'Course Builder', icon: BookOpen,      href: '/teacher/courses',    soon: false },
+            { label: 'Students',      icon: GraduationCap,  href: '/teacher/students',   soon: false },
+            { label: 'Study Sets',    icon: Layers,         href: '/study',              soon: false },
           ].map(card => (
             <button
               key={card.label}
