@@ -1472,16 +1472,17 @@ async def detect_chapter_toc(
             "low_confidence": low_confidence,
         })
 
-    # Embedded outline labels are often internal filename slugs (sometimes in a
-    # different language/script than the book's own content) rather than the
-    # book's real chapter headings — replace any messy ones with a title read
-    # off that chapter's actual first page.
-    if method == "outline":
-        messy = [i for i, c in enumerate(chapters) if _looks_like_filename_slug(c["title"])]
-        if messy:
-            if pages is None:
-                pages = extract_pages_from_pdf(file_bytes)
-            await _clean_outline_titles(chapters, messy, pages)
+    # Embedded outline labels are often internal filename slugs, or a
+    # transliteration in a different script/language than the book's own
+    # content (e.g. "Vargangal" for a Malayalam chapter actually titled with
+    # Malayalam script on the page) — neither case is reliably detectable from
+    # the label text alone, so always cross-check every outline title against
+    # that chapter's actual first-page text rather than guessing which ones
+    # look "messy".
+    if method == "outline" and chapters:
+        if pages is None:
+            pages = extract_pages_from_pdf(file_bytes)
+        await _clean_outline_titles(chapters, list(range(len(chapters))), pages)
 
     return {
         "detected":   len(chapters) >= 2,
@@ -1496,13 +1497,14 @@ _FRONT_MATTER_RE = re.compile(
 )
 
 
-def _looks_like_filename_slug(title: str) -> bool:
-    """Heuristic for internal-bookmark-style titles like '01_Chapter_01_Vargangal'."""
-    return bool(re.search(r"_|^\d+[\s_.\-]", title))
-
-
 async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages: list[str]) -> None:
-    """Replace messy outline titles in place using each chapter's actual start-page text."""
+    """
+    Cross-check each outline title against that chapter's actual first-page text,
+    replacing it in place if the bookmark label doesn't match — covers both
+    internal filename slugs ('01_Chapter_01_Vargangal') and transliterated labels
+    that look like ordinary words but are in the wrong language/script for the
+    book's actual content (e.g. 'Vargangal' vs a Malayalam-script heading).
+    """
     snippets = []
     for i in indices:
         start_idx = chapters[i]["start_page"] - 1
@@ -1515,12 +1517,15 @@ async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages:
         response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": (
-                "Each item below is a messy, internal filename-style chapter label from a PDF's "
-                "bookmarks, paired with the actual text from that chapter's first page. Return a "
-                "clean, human-readable chapter title for each — read it off the page text, in "
-                "whatever language the book's own content uses for headings (the label may be in "
-                "a different language than the actual book — ignore the label's language, use the "
-                "page text).\n\n"
+                "Each item below is a chapter label from a PDF's bookmarks, paired with the actual "
+                "text from that chapter's first page. The label may be an internal filename slug, or "
+                "a transliteration/translation that doesn't match the language or script the book "
+                "actually uses for its own headings — labels can look like perfectly normal words and "
+                "still be wrong for this reason, so always check against the page text rather than "
+                "trusting the label's shape.\n\n"
+                "For each item, return the chapter's real title as it would appear on the page (read "
+                "it off the page text, in whatever language/script the book's own content uses). If the "
+                "label already exactly matches the book's own heading, return it unchanged.\n\n"
                 "Return ONLY valid JSON: {\"titles\": [{\"index\": <int>, \"title\": \"...\"}]}\n\n"
                 f"{json.dumps(snippets)[:12000]}"
             )}],
@@ -1533,10 +1538,7 @@ async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages:
             if isinstance(idx, int) and 0 <= idx < len(chapters) and item.get("title"):
                 chapters[idx]["title"] = item["title"].strip()
     except Exception as exc:
-        logger.warning("[detect-toc] title cleanup failed, using regex fallback: %s", exc)
-        for i in indices:
-            cleaned = re.sub(r"^\d+[\s_.\-]*Chapter[\s_.\-]*\d+[\s_.\-]*", "", chapters[i]["title"], flags=re.IGNORECASE)
-            chapters[i]["title"] = cleaned.replace("_", " ").strip() or chapters[i]["title"]
+        logger.warning("[detect-toc] title cleanup failed, keeping original labels: %s", exc)
 
 
 class BulkSplitChapter(BaseModel):
