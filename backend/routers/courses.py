@@ -1500,10 +1500,12 @@ _FRONT_MATTER_RE = re.compile(
 async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages: list[str]) -> None:
     """
     Cross-check each outline title against that chapter's actual first-page text,
-    replacing it in place if the bookmark label doesn't match — covers both
-    internal filename slugs ('01_Chapter_01_Vargangal') and transliterated labels
-    that look like ordinary words but are in the wrong language/script for the
-    book's actual content (e.g. 'Vargangal' vs a Malayalam-script heading).
+    replacing it in place with a clean ENGLISH title — covers both internal
+    filename slugs ('01_Chapter_01_Vargangal') and labels that look like ordinary
+    words but are a transliteration of the book's non-English content (e.g.
+    'Vargangal', literally that chapter's real heading, just not translated).
+    Course units/concepts elsewhere in this pipeline are always titled in
+    English regardless of source material language — this matches that.
     """
     snippets = []
     for i in indices:
@@ -1519,13 +1521,12 @@ async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages:
             messages=[{"role": "user", "content": (
                 "Each item below is a chapter label from a PDF's bookmarks, paired with the actual "
                 "text from that chapter's first page. The label may be an internal filename slug, or "
-                "a transliteration/translation that doesn't match the language or script the book "
-                "actually uses for its own headings — labels can look like perfectly normal words and "
-                "still be wrong for this reason, so always check against the page text rather than "
-                "trusting the label's shape.\n\n"
-                "For each item, return the chapter's real title as it would appear on the page (read "
-                "it off the page text, in whatever language/script the book's own content uses). If the "
-                "label already exactly matches the book's own heading, return it unchanged.\n\n"
+                "a transliteration of the book's own (possibly non-English) heading — labels can look "
+                "like perfectly normal words and still need fixing for this reason, so always check "
+                "against the page text rather than trusting the label's shape.\n\n"
+                "For each item, return a clean, concise chapter title IN ENGLISH, translating from the "
+                "page text if the book's own content is in another language. Even if the label already "
+                "looks like a real title, translate it to English if it isn't already.\n\n"
                 "Return ONLY valid JSON: {\"titles\": [{\"index\": <int>, \"title\": \"...\"}]}\n\n"
                 f"{json.dumps(snippets)[:12000]}"
             )}],
