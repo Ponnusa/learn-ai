@@ -1042,8 +1042,6 @@ Course: {course['name']}
 Subject: {course['subject'] or 'General'}
 
 For EACH concept, include the EXACT verbatim paragraph(s) from the text it is based on.
-Also pull out any worked examples or numbered practice problems from that same section,
-if there are any (e.g. "Calculate the squares: 64², 35²...") — verbatim, not summarized.
 
 Return ONLY valid JSON:
 {{
@@ -1052,8 +1050,7 @@ Return ONLY valid JSON:
     {{
       "title": "Concise concept name",
       "description": "One sentence: what the student will understand",
-      "source_text": "The exact verbatim sentences/paragraphs from the text that cover this concept",
-      "problems": ["Verbatim problem statement 1", "Verbatim problem statement 2"]
+      "source_text": "The exact verbatim sentences/paragraphs from the text that cover this concept"
     }}
   ]
 }}
@@ -1062,8 +1059,6 @@ Rules:
 - 4–12 concepts, in the order they appear in the text
 - source_text must be a direct quote from the document
 - Each concept = one distinct learnable idea
-- "problems" is optional — omit or leave empty if this section has no worked
-  examples or practice problems; otherwise include each one verbatim, max 5
 
 --- CHAPTER ---
 {truncated}"""
@@ -1104,15 +1099,7 @@ Rules:
             """, str(unit_row["id"]),
                 c.get("title", ""), c.get("description", ""),
                 c.get("source_text", ""), pos, str(chapter_row["id"]))
-            concept_id = str(row["id"])
-            concept_ids.append(concept_id)
-
-            for prob_pos, problem_text in enumerate((c.get("problems") or [])[:5]):
-                if problem_text and problem_text.strip():
-                    await db.execute("""
-                        INSERT INTO concept_problems (concept_id, problem_text, position)
-                        VALUES ($1::uuid, $2, $3)
-                    """, concept_id, problem_text.strip(), prob_pos)
+            concept_ids.append(str(row["id"]))
 
     return {
         "chapter_id":    str(chapter_row["id"]),

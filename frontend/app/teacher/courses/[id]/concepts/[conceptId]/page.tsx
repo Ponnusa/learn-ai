@@ -5,13 +5,13 @@ import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, ExternalLink, Plus, FileText, Mic2,
   CheckCircle, Circle, AlertCircle, Zap, HelpCircle, Layers,
-  RefreshCw, Volume2, Video, ListChecks, Sparkles, Lightbulb,
+  RefreshCw, Volume2, Video,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab            = 'summary' | 'transcript' | 'images' | 'assets' | 'studyset' | 'problems';
+type Tab            = 'summary' | 'transcript' | 'images' | 'assets' | 'studyset';
 type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
 type AssetStatus    = 'none' | 'generating' | 'ready' | 'approved' | 'failed';
 
@@ -40,14 +40,6 @@ interface Assets {
   audio_url?: string; video_url?: string;
   audio_duration_sec?: number;
   quiz: QuizQuestion[]; flashcards: Flashcard[];
-}
-
-interface ConceptProblem {
-  id: string; problem_text: string; position: number;
-  solution_text: string | null; solution_status: 'none' | 'generating' | 'ready' | 'failed';
-  video_status: 'none' | 'generating' | 'ready' | 'failed'; video_stage?: string | null; video_url?: string | null;
-  alt_teaching: string | null; alt_status: 'none' | 'generating' | 'ready' | 'failed';
-  error_message?: string | null; approved: boolean;
 }
 
 const VIDEO_STAGE_LABEL: Record<string, string> = {
@@ -110,11 +102,6 @@ export default function ConceptEditorPage() {
 
   const [pipelinePolling, setPipelinePolling] = useState(false);
   const [assetPolling,    setAssetPolling]    = useState(false);
-
-  const [problems,       setProblems]       = useState<ConceptProblem[]>([]);
-  const [problemsLoaded, setProblemsLoaded] = useState(false);
-  const [problemPolling, setProblemPolling] = useState(false);
-  const [problemBusy,    setProblemBusy]    = useState<Record<string, string>>({}); // problemId -> action
 
   const authH = { Authorization: `Bearer ${token}` };
   const jsonH = { ...authH, 'Content-Type': 'application/json' };
@@ -180,20 +167,6 @@ export default function ConceptEditorPage() {
     if (activeTab === 'assets' && !assetsLoaded) loadAssets();
   }, [activeTab, assetsLoaded]);
 
-  const loadProblems = useCallback(async () => {
-    const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/problems`, { headers: authH });
-    if (res.ok) {
-      const d: ConceptProblem[] = await res.json();
-      setProblems(d);
-      setProblemPolling(d.some(p => p.solution_status === 'generating' || p.video_status === 'generating'));
-    }
-    setProblemsLoaded(true);
-  }, [conceptId, token]);
-
-  useEffect(() => {
-    if (activeTab === 'problems' && !problemsLoaded) loadProblems();
-  }, [activeTab, problemsLoaded]);
-
   // Poll while pipeline summary is generating
   useEffect(() => {
     if (!pipelinePolling) return;
@@ -227,43 +200,6 @@ export default function ConceptEditorPage() {
     }, 3000);
     return () => clearInterval(iv);
   }, [assetPolling, conceptId, token]);
-
-  // Poll while any problem's solution/video is generating
-  useEffect(() => {
-    if (!problemPolling) return;
-    const iv = setInterval(async () => {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/problems`, { headers: authH });
-      if (!res.ok) return;
-      const d: ConceptProblem[] = await res.json();
-      setProblems(d);
-      if (!d.some(p => p.solution_status === 'generating' || p.video_status === 'generating')) {
-        setProblemPolling(false);
-      }
-    }, 4000);
-    return () => clearInterval(iv);
-  }, [problemPolling, conceptId, token]);
-
-  async function runProblemAction(problemId: string, action: 'solve' | 'video' | 'teach-differently') {
-    setProblemBusy(prev => ({ ...prev, [problemId]: action }));
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/problems/${problemId}/${action}`, {
-        method: 'POST', headers: authH,
-      });
-      if (res.ok) {
-        await loadProblems();
-        setProblemPolling(true);
-      }
-    } finally {
-      setProblemBusy(prev => { const next = { ...prev }; delete next[problemId]; return next; });
-    }
-  }
-
-  async function toggleProblemApproved(problemId: string, approved: boolean) {
-    setProblems(prev => prev.map(p => p.id === problemId ? { ...p, approved } : p));
-    await fetch(`${API_BASE}/api/courses/problems/${problemId}`, {
-      method: 'PATCH', headers: jsonH, body: JSON.stringify({ approved }),
-    });
-  }
 
   async function saveSummary() {
     setSavingSum(true); setSavedSum(false);
@@ -481,7 +417,6 @@ export default function ConceptEditorPage() {
               ['images',     'Images',     ImageIcon],
               ['assets',     'Assets',     Zap],
               ['studyset',   'Study Set',  ExternalLink],
-              ['problems',   'Problems',   ListChecks],
             ] as const).map(([t, label, Icon]) => (
               <button key={t} onClick={() => setActiveTab(t)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -763,97 +698,6 @@ export default function ConceptEditorPage() {
             </div>
           )}
 
-          {/* ── Problems (worked examples from this chapter) ── */}
-          {activeTab === 'problems' && (
-            <div>
-              <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider block mb-3">
-                Problems from this chapter
-              </label>
-              {!problemsLoaded ? (
-                <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-[var(--tx7)]" /></div>
-              ) : problems.length === 0 ? (
-                <div className="bg-[var(--surface)] border border-dashed border-[var(--bd)] rounded-xl p-6 text-center">
-                  <p className="text-[var(--tx3)] text-sm mb-1">No problems found for this concept</p>
-                  <p className="text-[var(--tx7)] text-xs">
-                    Worked examples and exercises are picked up automatically when a chapter is uploaded —
-                    not every concept has them.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {problems.map(p => {
-                    const busy = problemBusy[p.id];
-                    return (
-                      <div key={p.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl p-4">
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <p className="text-[var(--tx1)] text-sm whitespace-pre-wrap flex-1">{p.problem_text}</p>
-                          <label className="flex items-center gap-1.5 text-xs text-[var(--tx7)] shrink-0 cursor-pointer">
-                            <input type="checkbox" checked={p.approved}
-                              onChange={e => toggleProblemApproved(p.id, e.target.checked)}
-                              className="accent-purple-500" />
-                            Approved
-                          </label>
-                        </div>
-
-                        <div className="flex gap-2 flex-wrap mb-3">
-                          <button onClick={() => runProblemAction(p.id, 'solve')}
-                            disabled={!!busy || p.solution_status === 'generating'}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--bd)]
-                                       text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
-                            {p.solution_status === 'generating' ? <Loader2 size={12} className="animate-spin" /> : <HelpCircle size={12} />}
-                            Solve
-                          </button>
-                          <button onClick={() => runProblemAction(p.id, 'video')}
-                            disabled={!!busy || p.video_status === 'generating'}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--bd)]
-                                       text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
-                            {p.video_status === 'generating' ? <Loader2 size={12} className="animate-spin" /> : <Video size={12} />}
-                            Make video
-                          </button>
-                          <button onClick={() => runProblemAction(p.id, 'teach-differently')}
-                            disabled={!!busy || p.alt_status === 'generating'}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-[var(--bd)]
-                                       text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
-                            {p.alt_status === 'generating' || busy === 'teach-differently' ? <Loader2 size={12} className="animate-spin" /> : <Lightbulb size={12} />}
-                            Teach differently
-                          </button>
-                        </div>
-
-                        {p.solution_status === 'ready' && p.solution_text && (
-                          <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-lg p-3 mb-2">
-                            <p className="text-[var(--tx7)] text-[10px] uppercase tracking-wider mb-1.5 flex items-center gap-1"><HelpCircle size={10} /> Solution</p>
-                            <p className="text-[var(--tx2)] text-xs whitespace-pre-wrap">{p.solution_text}</p>
-                          </div>
-                        )}
-
-                        {p.video_status === 'generating' && (
-                          <p className="text-[var(--tx7)] text-xs flex items-center gap-1.5 mb-2">
-                            <Loader2 size={11} className="animate-spin" />
-                            {(p.video_stage && VIDEO_STAGE_LABEL[p.video_stage]) || 'Generating video…'}
-                          </p>
-                        )}
-                        {p.video_status === 'ready' && p.video_url && (
-                          <div className="mb-2">
-                            <video controls src={p.video_url} className="w-full aspect-video rounded-lg" />
-                          </div>
-                        )}
-                        {p.video_status === 'failed' && (
-                          <p className="text-red-400 text-xs mb-2">Video generation failed{p.error_message ? `: ${p.error_message}` : ''}</p>
-                        )}
-
-                        {p.alt_status === 'ready' && p.alt_teaching && (
-                          <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3">
-                            <p className="text-amber-400 text-[10px] uppercase tracking-wider mb-1.5 flex items-center gap-1"><Sparkles size={10} /> Alternate approaches</p>
-                            <p className="text-[var(--tx2)] text-xs whitespace-pre-wrap">{p.alt_teaching}</p>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
         </div>
       </div>
     </div>

@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from database import init_pool, close_pool
 from config import settings
 from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
-from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments, concept_problems
+from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments
 
 
 @asynccontextmanager
@@ -418,25 +418,6 @@ async def lifespan(app: FastAPI):
             )
             """,
             "CREATE INDEX IF NOT EXISTS idx_sa_student ON student_assignments(student_id, created_at)",
-            # ── Worked examples/practice problems extracted per concept (024) ─────
-            """
-            CREATE TABLE IF NOT EXISTS concept_problems (
-                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                concept_id      UUID NOT NULL REFERENCES course_concepts(id) ON DELETE CASCADE,
-                problem_text    TEXT NOT NULL,
-                position        INT NOT NULL DEFAULT 0,
-                solution_text   TEXT,
-                solution_status TEXT NOT NULL DEFAULT 'none',
-                video_job_id    INTEGER REFERENCES videos(id) ON DELETE SET NULL,
-                video_status    TEXT NOT NULL DEFAULT 'none',
-                alt_teaching    TEXT,
-                alt_status      TEXT NOT NULL DEFAULT 'none',
-                error_message   TEXT,
-                approved        BOOLEAN NOT NULL DEFAULT false,
-                created_at      TIMESTAMPTZ DEFAULT NOW()
-            )
-            """,
-            "CREATE INDEX IF NOT EXISTS idx_concept_problems_concept ON concept_problems(concept_id, position)",
         ]:
             try:
                 await db.execute(sql)
@@ -482,7 +463,6 @@ app.include_router(courses.router)
 app.include_router(students.router)
 app.include_router(messages.router)
 app.include_router(assignments.router)
-app.include_router(concept_problems.router)
 
 
 @app.get("/health")
