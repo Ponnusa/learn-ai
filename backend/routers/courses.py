@@ -1177,8 +1177,13 @@ async def detect_chapter_toc(
 
     entries: list[dict] = []
     method = "none"
+    pages: list[str] | None = None
 
     top_level = [o for o in outline if o[0] == 1] if outline else []
+    # Drop obvious front-matter bookmarks (publishers often bookmark a cover/TOC
+    # page too) — these aren't real chapters and would otherwise eat the first
+    # chapter's pages as their own.
+    top_level = [o for o in top_level if not _FRONT_MATTER_RE.search(o[1])]
     if len(top_level) >= 2:
         method = "outline"
         entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in top_level]
@@ -1226,12 +1231,71 @@ async def detect_chapter_toc(
             "low_confidence": low_confidence,
         })
 
+    # Embedded outline labels are often internal filename slugs (sometimes in a
+    # different language/script than the book's own content) rather than the
+    # book's real chapter headings — replace any messy ones with a title read
+    # off that chapter's actual first page.
+    if method == "outline":
+        messy = [i for i, c in enumerate(chapters) if _looks_like_filename_slug(c["title"])]
+        if messy:
+            if pages is None:
+                pages = extract_pages_from_pdf(file_bytes)
+            await _clean_outline_titles(chapters, messy, pages)
+
     return {
         "detected":   len(chapters) >= 2,
         "method":     method,
         "page_count": page_count,
         "chapters":   chapters,
     }
+
+
+_FRONT_MATTER_RE = re.compile(
+    r"front\s*page|cover|preface|title\s*page|^toc$|table of contents|acknowledg", re.IGNORECASE
+)
+
+
+def _looks_like_filename_slug(title: str) -> bool:
+    """Heuristic for internal-bookmark-style titles like '01_Chapter_01_Vargangal'."""
+    return bool(re.search(r"_|^\d+[\s_.\-]", title))
+
+
+async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages: list[str]) -> None:
+    """Replace messy outline titles in place using each chapter's actual start-page text."""
+    snippets = []
+    for i in indices:
+        start_idx = chapters[i]["start_page"] - 1
+        text = pages[start_idx][:1200] if 0 <= start_idx < len(pages) else ""
+        snippets.append({"index": i, "label": chapters[i]["title"], "page_text": text})
+
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI()
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": (
+                "Each item below is a messy, internal filename-style chapter label from a PDF's "
+                "bookmarks, paired with the actual text from that chapter's first page. Return a "
+                "clean, human-readable chapter title for each — read it off the page text, in "
+                "whatever language the book's own content uses for headings (the label may be in "
+                "a different language than the actual book — ignore the label's language, use the "
+                "page text).\n\n"
+                "Return ONLY valid JSON: {\"titles\": [{\"index\": <int>, \"title\": \"...\"}]}\n\n"
+                f"{json.dumps(snippets)[:12000]}"
+            )}],
+            response_format={"type": "json_object"},
+            max_tokens=1000,
+            temperature=0.0,
+        )
+        for item in json.loads(response.choices[0].message.content).get("titles", []):
+            idx = item.get("index")
+            if isinstance(idx, int) and 0 <= idx < len(chapters) and item.get("title"):
+                chapters[idx]["title"] = item["title"].strip()
+    except Exception as exc:
+        logger.warning("[detect-toc] title cleanup failed, using regex fallback: %s", exc)
+        for i in indices:
+            cleaned = re.sub(r"^\d+[\s_.\-]*Chapter[\s_.\-]*\d+[\s_.\-]*", "", chapters[i]["title"], flags=re.IGNORECASE)
+            chapters[i]["title"] = cleaned.replace("_", " ").strip() or chapters[i]["title"]
 
 
 class BulkSplitChapter(BaseModel):
