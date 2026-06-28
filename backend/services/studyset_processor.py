@@ -29,6 +29,16 @@ def extract_text_from_pdf(file_bytes: bytes) -> tuple[str, int]:
     return "\n\n".join(pages), page_count
 
 
+def extract_pages_from_pdf(file_bytes: bytes) -> list[str]:
+    """Per-page text, index 0 = page 1. Used for table-of-contents detection and page-range slicing."""
+    import fitz  # PyMuPDF
+
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    pages = [page.get_text("text") or "" for page in doc]
+    doc.close()
+    return pages
+
+
 # ─── AI generation ────────────────────────────────────────────────────────────
 
 async def generate_concepts_and_flashcards(

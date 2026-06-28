@@ -1020,35 +1020,15 @@ async def review_concept_flashcard(
 
 # ── Chapter upload → AI pipeline ─────────────────────────────────────────────
 
-@router.post("/{course_id}/chapters")
-async def upload_chapter(
-    course_id:     str,
-    bg:            BackgroundTasks,
-    authorization: str        = Header(...),
-    file:          UploadFile = File(...),
-):
+async def _create_chapter_from_pdf(course_id: str, course: dict, file_bytes: bytes, filename: str) -> dict:
     """
-    Upload a chapter PDF:
+    Shared by the single-chapter upload endpoint and the bulk-split flow:
     1. AI extracts concepts with verbatim source chunks (sync, fast)
-    2. Creates a unit + concepts in DB with pipeline_status='summarizing'
-    3. Background job generates ai_summary + ai_transcript per concept
+    2. Creates a course_chapters row (with the PDF bytes), a unit, and concepts
+       in DB with pipeline_status='summarizing'
+    Does NOT kick off the background summarizer — callers do that themselves so
+    bulk-split can batch all concept_ids across chapters into one bg task.
     """
-    teacher_id = await _require_teacher(authorization)
-    async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT id, name, subject FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
-    if not course:
-        raise HTTPException(404, "Course not found")
-
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "Only PDF files are supported")
-
-    file_bytes = await file.read()
-    if len(file_bytes) > 30 * 1024 * 1024:
-        raise HTTPException(400, "File too large — max 30 MB")
-
     from services.studyset_processor import extract_text_from_pdf
     from openai import AsyncOpenAI
 
@@ -1092,13 +1072,13 @@ Rules:
     )
     result       = json.loads(response.choices[0].message.content)
     concepts_raw = result.get("concepts", [])
-    chapter_title = result.get("chapter_title") or file.filename.replace(".pdf", "")
+    chapter_title = result.get("chapter_title") or filename.replace(".pdf", "")
 
     async with get_db() as db:
         chapter_row = await db.fetchrow("""
             INSERT INTO course_chapters (course_id, filename, page_count, concept_count, status, pdf_data)
             VALUES ($1::uuid, $2, $3, $4, 'ready', $5) RETURNING id
-        """, course_id, file.filename, page_count, len(concepts_raw), file_bytes)
+        """, course_id, filename, page_count, len(concepts_raw), file_bytes)
 
         max_pos = await db.fetchval(
             "SELECT COALESCE(MAX(position), -1) FROM course_units WHERE course_id = $1::uuid",
@@ -1107,7 +1087,7 @@ Rules:
         unit_row = await db.fetchrow("""
             INSERT INTO course_units (course_id, title, description, position)
             VALUES ($1::uuid, $2, $3, $4) RETURNING id
-        """, course_id, chapter_title, f"Source: {file.filename}", int(max_pos) + 1)
+        """, course_id, chapter_title, f"Source: {filename}", int(max_pos) + 1)
 
         concept_ids = []
         for pos, c in enumerate(concepts_raw):
@@ -1121,8 +1101,6 @@ Rules:
                 c.get("source_text", ""), pos, str(chapter_row["id"]))
             concept_ids.append(str(row["id"]))
 
-    bg.add_task(_summarize_concepts_bg, concept_ids, course_id)
-
     return {
         "chapter_id":    str(chapter_row["id"]),
         "chapter_title": chapter_title,
@@ -1131,6 +1109,196 @@ Rules:
         "concept_ids":   concept_ids,
         "page_count":    page_count,
     }
+
+
+@router.post("/{course_id}/chapters")
+async def upload_chapter(
+    course_id:     str,
+    bg:            BackgroundTasks,
+    authorization: str        = Header(...),
+    file:          UploadFile = File(...),
+):
+    """Upload a single chapter PDF — see _create_chapter_from_pdf for the pipeline."""
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT id, name, subject FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+    if not course:
+        raise HTTPException(404, "Course not found")
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files are supported")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 30 * 1024 * 1024:
+        raise HTTPException(400, "File too large — max 30 MB")
+
+    result = await _create_chapter_from_pdf(course_id, dict(course), file_bytes, file.filename)
+    bg.add_task(_summarize_concepts_bg, result["concept_ids"], course_id)
+    return result
+
+
+@router.post("/{course_id}/chapters/detect-toc")
+async def detect_chapter_toc(
+    course_id:     str,
+    authorization: str        = Header(...),
+    file:          UploadFile = File(...),
+):
+    """
+    Preview-only: look for a table of contents in an uploaded textbook PDF and
+    propose a chapter/page-range split. Makes no DB writes — the teacher reviews
+    and edits the result, then POSTs the confirmed list to /chapters/bulk-split.
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        course = await db.fetchval(
+            "SELECT id FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+    if not course:
+        raise HTTPException(404, "Course not found")
+
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "Only PDF files are supported")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 30 * 1024 * 1024:
+        raise HTTPException(400, "File too large — max 30 MB")
+
+    import fitz
+    from services.studyset_processor import extract_pages_from_pdf
+
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    page_count = len(doc)
+    outline = doc.get_toc()  # [[level, title, page], ...] — 1-indexed page numbers
+    doc.close()
+
+    entries: list[dict] = []
+    method = "none"
+
+    top_level = [o for o in outline if o[0] == 1] if outline else []
+    if len(top_level) >= 2:
+        method = "outline"
+        entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in top_level]
+    else:
+        pages = extract_pages_from_pdf(file_bytes)
+        contents_page_text = None
+        for p in pages[:12]:
+            if re.search(r"\bCONTENTS?\b", p, re.IGNORECASE):
+                contents_page_text = p
+                break
+        if contents_page_text:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI()
+            try:
+                response = await client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": (
+                        "Extract the chapter list from this textbook Contents page as JSON. "
+                        "Ignore section labels like 'Let's do problems' or 'ICT possibilities' — only real chapters.\n\n"
+                        "Return ONLY valid JSON: {\"chapters\": [{\"title\": \"...\", \"start_page\": <int>}]}\n\n"
+                        f"--- CONTENTS PAGE ---\n{contents_page_text[:4000]}"
+                    )}],
+                    response_format={"type": "json_object"},
+                    max_tokens=1000,
+                    temperature=0.0,
+                )
+                parsed = json.loads(response.choices[0].message.content).get("chapters", [])
+                if len(parsed) >= 2:
+                    method = "contents_page"
+                    entries = [{"title": c["title"].strip(), "start_page": int(c["start_page"])} for c in parsed]
+            except Exception as exc:
+                logger.warning("[detect-toc] contents-page parse failed: %s", exc)
+
+    chapters = []
+    for i, e in enumerate(entries):
+        start = max(1, e["start_page"])
+        if i + 1 < len(entries):
+            end = max(start, entries[i + 1]["start_page"] - 1)
+            low_confidence = False
+        else:
+            end = page_count
+            low_confidence = True
+        chapters.append({
+            "title": e["title"], "start_page": start, "end_page": end,
+            "low_confidence": low_confidence,
+        })
+
+    return {
+        "detected":   len(chapters) >= 2,
+        "method":     method,
+        "page_count": page_count,
+        "chapters":   chapters,
+    }
+
+
+class BulkSplitChapter(BaseModel):
+    title:      str
+    start_page: int
+    end_page:   int
+
+
+@router.post("/{course_id}/chapters/bulk-split")
+async def bulk_split_chapters(
+    course_id:     str,
+    bg:            BackgroundTasks,
+    authorization: str        = Header(...),
+    file:          UploadFile = File(...),
+    chapters:      str        = Form(...),
+):
+    """
+    Slice an uploaded textbook PDF into the teacher-confirmed chapter page ranges
+    and run the normal per-chapter pipeline (_create_chapter_from_pdf) once per
+    chapter. The file is re-uploaded here (stateless — no server-side temp storage
+    needed between /detect-toc and this call).
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT id, name, subject FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+    if not course:
+        raise HTTPException(404, "Course not found")
+
+    try:
+        chapter_specs = [BulkSplitChapter(**c) for c in json.loads(chapters)]
+    except Exception:
+        raise HTTPException(400, "Invalid chapters payload")
+    if not chapter_specs or len(chapter_specs) > 20:
+        raise HTTPException(400, "Provide between 1 and 20 chapters")
+
+    file_bytes = await file.read()
+    if len(file_bytes) > 30 * 1024 * 1024:
+        raise HTTPException(400, "File too large — max 30 MB")
+
+    import fitz
+    source_doc = fitz.open(stream=file_bytes, filetype="pdf")
+    page_count = len(source_doc)
+
+    results = []
+    all_concept_ids: list[str] = []
+    for spec in chapter_specs:
+        start = max(1, min(spec.start_page, page_count))
+        end   = max(start, min(spec.end_page, page_count))
+
+        sliced = fitz.open()
+        sliced.insert_pdf(source_doc, from_page=start - 1, to_page=end - 1)
+        sliced_bytes = sliced.tobytes()
+        sliced.close()
+
+        chapter_result = await _create_chapter_from_pdf(
+            course_id, dict(course), sliced_bytes, f"{spec.title}.pdf"
+        )
+        all_concept_ids.extend(chapter_result["concept_ids"])
+        results.append(chapter_result)
+
+    source_doc.close()
+    bg.add_task(_summarize_concepts_bg, all_concept_ids, course_id)
+
+    return {"chapters": results, "concept_count": len(all_concept_ids)}
 
 
 # ── Pipeline status (teacher polls while concepts are summarizing) ─────────────

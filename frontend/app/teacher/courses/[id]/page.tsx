@@ -41,6 +41,14 @@ export default function CourseDetailPage() {
   const [isProcessing,  setIsProcessing]  = useState(false);
   const [processedCount, setProcessedCount] = useState(0);
   const [totalCount,    setTotalCount]    = useState(0);
+  const [detecting,     setDetecting]     = useState(false);
+
+  // Multi-chapter textbook detection — review/edit panel before splitting
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [detectedChapters, setDetectedChapters] = useState<
+    { title: string; start_page: number; end_page: number; low_confidence?: boolean }[] | null
+  >(null);
+  const [splitting, setSplitting] = useState(false);
 
   // Assign to classroom
   const [myClassrooms, setMyClassrooms] = useState<Classroom[]>([]);
@@ -114,6 +122,79 @@ export default function CourseDetailPage() {
       setUploading(false);
       if (chapterRef.current) chapterRef.current.value = '';
     }
+  }
+
+  // First step on file pick: check whether this looks like a whole textbook
+  // with multiple chapters, before committing to the single-chapter upload.
+  async function handleFileSelected(file: File) {
+    setDetecting(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API_BASE}/api/courses/${courseId}/chapters/detect-toc`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (res.ok && data.detected) {
+        setPendingFile(file);
+        setDetectedChapters(data.chapters);
+      } else {
+        await handleChapterUpload(file);
+      }
+    } catch {
+      // Detection failing shouldn't block the upload — fall back to today's flow.
+      await handleChapterUpload(file);
+    } finally {
+      setDetecting(false);
+    }
+  }
+
+  function updateDetectedChapter(i: number, field: 'start_page' | 'end_page' | 'title', value: string) {
+    setDetectedChapters(prev => prev?.map((c, idx) => idx === i
+      ? { ...c, [field]: field === 'title' ? value : Number(value) }
+      : c) ?? null);
+  }
+
+  function cancelDetectedSplit() {
+    setPendingFile(null);
+    setDetectedChapters(null);
+    if (chapterRef.current) chapterRef.current.value = '';
+  }
+
+  async function confirmSplit() {
+    if (!pendingFile || !detectedChapters) return;
+    setSplitting(true); setPipelineMsg('');
+    try {
+      const fd = new FormData();
+      fd.append('file', pendingFile);
+      fd.append('chapters', JSON.stringify(detectedChapters.map(({ title, start_page, end_page }) => ({ title, start_page, end_page }))));
+      const res = await fetch(`${API_BASE}/api/courses/${courseId}/chapters/bulk-split`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Split failed');
+      setTotalCount(data.concept_count);
+      setProcessedCount(0);
+      setIsProcessing(true);
+      setPipelineMsg(`Created ${data.chapters.length} chapters — generating content for ${data.concept_count} concepts…`);
+      load();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSplitting(false);
+      cancelDetectedSplit();
+    }
+  }
+
+  async function useAsOneChapter() {
+    if (!pendingFile) return;
+    const file = pendingFile;
+    cancelDetectedSplit();
+    await handleChapterUpload(file);
   }
 
   // ── Units ──────────────────────────────────────────────────────────────────
@@ -270,19 +351,66 @@ export default function CourseDetailPage() {
               <Zap size={14} className="text-purple-400" /> Upload chapter — AI generates everything
             </p>
             <p className="text-[var(--tx7)] text-xs mt-1">
-              Upload a chapter PDF → AI extracts concepts, writes summaries and video transcripts.
-              You review and approve before students see anything.
+              Upload a chapter PDF, or a whole textbook — we'll detect its chapters from
+              the table of contents. AI extracts concepts, writes summaries and video
+              transcripts. You review and approve before students see anything.
             </p>
           </div>
-          <button onClick={() => chapterRef.current?.click()} disabled={uploading || isProcessing}
+          <button onClick={() => chapterRef.current?.click()} disabled={uploading || detecting || isProcessing}
             className="shrink-0 flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-500
                        text-white text-sm rounded-xl transition-all disabled:opacity-40">
-            {uploading ? <Loader2 size={14} className="animate-spin" /> : <><Upload size={14} /> Upload chapter</>}
+            {uploading || detecting ? <Loader2 size={14} className="animate-spin" /> : <><Upload size={14} /> Upload chapter</>}
           </button>
           <input ref={chapterRef} type="file" accept=".pdf" className="hidden"
-            onChange={e => e.target.files?.[0] && handleChapterUpload(e.target.files[0])} />
+            onChange={e => e.target.files?.[0] && handleFileSelected(e.target.files[0])} />
         </div>
       </div>
+
+      {/* Detected multi-chapter textbook — review/edit before splitting */}
+      {detectedChapters && (
+        <div className="bg-[var(--surface)] border border-purple-500/30 rounded-2xl p-5 mb-6">
+          <p className="text-[var(--tx1)] text-sm font-semibold mb-1">
+            Detected {detectedChapters.length} chapters in this PDF
+          </p>
+          <p className="text-[var(--tx7)] text-xs mb-4">
+            Review the page ranges below — adjust any that look wrong, especially the last
+            one (back matter like appendices isn't always excluded automatically).
+          </p>
+          <div className="space-y-2 mb-4">
+            {detectedChapters.map((c, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input value={c.title} onChange={e => updateDetectedChapter(i, 'title', e.target.value)}
+                  className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2.5 py-1.5 text-sm text-[var(--tx1)]" />
+                <span className="text-[var(--tx7)] text-xs">p.</span>
+                <input type="number" value={c.start_page} onChange={e => updateDetectedChapter(i, 'start_page', e.target.value)}
+                  className="w-16 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1.5 text-sm text-[var(--tx1)]" />
+                <span className="text-[var(--tx7)] text-xs">–</span>
+                <input type="number" value={c.end_page} onChange={e => updateDetectedChapter(i, 'end_page', e.target.value)}
+                  className="w-16 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1.5 text-sm text-[var(--tx1)]" />
+                {c.low_confidence && (
+                  <span className="text-amber-400 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 shrink-0">check end page</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={confirmSplit} disabled={splitting}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500
+                         text-white text-sm font-medium rounded-xl transition-all disabled:opacity-40">
+              {splitting ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+              Create {detectedChapters.length} chapters
+            </button>
+            <button onClick={useAsOneChapter} disabled={splitting}
+              className="px-4 py-2 text-[var(--tx6)] hover:text-[var(--tx2)] text-sm transition-colors disabled:opacity-40">
+              Just use as one chapter
+            </button>
+            <button onClick={cancelDetectedSplit} disabled={splitting}
+              className="px-4 py-2 text-[var(--tx7)] hover:text-[var(--tx3)] text-sm transition-colors disabled:opacity-40">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Units + concepts */}
       <div className="space-y-3 mb-8">
