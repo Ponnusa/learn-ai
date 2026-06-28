@@ -418,6 +418,9 @@ async def lifespan(app: FastAPI):
             )
             """,
             "CREATE INDEX IF NOT EXISTS idx_sa_student ON student_assignments(student_id, created_at)",
+            # ── Teacher-led concept creation: image-crop selection + optional AI ──
+            "ALTER TABLE course_units ADD COLUMN IF NOT EXISTS chapter_ref UUID REFERENCES course_chapters(id) ON DELETE SET NULL",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'ai'",
         ]:
             try:
                 await db.execute(sql)

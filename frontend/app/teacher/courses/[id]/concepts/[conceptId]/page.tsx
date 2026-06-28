@@ -72,7 +72,6 @@ export default function ConceptEditorPage() {
   const [concept,    setConcept]    = useState<ConceptDetail | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [activeTab,  setActiveTab]  = useState<Tab>('summary');
-  const [leftPanel,  setLeftPanel]  = useState<'source' | 'pdf'>('source');
   const [showLeft,   setShowLeft]   = useState(true);
 
   const [summary,    setSummary]    = useState('');
@@ -201,6 +200,16 @@ export default function ConceptEditorPage() {
     return () => clearInterval(iv);
   }, [assetPolling, conceptId, token]);
 
+  async function generateExplanation() {
+    const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/summarize`, {
+      method: 'POST', headers: authH,
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.detail || 'Could not generate an explanation'); return; }
+    setConcept(prev => prev ? { ...prev, pipeline_status: 'summarizing' } : prev);
+    setPipelinePolling(true);
+  }
+
   async function saveSummary() {
     setSavingSum(true); setSavedSum(false);
     await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, {
@@ -326,51 +335,22 @@ export default function ConceptEditorPage() {
   return (
     <div className="h-full flex overflow-hidden">
 
-      {/* ── Left panel ── */}
+      {/* ── Left panel: Chapter PDF ── */}
       <div className={`border-r border-[var(--bd)] flex flex-col overflow-hidden transition-all duration-200 ${showLeft ? 'w-2/5' : 'w-0'}`}>
         {showLeft && (
-          <>
-            <div className="flex border-b border-[var(--bd)] shrink-0">
-              {(['source', 'pdf'] as const).map(p => (
-                <button key={p} onClick={() => setLeftPanel(p)}
-                  className={`flex-1 py-2 text-xs font-medium transition-colors ${leftPanel === p
-                    ? 'text-purple-400 border-b-2 border-purple-400'
-                    : 'text-[var(--tx7)] hover:text-[var(--tx3)]'}`}>
-                  {p === 'source' ? '📄 Source text' : '📑 Chapter PDF'}
-                </button>
-              ))}
-            </div>
-            {leftPanel === 'source' ? (
-              concept.source_text ? (
-                <div className="flex-1 overflow-y-auto p-4">
-                  <p className="text-[var(--tx8)] text-xs mb-3 uppercase tracking-wider font-medium">
-                    What AI read for this concept
-                  </p>
-                  <p className="text-[var(--tx3)] text-sm leading-relaxed whitespace-pre-wrap">{concept.source_text}</p>
-                </div>
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)] p-6 text-center">
-                  <FileText size={28} />
-                  <p className="text-sm">No source text</p>
-                  <p className="text-xs text-[var(--tx8)]">Upload a chapter PDF to auto-map source per concept</p>
-                </div>
-              )
-            ) : (
-              pdfUrl
-                ? <iframe src={pdfUrl} className="flex-1 w-full" title="Chapter PDF" />
-                : <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)]">
-                    {!pdfReady
-                      ? <Loader2 size={20} className="animate-spin text-purple-400" />
-                      : <>
-                          <FileText size={28} />
-                          <p className="text-sm">No PDF available</p>
-                          <p className="text-xs text-[var(--tx8)] text-center px-4">
-                            PDF is stored when you upload a chapter. Old uploads won&apos;t have it — re-upload to enable.
-                          </p>
-                        </>}
-                  </div>
-            )}
-          </>
+          pdfUrl
+            ? <iframe src={pdfUrl} className="flex-1 w-full" title="Chapter PDF" />
+            : <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)]">
+                {!pdfReady
+                  ? <Loader2 size={20} className="animate-spin text-purple-400" />
+                  : <>
+                      <FileText size={28} />
+                      <p className="text-sm">No PDF available</p>
+                      <p className="text-xs text-[var(--tx8)] text-center px-4">
+                        PDF is stored when you upload a chapter. Old uploads won&apos;t have it — re-upload to enable.
+                      </p>
+                    </>}
+              </div>
         )}
       </div>
 
@@ -443,9 +423,18 @@ export default function ConceptEditorPage() {
                       <AlertCircle size={14} /> Generation failed — write the summary manually below.
                     </div>
                   )}
-                  <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider block mb-2">
-                    {hasPipeline ? 'AI-generated summary — edit freely' : 'Summary for students'}
-                  </label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">
+                      {hasPipeline ? 'AI-generated summary — edit freely' : 'Summary for students'}
+                    </label>
+                    {!hasPipeline && concept.source_text && (
+                      <button onClick={generateExplanation}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
+                                   text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
+                        <Zap size={11} /> Generate explanation
+                      </button>
+                    )}
+                  </div>
                   <textarea value={summary} onChange={e => setSummary(e.target.value)}
                     placeholder="Write a student-friendly explanation of this concept…" rows={12}
                     className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-4 py-3

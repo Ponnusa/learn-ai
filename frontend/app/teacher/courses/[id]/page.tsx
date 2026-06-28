@@ -4,15 +4,19 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
   Upload, Loader2, Check, BookOpen, Users,
-  CheckCircle, Globe, Zap, Circle,
+  CheckCircle, Globe, Zap, Circle, Crop, Sparkles, ListChecks,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { PDFViewerModal } from '@/components/chat/PDFViewerModal';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
-interface Concept { id: string; title: string; description?: string; study_set_id?: string; ss_status?: string; pipeline_status?: PipelineStatus; position: number; }
-interface Unit    { id: string; title: string; description?: string; position: number; concepts: Concept[]; }
+interface Concept {
+  id: string; title: string; description?: string; study_set_id?: string; ss_status?: string;
+  pipeline_status?: PipelineStatus; position: number; source?: 'ai' | 'manual';
+}
+interface Unit    { id: string; title: string; description?: string; position: number; chapter_ref?: string | null; concepts: Concept[]; }
 interface Classroom { id: string; name: string; }
 interface Course  {
   id: string; name: string; description?: string;
@@ -53,6 +57,12 @@ export default function CourseDetailPage() {
   // Assign to classroom
   const [myClassrooms, setMyClassrooms] = useState<Classroom[]>([]);
   const [assigning,    setAssigning]    = useState(false);
+
+  // Manual concept creation — crop a region of the chapter PDF as an image
+  const [cropTarget, setCropTarget] = useState<{ unitId: string; chapterRefId: string; file: File } | null>(null);
+  const [suggestingFor, setSuggestingFor] = useState<string | null>(null);
+  const [coverageBusy,   setCoverageBusy]   = useState<string | null>(null);
+  const [coverageResult, setCoverageResult] = useState<{ chapterId: string; summary: string } | null>(null);
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -111,17 +121,75 @@ export default function CourseDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Upload failed');
-      setTotalCount(data.concept_count);
-      setProcessedCount(0);
-      setIsProcessing(true);
-      setPipelineMsg(`"${data.chapter_title}" — generating content for ${data.concept_count} concepts…`);
-      load();
+      // No auto-extraction anymore — the chapter lands as an empty unit. The
+      // teacher either crops concepts from the PDF or clicks "Suggest concepts".
+      await load();
     } catch (err: any) {
       alert(err.message);
     } finally {
       setUploading(false);
       if (chapterRef.current) chapterRef.current.value = '';
     }
+  }
+
+  async function suggestConcepts(chapterRefId: string) {
+    setSuggestingFor(chapterRefId); setPipelineMsg('');
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/chapters/${chapterRefId}/suggest-concepts`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Suggest concepts failed');
+      setTotalCount(data.concept_count);
+      setProcessedCount(0);
+      setIsProcessing(true);
+      setPipelineMsg(`Generating content for ${data.concept_count} concepts…`);
+      load();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSuggestingFor(null);
+    }
+  }
+
+  async function checkCoverage(chapterRefId: string) {
+    setCoverageBusy(chapterRefId);
+    setCoverageResult(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/chapters/${chapterRefId}/coverage-check`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Coverage check failed');
+      setCoverageResult({ chapterId: chapterRefId, summary: data.coverage_summary });
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setCoverageBusy(null);
+    }
+  }
+
+  async function createConceptFromRegion(unitId: string, chapterRefId: string, imageDataUrl: string) {
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/chapters/${chapterRefId}/concepts/from-region`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ unit_id: unitId, image_data_url: imageDataUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not create concept from this selection');
+      setCropTarget(null);
+      router.push(`/teacher/courses/${courseId}/concepts/${data.concept_id}`);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  }
+
+  async function openCropModal(unitId: string, chapterRefId: string) {
+    const res = await fetch(`${API_BASE}/api/courses/chapters/${chapterRefId}/pdf`, { headers });
+    if (!res.ok) { alert('Could not load the chapter PDF'); return; }
+    const blob = await res.blob();
+    const file = new File([blob], 'chapter.pdf', { type: 'application/pdf' });
+    setCropTarget({ unitId, chapterRefId, file });
   }
 
   // First step on file pick: check whether this looks like a whole textbook
@@ -431,11 +499,39 @@ export default function CourseDetailPage() {
                 </p>
                 <p className="text-[var(--tx7)] text-xs mt-0.5">{unit.concepts.length} concept{unit.concepts.length !== 1 ? 's' : ''}</p>
               </div>
+              {unit.chapter_ref && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button onClick={() => openCropModal(unit.id, unit.chapter_ref!)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
+                               text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
+                    <Crop size={12} /> From PDF
+                  </button>
+                  <button onClick={() => suggestConcepts(unit.chapter_ref!)} disabled={suggestingFor === unit.chapter_ref}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
+                               text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
+                    {suggestingFor === unit.chapter_ref ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                    Suggest concepts
+                  </button>
+                  <button onClick={() => checkCoverage(unit.chapter_ref!)} disabled={coverageBusy === unit.chapter_ref}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
+                               text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
+                    {coverageBusy === unit.chapter_ref ? <Loader2 size={12} className="animate-spin" /> : <ListChecks size={12} />}
+                    Check coverage
+                  </button>
+                </div>
+              )}
               <button onClick={() => deleteUnit(unit.id)}
                 className="text-[var(--tx8)] hover:text-red-400 transition-colors p-1">
                 <Trash2 size={14} />
               </button>
             </div>
+
+            {coverageResult && coverageResult.chapterId === unit.chapter_ref && (
+              <div className="mx-5 mb-3 px-3 py-2.5 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl flex items-start justify-between gap-3">
+                <p className="text-[var(--tx3)] text-xs whitespace-pre-wrap flex-1">{coverageResult.summary}</p>
+                <button onClick={() => setCoverageResult(null)} className="text-[var(--tx8)] hover:text-[var(--tx3)] text-xs shrink-0">✕</button>
+              </div>
+            )}
 
             {/* Concepts */}
             {expanded.has(unit.id) && (
@@ -446,7 +542,12 @@ export default function CourseDetailPage() {
                     <button
                       onClick={() => router.push(`/teacher/courses/${courseId}/concepts/${c.id}`)}
                       className="flex-1 min-w-0 text-left hover:text-purple-400 transition-colors">
-                      <p className="text-[var(--tx2)] text-sm truncate group-hover:text-purple-400 transition-colors">{c.title}</p>
+                      <p className="text-[var(--tx2)] text-sm truncate group-hover:text-purple-400 transition-colors flex items-center gap-1.5">
+                        {c.title}
+                        {c.source === 'manual' && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 shrink-0">Manual</span>
+                        )}
+                      </p>
                       <span className="text-xs flex items-center gap-1 mt-0.5">
                         {c.pipeline_status === 'summarizing' && <><Loader2 size={9} className="animate-spin text-amber-400" /><span className="text-amber-400">Generating…</span></>}
                         {c.pipeline_status === 'ready'       && <><Circle size={9} className="fill-blue-400 text-blue-400" /><span className="text-blue-400">Ready for review</span></>}
@@ -541,6 +642,20 @@ export default function CourseDetailPage() {
             })}
           </div>
         </div>
+      )}
+
+      {cropTarget && (
+        <PDFViewerModal
+          file={cropTarget.file}
+          onClose={() => setCropTarget(null)}
+          onAsk={() => {}}
+          actions={[{
+            label: 'Create concept from this',
+            icon: Sparkles,
+            primary: true,
+            onClick: (imageDataUrl) => createConceptFromRegion(cropTarget.unitId, cropTarget.chapterRefId, imageDataUrl),
+          }]}
+        />
       )}
     </div>
   );

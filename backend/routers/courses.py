@@ -3,6 +3,7 @@ Course builder router — teachers create courses (units + concepts),
 optionally imported from a syllabus PDF, then assign to classrooms.
 """
 import asyncio
+import base64
 import json
 import logging
 import re
@@ -18,30 +19,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
 
-async def _summarize_concepts_bg(concept_ids: list[str], course_id: str):
-    """Background: generate AI summary + transcript per concept, one at a time."""
+async def _summarize_one_concept(concept_id: str, course: dict | None):
+    """Generate AI summary + transcript for a single concept ('Generate explanation')."""
     from openai import AsyncOpenAI
     client = AsyncOpenAI()
 
-    async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT name, subject FROM courses WHERE id = $1::uuid", course_id
-        )
+    try:
+        async with get_db() as db:
+            concept = await db.fetchrow(
+                "SELECT title, description, source_text FROM course_concepts WHERE id = $1::uuid",
+                concept_id,
+            )
+        if not concept:
+            return
 
-    for concept_id in concept_ids:
-        try:
-            async with get_db() as db:
-                concept = await db.fetchrow(
-                    "SELECT title, description, source_text FROM course_concepts WHERE id = $1::uuid",
-                    concept_id,
-                )
-            if not concept:
-                continue
+        source = concept["source_text"] or concept["description"] or concept["title"]
+        subject = (course["subject"] if course else None) or "General"
 
-            source = concept["source_text"] or concept["description"] or concept["title"]
-            subject = (course["subject"] if course else None) or "General"
-
-            prompt = f"""You are an expert educator creating study material for students.
+        prompt = f"""You are an expert educator creating study material for students.
 
 Concept: {concept['title']}
 Subject: {subject}
@@ -67,29 +62,39 @@ Create two things grounded strictly in the source above:
 Return ONLY valid JSON:
 {{"summary": "...", "transcript": "..."}}"""
 
-            response = await client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                max_tokens=2000,
-                temperature=0.4,
+        response = await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            max_tokens=2000,
+            temperature=0.4,
+        )
+        result = json.loads(response.choices[0].message.content)
+
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE course_concepts
+                SET ai_summary = $1, ai_transcript = $2, pipeline_status = 'ready'
+                WHERE id = $3::uuid
+            """, result.get("summary", ""), result.get("transcript", ""), concept_id)
+
+    except Exception as exc:
+        logger.error("[pipeline] concept %s failed: %s", concept_id, exc)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET pipeline_status = 'failed' WHERE id = $1::uuid",
+                concept_id,
             )
-            result = json.loads(response.choices[0].message.content)
 
-            async with get_db() as db:
-                await db.execute("""
-                    UPDATE course_concepts
-                    SET ai_summary = $1, ai_transcript = $2, pipeline_status = 'ready'
-                    WHERE id = $3::uuid
-                """, result.get("summary", ""), result.get("transcript", ""), concept_id)
 
-        except Exception as exc:
-            logger.error("[pipeline] concept %s failed: %s", concept_id, exc)
-            async with get_db() as db:
-                await db.execute(
-                    "UPDATE course_concepts SET pipeline_status = 'failed' WHERE id = $1::uuid",
-                    concept_id,
-                )
+async def _summarize_concepts_bg(concept_ids: list[str], course_id: str):
+    """Background: generate AI summary + transcript per concept, one at a time."""
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT name, subject FROM courses WHERE id = $1::uuid", course_id
+        )
+    for concept_id in concept_ids:
+        await _summarize_one_concept(concept_id, dict(course) if course else None)
 
 
 async def _require_teacher(authorization: str):
@@ -356,7 +361,7 @@ async def get_course(course_id: str, authorization: str = Header(...)):
             raise HTTPException(404, "Course not found")
 
         units = await db.fetch("""
-            SELECT id, title, description, position FROM course_units
+            SELECT id, title, description, position, chapter_ref FROM course_units
             WHERE course_id = $1::uuid ORDER BY position, created_at
         """, course_id)
 
@@ -365,7 +370,7 @@ async def get_course(course_id: str, authorization: str = Header(...)):
         if unit_ids:
             concepts = await db.fetch("""
                 SELECT cc.id, cc.unit_id, cc.title, cc.description,
-                       cc.study_set_id, cc.position,
+                       cc.study_set_id, cc.position, cc.pipeline_status, cc.source,
                        ss.status AS ss_status
                 FROM course_concepts cc
                 LEFT JOIN study_sets ss ON ss.id = cc.study_set_id
@@ -386,12 +391,14 @@ async def get_course(course_id: str, authorization: str = Header(...)):
         uid = str(c["unit_id"])
         if uid in concept_map:
             concept_map[uid].append({
-                "id":           str(c["id"]),
-                "title":        c["title"],
-                "description":  c["description"],
-                "study_set_id": str(c["study_set_id"]) if c["study_set_id"] else None,
-                "ss_status":    c["ss_status"],
-                "position":     c["position"],
+                "id":              str(c["id"]),
+                "title":           c["title"],
+                "description":     c["description"],
+                "study_set_id":    str(c["study_set_id"]) if c["study_set_id"] else None,
+                "ss_status":       c["ss_status"],
+                "position":        c["position"],
+                "pipeline_status": c["pipeline_status"],
+                "source":          c["source"],
             })
 
     return {
@@ -402,6 +409,7 @@ async def get_course(course_id: str, authorization: str = Header(...)):
                 "title":       u["title"],
                 "description": u["description"],
                 "position":    u["position"],
+                "chapter_ref": str(u["chapter_ref"]) if u["chapter_ref"] else None,
                 "concepts":    concept_map.get(str(u["id"]), []),
             }
             for u in units
@@ -606,8 +614,8 @@ async def add_concept(unit_id: str, req: ConceptRequest, authorization: str = He
             req.position = int(max_pos) + 1
 
         row = await db.fetchrow("""
-            INSERT INTO course_concepts (unit_id, title, description, position)
-            VALUES ($1::uuid, $2, $3, $4)
+            INSERT INTO course_concepts (unit_id, title, description, position, source)
+            VALUES ($1::uuid, $2, $3, $4, 'manual')
             RETURNING id, title, description, position, study_set_id
         """, unit_id, req.title, req.description, req.position)
     return {
@@ -639,6 +647,36 @@ async def delete_concept(concept_id: str, authorization: str = Header(...)):
     async with get_db() as db:
         await db.execute("DELETE FROM course_concepts WHERE id = $1::uuid", concept_id)
     return {"ok": True}
+
+
+@router.post("/concepts/{concept_id}/summarize")
+async def summarize_concept(
+    concept_id:    str,
+    bg:            BackgroundTasks,
+    authorization: str = Header(...),
+):
+    """On-demand 'Generate explanation' — works for any concept (AI or manual-origin),
+    any time. Unlocks audio/video generation once it completes."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.id, cc.source_text, c.subject
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+    if not concept["source_text"]:
+        raise HTTPException(400, "This concept has no source text yet")
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE course_concepts SET pipeline_status = 'summarizing' WHERE id = $1::uuid", concept_id
+        )
+    bg.add_task(_summarize_one_concept, concept_id, {"subject": concept["subject"]})
+    return {"ok": True, "pipeline_status": "summarizing"}
 
 
 # ── Syllabus import ───────────────────────────────────────────────────────────
@@ -1020,19 +1058,53 @@ async def review_concept_flashcard(
 
 # ── Chapter upload → AI pipeline ─────────────────────────────────────────────
 
-async def _create_chapter_from_pdf(course_id: str, course: dict, file_bytes: bytes, filename: str) -> dict:
+async def _create_chapter_only(course_id: str, course: dict, file_bytes: bytes, filename: str) -> dict:
     """
-    Shared by the single-chapter upload endpoint and the bulk-split flow:
-    1. AI extracts concepts with verbatim source chunks (sync, fast)
-    2. Creates a course_chapters row (with the PDF bytes), a unit, and concepts
-       in DB with pipeline_status='summarizing'
-    Does NOT kick off the background summarizer — callers do that themselves so
-    bulk-split can batch all concept_ids across chapters into one bg task.
+    Create the course_chapters row (with the PDF bytes) and an empty unit for it —
+    no AI call, no concepts. Concepts are added later either by the teacher
+    cropping regions from the PDF or by running _extract_concepts_for_chapter.
+    """
+    from services.studyset_processor import extract_text_from_pdf
+
+    _, page_count = extract_text_from_pdf(file_bytes)
+    chapter_title = filename.replace(".pdf", "")
+
+    async with get_db() as db:
+        chapter_row = await db.fetchrow("""
+            INSERT INTO course_chapters (course_id, filename, page_count, concept_count, status, pdf_data)
+            VALUES ($1::uuid, $2, $3, 0, 'ready', $4) RETURNING id
+        """, course_id, filename, page_count, file_bytes)
+
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM course_units WHERE course_id = $1::uuid",
+            course_id,
+        )
+        unit_row = await db.fetchrow("""
+            INSERT INTO course_units (course_id, title, description, position, chapter_ref)
+            VALUES ($1::uuid, $2, $3, $4, $5) RETURNING id
+        """, course_id, chapter_title, f"Source: {filename}", int(max_pos) + 1, str(chapter_row["id"]))
+
+    return {
+        "chapter_id":    str(chapter_row["id"]),
+        "chapter_title": chapter_title,
+        "unit_id":       str(unit_row["id"]),
+        "concept_count": 0,
+        "concept_ids":   [],
+        "page_count":    page_count,
+    }
+
+
+async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: dict, file_bytes: bytes) -> list[str]:
+    """
+    AI-extracts concepts with verbatim source chunks from a chapter's full text and
+    appends them to an existing unit (after whatever concepts — manual or AI — are
+    already there). Sets source='ai' on each. Does NOT kick off the background
+    summarizer — callers do that themselves.
     """
     from services.studyset_processor import extract_text_from_pdf
     from openai import AsyncOpenAI
 
-    text, page_count = extract_text_from_pdf(file_bytes)
+    text, _ = extract_text_from_pdf(file_bytes)
     truncated = text[:80_000]
 
     client = AsyncOpenAI()
@@ -1072,53 +1144,55 @@ Rules:
     )
     result       = json.loads(response.choices[0].message.content)
     concepts_raw = result.get("concepts", [])
-    chapter_title = result.get("chapter_title") or filename.replace(".pdf", "")
 
     async with get_db() as db:
-        chapter_row = await db.fetchrow("""
-            INSERT INTO course_chapters (course_id, filename, page_count, concept_count, status, pdf_data)
-            VALUES ($1::uuid, $2, $3, $4, 'ready', $5) RETURNING id
-        """, course_id, filename, page_count, len(concepts_raw), file_bytes)
-
         max_pos = await db.fetchval(
-            "SELECT COALESCE(MAX(position), -1) FROM course_units WHERE course_id = $1::uuid",
-            course_id,
+            "SELECT COALESCE(MAX(position), -1) FROM course_concepts WHERE unit_id = $1::uuid", unit_id
         )
-        unit_row = await db.fetchrow("""
-            INSERT INTO course_units (course_id, title, description, position)
-            VALUES ($1::uuid, $2, $3, $4) RETURNING id
-        """, course_id, chapter_title, f"Source: {filename}", int(max_pos) + 1)
+        base_pos = int(max_pos) + 1
+
+        await db.execute(
+            "UPDATE course_chapters SET concept_count = concept_count + $1 WHERE id = $2::uuid",
+            len(concepts_raw), chapter_id,
+        )
 
         concept_ids = []
-        for pos, c in enumerate(concepts_raw):
+        for i, c in enumerate(concepts_raw):
             row = await db.fetchrow("""
                 INSERT INTO course_concepts
-                  (unit_id, title, description, source_text, pipeline_status, position, chapter_ref)
-                VALUES ($1::uuid, $2, $3, $4, 'summarizing', $5, $6)
+                  (unit_id, title, description, source_text, pipeline_status, position, chapter_ref, source)
+                VALUES ($1::uuid, $2, $3, $4, 'summarizing', $5, $6, 'ai')
                 RETURNING id
-            """, str(unit_row["id"]),
+            """, unit_id,
                 c.get("title", ""), c.get("description", ""),
-                c.get("source_text", ""), pos, str(chapter_row["id"]))
+                c.get("source_text", ""), base_pos + i, chapter_id)
             concept_ids.append(str(row["id"]))
 
-    return {
-        "chapter_id":    str(chapter_row["id"]),
-        "chapter_title": chapter_title,
-        "unit_id":       str(unit_row["id"]),
-        "concept_count": len(concept_ids),
-        "concept_ids":   concept_ids,
-        "page_count":    page_count,
-    }
+    return concept_ids
+
+
+async def _create_chapter_from_pdf(course_id: str, course: dict, file_bytes: bytes, filename: str) -> dict:
+    """
+    Shared by the bulk-split flow: create the chapter+unit, then immediately
+    AI-extract concepts for it. Single-chapter upload (upload_chapter below) no
+    longer auto-extracts — it calls _create_chapter_only and leaves extraction
+    as an opt-in "Suggest concepts" action.
+    """
+    base = await _create_chapter_only(course_id, course, file_bytes, filename)
+    concept_ids = await _extract_concepts_for_chapter(base["chapter_id"], base["unit_id"], course, file_bytes)
+    base["concept_ids"]   = concept_ids
+    base["concept_count"] = len(concept_ids)
+    return base
 
 
 @router.post("/{course_id}/chapters")
 async def upload_chapter(
     course_id:     str,
-    bg:            BackgroundTasks,
     authorization: str        = Header(...),
     file:          UploadFile = File(...),
 ):
-    """Upload a single chapter PDF — see _create_chapter_from_pdf for the pipeline."""
+    """Upload a single chapter PDF — lands with an empty unit. Concepts are added
+    later by cropping regions from the PDF or via /chapters/{id}/suggest-concepts."""
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         course = await db.fetchrow(
@@ -1135,9 +1209,176 @@ async def upload_chapter(
     if len(file_bytes) > 30 * 1024 * 1024:
         raise HTTPException(400, "File too large — max 30 MB")
 
-    result = await _create_chapter_from_pdf(course_id, dict(course), file_bytes, file.filename)
-    bg.add_task(_summarize_concepts_bg, result["concept_ids"], course_id)
-    return result
+    return await _create_chapter_only(course_id, dict(course), file_bytes, file.filename)
+
+
+@router.post("/chapters/{chapter_id}/suggest-concepts")
+async def suggest_concepts(
+    chapter_id:    str,
+    bg:            BackgroundTasks,
+    authorization: str = Header(...),
+):
+    """Opt-in AI concept extraction for an already-uploaded chapter."""
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        chapter = await db.fetchrow("""
+            SELECT ch.id, ch.pdf_data, ch.course_id, cu.id AS unit_id, c.name, c.subject
+            FROM course_chapters ch
+            JOIN course_units cu ON cu.chapter_ref = ch.id
+            JOIN courses c       ON c.id = ch.course_id AND c.teacher_id = $2::uuid
+            WHERE ch.id = $1::uuid
+        """, chapter_id, teacher_id)
+    if not chapter or not chapter["pdf_data"]:
+        raise HTTPException(404, "Chapter not found")
+
+    course = {"name": chapter["name"], "subject": chapter["subject"]}
+    concept_ids = await _extract_concepts_for_chapter(
+        chapter_id, str(chapter["unit_id"]), course, bytes(chapter["pdf_data"]),
+    )
+    bg.add_task(_summarize_concepts_bg, concept_ids, str(chapter["course_id"]))
+    return {"concept_ids": concept_ids, "concept_count": len(concept_ids)}
+
+
+class RegionConceptRequest(BaseModel):
+    unit_id:        str
+    image_data_url: str
+
+
+@router.post("/chapters/{chapter_id}/concepts/from-region")
+async def create_concept_from_region(
+    chapter_id:    str,
+    req:           RegionConceptRequest,
+    authorization: str = Header(...),
+):
+    """
+    Teacher crops a region of the chapter PDF (captured as a PNG, not a text
+    selection — PDF text layers are unreliable for some of these textbooks).
+    Vision-transcribes it to source_text, creates a draft concept, stores the
+    crop as the concept's first image, and seeds a chat study set immediately.
+    """
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        chapter = await db.fetchrow(
+            "SELECT id, course_id FROM course_chapters WHERE id = $1::uuid", chapter_id
+        )
+        course = await db.fetchrow(
+            "SELECT subject FROM courses WHERE id = $1::uuid", chapter["course_id"] if chapter else None
+        )
+    if not chapter:
+        raise HTTPException(404, "Chapter not found")
+
+    try:
+        header, b64data = req.image_data_url.split(",", 1)
+        image_bytes = base64.b64decode(b64data)
+        mime = "image/png" if "image/png" in header else "image/jpeg"
+    except Exception:
+        raise HTTPException(400, "Invalid image data")
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+    vision_prompt = """This is a cropped region of a textbook page, selected by a teacher to become one
+learning concept. Transcribe the text in this image verbatim (preserve numbers, symbols and
+equations exactly as shown). If the image is mostly a diagram/illustration with little or no
+text, instead write a one-sentence description of what it shows.
+
+Also suggest a concise 3-6 word title for this as a learning concept.
+
+Return ONLY valid JSON: {"title": "...", "source_text": "..."}"""
+
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        max_tokens=1000,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64data}"}},
+                {"type": "text",      "text": vision_prompt},
+            ],
+        }],
+        response_format={"type": "json_object"},
+    )
+    result      = json.loads(response.choices[0].message.content)
+    title       = (result.get("title") or "Untitled concept").strip()
+    source_text = (result.get("source_text") or "").strip()
+
+    async with get_db() as db:
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM course_concepts WHERE unit_id = $1::uuid", req.unit_id
+        )
+        concept_row = await db.fetchrow("""
+            INSERT INTO course_concepts
+              (unit_id, title, source_text, pipeline_status, position, chapter_ref, source)
+            VALUES ($1::uuid, $2, $3, 'draft', $4, $5, 'manual')
+            RETURNING id
+        """, req.unit_id, title, source_text, int(max_pos) + 1, chapter_id)
+        concept_id = str(concept_row["id"])
+
+        await db.execute("""
+            INSERT INTO concept_images (concept_id, data, mime_type, caption, position)
+            VALUES ($1::uuid, $2, $3, 'Source excerpt', 0)
+        """, concept_id, image_bytes, mime)
+
+    study_set_id = await _create_seeded_study_set(
+        title, course["subject"] if course else None, source_text or title,
+    )
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE course_concepts SET study_set_id = $1::uuid WHERE id = $2::uuid",
+            study_set_id, concept_id,
+        )
+
+    return {"concept_id": concept_id, "study_set_id": study_set_id, "title": title, "source_text": source_text}
+
+
+@router.post("/chapters/{chapter_id}/coverage-check")
+async def check_chapter_coverage(chapter_id: str, authorization: str = Header(...)):
+    """
+    Manual, on-demand sanity check: does anything from the chapter look like it's
+    not covered by any concept yet? Topic-level, not page-accurate — good enough
+    to point the teacher at what's left without forcing them to re-read the PDF.
+    """
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        chapter = await db.fetchrow(
+            "SELECT pdf_data FROM course_chapters WHERE id = $1::uuid", chapter_id
+        )
+        concepts = await db.fetch(
+            "SELECT title, source_text FROM course_concepts WHERE chapter_ref = $1::uuid ORDER BY position",
+            chapter_id,
+        )
+    if not chapter or not chapter["pdf_data"]:
+        raise HTTPException(404, "Chapter not found")
+
+    from services.studyset_processor import extract_text_from_pdf
+    full_text, _ = extract_text_from_pdf(bytes(chapter["pdf_data"]))
+
+    if not concepts:
+        return {"coverage_summary": "No concepts have been created for this chapter yet — nothing is covered."}
+
+    covered = "\n\n".join(f"- {c['title']}: {(c['source_text'] or '')[:500]}" for c in concepts)
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+    prompt = f"""Here is the full text of a textbook chapter, and a list of concepts a teacher has
+already created from it (title + excerpt each).
+
+Identify anything meaningful from the chapter that is NOT yet covered by any of these concepts.
+Answer in 2-5 short bullet points naming the missing topic/section. If everything meaningful is
+already covered, just answer "Fully covered."
+
+--- FULL CHAPTER TEXT ---
+{full_text[:40_000]}
+
+--- CONCEPTS ALREADY CREATED ---
+{covered[:8_000]}"""
+
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=400,
+        temperature=0.2,
+    )
+    return {"coverage_summary": response.choices[0].message.content.strip()}
 
 
 @router.post("/{course_id}/chapters/detect-toc")
