@@ -1042,6 +1042,8 @@ Course: {course['name']}
 Subject: {course['subject'] or 'General'}
 
 For EACH concept, include the EXACT verbatim paragraph(s) from the text it is based on.
+Also pull out any worked examples or numbered practice problems from that same section,
+if there are any (e.g. "Calculate the squares: 64², 35²...") — verbatim, not summarized.
 
 Return ONLY valid JSON:
 {{
@@ -1050,7 +1052,8 @@ Return ONLY valid JSON:
     {{
       "title": "Concise concept name",
       "description": "One sentence: what the student will understand",
-      "source_text": "The exact verbatim sentences/paragraphs from the text that cover this concept"
+      "source_text": "The exact verbatim sentences/paragraphs from the text that cover this concept",
+      "problems": ["Verbatim problem statement 1", "Verbatim problem statement 2"]
     }}
   ]
 }}
@@ -1059,6 +1062,8 @@ Rules:
 - 4–12 concepts, in the order they appear in the text
 - source_text must be a direct quote from the document
 - Each concept = one distinct learnable idea
+- "problems" is optional — omit or leave empty if this section has no worked
+  examples or practice problems; otherwise include each one verbatim, max 5
 
 --- CHAPTER ---
 {truncated}"""
@@ -1099,7 +1104,15 @@ Rules:
             """, str(unit_row["id"]),
                 c.get("title", ""), c.get("description", ""),
                 c.get("source_text", ""), pos, str(chapter_row["id"]))
-            concept_ids.append(str(row["id"]))
+            concept_id = str(row["id"])
+            concept_ids.append(concept_id)
+
+            for prob_pos, problem_text in enumerate((c.get("problems") or [])[:5]):
+                if problem_text and problem_text.strip():
+                    await db.execute("""
+                        INSERT INTO concept_problems (concept_id, problem_text, position)
+                        VALUES ($1::uuid, $2, $3)
+                    """, concept_id, problem_text.strip(), prob_pos)
 
     return {
         "chapter_id":    str(chapter_row["id"]),
@@ -1545,6 +1558,66 @@ async def update_concept_detail(
             f"UPDATE course_concepts SET {', '.join(sets)} WHERE id = $1::uuid", *params
         )
     return {"ok": True}
+
+
+async def _create_seeded_study_set(title: str, subject: str | None, material_text: str) -> str:
+    """Creates a study_sets row + a ready study_materials row seeded with material_text — no upload step needed."""
+    async with get_db() as db:
+        study_set = await db.fetchrow("""
+            INSERT INTO study_sets (title, subject, description, status)
+            VALUES ($1, $2, $3, 'ready')
+            RETURNING id
+        """, title, subject or "General", f'Auto-created from course material for "{title}"')
+        study_set_id = study_set["id"]
+        await db.execute("""
+            INSERT INTO study_materials (study_set_id, filename, raw_text, char_count, status)
+            VALUES ($1::uuid, $2, $3, $4, 'ready')
+        """, study_set_id, f"{title}.txt", material_text, len(material_text))
+    return str(study_set_id)
+
+
+@router.post("/concepts/{concept_id}/studyset")
+async def create_concept_studyset(concept_id: str, authorization: str = Header(...)):
+    """
+    Auto-seed a study set for this concept from material we already have — the
+    chapter's full extracted text if it came from the chapter-upload pipeline,
+    falling back to the concept's own source_text excerpt otherwise. No-op (just
+    returns the existing one) if the concept already has a study set linked.
+    """
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.id, cc.title, cc.source_text, cc.study_set_id, cc.chapter_ref, c.subject
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+    if concept["study_set_id"]:
+        return {"study_set_id": str(concept["study_set_id"])}
+
+    material_text = concept["source_text"] or concept["title"]
+    if concept["chapter_ref"]:
+        async with get_db() as db:
+            chapter = await db.fetchrow(
+                "SELECT pdf_data FROM course_chapters WHERE id = $1::uuid", concept["chapter_ref"]
+            )
+        if chapter and chapter["pdf_data"]:
+            from services.studyset_processor import extract_text_from_pdf
+            full_text, _ = extract_text_from_pdf(bytes(chapter["pdf_data"]))
+            if full_text:
+                material_text = full_text
+
+    study_set_id = await _create_seeded_study_set(concept["title"], concept["subject"], material_text)
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE course_concepts SET study_set_id = $1::uuid WHERE id = $2::uuid",
+            study_set_id, concept_id,
+        )
+    return {"study_set_id": study_set_id}
 
 
 # ── Concept images ────────────────────────────────────────────────────────────

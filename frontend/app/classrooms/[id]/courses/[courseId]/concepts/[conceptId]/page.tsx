@@ -29,6 +29,13 @@ interface Assets {
   quiz: QuizQuestion[]; flashcards: Flashcard[];
 }
 
+interface WorkedExample {
+  id: string; problem_text: string;
+  solution_text: string | null; solution_status: string;
+  video_status: string; video_url?: string | null;
+  alt_teaching: string | null; alt_status: string;
+}
+
 export default function StudentConceptDetailPage() {
   const router      = useRouter();
   const params      = useParams();
@@ -41,6 +48,7 @@ export default function StudentConceptDetailPage() {
   const [assets,     setAssets]     = useState<Assets | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [activating, setActivating] = useState(false);
+  const [examples,   setExamples]   = useState<WorkedExample[]>([]);
 
   // Quiz state
   const [quizAnswers, setQuizAnswers]   = useState<Record<number, number>>({});
@@ -67,12 +75,14 @@ export default function StudentConceptDetailPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [conceptRes, assetsRes] = await Promise.all([
+      const [conceptRes, assetsRes, examplesRes] = await Promise.all([
         fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, { headers: authH }),
         fetch(`${API_BASE}/api/courses/concepts/${conceptId}/assets`, { headers: authH }),
+        fetch(`${API_BASE}/api/courses/concepts/${conceptId}/problems/approved`, { headers: authH }),
       ]);
-      if (conceptRes.ok) setConcept(await conceptRes.json());
-      if (assetsRes.ok)  setAssets(await assetsRes.json());
+      if (conceptRes.ok)  setConcept(await conceptRes.json());
+      if (assetsRes.ok)   setAssets(await assetsRes.json());
+      if (examplesRes.ok) setExamples(await examplesRes.json());
     } finally { setLoading(false); }
   }
 
@@ -372,6 +382,36 @@ export default function StudentConceptDetailPage() {
                 </p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Worked examples */}
+      {examples.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+            <HelpCircle size={12} /> Worked examples
+          </h2>
+          <div className="space-y-3">
+            {examples.map(ex => (
+              <div key={ex.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                <p className="text-[var(--tx1)] text-sm whitespace-pre-wrap mb-3">{ex.problem_text}</p>
+                {ex.solution_status === 'ready' && ex.solution_text && (
+                  <div className="bg-[var(--ov1)] rounded-xl p-3 mb-2">
+                    <p className="text-[var(--tx2)] text-xs whitespace-pre-wrap">{ex.solution_text}</p>
+                  </div>
+                )}
+                {ex.video_status === 'ready' && ex.video_url && (
+                  <video controls src={ex.video_url} className="w-full aspect-video rounded-xl mb-2" />
+                )}
+                {ex.alt_status === 'ready' && ex.alt_teaching && (
+                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3">
+                    <p className="text-amber-400 text-[10px] uppercase tracking-wider mb-1.5">Other ways to think about it</p>
+                    <p className="text-[var(--tx2)] text-xs whitespace-pre-wrap">{ex.alt_teaching}</p>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       )}
