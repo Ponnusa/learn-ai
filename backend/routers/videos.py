@@ -23,6 +23,7 @@ from services.manim import (
     generate_manim_from_solution,
     fix_manim_colors,
     ensure_numpy_import,
+    strip_invalid_tex_weight,
     _trigger_video_generation,
 )
 
@@ -299,6 +300,7 @@ async def _generate_video_bg(
         )
         code     = fix_manim_colors(code_data["code"])
         code     = ensure_numpy_import(code)
+        code     = strip_invalid_tex_weight(code)
         svg_urls = code_data.get("svg_urls") or {}
 
         async with get_db() as db:
@@ -368,6 +370,7 @@ async def _retry_manim_bg(
         )
         code     = fix_manim_colors(code_data["code"])
         code     = ensure_numpy_import(code)
+        code     = strip_invalid_tex_weight(code)
         svg_urls = code_data.get("svg_urls") or {}
 
         async with get_db() as db:

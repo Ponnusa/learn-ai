@@ -9,6 +9,7 @@ Public API (imported by routers/videos.py):
   generate_manim_from_solution(solution_data, language, duration, ar)    → async dict
   fix_manim_colors(code)       → str
   ensure_numpy_import(code)    → str
+  strip_invalid_tex_weight(code) → str
   _trigger_video_generation(video_id, svg_urls) → None (fire-and-forget)
 """
 import ast as _ast_module
@@ -1733,6 +1734,41 @@ def fix_manim_colors(code: str) -> str:
     return code
 
 
+_LATEX_MOBJECT_RE = re.compile(r'\b(?:MathTex|Tex|SingleStringMathTex)\s*\(')
+_WEIGHT_KWARG_RE  = re.compile(r',?\s*weight\s*=\s*[A-Za-z_][A-Za-z0-9_.]*')
+
+
+def strip_invalid_tex_weight(code: str) -> str:
+    """
+    Local hotfix, not synced from AnimLearn: MathTex/Tex (LaTeX-rendered mobjects)
+    don't accept a `weight=` kwarg in this Manim version — only Text/MarkupText do.
+    The AI occasionally adds it anyway, crashing the render with
+    "Mobject.__init__() got an unexpected keyword argument 'weight'" (seen on
+    videos 30 and 31). Strip weight=... only from MathTex/Tex calls — paren-depth
+    matched so it's safe with nested calls like ManimColor("#66BB6A") — leaving
+    Text(...) calls (where weight is valid) untouched.
+    """
+    out, i, n = [], 0, len(code)
+    while True:
+        m = _LATEX_MOBJECT_RE.search(code, i)
+        if not m:
+            out.append(code[i:])
+            break
+        out.append(code[i:m.end()])
+        depth, j = 1, m.end()
+        while j < n and depth > 0:
+            if code[j] == '(':
+                depth += 1
+            elif code[j] == ')':
+                depth -= 1
+            j += 1
+        call_args = _WEIGHT_KWARG_RE.sub('', code[m.end():j - 1])
+        out.append(call_args)
+        out.append(')')
+        i = j
+    return ''.join(out)
+
+
 def ensure_numpy_import(code: str) -> str:
     """Add 'import numpy as np' if numpy is used but not imported."""
     uses_numpy = bool(re.search(r'\bnp\.(linspace|cos|sin|tan|pi|array|zeros|ones|arange|sqrt|abs|dot|cross|linalg)\b', code))
@@ -2409,6 +2445,7 @@ MANDATORY RULES:
     # Safety patches
     code = fix_manim_colors(code)
     code = ensure_numpy_import(code)
+    code = strip_invalid_tex_weight(code)
     code = re.sub(r'VGroup\(\s*\*\s*self\.mobjects\s*\)', 'Group(*self.mobjects)', code)
 
     # Fix hallucinated / expired SVG URLs in get_svg() calls
@@ -2560,6 +2597,7 @@ CODE TO REVIEW:
     code = re.sub(r'VGroup\(\s*\*\s*self\.mobjects\s*\)', 'Group(*self.mobjects)', code)
     code = fix_manim_colors(code)
     code = ensure_numpy_import(code)
+    code = strip_invalid_tex_weight(code)
 
     # ─── AST undefined-name check + targeted fix pass ─────────────────────
     try:
@@ -2571,6 +2609,7 @@ CODE TO REVIEW:
             code = re.sub(r'VGroup\(\s*\*\s*self\.mobjects\s*\)', 'Group(*self.mobjects)', code)
             code = fix_manim_colors(code)
             code = ensure_numpy_import(code)
+            code = strip_invalid_tex_weight(code)
             # Verify fix actually resolved the issues
             still_undefined = find_undefined_in_construct(code)
             if still_undefined:
