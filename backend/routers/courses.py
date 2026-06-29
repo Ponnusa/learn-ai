@@ -679,6 +679,213 @@ async def summarize_concept(
     return {"ok": True, "pipeline_status": "summarizing"}
 
 
+# ── Per-concept authoring chat (teacher-only — never shown to students) ───────
+
+class ConceptChatMessage(BaseModel):
+    message: str
+
+
+@router.get("/concepts/{concept_id}/concept-chat")
+async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        conv = await db.fetchrow(
+            "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+        )
+        if not conv:
+            return []
+        rows = await db.fetch("""
+            SELECT id, role, content, created_at FROM messages
+            WHERE conversation_id = $1::uuid ORDER BY created_at
+        """, conv["id"])
+    return [
+        {"id": str(r["id"]), "role": r["role"], "content": r["content"], "created_at": r["created_at"].isoformat()}
+        for r in rows
+    ]
+
+
+@router.post("/concepts/{concept_id}/concept-chat")
+async def send_concept_chat_message(
+    concept_id:    str,
+    req:           ConceptChatMessage,
+    authorization: str = Header(...),
+):
+    """
+    Teacher-only authoring chat for a concept — ask AI to draft a summary/transcript,
+    request revisions, give style examples. Grounded in source_text (+ full chapter
+    text if available) and the concept's cropped image (if any), so the AI can
+    actually see diagrams that plain OCR'd text loses (e.g. a diagonal-sum grid).
+    Never shown to students.
+    """
+    teacher_id = await _require_teacher(authorization)
+    if not req.message.strip():
+        raise HTTPException(400, "Message cannot be empty")
+
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.id, cc.title, cc.source_text, cc.chapter_ref, c.subject
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+
+    async with get_db() as db:
+        conv = await db.fetchrow(
+            "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+        )
+        if not conv:
+            conv = await db.fetchrow("""
+                INSERT INTO conversations (user_id, title, subject, concept_id)
+                VALUES ($1::uuid, $2, $3, $4::uuid) RETURNING id
+            """, teacher_id, f"{concept['title']} — Authoring chat", concept["subject"], concept_id)
+        conv_id = conv["id"]
+
+        history = await db.fetch("""
+            SELECT role, content FROM messages WHERE conversation_id = $1::uuid ORDER BY created_at
+        """, conv_id)
+
+        image_row = await db.fetchrow("""
+            SELECT data, mime_type FROM concept_images
+            WHERE concept_id = $1::uuid ORDER BY position LIMIT 1
+        """, concept_id)
+
+        await db.execute(
+            "INSERT INTO messages (conversation_id, role, content) VALUES ($1::uuid, 'user', $2)",
+            conv_id, req.message,
+        )
+
+    # Ground in the chapter's full text if available, else just the concept's own excerpt
+    material_text = concept["source_text"] or ""
+    if concept["chapter_ref"]:
+        async with get_db() as db:
+            chapter = await db.fetchrow(
+                "SELECT pdf_data FROM course_chapters WHERE id = $1::uuid", concept["chapter_ref"]
+            )
+        if chapter and chapter["pdf_data"]:
+            from services.studyset_processor import extract_text_from_pdf
+            full_text, _ = extract_text_from_pdf(bytes(chapter["pdf_data"]))
+            if full_text:
+                material_text = full_text
+
+    system_prompt = f"""You are helping a teacher draft and refine the student-facing explanation for one
+concept in their course. This conversation is teacher-only — students never see it.
+
+Concept: {concept['title']}
+Subject: {concept['subject'] or 'General'}
+
+Source material (the textbook content this concept is based on):
+---
+{material_text[:40_000]}
+---
+
+Help the teacher draft, revise, and improve the concept's SUMMARY (a student-facing written
+explanation) and TRANSCRIPT (a short spoken-style video narration script). Ground everything in
+the source material above — and in the attached image, if one is provided, which may show a
+diagram or worked example that plain text can't fully capture.
+
+Whenever the teacher asks for a draft or a full revision, respond with exactly these two sections:
+
+### SUMMARY
+<3-4 paragraphs, plain-language, student-friendly>
+
+### TRANSCRIPT
+<a short spoken-style narration script>
+
+For anything else (questions, brainstorming, partial feedback), just respond conversationally —
+only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can apply."""
+
+    ai_messages = [{"role": "system", "content": system_prompt}]
+    for h in history:
+        ai_messages.append({"role": h["role"], "content": h["content"]})
+
+    user_content: object = req.message
+    if image_row:
+        b64 = base64.b64encode(bytes(image_row["data"])).decode("utf-8")
+        user_content = [
+            {"type": "image_url", "image_url": {"url": f"data:{image_row['mime_type']};base64,{b64}"}},
+            {"type": "text", "text": req.message},
+        ]
+    ai_messages.append({"role": "user", "content": user_content})
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=ai_messages,
+        max_tokens=2000,
+        temperature=0.5,
+    )
+    reply = response.choices[0].message.content
+
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            INSERT INTO messages (conversation_id, role, content) VALUES ($1::uuid, 'assistant', $2)
+            RETURNING id, created_at
+        """, conv_id, reply)
+
+    return {"id": str(row["id"]), "role": "assistant", "content": reply, "created_at": row["created_at"].isoformat()}
+
+
+class ApplyChatRequest(BaseModel):
+    message_id: str
+
+
+_CHAT_SUMMARY_RE    = re.compile(r'^\s*#{0,6}\s*\*{0,2}SUMMARY\*{0,2}\s*:?\s*$',    re.IGNORECASE | re.MULTILINE)
+_CHAT_TRANSCRIPT_RE = re.compile(r'^\s*#{0,6}\s*\*{0,2}TRANSCRIPT\*{0,2}\s*:?\s*$', re.IGNORECASE | re.MULTILINE)
+
+
+@router.post("/concepts/{concept_id}/concept-chat/apply")
+async def apply_concept_chat_message(
+    concept_id:    str,
+    req:           ApplyChatRequest,
+    authorization: str = Header(...),
+):
+    """Commit an assistant message's drafted SUMMARY/TRANSCRIPT into the concept."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT m.content, m.role
+            FROM messages m
+            JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.id = $1::uuid AND c.concept_id = $2::uuid
+        """, req.message_id, concept_id)
+    if not row or row["role"] != "assistant":
+        raise HTTPException(404, "Message not found")
+
+    content           = row["content"]
+    summary_match     = _CHAT_SUMMARY_RE.search(content)
+    transcript_match  = _CHAT_TRANSCRIPT_RE.search(content)
+
+    if summary_match and transcript_match:
+        summary    = content[summary_match.end():transcript_match.start()].strip()
+        transcript = content[transcript_match.end():].strip()
+    elif summary_match:
+        summary    = content[summary_match.end():].strip()
+        transcript = None
+    else:
+        summary    = content.strip()
+        transcript = None
+
+    async with get_db() as db:
+        if transcript is not None:
+            await db.execute("""
+                UPDATE course_concepts SET ai_summary = $1, ai_transcript = $2, pipeline_status = 'ready'
+                WHERE id = $3::uuid
+            """, summary, transcript, concept_id)
+        else:
+            await db.execute("""
+                UPDATE course_concepts SET ai_summary = $1, pipeline_status = 'ready' WHERE id = $2::uuid
+            """, summary, concept_id)
+        updated = await db.fetchrow(
+            "SELECT ai_summary, ai_transcript, pipeline_status FROM course_concepts WHERE id = $1::uuid",
+            concept_id,
+        )
+    return dict(updated)
+
+
 # ── Syllabus import ───────────────────────────────────────────────────────────
 
 @router.post("/{course_id}/import-syllabus")

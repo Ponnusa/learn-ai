@@ -5,7 +5,7 @@ import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, ExternalLink, Plus, FileText, Mic2,
   CheckCircle, Circle, AlertCircle, Zap, HelpCircle, Layers,
-  RefreshCw, Volume2, Video,
+  RefreshCw, Volume2, Video, Send, Sparkles,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
@@ -18,6 +18,7 @@ type AssetStatus    = 'none' | 'generating' | 'ready' | 'approved' | 'failed';
 interface ConceptImage { id: string; url: string; caption: string; }
 interface QuizQuestion { id: string; question: string; options: string[]; correct_idx: number; explanation: string; }
 interface Flashcard    { id: string; front: string; back: string; }
+interface ChatMsg      { id: string; role: 'user' | 'assistant'; content: string; created_at: string; }
 
 interface ConceptDetail {
   id: string; title: string; description?: string;
@@ -102,6 +103,14 @@ export default function ConceptEditorPage() {
   const [pipelinePolling, setPipelinePolling] = useState(false);
   const [assetPolling,    setAssetPolling]    = useState(false);
 
+  // Authoring chat — teacher-only, never shown to students
+  const [chatMsgs,    setChatMsgs]    = useState<ChatMsg[]>([]);
+  const [chatLoaded,  setChatLoaded]  = useState(false);
+  const [chatInput,   setChatInput]   = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  const [applyingId,  setApplyingId]  = useState<string | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   const authH = { Authorization: `Bearer ${token}` };
   const jsonH = { ...authH, 'Content-Type': 'application/json' };
 
@@ -141,6 +150,50 @@ export default function ConceptEditorPage() {
     setAssetsLoaded(true);
   }, [conceptId, token]);
 
+  const loadChat = useCallback(async () => {
+    const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat`, { headers: authH });
+    if (res.ok) setChatMsgs(await res.json());
+    setChatLoaded(true);
+  }, [conceptId, token]);
+
+  async function sendChatMessage() {
+    const message = chatInput.trim();
+    if (!message || chatSending) return;
+    setChatInput('');
+    setChatMsgs(prev => [...prev, { id: `local-${Date.now()}`, role: 'user', content: message, created_at: new Date().toISOString() }]);
+    setChatSending(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat`, {
+        method: 'POST', headers: jsonH, body: JSON.stringify({ message }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not send message');
+      setChatMsgs(prev => [...prev, data]);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setChatSending(false);
+    }
+  }
+
+  async function applyChatMessage(messageId: string) {
+    setApplyingId(messageId);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat/apply`, {
+        method: 'POST', headers: jsonH, body: JSON.stringify({ message_id: messageId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not apply this draft');
+      setSummary(data.ai_summary || '');
+      if (data.ai_transcript) setTranscript(data.ai_transcript);
+      setConcept(prev => prev ? { ...prev, pipeline_status: data.pipeline_status, ai_summary: data.ai_summary, ai_transcript: data.ai_transcript } : prev);
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setApplyingId(null);
+    }
+  }
+
   // Sequential init: load concept → then PDF (needs chapter_ref from concept)
   useEffect(() => {
     if (!user) { router.replace('/auth/login'); return; }
@@ -165,6 +218,15 @@ export default function ConceptEditorPage() {
   useEffect(() => {
     if (activeTab === 'assets' && !assetsLoaded) loadAssets();
   }, [activeTab, assetsLoaded]);
+
+  // Load the authoring chat when Summary tab first opens
+  useEffect(() => {
+    if (activeTab === 'summary' && !chatLoaded) loadChat();
+  }, [activeTab, chatLoaded]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMsgs]);
 
   // Poll while pipeline summary is generating
   useEffect(() => {
@@ -423,6 +485,71 @@ export default function ConceptEditorPage() {
                       <AlertCircle size={14} /> Generation failed — write the summary manually below.
                     </div>
                   )}
+
+                  {/* ── Authoring chat (teacher-only) ── */}
+                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl mb-5 overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-[var(--bd)] flex items-center gap-1.5">
+                      <Sparkles size={12} className="text-purple-400" />
+                      <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">Draft with AI</p>
+                      <span className="text-[var(--tx8)] text-[10px]">— teacher-only, never shown to students</span>
+                    </div>
+
+                    <div className="max-h-80 overflow-y-auto px-4 py-3 space-y-3">
+                      {!chatLoaded ? (
+                        <div className="flex justify-center py-6"><Loader2 size={16} className="animate-spin text-[var(--tx7)]" /></div>
+                      ) : chatMsgs.length === 0 ? (
+                        <p className="text-[var(--tx7)] text-xs py-2">
+                          Ask AI to draft a summary and transcript, request changes ("add 2 more examples"),
+                          or give it style instructions — it can see the concept's source text{concept.images.length > 0 ? ' and image' : ''}.
+                        </p>
+                      ) : (
+                        chatMsgs.map(m => (
+                          <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                            <div className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm whitespace-pre-wrap ${
+                              m.role === 'user'
+                                ? 'bg-purple-600 text-white'
+                                : 'bg-[var(--ov1)] text-[var(--tx2)] border border-[var(--bd)]'
+                            }`}>
+                              {m.content}
+                              {m.role === 'assistant' && /SUMMARY/i.test(m.content) && (
+                                <div className="mt-2 pt-2 border-t border-[var(--bd)]">
+                                  <button onClick={() => applyChatMessage(m.id)} disabled={applyingId === m.id}
+                                    className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-purple-600/15 hover:bg-purple-600/25
+                                               text-purple-400 transition-all disabled:opacity-50">
+                                    {applyingId === m.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                                    Use this as summary/transcript
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+                      {chatSending && (
+                        <div className="flex justify-start">
+                          <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3.5 py-2.5">
+                            <Loader2 size={13} className="animate-spin text-[var(--tx7)]" />
+                          </div>
+                        </div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </div>
+
+                    <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
+                      className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">
+                      <input value={chatInput} onChange={e => setChatInput(e.target.value)}
+                        placeholder="e.g. Draft a summary and transcript for this concept…"
+                        disabled={chatSending}
+                        className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-3 py-1.5
+                                   text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors" />
+                      <button type="submit" disabled={chatSending || !chatInput.trim()}
+                        className="flex items-center justify-center w-8 h-8 rounded-lg bg-purple-600 hover:bg-purple-500
+                                   text-white transition-all disabled:opacity-40 shrink-0">
+                        <Send size={13} />
+                      </button>
+                    </form>
+                  </div>
+
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">
                       {hasPipeline ? 'AI-generated summary — edit freely' : 'Summary for students'}

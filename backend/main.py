@@ -421,6 +421,8 @@ async def lifespan(app: FastAPI):
             # ── Teacher-led concept creation: image-crop selection + optional AI ──
             "ALTER TABLE course_units ADD COLUMN IF NOT EXISTS chapter_ref UUID REFERENCES course_chapters(id) ON DELETE SET NULL",
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'ai'",
+            # ── Per-concept authoring chat (teacher-only) ─────────────────────────
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS concept_id UUID REFERENCES course_concepts(id) ON DELETE CASCADE",
         ]:
             try:
                 await db.execute(sql)
