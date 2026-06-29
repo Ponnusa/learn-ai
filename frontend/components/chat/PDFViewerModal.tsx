@@ -43,12 +43,15 @@ interface PDFViewerModalProps {
    * menu with this action list (e.g. the teacher course builder's "Create
    * concept from this" instead of "Explain/Summarize/Key points/Brainstorm"). */
   actions?: CaptureAction[];
+  /** The per-tier page cap (PAGE_LIMITS) is a student-chat paywall — it has no
+   * business applying when a teacher is viewing their own uploaded chapter. */
+  unlimitedPages?: boolean;
 }
 
-export function PDFViewerModal({ file, onClose, onAsk, actions }: PDFViewerModalProps) {
+export function PDFViewerModal({ file, onClose, onAsk, actions, unlimitedPages }: PDFViewerModalProps) {
   const { user } = useSessionStore();
   const tier      = user?.tier ?? 'anonymous';
-  const pageLimit = PAGE_LIMITS[tier] ?? 2;
+  const pageLimit = unlimitedPages ? Infinity : (PAGE_LIMITS[tier] ?? 2);
 
   const canvasRef       = useRef<HTMLCanvasElement>(null);
   const scrollRef       = useRef<HTMLDivElement>(null);

@@ -649,6 +649,7 @@ export default function CourseDetailPage() {
           file={cropTarget.file}
           onClose={() => setCropTarget(null)}
           onAsk={() => {}}
+          unlimitedPages
           actions={[{
             label: 'Create concept from this',
             icon: Sparkles,
