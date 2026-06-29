@@ -1,6 +1,10 @@
 'use client';
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, ExternalLink, Plus, FileText, Mic2,
@@ -8,6 +12,7 @@ import {
   RefreshCw, Volume2, Video, Send, Sparkles,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { preprocessMath } from '@/lib/preprocessMath';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -505,12 +510,18 @@ export default function ConceptEditorPage() {
                       ) : (
                         chatMsgs.map(m => (
                           <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-                            <div className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm whitespace-pre-wrap ${
+                            <div className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm ${
                               m.role === 'user'
-                                ? 'bg-purple-600 text-white'
+                                ? 'bg-purple-600 text-white whitespace-pre-wrap'
                                 : 'bg-[var(--ov1)] text-[var(--tx2)] border border-[var(--bd)]'
                             }`}>
-                              {m.content}
+                              {m.role === 'assistant' ? (
+                                <div className="ai-content leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
+                                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                                    {preprocessMath(m.content)}
+                                  </ReactMarkdown>
+                                </div>
+                              ) : m.content}
                               {m.role === 'assistant' && /SUMMARY/i.test(m.content) && (
                                 <div className="mt-2 pt-2 border-t border-[var(--bd)]">
                                   <button onClick={() => applyChatMessage(m.id)} disabled={applyingId === m.id}
