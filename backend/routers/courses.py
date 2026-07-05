@@ -2210,20 +2210,22 @@ async def list_concept_resources(concept_id: str, authorization: str = Header(..
     await _require_teacher(authorization)
     async with get_db() as db:
         rows = await db.fetch("""
-            SELECT id, type, title, mime_type, video_url, position
+            SELECT id, type, title, mime_type, video_url, position,
+                   (raw_text IS NOT NULL AND length(trim(raw_text)) > 10) AS text_extracted
             FROM concept_resources
             WHERE concept_id = $1::uuid
             ORDER BY position, created_at
         """, concept_id)
     return [
         {
-            "id":       str(r["id"]),
-            "type":     r["type"],
-            "title":    r["title"] or "",
-            "mime_type": r["mime_type"],
-            "video_url": r["video_url"],
-            "file_url":  f"/api/courses/concepts/resources/{r['id']}/file" if r["type"] in ("image", "pdf") else None,
-            "position":  r["position"],
+            "id":            str(r["id"]),
+            "type":          r["type"],
+            "title":         r["title"] or "",
+            "mime_type":     r["mime_type"],
+            "video_url":     r["video_url"],
+            "file_url":      f"/api/courses/concepts/resources/{r['id']}/file" if r["type"] in ("image", "pdf") else None,
+            "position":      r["position"],
+            "text_extracted": bool(r["text_extracted"]),
         }
         for r in rows
     ]
@@ -2273,10 +2275,13 @@ async def add_concept_resource(
     if mime.startswith("image/"):
         rtype = "image"
     elif mime == "application/pdf" or (file.filename or "").lower().endswith(".pdf"):
-        rtype    = "pdf"
+        rtype = "pdf"
+        mime  = "application/pdf"
         from services.studyset_processor import extract_text_from_pdf
-        raw_text, _ = extract_text_from_pdf(data)
-        mime = "application/pdf"
+        extracted, _ = extract_text_from_pdf(data)
+        # Store NULL when text is empty (scanned/image PDF) so the chat
+        # endpoint knows to fall back to vision rendering instead.
+        raw_text = extracted.strip() or None
     else:
         raise HTTPException(400, "Unsupported file type — upload an image or PDF")
 
@@ -2305,10 +2310,11 @@ async def add_concept_resource(
                 """, ss_id, f"resource:{resource_id}", raw_text, len(raw_text))
 
     return {
-        "id":        resource_id,
-        "type":      rtype,
-        "title":     title or file.filename or rtype,
-        "mime_type": mime,
+        "id":             resource_id,
+        "type":           rtype,
+        "title":          title or file.filename or rtype,
+        "mime_type":      mime,
+        "text_extracted": bool(raw_text),  # False = scanned PDF, will use vision fallback
         "video_url": None,
         "file_url":  f"/api/courses/concepts/resources/{resource_id}/file",
         "position":  row["position"],
@@ -2427,17 +2433,19 @@ async def post_student_chat(
                 study_set_id, concept_id,
             )
 
-    # ── 2. Load PDF resources for grounding ───────────────────────────────────
+    # ── 2. Load PDF resources with extractable text for grounding ────────────
     async with get_db() as db:
         pdf_resources = await db.fetch("""
             SELECT id, title, raw_text FROM concept_resources
-            WHERE concept_id = $1::uuid AND type = 'pdf' AND raw_text IS NOT NULL
+            WHERE concept_id = $1::uuid AND type = 'pdf'
+              AND raw_text IS NOT NULL AND length(trim(raw_text)) > 10
         """, concept_id)
 
     # ── 3. Resolve the referenced resource (image or PDF) ────────────────────
-    resource_row  = None
-    image_b64_url = None
-    focused_pdf   = None
+    resource_row    = None
+    image_b64_url   = None   # single inline image (concept_image or image resource)
+    focused_pdf     = None   # PDF resource with extractable text
+    pdf_page_images = []     # rendered pages for image-based PDFs (no text layer)
 
     if req.resource_id:
         async with get_db() as db:
@@ -2451,8 +2459,21 @@ async def post_student_chat(
                 mime   = resource_row["mime_type"] or "image/jpeg"
                 b64    = base64.b64encode(bytes(resource_row["file_data"])).decode()
                 image_b64_url = f"data:{mime};base64,{b64}"
-            elif resource_row["type"] == "pdf" and resource_row["raw_text"]:
-                focused_pdf = resource_row
+            elif resource_row["type"] == "pdf" and resource_row["file_data"]:
+                if resource_row["raw_text"] and len(resource_row["raw_text"].strip()) > 10:
+                    # Text-based PDF — use raw_text as grounding
+                    focused_pdf = resource_row
+                else:
+                    # Scanned/image PDF — render pages as vision content
+                    import fitz
+                    doc = fitz.open(stream=bytes(resource_row["file_data"]), filetype="pdf")
+                    for i, page in enumerate(doc):
+                        if i >= 4:  # max 4 pages
+                            break
+                        pix  = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))
+                        b64  = base64.b64encode(pix.tobytes("png")).decode()
+                        pdf_page_images.append(f"data:image/png;base64,{b64}")
+                    doc.close()
 
     # ── 4. Get or create conversation (keyed by study_set + student) ──────────
     conv_id = req.conversation_id
@@ -2497,13 +2518,19 @@ async def post_student_chat(
     system_prompt = (
         f"You are a helpful AI tutor helping a student understand \"{concept['title']}\" "
         f"({concept['subject'] or 'General'}).\n\n"
-        f"Answer ONLY from the material below. If the student asks something not covered, say so.\n\n"
+        f"Answer primarily from the material below. If a topic isn't covered, say so briefly "
+        f"and answer from your general knowledge where safe to do so.\n\n"
         f"{grounding[:12000]}"
     )
     if image_b64_url:
         system_prompt += (
             "\n\nThe student has shared an image from the concept material. "
             "Describe what you see in it and explain how it relates to the concept."
+        )
+    if pdf_page_images:
+        system_prompt += (
+            f"\n\nThe student is asking about a PDF document '{resource_row['title']}'. "
+            "The page images are attached below. Read them carefully and answer the student's question."
         )
 
     # ── 7. Save user message ──────────────────────────────────────────────────
@@ -2519,11 +2546,12 @@ async def post_student_chat(
         ai_messages.append({"role": h["role"], "content": h["content"]})
 
     user_content: list | str
-    if image_b64_url:
-        user_content = [
-            {"type": "text", "text": req.message},
-            {"type": "image_url", "image_url": {"url": image_b64_url, "detail": "high"}},
-        ]
+    if image_b64_url or pdf_page_images:
+        user_content = [{"type": "text", "text": req.message}]
+        if image_b64_url:
+            user_content.append({"type": "image_url", "image_url": {"url": image_b64_url, "detail": "high"}})
+        for page_url in pdf_page_images:
+            user_content.append({"type": "image_url", "image_url": {"url": page_url, "detail": "high"}})
     else:
         user_content = req.message
     ai_messages.append({"role": "user", "content": user_content})

@@ -18,7 +18,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 type Tab            = 'summary' | 'transcript' | 'resources' | 'assets';
 type ResourceType   = 'image' | 'pdf' | 'video';
-interface Resource  { id: string; type: ResourceType; title: string; mime_type?: string; video_url?: string; file_url?: string; position: number; }
+interface Resource  { id: string; type: ResourceType; title: string; mime_type?: string; video_url?: string; file_url?: string; position: number; text_extracted?: boolean; }
 type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
 type AssetStatus    = 'none' | 'generating' | 'ready' | 'approved' | 'failed';
 
@@ -736,7 +736,11 @@ export default function ConceptEditorPage() {
                           <FileText size={20} className="text-purple-400 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-[var(--tx1)] font-medium truncate">{r.title}</p>
-                            <p className="text-xs text-[var(--tx7)]">PDF — grounded in student chat</p>
+                            {r.text_extracted === false ? (
+                              <p className="text-xs text-amber-400">Scanned PDF — AI reads it as images (vision)</p>
+                            ) : (
+                              <p className="text-xs text-[var(--tx7)]">PDF — text extracted for student chat</p>
+                            )}
                           </div>
                           {r.file_url && (
                             <a href={`${API_BASE}${r.file_url}`} target="_blank" rel="noreferrer"
