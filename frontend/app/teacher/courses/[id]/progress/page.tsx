@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Loader2, Users, CheckCircle2, Circle } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -24,6 +25,7 @@ export default function CourseProgressPage() {
   const courseId = params.id as string;
   const { user, token } = useSessionStore();
 
+  const { t } = useTranslation();
   const [data,    setData]    = useState<ProgressData | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -55,7 +57,7 @@ export default function CourseProgressPage() {
 
       <button onClick={() => router.push(`/teacher/courses/${courseId}`)}
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
-        <ArrowLeft size={15} /> Back to course
+        <ArrowLeft size={15} /> {t.teacher.backToCourse}
       </button>
 
       <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{data.course_name}</h1>
@@ -65,20 +67,20 @@ export default function CourseProgressPage() {
 
       {data.students.length === 0 ? (
         <div className="bg-[var(--ov1)] border border-dashed border-[var(--bd)] rounded-2xl p-6 text-center">
-          <p className="text-[var(--tx6)] text-sm">No students enrolled yet — assign this course to a classroom with students.</p>
+          <p className="text-[var(--tx6)] text-sm">{t.teacher.noStudentsEnrolled}</p>
         </div>
       ) : data.concepts.length === 0 ? (
         <div className="bg-[var(--ov1)] border border-dashed border-[var(--bd)] rounded-2xl p-6 text-center">
-          <p className="text-[var(--tx6)] text-sm">No concepts yet — add units and concepts to this course first.</p>
+          <p className="text-[var(--tx6)] text-sm">{t.teacher.noConceptsProgress}</p>
         </div>
       ) : (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-x-auto">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="border-b border-[var(--bd)]">
-                <th className="text-left p-3 text-[var(--tx7)] font-medium sticky left-0 bg-[var(--surface)]">Student</th>
-                <th className="text-center p-3 text-[var(--tx7)] font-medium whitespace-nowrap">Visited</th>
-                <th className="text-center p-3 text-[var(--tx7)] font-medium whitespace-nowrap">Avg quiz</th>
+                <th className="text-left p-3 text-[var(--tx7)] font-medium sticky left-0 bg-[var(--surface)]">{t.teacher.colStudent}</th>
+                <th className="text-center p-3 text-[var(--tx7)] font-medium whitespace-nowrap">{t.teacher.colVisited}</th>
+                <th className="text-center p-3 text-[var(--tx7)] font-medium whitespace-nowrap">{t.teacher.colAvgQuiz}</th>
                 {data.concepts.map(c => (
                   <th key={c.id} className="text-center p-3 text-[var(--tx7)] font-medium whitespace-nowrap max-w-[120px]" title={c.title}>
                     <div className="truncate">{c.title}</div>

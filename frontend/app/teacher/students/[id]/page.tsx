@@ -6,6 +6,7 @@ import {
   Sparkles, HelpCircle, Layers, Video, BookOpen, AlertTriangle,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -35,18 +36,19 @@ interface Assignment {
   id: string; concept_id: string | null; kind: string; title: string; status: string; created_at: string | null;
 }
 
-const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
-  quiz:       { label: 'Quiz',        icon: HelpCircle },
-  flashcards: { label: 'Flashcards',  icon: Layers },
-  video:      { label: 'Video',       icon: Video },
-  studyset:   { label: 'Study set',   icon: BookOpen },
-};
-
 export default function TeacherStudentDetailPage() {
   const router    = useRouter();
   const params    = useParams();
   const studentId = params.id as string;
   const { user, token } = useSessionStore();
+  const { t, tF } = useTranslation();
+
+  const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
+    quiz:       { label: t.teacher.kindQuiz,       icon: HelpCircle },
+    flashcards: { label: t.teacher.kindFlashcards, icon: Layers },
+    video:      { label: t.teacher.kindVideo,      icon: Video },
+    studyset:   { label: t.teacher.kindStudySet,   icon: BookOpen },
+  };
 
   const [data,          setData]          = useState<StudentProgress | null>(null);
   const [profile,       setProfile]       = useState<Profile | null>(null);
@@ -126,7 +128,7 @@ export default function TeacherStudentDetailPage() {
     <div className="p-6 max-w-3xl mx-auto pb-16">
       <button onClick={() => router.push('/teacher/students')}
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
-        <ArrowLeft size={15} /> Back to students
+        <ArrowLeft size={15} /> {t.teacher.backToStudents}
       </button>
 
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -137,17 +139,17 @@ export default function TeacherStudentDetailPage() {
         <button onClick={() => router.push(`/messages/${studentId}`)}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)]
                      text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all shrink-0">
-          <MessageSquare size={14} /> Message
+          <MessageSquare size={14} /> {t.teacher.messageBtn}
         </button>
       </div>
 
       {/* Learning profile */}
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
         <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <Brain size={12} /> Learning profile <span className="text-[var(--tx8)] font-normal">· from AI tutor sessions</span>
+          <Brain size={12} /> {t.teacher.learningProfileLabel}
         </h2>
         {!profile?.has_profile ? (
-          <p className="text-[var(--tx7)] text-sm">Not enough AI tutor activity yet to build a profile.</p>
+          <p className="text-[var(--tx7)] text-sm">{t.teacher.noProfileYet}</p>
         ) : (
           <div className="space-y-3">
             {Object.keys(profile.skill_scores).length > 0 && (
@@ -190,11 +192,11 @@ export default function TeacherStudentDetailPage() {
       {/* Assign extra practice */}
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
         <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <Sparkles size={12} /> Assign extra practice
+          <Sparkles size={12} /> {t.teacher.assignExtraPractice}
         </h2>
 
         {data.courses.length === 0 ? (
-          <p className="text-[var(--tx7)] text-sm">No concepts available to assign yet.</p>
+          <p className="text-[var(--tx7)] text-sm">{t.teacher.noConceptsToAssign}</p>
         ) : (
           <>
             <select value={selectedConcept} onChange={e => setSelectedConcept(e.target.value)}
@@ -230,9 +232,9 @@ export default function TeacherStudentDetailPage() {
                 <div key={a.id} className="flex items-center gap-2 text-sm">
                   {meta && <meta.icon size={13} className="text-[var(--tx7)] shrink-0" />}
                   <span className="flex-1 text-[var(--tx2)] truncate">{a.title}</span>
-                  {a.status === 'generating' && <span className="text-xs text-amber-400 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Generating…</span>}
-                  {a.status === 'ready'      && <span className="text-xs text-green-400">Ready</span>}
-                  {a.status === 'failed'     && <span className="text-xs text-red-400 flex items-center gap-1"><AlertTriangle size={11} /> Failed</span>}
+                  {a.status === 'generating' && <span className="text-xs text-amber-400 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> {t.teacher.assignmentGenerating}</span>}
+                  {a.status === 'ready'      && <span className="text-xs text-green-400">{t.teacher.assignmentReady}</span>}
+                  {a.status === 'failed'     && <span className="text-xs text-red-400 flex items-center gap-1"><AlertTriangle size={11} /> {t.teacher.assignmentFailed}</span>}
                 </div>
               );
             })}
@@ -243,10 +245,10 @@ export default function TeacherStudentDetailPage() {
       {/* AI tutor conversations (read-only) */}
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
         <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <MessageSquare size={12} /> AI Tutor Conversations
+          <MessageSquare size={12} /> {t.teacher.aiConversations}
         </h2>
         {conversations.length === 0 ? (
-          <p className="text-[var(--tx7)] text-sm">No AI tutor conversations yet.</p>
+          <p className="text-[var(--tx7)] text-sm">{t.teacher.noAiConversations}</p>
         ) : (
           <div className="space-y-2">
             {conversations.map(c => (
@@ -254,9 +256,9 @@ export default function TeacherStudentDetailPage() {
                 <button onClick={() => toggleConversation(c.id)}
                   className="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-[var(--ov1)] transition-colors">
                   <div className="min-w-0">
-                    <p className="text-[var(--tx1)] text-sm font-medium truncate">{c.title || 'Untitled conversation'}</p>
+                    <p className="text-[var(--tx1)] text-sm font-medium truncate">{c.title || t.teacher.untitledConversation}</p>
                     <p className="text-[var(--tx7)] text-xs">
-                      {c.subject && `${c.subject} · `}{c.message_count} messages
+                      {c.subject && `${c.subject} · `}{tF(t.teacher.messagesCount, { n: c.message_count })}
                       {c.last_message_at && ` · ${new Date(c.last_message_at).toLocaleDateString()}`}
                     </p>
                   </div>
@@ -284,7 +286,7 @@ export default function TeacherStudentDetailPage() {
       {/* Course progress */}
       {data.courses.length === 0 ? (
         <div className="bg-[var(--ov1)] border border-dashed border-[var(--bd)] rounded-2xl p-6 text-center">
-          <p className="text-[var(--tx6)] text-sm">No courses assigned to this student's classrooms yet.</p>
+          <p className="text-[var(--tx6)] text-sm">{t.teacher.noCoursesAssigned}</p>
         </div>
       ) : (
         <div className="space-y-4">

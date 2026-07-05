@@ -88,16 +88,16 @@ function formatDuration(secs?: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, todayStr: string, yesterdayStr: string, daysAgoTpl: string): string {
   const d = new Date(iso);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7)  return `${diffDays}d ago`;
+  if (diffDays === 0) return todayStr;
+  if (diffDays === 1) return yesterdayStr;
+  if (diffDays < 7)  return daysAgoTpl.replace('{n}', String(diffDays));
   if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-  return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -107,6 +107,8 @@ function formatDate(iso: string): string {
 function TranscriptModal({
   markdown, onClose,
 }: { markdown: string; onClose: () => void }) {
+  const { t } = useTranslation();
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -127,13 +129,13 @@ function TranscriptModal({
             <div className="w-7 h-7 rounded-lg bg-purple-600/20 flex items-center justify-center">
               <FileText size={13} className="text-purple-400" />
             </div>
-            <h2 className="text-[var(--tx1)] font-semibold text-sm">Solution &amp; Transcript</h2>
+            <h2 className="text-[var(--tx1)] font-semibold text-sm">{t.video.solutionTranscript}</h2>
           </div>
           <button
             onClick={onClose}
             className="w-7 h-7 flex items-center justify-center rounded-lg
                        text-[var(--tx6)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)] transition-colors"
-            aria-label="Close"
+            aria-label={t.close}
           >
             <X size={15} />
           </button>
@@ -154,7 +156,7 @@ function TranscriptModal({
             className="px-4 py-1.5 text-xs rounded-lg bg-[var(--ov3)] hover:bg-[var(--ov4)]
                        text-[var(--tx2)] transition-colors"
           >
-            Close
+            {t.close}
           </button>
         </div>
       </div>
@@ -176,9 +178,10 @@ function VideoLibraryCard({
   onGoToConversation: (conversationId: string) => void;
 }) {
   const router   = useRouter();
+  const { t }    = useTranslation();
   const { gradient, badge } = subjectStyle(v.subject);
   const duration = formatDuration(v.duration_secs);
-  const date     = formatDate(v.created_at);
+  const date     = formatDate(v.created_at, t.sidebar.today, t.sidebar.yesterday, t.studySets.daysAgo);
   const title    = v.prompt || 'Untitled Video';
 
   return (
@@ -292,6 +295,7 @@ function VideoLibraryCard({
 function VideoSidebarCard({
   v, active, onClick,
 }: { v: VideoItem; active: boolean; onClick: () => void }) {
+  const { t }        = useTranslation();
   const { gradient } = subjectStyle(v.subject);
   const title = v.prompt || 'Untitled Video';
   return (
@@ -316,7 +320,7 @@ function VideoSidebarCard({
         <p className="text-[var(--tx2)] text-xs font-medium truncate leading-snug">
           {title}
         </p>
-        <p className="text-[var(--tx6)] text-[10px] mt-0.5">{formatDate(v.created_at)}</p>
+        <p className="text-[var(--tx6)] text-[10px] mt-0.5">{formatDate(v.created_at, t.sidebar.today, t.sidebar.yesterday, t.studySets.daysAgo)}</p>
       </div>
     </button>
   );
@@ -478,6 +482,7 @@ function VideoLibraryGrid({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TranscriptButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation();
   return (
     <button
       onClick={onClick}
@@ -487,7 +492,7 @@ function TranscriptButton({ onClick }: { onClick: () => void }) {
                  border border-[var(--bd)] transition-all"
     >
       <FileText size={11} />
-      Solution &amp; Transcript
+      {t.video.solutionTranscript}
     </button>
   );
 }
@@ -823,13 +828,13 @@ function VideosContent() {
                       {transcript && (
                         <button
                           onClick={() => openTranscript(transcript)}
-                          title="Solution & Transcript"
+                          title={t.video.solutionTranscript}
                           className="flex items-center gap-2 px-3 sm:px-4 py-2
                                      bg-[var(--ov3)] hover:bg-[var(--ov4)]
                                      rounded-xl text-[var(--tx2)] text-sm transition-colors"
                         >
                           <FileText size={14} />
-                          <span className="hidden sm:inline">Solution &amp; Transcript</span>
+                          <span className="hidden sm:inline">{t.video.solutionTranscript}</span>
                         </button>
                       )}
                       <a

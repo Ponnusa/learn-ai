@@ -3,19 +3,13 @@ import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Loader2, HelpCircle, Layers, Video, BookOpen, CheckCircle2 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface Course  { id: string; name: string; }
 interface Concept { id: string; title: string; }
 interface Unit    { id: string; title: string; concepts: Concept[]; }
-
-const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
-  quiz:       { label: 'Quiz',        icon: HelpCircle },
-  flashcards: { label: 'Flashcards',  icon: Layers },
-  video:      { label: 'Video',       icon: Video },
-  studyset:   { label: 'Study set',   icon: BookOpen },
-};
 
 export default function BulkAssignPage() {
   return (
@@ -34,6 +28,14 @@ function BulkAssignContent() {
   const search  = useSearchParams();
   const studentIds = (search.get('ids') ?? '').split(',').filter(Boolean);
   const { user, token } = useSessionStore();
+  const { t, tF } = useTranslation();
+
+  const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
+    quiz:       { label: t.teacher.kindQuiz,       icon: HelpCircle },
+    flashcards: { label: t.teacher.kindFlashcards, icon: Layers },
+    video:      { label: t.teacher.kindVideo,      icon: Video },
+    studyset:   { label: t.teacher.kindStudySet,   icon: BookOpen },
+  };
 
   const [courses,  setCourses]  = useState<Course[]>([]);
   const [units,     setUnits]    = useState<Unit[]>([]);
@@ -99,11 +101,11 @@ function BulkAssignContent() {
     <div className="p-6 max-w-2xl mx-auto">
       <button onClick={() => router.push('/teacher/students')}
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
-        <ArrowLeft size={15} /> Back to students
+        <ArrowLeft size={15} /> {t.teacher.backToStudents}
       </button>
 
-      <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">Assign extra practice</h1>
-      <p className="text-[var(--tx7)] text-sm mb-6">{studentIds.length} student{studentIds.length === 1 ? '' : 's'} selected</p>
+      <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{t.teacher.assignTitle}</h1>
+      <p className="text-[var(--tx7)] text-sm mb-6">{tF(t.teacher.selectedStudents, { n: studentIds.length })}</p>
 
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 space-y-3">
         <select value={courseId} onChange={e => loadConcepts(e.target.value)}
@@ -135,7 +137,7 @@ function BulkAssignContent() {
 
         {done && (
           <p className="text-green-400 text-sm flex items-center gap-1.5 pt-1">
-            <CheckCircle2 size={14} /> Assigned {KIND_LABEL[done].label.toLowerCase()} to {studentIds.length} student{studentIds.length === 1 ? '' : 's'}
+            <CheckCircle2 size={14} /> {tF(t.teacher.assignedSuccess, { kind: KIND_LABEL[done].label.toLowerCase(), n: studentIds.length })}
           </p>
         )}
       </div>

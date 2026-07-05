@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Users, BookOpen, ArrowRight, Loader2, LogIn, Layers } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -22,6 +23,7 @@ interface Classroom {
 export default function StudentClassroomsPage() {
   const router = useRouter();
   const { user, token } = useSessionStore();
+  const { t, tF } = useTranslation();
 
   const [classrooms, setClassrooms] = useState<Classroom[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -85,8 +87,8 @@ export default function StudentClassroomsPage() {
       <div className="max-w-2xl mx-auto">
 
         <div className="mb-8">
-          <h1 className="text-[var(--tx1)] text-2xl font-bold">My Classrooms</h1>
-          <p className="text-[var(--tx6)] text-sm mt-1">Classrooms your teacher has enrolled you in</p>
+          <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.classrooms.title}</h1>
+          <p className="text-[var(--tx6)] text-sm mt-1">{t.classrooms.subtitle}</p>
         </div>
 
         {(() => {
@@ -95,7 +97,7 @@ export default function StudentClassroomsPage() {
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6 flex items-center gap-3">
               <Layers size={18} className="text-amber-400 shrink-0" />
               <p className="text-amber-300 text-sm">
-                <span className="font-semibold">{totalDue} flashcard{totalDue === 1 ? '' : 's'}</span> due for review across your classrooms
+                {tF(t.classrooms.flashcardsDue, { n: totalDue })}
               </p>
             </div>
           ) : null;
@@ -107,7 +109,7 @@ export default function StudentClassroomsPage() {
           <p className="text-[var(--tx2)] text-sm font-medium mb-3">Join a classroom</p>
           <div className="flex gap-2">
             <input
-              placeholder="Enter 6-character join code"
+              placeholder={t.classrooms.joinCodePlaceholder}
               value={code}
               onChange={e => setCode(e.target.value.toUpperCase())}
               maxLength={6}
@@ -118,7 +120,7 @@ export default function StudentClassroomsPage() {
             <button type="submit" disabled={joining || code.length < 4}
               className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500
                          text-white text-sm font-medium rounded-xl transition-all disabled:opacity-40">
-              {joining ? <Loader2 size={14} className="animate-spin" /> : <><LogIn size={14} /> Join</>}
+              {joining ? <Loader2 size={14} className="animate-spin" /> : <><LogIn size={14} /> {t.classrooms.join}</>}
             </button>
           </div>
           {joinMsg && <p className="text-green-400 text-xs mt-2">{joinMsg}</p>}
@@ -131,8 +133,8 @@ export default function StudentClassroomsPage() {
             <div className="w-16 h-16 rounded-2xl bg-[var(--ov2)] flex items-center justify-center mx-auto mb-4">
               <Users size={28} className="text-[var(--tx7)]" />
             </div>
-            <p className="text-[var(--tx3)] font-medium mb-1">No classrooms yet</p>
-            <p className="text-[var(--tx7)] text-sm">Ask your teacher for a join code</p>
+            <p className="text-[var(--tx3)] font-medium mb-1">{t.classrooms.noClassrooms}</p>
+            <p className="text-[var(--tx7)] text-sm">{t.classrooms.noClassroomsHint}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -147,16 +149,16 @@ export default function StudentClassroomsPage() {
                     <div className="flex items-center gap-3 flex-wrap text-xs text-[var(--tx6)]">
                       {cls.subject && <span className="flex items-center gap-1"><BookOpen size={11} /> {cls.subject}</span>}
                       {cls.grade   && <span>{cls.grade}</span>}
-                      <span className="flex items-center gap-1"><Users size={11} /> {cls.student_count} students</span>
+                      <span className="flex items-center gap-1"><Users size={11} /> {tF(t.classrooms.studentsCount, { n: cls.student_count })}</span>
                     </div>
                     {(cls.teacher_name || cls.teacher_email) && (
                       <p className="text-[var(--tx7)] text-xs mt-2">
-                        Teacher: {cls.teacher_name ?? cls.teacher_email}
+                        {tF(t.classrooms.teacherLabel, { name: cls.teacher_name ?? cls.teacher_email ?? '' })}
                       </p>
                     )}
                     {cls.due_flashcards > 0 && (
                       <span className="inline-flex items-center gap-1 mt-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-full px-2 py-0.5">
-                        <Layers size={10} /> {cls.due_flashcards} due
+                        <Layers size={10} /> {tF(t.classrooms.dueCount, { n: cls.due_flashcards })}
                       </span>
                     )}
                   </div>

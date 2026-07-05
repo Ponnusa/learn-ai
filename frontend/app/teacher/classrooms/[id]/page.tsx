@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Users, Copy, Check, Trash2, Loader2, UserX } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -31,6 +32,7 @@ export default function ClassroomDetailPage() {
   const classroomId = params.id as string;
   const { user, token } = useSessionStore();
 
+  const { t, tF } = useTranslation();
   const [cls,       setCls]       = useState<Classroom | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [copied,    setCopied]    = useState(false);
@@ -109,7 +111,7 @@ export default function ClassroomDetailPage() {
         {/* Back */}
         <button onClick={() => router.push('/teacher/classrooms')}
           className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
-          <ArrowLeft size={15} /> Back to classrooms
+          <ArrowLeft size={15} /> {t.teacher.backToClassrooms}
         </button>
 
         {/* Header */}
@@ -118,7 +120,7 @@ export default function ClassroomDetailPage() {
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-[var(--tx1)] text-2xl font-bold">{cls.name}</h1>
               {!cls.is_active && (
-                <span className="text-xs px-2 py-0.5 bg-[var(--ov1)] text-[var(--tx7)] rounded-full">Archived</span>
+                <span className="text-xs px-2 py-0.5 bg-[var(--ov1)] text-[var(--tx7)] rounded-full">{t.teacher.archived}</span>
               )}
             </div>
             <p className="text-[var(--tx6)] text-sm mt-1">
@@ -133,19 +135,19 @@ export default function ClassroomDetailPage() {
                        text-[var(--tx6)] hover:text-[var(--tx2)] text-xs rounded-xl transition-all disabled:opacity-40"
           >
             {archiving ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-            {cls.is_active ? 'Archive' : 'Reopen'}
+            {cls.is_active ? t.teacher.archiveClassroom : t.teacher.reopenClassroom}
           </button>
         </div>
 
         {/* Join code */}
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-6">
-          <p className="text-[var(--tx6)] text-xs mb-1">Student join code</p>
+          <p className="text-[var(--tx6)] text-xs mb-1">{t.teacher.studentJoinCode}</p>
           <div className="flex items-center justify-between">
             <p className="text-purple-400 font-mono text-3xl font-bold tracking-[0.25em]">{cls.join_code}</p>
             <button onClick={copyCode}
               className="flex items-center gap-1.5 px-3 py-2 bg-purple-600/15 hover:bg-purple-600/25
                          text-purple-400 text-sm rounded-xl transition-all">
-              {copied ? <><Check size={14} /> Copied</> : <><Copy size={14} /> Copy code</>}
+              {copied ? <><Check size={14} /> {t.teacher.copied}</> : <><Copy size={14} /> {t.teacher.copyCode}</>}
             </button>
           </div>
           <p className="text-[var(--tx8)] text-xs mt-3">
@@ -158,15 +160,15 @@ export default function ClassroomDetailPage() {
           <div className="flex items-center gap-2 mb-4">
             <Users size={16} className="text-[var(--tx6)]" />
             <h2 className="text-[var(--tx1)] font-semibold">
-              Students ({cls.student_count})
+              {tF(t.teacher.studentsCountLabel, { n: cls.student_count })}
             </h2>
           </div>
 
           {cls.students.length === 0 ? (
             <div className="text-center py-12 bg-[var(--surface)] border border-[var(--bd)] rounded-2xl">
               <Users size={32} className="text-[var(--tx8)] mx-auto mb-3" />
-              <p className="text-[var(--tx5)] text-sm">No students yet</p>
-              <p className="text-[var(--tx7)] text-xs mt-1">Share the join code above with your students</p>
+              <p className="text-[var(--tx5)] text-sm">{t.teacher.noStudents}</p>
+              <p className="text-[var(--tx7)] text-xs mt-1">{t.teacher.noStudentsHint}</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -182,14 +184,14 @@ export default function ClassroomDetailPage() {
                     <p className="text-[var(--tx1)] text-sm font-medium truncate">{s.name ?? s.email}</p>
                     {s.name && <p className="text-[var(--tx7)] text-xs truncate">{s.email}</p>}
                     <p className="text-[var(--tx8)] text-xs mt-0.5">
-                      Joined {new Date(s.joined_at).toLocaleDateString()}
-                      {s.last_seen_at && ` · Last seen ${new Date(s.last_seen_at).toLocaleDateString()}`}
+                      {tF(t.teacher.joinedDate, { date: new Date(s.joined_at).toLocaleDateString() })}
+                      {s.last_seen_at && ` · ${tF(t.teacher.lastSeenDate, { date: new Date(s.last_seen_at).toLocaleDateString() })}`}
                     </p>
                   </div>
                   <button
                     onClick={() => removeStudent(s.id)}
                     disabled={removing === s.id}
-                    title="Remove from classroom"
+                    title={t.teacher.removeStudent}
                     className="text-[var(--tx8)] hover:text-red-400 transition-colors disabled:opacity-40 shrink-0"
                   >
                     {removing === s.id

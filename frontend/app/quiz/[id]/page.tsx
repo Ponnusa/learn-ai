@@ -182,12 +182,12 @@ export default function QuizPage() {
     return (
       <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center p-4">
         <div className="text-center">
-          <p className="text-[var(--tx5)] mb-4">Quiz not found or session expired.</p>
+          <p className="text-[var(--tx5)] mb-4">{t.quiz.notFound}</p>
           <button
             onClick={() => router.push(fromUrl)}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-sm transition-colors"
           >
-            Back
+            {t.back}
           </button>
         </div>
       </div>

@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -51,32 +52,28 @@ interface Assets {
   quiz: QuizQuestion[]; flashcards: Flashcard[];
 }
 
-const VIDEO_STAGE_LABEL: Record<string, string> = {
-  pending:           'Writing the scene…',
-  transcript_ready:  'Transcript ready, generating animation code…',
-  queued:            'Queued for rendering…',
-  rendering:         'Rendering animation…',
-};
-
-const PIPELINE_LABEL: Record<PipelineStatus, string> = {
-  draft: 'No pipeline', summarizing: 'Generating…',
-  ready: 'Ready for review', approved: 'Approved', failed: 'Generation failed',
-};
-
-const ASSET_BADGE: Record<AssetStatus, { label: string; cls: string }> = {
-  none:       { label: 'Not generated',   cls: 'bg-[var(--ov2)] text-[var(--tx7)]' },
-  generating: { label: 'Generating…',    cls: 'bg-amber-500/15 text-amber-400' },
-  ready:      { label: 'Ready to review', cls: 'bg-blue-500/15 text-blue-400' },
-  approved:   { label: 'Approved',        cls: 'bg-green-500/15 text-green-400' },
-  failed:     { label: 'Failed',          cls: 'bg-red-500/15 text-red-400' },
-};
-
 export default function ConceptEditorPage() {
   const router    = useRouter();
   const params    = useParams();
   const courseId  = params.id        as string;
   const conceptId = params.conceptId as string;
   const { user, token } = useSessionStore();
+  const { t, tF } = useTranslation();
+
+  const VIDEO_STAGE_LABEL: Record<string, string> = {
+    pending:           t.assignments.stageWriting,
+    transcript_ready:  t.assignments.stageAnimation,
+    queued:            t.assignments.stageQueued,
+    rendering:         t.assignments.stageRendering,
+  };
+
+  const PIPELINE_LABEL: Record<PipelineStatus, string> = {
+    draft:       '',
+    summarizing: t.teacher.statusGenerating,
+    ready:       t.teacher.statusReadyReview,
+    approved:    t.teacher.statusApproved,
+    failed:      t.teacher.statusFailed,
+  };
 
   const [concept,    setConcept]    = useState<ConceptDetail | null>(null);
   const [loading,    setLoading]    = useState(true);
@@ -465,9 +462,9 @@ export default function ConceptEditorPage() {
                   ? <Loader2 size={20} className="animate-spin text-purple-400" />
                   : <>
                       <FileText size={28} />
-                      <p className="text-sm">No PDF available</p>
+                      <p className="text-sm">{t.teacher.noPdfAvailable}</p>
                       <p className="text-xs text-[var(--tx8)] text-center px-4">
-                        PDF is stored when you upload a chapter. Old uploads won&apos;t have it — re-upload to enable.
+                        {t.teacher.pdfStoredNote}
                       </p>
                     </>}
               </div>
@@ -482,11 +479,11 @@ export default function ConceptEditorPage() {
           <div className="flex items-center justify-between mb-5">
             <button onClick={() => router.push(`/teacher/courses/${courseId}`)}
               className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm transition-colors">
-              <ArrowLeft size={15} /> Back to course
+              <ArrowLeft size={15} /> {t.teacher.backToCourse}
             </button>
             <button onClick={() => setShowLeft(p => !p)}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] transition-colors">
-              <BookOpen size={13} />{showLeft ? 'Hide' : 'Show'} panel
+              <BookOpen size={13} />{showLeft ? t.teacher.hidePanel : t.teacher.showPanel}
             </button>
           </div>
 
@@ -512,14 +509,14 @@ export default function ConceptEditorPage() {
           {/* Tab bar */}
           <div className="flex gap-1 border-b border-[var(--bd)] mb-6 overflow-x-auto">
             {([
-              ['summary',    'Summary',    BookOpen],
-              ['transcript', 'Transcript', Mic2],
-              ['resources',  'Resources',  ImageIcon],
-              ['assets',     'Assets',     Zap],
-            ] as const).map(([t, label, Icon]) => (
-              <button key={t} onClick={() => setActiveTab(t)}
+              ['summary',    t.teacher.tabSummary,    BookOpen],
+              ['transcript', t.teacher.tabTranscript, Mic2],
+              ['resources',  t.teacher.tabResources,  ImageIcon],
+              ['assets',     t.teacher.tabAssets,     Zap],
+            ] as [Tab, string, React.ComponentType<{ size: number }>][]).map(([tabId, label, Icon]) => (
+              <button key={tabId} onClick={() => setActiveTab(tabId)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
-                  activeTab === t ? 'text-purple-400 border-purple-400' : 'text-[var(--tx7)] border-transparent hover:text-[var(--tx3)]'
+                  activeTab === tabId ? 'text-purple-400 border-purple-400' : 'text-[var(--tx7)] border-transparent hover:text-[var(--tx3)]'
                 }`}>
                 <Icon size={12} />{label}
               </button>
@@ -532,14 +529,14 @@ export default function ConceptEditorPage() {
               {isGenerating ? (
                 <div className="flex flex-col items-center gap-3 py-16 text-[var(--tx7)]">
                   <Loader2 size={28} className="text-purple-400 animate-spin" />
-                  <p className="text-sm">AI is writing the summary…</p>
-                  <p className="text-xs text-[var(--tx8)]">Usually 20–40 seconds per concept</p>
+                  <p className="text-sm">{t.teacher.aiWritingSummary}</p>
+                  <p className="text-xs text-[var(--tx8)]">{t.teacher.generatingEstimate}</p>
                 </div>
               ) : (
                 <>
                   {status === 'failed' && (
                     <div className="flex items-center gap-2 text-red-400 text-sm mb-4">
-                      <AlertCircle size={14} /> Generation failed — write the summary manually below.
+                      <AlertCircle size={14} /> {t.teacher.conceptGenFailed}
                     </div>
                   )}
 
@@ -547,8 +544,8 @@ export default function ConceptEditorPage() {
                   <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl mb-5 overflow-hidden">
                     <div className="px-4 py-2.5 border-b border-[var(--bd)] flex items-center gap-1.5">
                       <Sparkles size={12} className="text-purple-400" />
-                      <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">Draft with AI</p>
-                      <span className="text-[var(--tx8)] text-[10px]">— teacher-only, never shown to students</span>
+                      <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">{t.teacher.draftWithAI}</p>
+                      <span className="text-[var(--tx8)] text-[10px]">{t.teacher.teacherOnlyNote}</span>
                     </div>
 
                     <div className="max-h-80 overflow-y-auto px-4 py-3 space-y-3">
@@ -580,7 +577,7 @@ export default function ConceptEditorPage() {
                                     className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-purple-600/15 hover:bg-purple-600/25
                                                text-purple-400 transition-all disabled:opacity-50">
                                     {applyingId === m.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
-                                    Use this as summary/transcript
+                                    {t.teacher.useAsDraft}
                                   </button>
                                 </div>
                               )}
@@ -601,7 +598,7 @@ export default function ConceptEditorPage() {
                     <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
                       className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">
                       <input value={chatInput} onChange={e => setChatInput(e.target.value)}
-                        placeholder="e.g. Draft a summary and transcript for this concept…"
+                        placeholder={t.teacher.chatPlaceholder}
                         disabled={chatSending}
                         className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-3 py-1.5
                                    text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors" />
@@ -615,34 +612,34 @@ export default function ConceptEditorPage() {
 
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">
-                      {hasPipeline ? 'AI-generated summary — edit freely' : 'Summary for students'}
+                      {hasPipeline ? t.teacher.summaryLabel : t.teacher.summaryForStudents}
                     </label>
                     {!hasPipeline && concept.source_text && (
                       <button onClick={generateExplanation}
                         className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
                                    text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
-                        <Zap size={11} /> Generate explanation
+                        <Zap size={11} /> {t.teacher.generateExplanation}
                       </button>
                     )}
                   </div>
                   <textarea value={summary} onChange={e => setSummary(e.target.value)}
-                    placeholder="Write a student-friendly explanation of this concept…" rows={12}
+                    placeholder={t.teacher.explanationPlaceholder} rows={12}
                     className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-4 py-3
                                text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 resize-y transition-colors leading-relaxed" />
                   <div className="flex items-center gap-3 mt-3">
                     <button onClick={saveSummary} disabled={savingSum}
                       className="flex items-center gap-2 px-4 py-2 bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx2)] text-sm rounded-xl transition-all disabled:opacity-40">
                       {savingSum ? <Loader2 size={13} className="animate-spin" /> : savedSum ? <Check size={13} className="text-green-400" /> : null}
-                      {savingSum ? 'Saving…' : savedSum ? 'Saved!' : 'Save'}
+                      {savingSum ? t.saving : savedSum ? t.saved : t.save}
                     </button>
                     {!isApproved && (
                       <button onClick={approveConcept} disabled={approving}
                         className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-medium rounded-xl transition-all disabled:opacity-40">
                         {approving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle size={13} />}
-                        {approving ? 'Approving…' : 'Approve concept'}
+                        {approving ? t.teacher.approving : t.teacher.approveConcept}
                       </button>
                     )}
-                    {isApproved && <span className="flex items-center gap-1.5 text-green-400 text-sm"><CheckCircle size={14} /> Approved</span>}
+                    {isApproved && <span className="flex items-center gap-1.5 text-green-400 text-sm"><CheckCircle size={14} /> {t.teacher.approvedBadge}</span>}
                   </div>
                 </>
               )}
@@ -655,23 +652,23 @@ export default function ConceptEditorPage() {
               {isGenerating ? (
                 <div className="flex flex-col items-center gap-3 py-16 text-[var(--tx7)]">
                   <Loader2 size={28} className="text-purple-400 animate-spin" />
-                  <p className="text-sm">AI is writing the transcript…</p>
+                  <p className="text-sm">{t.teacher.aiWritingTranscript}</p>
                 </div>
               ) : (
                 <>
                   <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider block mb-2">
-                    Video narration script
+                    {t.teacher.transcriptLabel}
                   </label>
                   <textarea value={transcript} onChange={e => setTranscript(e.target.value)}
-                    placeholder="Write a spoken-word script for a 2-minute video…" rows={14}
+                    placeholder={t.teacher.transcriptPlaceholder} rows={14}
                     className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-4 py-3
                                text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 resize-y transition-colors leading-relaxed font-mono" />
                   <div className="flex items-center justify-between mt-2">
-                    <p className="text-[var(--tx8)] text-xs">{wordCount} words · ~{Math.round(wordCount / 130)} min read aloud</p>
+                    <p className="text-[var(--tx8)] text-xs">{tF(t.teacher.wordCount, { n: wordCount, min: Math.round(wordCount / 130) })}</p>
                     <button onClick={saveTranscript} disabled={savingTr}
                       className="flex items-center gap-2 px-4 py-2 bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx2)] text-sm rounded-xl transition-all disabled:opacity-40">
                       {savingTr ? <Loader2 size={13} className="animate-spin" /> : savedTr ? <Check size={13} className="text-green-400" /> : null}
-                      {savingTr ? 'Saving…' : savedTr ? 'Saved!' : 'Save'}
+                      {savingTr ? t.saving : savedTr ? t.saved : t.save}
                     </button>
                   </div>
                 </>
@@ -686,13 +683,13 @@ export default function ConceptEditorPage() {
               <div className="flex items-center gap-2 mb-4 flex-wrap">
                 <button onClick={() => resFileRef.current?.click()} disabled={uploadingRes}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] transition-colors disabled:opacity-40">
-                  {uploadingRes ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Upload image / PDF
+                  {uploadingRes ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} {t.teacher.uploadImagePdf}
                 </button>
                 <input ref={resFileRef} type="file" accept="image/*,application/pdf" multiple className="hidden"
                   onChange={e => uploadResourceFile(e.target.files)} />
                 <button onClick={() => setShowVideoForm(v => !v)}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] transition-colors">
-                  <Plus size={12} /> Add video URL
+                  <Plus size={12} /> {t.teacher.addVideoUrl}
                 </button>
               </div>
 
@@ -700,15 +697,15 @@ export default function ConceptEditorPage() {
               {showVideoForm && (
                 <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl p-4 mb-4 space-y-2">
                   <input value={videoTitleInput} onChange={e => setVideoTitleInput(e.target.value)}
-                    placeholder="Title (optional)"
+                    placeholder={t.teacher.titleOptional}
                     className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-3 py-2 text-sm text-[var(--tx1)] placeholder:text-[var(--tx8)] outline-none focus:border-purple-500" />
                   <div className="flex gap-2">
                     <input value={videoUrlInput} onChange={e => setVideoUrlInput(e.target.value)}
-                      placeholder="https://youtube.com/watch?v=..."
+                      placeholder={t.teacher.videoUrlPlaceholder}
                       className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-3 py-2 text-sm text-[var(--tx1)] placeholder:text-[var(--tx8)] outline-none focus:border-purple-500" />
                     <button onClick={addVideoResource} disabled={addingVideo || !videoUrlInput.trim()}
                       className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg transition-colors disabled:opacity-40">
-                      {addingVideo ? <Loader2 size={14} className="animate-spin" /> : 'Add'}
+                      {addingVideo ? <Loader2 size={14} className="animate-spin" /> : t.teacher.addBtn}
                     </button>
                   </div>
                 </div>
@@ -721,7 +718,7 @@ export default function ConceptEditorPage() {
               ) : resources.length === 0 ? (
                 <div className="border border-dashed border-[var(--bd)] rounded-xl p-10 text-center">
                   <ImageIcon size={24} className="text-[var(--tx8)] mx-auto mb-2" />
-                  <p className="text-[var(--tx7)] text-sm">No resources yet — upload an image, PDF, or add a video URL</p>
+                  <p className="text-[var(--tx7)] text-sm">{t.teacher.noResourcesYet}</p>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -738,9 +735,9 @@ export default function ConceptEditorPage() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-[var(--tx1)] font-medium truncate">{r.title}</p>
                             {r.text_extracted === false ? (
-                              <p className="text-xs text-amber-400">Scanned PDF — AI reads it as images (vision)</p>
+                              <p className="text-xs text-amber-400">{t.teacher.scannedPdf}</p>
                             ) : (
-                              <p className="text-xs text-[var(--tx7)]">PDF — text extracted for student chat</p>
+                              <p className="text-xs text-[var(--tx7)]">{t.teacher.pdfExtracted}</p>
                             )}
                           </div>
                           {r.file_url && (
@@ -786,7 +783,7 @@ export default function ConceptEditorPage() {
               ) : assets ? (
                 <>
                   <AssetSection
-                    title="Quiz" icon={<HelpCircle size={14} />}
+                    title={t.teacher.assetQuiz} icon={<HelpCircle size={14} />}
                     status={assets.quiz_status}
                     isGenerating={generatingQuiz || assets.quiz_status === 'generating'}
                     canGenerate={hasAISrc} canApprove={assets.quiz_status === 'ready'}
@@ -821,7 +818,7 @@ export default function ConceptEditorPage() {
                   </AssetSection>
 
                   <AssetSection
-                    title="Flashcards" icon={<Layers size={14} />}
+                    title={t.teacher.assetFlashcards} icon={<Layers size={14} />}
                     status={assets.flashcard_status}
                     isGenerating={generatingCards || assets.flashcard_status === 'generating'}
                     canGenerate={hasAISrc} canApprove={assets.flashcard_status === 'ready'}
@@ -843,7 +840,7 @@ export default function ConceptEditorPage() {
                   </AssetSection>
 
                   <AssetSection
-                    title="Audio narration" icon={<Volume2 size={14} />}
+                    title={t.teacher.assetAudio} icon={<Volume2 size={14} />}
                     status={assets.audio_status}
                     isGenerating={generatingAudio || assets.audio_status === 'generating'}
                     canGenerate={!!(concept.ai_transcript || concept.ai_summary)}
@@ -858,7 +855,7 @@ export default function ConceptEditorPage() {
                         <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-4">
                           <audio controls src={`${API_BASE}${assets.audio_url}`} className="w-full" />
                           {assets.audio_duration_sec && (
-                            <p className="text-[var(--tx8)] text-xs mt-1.5">~{Math.round(assets.audio_duration_sec / 60)} min · from transcript</p>
+                            <p className="text-[var(--tx8)] text-xs mt-1.5">{tF(t.teacher.audioFromTranscript, { min: Math.round(assets.audio_duration_sec / 60) })}</p>
                           )}
                         </div>
                       </div>
@@ -866,7 +863,7 @@ export default function ConceptEditorPage() {
                   </AssetSection>
 
                   <AssetSection
-                    title="Video" icon={<Video size={14} />}
+                    title={t.teacher.assetVideo} icon={<Video size={14} />}
                     status={assets.video_status}
                     isGenerating={generatingVideo || assets.video_status === 'generating'}
                     canGenerate={!!(concept.ai_transcript || concept.ai_summary)}
@@ -875,12 +872,12 @@ export default function ConceptEditorPage() {
                     onGenerate={() => triggerGenerate('video')}
                     onApprove={() => approveAsset('video')}
                     noReset
-                    hint={!(concept.ai_transcript || concept.ai_summary) ? 'Generate a summary first — the video is animated from it.' : undefined}
+                    hint={!(concept.ai_transcript || concept.ai_summary) ? t.teacher.generateNeedsSummary : undefined}
                   >
                     {assets.video_status === 'generating' && (
                       <div className="px-4 pb-4 mt-3">
                         <p className="text-[var(--tx7)] text-xs">
-                          {(assets.video_stage && VIDEO_STAGE_LABEL[assets.video_stage]) || 'Generating animated video — this can take several minutes…'}
+                          {(assets.video_stage && VIDEO_STAGE_LABEL[assets.video_stage]) || t.teacher.videoGenerating}
                         </p>
                       </div>
                     )}
@@ -890,7 +887,7 @@ export default function ConceptEditorPage() {
                           <video controls src={`${API_BASE}${assets.video_url}`} className="w-full aspect-video" />
                         </div>
                         <p className="text-[var(--tx8)] text-xs mt-2">
-                          Animated with Manim — generated and rendered from the approved summary
+                          {t.teacher.animatedWithManim}
                         </p>
                       </div>
                     )}
@@ -926,6 +923,16 @@ function AssetSection({
   onGenerate: () => void; onApprove: () => void; onClear?: () => void;
   children?: React.ReactNode;
 }) {
+  const { t, tF } = useTranslation();
+
+  const ASSET_BADGE: Record<AssetStatus, { label: string; cls: string }> = {
+    none:       { label: t.teacher.assetNotGenerated, cls: 'bg-[var(--ov2)] text-[var(--tx7)]' },
+    generating: { label: t.teacher.assetGenerating,  cls: 'bg-amber-500/15 text-amber-400' },
+    ready:      { label: t.teacher.assetReadyReview,  cls: 'bg-blue-500/15 text-blue-400' },
+    approved:   { label: t.teacher.assetApproved,     cls: 'bg-green-500/15 text-green-400' },
+    failed:     { label: t.teacher.assetFailed,       cls: 'bg-red-500/15 text-red-400' },
+  };
+
   const badge      = ASSET_BADGE[status];
   const isApproved = status === 'approved';
   const hasContent = status !== 'none';
@@ -946,12 +953,12 @@ function AssetSection({
             <button onClick={onApprove} disabled={approving}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-lg transition-all disabled:opacity-40">
               {approving ? <Loader2 size={9} className="animate-spin" /> : <CheckCircle size={9} />}
-              Approve
+              {t.teacher.approveBtn}
             </button>
           )}
           {isApproved && (
             <span className="flex items-center gap-1 text-green-400 text-xs font-medium">
-              <CheckCircle size={10} /> Approved
+              <CheckCircle size={10} /> {t.teacher.assetApproved}
             </span>
           )}
           {!noReset && hasContent && !isGenerating && (
@@ -963,14 +970,14 @@ function AssetSection({
           {(!hasContent || status === 'failed') && !isGenerating && (
             <button onClick={onGenerate} disabled={!canGenerate}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              title={!canGenerate ? (hint || 'Prerequisites not met') : undefined}>
-              <Zap size={10} /> Generate
+              title={!canGenerate ? (hint ?? undefined) : undefined}>
+              <Zap size={10} /> {t.teacher.generateBtn}
             </button>
           )}
           {(status === 'ready' || isApproved) && !isGenerating && (
             <button onClick={onGenerate} disabled={!canGenerate}
               className="flex items-center gap-1 text-xs px-2.5 py-1.5 text-[var(--tx7)] hover:text-purple-400 rounded-lg transition-colors">
-              <RefreshCw size={10} /> Redo
+              <RefreshCw size={10} /> {t.teacher.redoBtn}
             </button>
           )}
         </div>
@@ -979,13 +986,13 @@ function AssetSection({
       {isGenerating && (
         <div className="flex items-center justify-center gap-2 py-8 text-[var(--tx7)]">
           <Loader2 size={16} className="text-purple-400 animate-spin" />
-          <span className="text-sm">Generating {title.toLowerCase()}…</span>
+          <span className="text-sm">{t.teacher.assetGenerating}</span>
         </div>
       )}
 
       {!isGenerating && status === 'none' && (
         <div className="px-4 py-6 text-center text-[var(--tx8)] text-xs">
-          {hint || (canGenerate ? `Click Generate to create ${title.toLowerCase()} using AI.` : 'Generate and save a summary first.')}
+          {hint || (canGenerate ? tF(t.teacher.generatePrompt, { asset: title.toLowerCase() }) : t.teacher.generateNeedsSummary)}
         </div>
       )}
 

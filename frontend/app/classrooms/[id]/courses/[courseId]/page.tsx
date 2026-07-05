@@ -6,6 +6,7 @@ import {
   CheckCircle2, Circle, Loader2, BookOpen, Zap,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -44,6 +45,7 @@ export default function StudentCoursePage() {
   const courseId    = params.courseId as string;
   const { user, token } = useSessionStore();
 
+  const { t, tF } = useTranslation();
   const [course,    setCourse]    = useState<Course | null>(null);
   const [loading,   setLoading]   = useState(true);
   const [expanded,  setExpanded]  = useState<Set<string>>(new Set());
@@ -97,7 +99,7 @@ export default function StudentCoursePage() {
       {/* Back link */}
       <button onClick={() => router.push(`/classrooms/${classroomId}`)}
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
-        <ArrowLeft size={15} /> Back to courses
+        <ArrowLeft size={15} /> {t.classrooms.backToCourses}
       </button>
 
       {/* Course header */}
@@ -109,14 +111,14 @@ export default function StudentCoursePage() {
         <div className="flex items-center gap-3 mt-1 text-xs text-[var(--tx7)]">
           {course.subject && <span>{course.subject}</span>}
           {course.grade   && <span>{course.grade}</span>}
-          <span><BookOpen size={10} className="inline mr-0.5" />{course.units.length} units</span>
+          <span><BookOpen size={10} className="inline mr-0.5" />{tF(t.classrooms.unitsCount, { n: course.units.length })}</span>
         </div>
       </div>
 
       {/* Progress bar */}
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4 mb-6">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-[var(--tx3)] text-sm font-medium">Your progress</span>
+          <span className="text-[var(--tx3)] text-sm font-medium">{t.classrooms.yourProgress}</span>
           <span className="text-purple-400 text-sm font-bold">{pct}%</span>
         </div>
         <div className="h-2 bg-[var(--ov2)] rounded-full overflow-hidden">
@@ -124,7 +126,7 @@ export default function StudentCoursePage() {
             style={{ width: `${pct}%` }} />
         </div>
         <p className="text-[var(--tx8)] text-xs mt-1.5">
-          {course.progress.visited} of {course.progress.total} concepts visited
+          {tF(t.classrooms.conceptsVisited, { visited: course.progress.visited, total: course.progress.total })}
         </p>
       </div>
 
@@ -148,7 +150,7 @@ export default function StudentCoursePage() {
                   <div className="min-w-0">
                     <p className="text-[var(--tx1)] font-semibold truncate">{unit.title}</p>
                     <p className="text-[var(--tx7)] text-xs mt-0.5">
-                      {unitVisited}/{unitTotal} done
+                      {tF(t.classrooms.unitProgress, { done: unitVisited, total: unitTotal })}
                     </p>
                   </div>
                 </div>
@@ -160,7 +162,7 @@ export default function StudentCoursePage() {
               {open && (
                 <div className="border-t border-[var(--bd)] divide-y divide-[var(--bd)]">
                   {unit.concepts.length === 0 ? (
-                    <p className="px-5 py-4 text-[var(--tx7)] text-sm italic">No concepts yet</p>
+                    <p className="px-5 py-4 text-[var(--tx7)] text-sm italic">{t.classrooms.noConceptsYet}</p>
                   ) : unit.concepts.map(concept => {
                     return (
                       <button key={concept.id}
@@ -183,7 +185,7 @@ export default function StudentCoursePage() {
                           )}
                           {concept.quiz_score !== undefined && concept.quiz_score !== null && (
                             <p className="text-xs text-amber-400 mt-0.5">
-                              Quiz: {Math.round(concept.quiz_score)}%
+                              {tF(t.classrooms.quizScore, { pct: Math.round(concept.quiz_score!) })}
                             </p>
                           )}
                         </div>

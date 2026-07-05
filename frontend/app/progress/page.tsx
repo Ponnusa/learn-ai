@@ -154,6 +154,12 @@ const LEVEL_ACTIVE: Record<string, string> = {
 export default function ProgressPage() {
   const router                          = useRouter();
   const { t } = useTranslation();
+
+  const LEVEL_LABEL: Record<string, string> = {
+    Beginner:     t.settings.beginner,
+    Intermediate: t.settings.intermediate,
+    Advanced:     t.settings.advanced,
+  };
   const { user, token, msgCount, videoCount, quizCount } = useSessionStore();
 
   const [stats,          setStats]          = useState<UserStats | null>(null);
@@ -300,7 +306,7 @@ export default function ProgressPage() {
                   <button onClick={() => setProfileEditing(true)}
                     className="flex items-center gap-1 text-xs text-[var(--tx6)] hover:text-[var(--tx2)]
                                border border-[var(--bd)] hover:border-[var(--bd2)] px-2.5 py-1 rounded-lg transition-all">
-                    <Pencil size={10} /> Edit
+                    <Pencil size={10} /> {t.edit}
                   </button>
                 ) : (
                   <div className="flex gap-1.5">
@@ -372,7 +378,7 @@ export default function ProgressPage() {
                               <button key={lv} onClick={() => setEditSc(prev => ({ ...prev, [subj]: prev[subj] === lv ? '' : lv }))}
                                 className={`px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-all
                                   ${editSc[subj] === lv ? LEVEL_ACTIVE[lv] : 'bg-[var(--ov2)] text-[var(--tx6)] border-[var(--bd)] hover:border-[var(--bd2)]'}`}>
-                                {lv}
+                                {LEVEL_LABEL[lv] ?? lv}
                               </button>
                             ))}
                           </div>
@@ -386,7 +392,7 @@ export default function ProgressPage() {
                   {/* Grade */}
                   <div className="flex items-center gap-2">
                     <GraduationCap size={13} className="text-[var(--tx6)] shrink-0" />
-                    <span className="text-[var(--tx5)] text-xs">Grade:</span>
+                    <span className="text-[var(--tx5)] text-xs">{t.profile.gradeStep}:</span>
                     {profile?.grade
                       ? <span className="px-2.5 py-0.5 rounded-full text-xs bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">{profile.grade}</span>
                       : <button onClick={() => setProfileEditing(true)} className="text-[var(--tx6)] text-xs italic hover:text-purple-400 transition-colors">{t.profile.notSetClickEdit}</button>}
@@ -394,7 +400,7 @@ export default function ProgressPage() {
                   {/* Goal */}
                   <div className="flex items-start gap-2">
                     <Target size={13} className="text-[var(--tx6)] shrink-0 mt-0.5" />
-                    <span className="text-[var(--tx5)] text-xs">Goal:</span>
+                    <span className="text-[var(--tx5)] text-xs">{t.profile.goalStep}:</span>
                     {profile?.goal
                       ? <span className="text-[var(--tx2)] text-xs font-medium">{profile.goal}</span>
                       : <button onClick={() => setProfileEditing(true)} className="text-[var(--tx6)] text-xs italic hover:text-purple-400 transition-colors">{t.profile.notSetClickEdit}</button>}
@@ -409,14 +415,14 @@ export default function ProgressPage() {
                           .slice(0, showAllSubjects ? undefined : 6)
                           .map(([subj, level]) => (
                             <span key={subj} className={`px-2.5 py-1 rounded-full text-[10px] font-medium border ${LEVEL_COLORS[level] ?? ''}`}>
-                              {subj} · {level}
+                              {subj} · {LEVEL_LABEL[level] ?? level}
                             </span>
                           ))}
                       </div>
                       {Object.keys(profile!.subject_confidence).filter(k => profile!.subject_confidence[k]).length > 6 && (
                         <button onClick={() => setShowAllSubjects(s => !s)}
                           className="mt-1.5 text-[10px] text-[var(--tx6)] hover:text-[var(--tx4)] flex items-center gap-0.5">
-                          {showAllSubjects ? <><ChevronUp size={10} /> Show less</> : <><ChevronDown size={10} /> Show all</>}
+                          {showAllSubjects ? <><ChevronUp size={10} /> {t.progress.showLess}</> : <><ChevronDown size={10} /> {t.progress.showAll}</>}
                         </button>
                       )}
                     </div>
@@ -443,7 +449,7 @@ export default function ProgressPage() {
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
                     tierColor(limitsData?.tier ?? '')
                   }`}>
-                    {capitalize(limitsData?.tier ?? null)} Plan
+                    {capitalize(limitsData?.tier ?? null)} {t.progress.plan}
                   </span>
                 )}
               </div>

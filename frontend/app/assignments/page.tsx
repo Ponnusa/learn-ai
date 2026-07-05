@@ -8,6 +8,7 @@ import {
 import { useSessionStore } from '@/store/sessionStore';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { MathText } from '@/components/ui/MathText';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -22,23 +23,23 @@ interface AssignmentDetail {
   payload: QuizQuestion[] | Flashcard[] | null; study_set_id: string | null;
 }
 
-const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
-  quiz:       { label: 'Quiz',       icon: HelpCircle },
-  flashcards: { label: 'Flashcards', icon: Layers },
-  video:      { label: 'Video',      icon: Video },
-  studyset:   { label: 'Study set',  icon: BookOpen },
-};
-
-const VIDEO_STAGE_LABEL: Record<string, string> = {
-  pending:          'Writing the scene…',
-  transcript_ready: 'Generating animation code…',
-  queued:           'Queued for rendering…',
-  rendering:        'Rendering animation…',
-};
-
 export default function AssignmentsPage() {
   const router = useRouter();
   const { user, token } = useSessionStore();
+  const { t } = useTranslation();
+
+  const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
+    quiz:       { label: t.assignments.kindQuiz,       icon: HelpCircle },
+    flashcards: { label: t.assignments.kindFlashcards, icon: Layers },
+    video:      { label: t.assignments.kindVideo,      icon: Video },
+    studyset:   { label: t.assignments.kindStudySet,   icon: BookOpen },
+  };
+  const VIDEO_STAGE_LABEL: Record<string, string> = {
+    pending:          t.assignments.stageWriting,
+    transcript_ready: t.assignments.stageAnimation,
+    queued:           t.assignments.stageQueued,
+    rendering:        t.assignments.stageRendering,
+  };
 
   const [assignments, setAssignments] = useState<AssignmentSummary[]>([]);
   const [loading,      setLoading]    = useState(true);
@@ -95,15 +96,15 @@ export default function AssignmentsPage() {
     <div className="p-6 max-w-2xl mx-auto pb-16">
       <div className="mb-6">
         <h1 className="text-[var(--tx1)] text-2xl font-bold flex items-center gap-2">
-          <Sparkles size={20} className="text-purple-400" /> Extra Practice
+          <Sparkles size={20} className="text-purple-400" /> {t.assignments.title}
         </h1>
-        <p className="text-[var(--tx6)] text-sm mt-1">Assigned by your teachers</p>
+        <p className="text-[var(--tx6)] text-sm mt-1">{t.assignments.subtitle}</p>
       </div>
 
       {assignments.length === 0 ? (
         <div className="text-center py-20">
-          <p className="text-[var(--tx3)] font-medium mb-1">No extra practice assigned yet</p>
-          <p className="text-[var(--tx7)] text-sm">Your teacher can assign quizzes, flashcards, videos, or study sets here</p>
+          <p className="text-[var(--tx3)] font-medium mb-1">{t.assignments.noAssignments}</p>
+          <p className="text-[var(--tx7)] text-sm">{t.assignments.noAssignmentsHint}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -129,12 +130,12 @@ export default function AssignmentsPage() {
                       <p className="text-[var(--tx7)] text-sm flex items-center gap-2">
                         <Loader2 size={14} className="animate-spin" />
                         {detail.kind === 'video' && detail.video_stage
-                          ? (VIDEO_STAGE_LABEL[detail.video_stage] ?? 'Generating…')
-                          : 'Generating…'}
+                          ? (VIDEO_STAGE_LABEL[detail.video_stage] ?? t.assignments.generating)
+                          : t.assignments.generating}
                       </p>
                     )}
                     {detail.status === 'failed' && (
-                      <p className="text-red-400 text-sm">{detail.error_message ?? 'Generation failed — ask your teacher to try again.'}</p>
+                      <p className="text-red-400 text-sm">{detail.error_message ?? t.assignments.generationFailed}</p>
                     )}
 
                     {detail.status === 'ready' && detail.kind === 'quiz' && (
@@ -184,7 +185,7 @@ export default function AssignmentsPage() {
                     {detail.status === 'ready' && detail.kind === 'studyset' && detail.study_set_id && (
                       <button onClick={() => router.push(`/study/${detail.study_set_id}`)}
                         className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium rounded-xl transition-all">
-                        Open study set
+                        {t.assignments.openStudySet}
                       </button>
                     )}
 

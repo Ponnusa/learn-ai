@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, BookOpen, ArrowRight, Loader2, FileText, Layers, AlertTriangle } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -23,6 +24,7 @@ export default function TeacherCoursesPage() {
   const router = useRouter();
   const { user, token } = useSessionStore();
 
+  const { t } = useTranslation();
   const [courses,   setCourses]  = useState<Course[]>([]);
   const [loading,   setLoading]  = useState(true);
   const [showForm,  setShowForm] = useState(false);
@@ -80,7 +82,7 @@ export default function TeacherCoursesPage() {
 
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-[var(--tx1)] text-2xl font-bold">Course Builder</h1>
+          <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.teacher.coursesTitle}</h1>
           <p className="text-[var(--tx6)] text-sm mt-1">{courses.length} course{courses.length !== 1 ? 's' : ''}</p>
         </div>
         <button
@@ -88,7 +90,7 @@ export default function TeacherCoursesPage() {
           className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500
                      text-white text-sm font-medium rounded-xl transition-all"
         >
-          <Plus size={16} /> New course
+          <Plus size={16} /> {t.teacher.newCourse}
         </button>
       </div>
 
@@ -96,24 +98,24 @@ export default function TeacherCoursesPage() {
       {showForm && (
         <form onSubmit={createCourse}
           className="bg-[var(--surface)] border border-purple-500/30 rounded-2xl p-5 mb-6 space-y-3">
-          <p className="text-[var(--tx1)] text-sm font-medium">Create a new course</p>
-          <input required placeholder="Course name (e.g. Physics — Grade 11)" value={name}
+          <p className="text-[var(--tx1)] text-sm font-medium">{t.teacher.createCourse}</p>
+          <input required placeholder={t.teacher.courseNamePlaceholder} value={name}
             onChange={e => setName(e.target.value)} className={inputCls} />
-          <textarea placeholder="Description (optional)" value={desc} rows={2}
+          <textarea placeholder={t.teacher.descriptionOptional} value={desc} rows={2}
             onChange={e => setDesc(e.target.value)} className={`${inputCls} resize-none`} />
           <div className="flex gap-2">
-            <input placeholder="Subject" value={subject} onChange={e => setSubject(e.target.value)} className={inputCls} />
-            <input placeholder="Grade / level" value={grade} onChange={e => setGrade(e.target.value)} className={inputCls} />
+            <input placeholder={t.teacher.subjectLabel} value={subject} onChange={e => setSubject(e.target.value)} className={inputCls} />
+            <input placeholder={t.teacher.gradeLevelLabel} value={grade} onChange={e => setGrade(e.target.value)} className={inputCls} />
           </div>
           <div className="flex gap-2 pt-1">
             <button type="submit" disabled={creating || !name.trim()}
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500
                          text-white text-sm rounded-xl transition-all disabled:opacity-40">
-              {creating ? <Loader2 size={14} className="animate-spin" /> : 'Create & open'}
+              {creating ? <Loader2 size={14} className="animate-spin" /> : t.teacher.createOpen}
             </button>
             <button type="button" onClick={() => setShowForm(false)}
               className="px-4 py-2 text-[var(--tx6)] hover:text-[var(--tx2)] text-sm transition-colors">
-              Cancel
+              {t.cancel}
             </button>
           </div>
         </form>
@@ -125,8 +127,8 @@ export default function TeacherCoursesPage() {
           <div className="w-16 h-16 rounded-2xl bg-[var(--ov2)] flex items-center justify-center mx-auto mb-4">
             <BookOpen size={28} className="text-[var(--tx7)]" />
           </div>
-          <p className="text-[var(--tx3)] font-medium mb-1">No courses yet</p>
-          <p className="text-[var(--tx7)] text-sm">Create one manually or import from a syllabus PDF</p>
+          <p className="text-[var(--tx3)] font-medium mb-1">{t.teacher.noCourses}</p>
+          <p className="text-[var(--tx7)] text-sm">{t.teacher.noCoursesHint}</p>
         </div>
       ) : (
         <div className="space-y-3">

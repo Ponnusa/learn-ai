@@ -61,7 +61,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
   const searchRef = useRef<HTMLInputElement>(null);
   const pathname  = usePathname();
   const router    = useRouter();
-  const { t } = useTranslation();
+  const { t, tF } = useTranslation();
   const {
     user, token, sessionId,
     conversations, setConversations,
@@ -205,10 +205,10 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
 
   function fmtDate(iso: string) {
     const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-    if (diff === 0) return 'Today';
-    if (diff === 1) return 'Yesterday';
-    if (diff < 7)  return `${diff}d ago`;
-    return new Date(iso).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+    if (diff === 0) return t.sidebar.today;
+    if (diff === 1) return t.sidebar.yesterday;
+    if (diff < 7)  return tF(t.studySets.daysAgo, { n: diff });
+    return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
   const activeId = selectedConversationId ?? activeConversationId ?? undefined;
@@ -229,21 +229,21 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
   // Classroom / role-specific
   const classroomItems = [
     ...(isTeacher
-      ? [{ icon: <LayoutDashboard size={18} />, label: 'Dashboard', href: '/teacher/dashboard' }]
+      ? [{ icon: <LayoutDashboard size={18} />, label: t.sidebar.dashboard, href: '/teacher/dashboard' }]
       : []),
     ...(isSuperAdmin
-      ? [{ icon: <LayoutDashboard size={18} />, label: 'Admin', href: '/admin' }]
+      ? [{ icon: <LayoutDashboard size={18} />, label: t.sidebar.admin, href: '/admin' }]
       : []),
-    { icon: <Mail size={18} />, label: 'Messages', href: '/messages', badge: unreadMessages },
+    { icon: <Mail size={18} />, label: t.sidebar.messages, href: '/messages', badge: unreadMessages },
     ...(isTeacher || isSuperAdmin
       ? [
-          { icon: <Users size={18} />,         label: 'Classrooms',     href: '/teacher/classrooms' },
-          { icon: <BookOpen size={18} />,      label: 'Course Builder', href: '/teacher/courses'    },
-          { icon: <GraduationCap size={18} />, label: 'Students',       href: '/teacher/students'   },
+          { icon: <Users size={18} />,         label: t.sidebar.classrooms,   href: '/teacher/classrooms' },
+          { icon: <BookOpen size={18} />,      label: t.sidebar.courseBuilder, href: '/teacher/courses'    },
+          { icon: <GraduationCap size={18} />, label: t.sidebar.students,      href: '/teacher/students'   },
         ]
       : [
-          { icon: <Users size={18} />,         label: 'Classrooms',  href: '/classrooms'  },
-          { icon: <ClipboardList size={18} />, label: 'Assignments', href: '/assignments'  },
+          { icon: <Users size={18} />,         label: t.sidebar.classrooms,  href: '/classrooms'  },
+          { icon: <ClipboardList size={18} />, label: t.sidebar.assignments, href: '/assignments'  },
         ]),
     { icon: <Settings size={18} />, label: t.sidebar.settings, href: '/settings' },
   ];
@@ -293,7 +293,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
             {/* New chat */}
             <button
               onClick={handleNewChat}
-              title="New chat"
+              title={t.sidebar.newChat}
               className="w-10 h-10 flex items-center justify-center rounded-xl
                          text-[var(--tx5)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)]
                          transition-colors"
@@ -304,7 +304,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
             {/* Chats panel toggle */}
             <button
               onClick={handleChatsClick}
-              title="Conversations"
+              title={t.sidebar.conversations}
               className={`w-10 h-10 flex items-center justify-center rounded-xl transition-colors ${
                 chatsOpen
                   ? 'bg-purple-600/20 text-[var(--purple)]'

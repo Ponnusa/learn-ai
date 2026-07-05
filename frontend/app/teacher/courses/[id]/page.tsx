@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { PDFViewerModal } from '@/components/chat/PDFViewerModal';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -30,6 +31,7 @@ export default function CourseDetailPage() {
   const courseId = params.id as string;
   const { user, token } = useSessionStore();
 
+  const { t, tF } = useTranslation();
   const [course,      setCourse]      = useState<Course | null>(null);
   const [loading,     setLoading]     = useState(true);
   const [expanded,    setExpanded]    = useState<Set<string>>(new Set());
@@ -364,7 +366,7 @@ export default function CourseDetailPage() {
       {/* Back */}
       <button onClick={() => router.push('/teacher/courses')}
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
-        <ArrowLeft size={15} /> Back to courses
+        <ArrowLeft size={15} /> {t.teacher.backToCourses}
       </button>
 
       {/* Header */}
@@ -382,7 +384,7 @@ export default function CourseDetailPage() {
         <div className="flex items-center gap-2 shrink-0">
           <button onClick={() => router.push(`/teacher/courses/${courseId}/progress`)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
-            <Users size={14} /> Progress
+            <Users size={14} /> {t.teacher.progressBtn}
           </button>
           <button onClick={publish}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all ${
@@ -390,7 +392,7 @@ export default function CourseDetailPage() {
                 ? 'border-green-500/30 text-green-400 hover:bg-green-500/10'
                 : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400'
             }`}>
-            {course.status === 'published' ? <><CheckCircle size={14} /> Published</> : <><Globe size={14} /> Publish</>}
+            {course.status === 'published' ? <><CheckCircle size={14} /> {t.teacher.published}</> : <><Globe size={14} /> {t.teacher.publishBtn}</>}
           </button>
         </div>
       </div>
@@ -400,7 +402,7 @@ export default function CourseDetailPage() {
         <div className="bg-purple-500/10 border border-purple-500/30 rounded-2xl p-4 mb-4 flex items-center gap-3">
           <Loader2 size={16} className="text-purple-400 animate-spin shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-purple-300 text-sm font-medium">AI is generating content…</p>
+            <p className="text-purple-300 text-sm font-medium">{t.teacher.aiGenerating}</p>
             <p className="text-purple-400/70 text-xs mt-0.5 truncate">{pipelineMsg}</p>
           </div>
           {totalCount > 0 && (
@@ -416,18 +418,16 @@ export default function CourseDetailPage() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-[var(--tx1)] text-sm font-semibold flex items-center gap-1.5">
-              <Zap size={14} className="text-purple-400" /> Upload chapter — AI generates everything
+              <Zap size={14} className="text-purple-400" /> {t.teacher.uploadChapterTitle}
             </p>
             <p className="text-[var(--tx7)] text-xs mt-1">
-              Upload a chapter PDF, or a whole textbook — we'll detect its chapters from
-              the table of contents. AI extracts concepts, writes summaries and video
-              transcripts. You review and approve before students see anything.
+              {t.teacher.uploadChapterDesc}
             </p>
           </div>
           <button onClick={() => chapterRef.current?.click()} disabled={uploading || detecting || isProcessing}
             className="shrink-0 flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-500
                        text-white text-sm rounded-xl transition-all disabled:opacity-40">
-            {uploading || detecting ? <Loader2 size={14} className="animate-spin" /> : <><Upload size={14} /> Upload chapter</>}
+            {uploading || detecting ? <Loader2 size={14} className="animate-spin" /> : <><Upload size={14} /> {t.teacher.uploadChapterBtn}</>}
           </button>
           <input ref={chapterRef} type="file" accept=".pdf" className="hidden"
             onChange={e => e.target.files?.[0] && handleFileSelected(e.target.files[0])} />
@@ -438,11 +438,10 @@ export default function CourseDetailPage() {
       {detectedChapters && (
         <div className="bg-[var(--surface)] border border-purple-500/30 rounded-2xl p-5 mb-6">
           <p className="text-[var(--tx1)] text-sm font-semibold mb-1">
-            Detected {detectedChapters.length} chapters in this PDF
+            {tF(t.teacher.detectedChapters, { n: detectedChapters.length })}
           </p>
           <p className="text-[var(--tx7)] text-xs mb-4">
-            Review the page ranges below — adjust any that look wrong, especially the last
-            one (back matter like appendices isn't always excluded automatically).
+            {t.teacher.reviewRanges}
           </p>
           <div className="space-y-2 mb-4">
             {detectedChapters.map((c, i) => (
@@ -456,7 +455,7 @@ export default function CourseDetailPage() {
                 <input type="number" value={c.end_page} onChange={e => updateDetectedChapter(i, 'end_page', e.target.value)}
                   className="w-16 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1.5 text-sm text-[var(--tx1)]" />
                 {c.low_confidence && (
-                  <span className="text-amber-400 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 shrink-0">check end page</span>
+                  <span className="text-amber-400 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 shrink-0">{t.teacher.checkEndPage}</span>
                 )}
               </div>
             ))}
@@ -466,15 +465,15 @@ export default function CourseDetailPage() {
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500
                          text-white text-sm font-medium rounded-xl transition-all disabled:opacity-40">
               {splitting ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-              Create {detectedChapters.length} chapters
+              {tF(t.teacher.createChaptersBtn, { n: detectedChapters.length })}
             </button>
             <button onClick={useAsOneChapter} disabled={splitting}
               className="px-4 py-2 text-[var(--tx6)] hover:text-[var(--tx2)] text-sm transition-colors disabled:opacity-40">
-              Just use as one chapter
+              {t.teacher.justOneChapter}
             </button>
             <button onClick={cancelDetectedSplit} disabled={splitting}
               className="px-4 py-2 text-[var(--tx7)] hover:text-[var(--tx3)] text-sm transition-colors disabled:opacity-40">
-              Cancel
+              {t.cancel}
             </button>
           </div>
         </div>
@@ -504,19 +503,19 @@ export default function CourseDetailPage() {
                   <button onClick={() => openCropModal(unit.id, unit.chapter_ref!)}
                     className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
                                text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
-                    <Crop size={12} /> From PDF
+                    <Crop size={12} /> {t.teacher.fromPdf}
                   </button>
                   <button onClick={() => suggestConcepts(unit.chapter_ref!)} disabled={suggestingFor === unit.chapter_ref}
                     className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
                                text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
                     {suggestingFor === unit.chapter_ref ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                    Suggest concepts
+                    {t.teacher.suggestConcepts}
                   </button>
                   <button onClick={() => checkCoverage(unit.chapter_ref!)} disabled={coverageBusy === unit.chapter_ref}
                     className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
                                text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
                     {coverageBusy === unit.chapter_ref ? <Loader2 size={12} className="animate-spin" /> : <ListChecks size={12} />}
-                    Check coverage
+                    {t.teacher.checkCoverage}
                   </button>
                 </div>
               )}
@@ -545,18 +544,18 @@ export default function CourseDetailPage() {
                       <p className="text-[var(--tx2)] text-sm truncate group-hover:text-purple-400 transition-colors flex items-center gap-1.5">
                         {c.title}
                         {c.source === 'manual' && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 shrink-0">Manual</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 shrink-0">{t.teacher.manualBadge}</span>
                         )}
                       </p>
                       <span className="text-xs flex items-center gap-1 mt-0.5">
-                        {c.pipeline_status === 'summarizing' && <><Loader2 size={9} className="animate-spin text-amber-400" /><span className="text-amber-400">Generating…</span></>}
-                        {c.pipeline_status === 'ready'       && <><Circle size={9} className="fill-blue-400 text-blue-400" /><span className="text-blue-400">Ready for review</span></>}
-                        {c.pipeline_status === 'approved'    && <><CheckCircle size={9} className="text-green-400" /><span className="text-green-400">Approved</span></>}
-                        {c.pipeline_status === 'failed'      && <span className="text-red-400">Generation failed</span>}
+                        {c.pipeline_status === 'summarizing' && <><Loader2 size={9} className="animate-spin text-amber-400" /><span className="text-amber-400">{t.teacher.statusGenerating}</span></>}
+                        {c.pipeline_status === 'ready'       && <><Circle size={9} className="fill-blue-400 text-blue-400" /><span className="text-blue-400">{t.teacher.statusReadyReview}</span></>}
+                        {c.pipeline_status === 'approved'    && <><CheckCircle size={9} className="text-green-400" /><span className="text-green-400">{t.teacher.statusApproved}</span></>}
+                        {c.pipeline_status === 'failed'      && <span className="text-red-400">{t.teacher.statusFailed}</span>}
                         {(!c.pipeline_status || c.pipeline_status === 'draft') && (
                           c.ss_status === 'ready'
-                            ? <span className="text-green-400 flex items-center gap-1"><BookOpen size={9} /> Study set ready</span>
-                            : <span className="text-[var(--tx8)]">Click to edit</span>
+                            ? <span className="text-green-400 flex items-center gap-1"><BookOpen size={9} /> {t.teacher.statusStudySet}</span>
+                            : <span className="text-[var(--tx8)]">{t.teacher.statusClickEdit}</span>
                         )}
                       </span>
                     </button>
@@ -571,19 +570,19 @@ export default function CourseDetailPage() {
                 {/* Add concept inline */}
                 {addingConcept === unit.id ? (
                   <form onSubmit={e => addConcept(unit.id, e)} className="flex gap-2 mt-2">
-                    <input autoFocus placeholder="Concept title" value={conceptTitle}
+                    <input autoFocus placeholder={t.teacher.addConceptPlaceholder} value={conceptTitle}
                       onChange={e => setConceptTitle(e.target.value)}
                       className={`${inputCls} flex-1`} />
                     <button type="submit"
-                      className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded-lg">Add</button>
+                      className="px-3 py-1.5 bg-purple-600 text-white text-xs rounded-lg">{t.teacher.addBtn}</button>
                     <button type="button" onClick={() => { setAddingConcept(null); setConceptTitle(''); }}
-                      className="px-3 py-1.5 text-[var(--tx7)] text-xs rounded-lg">Cancel</button>
+                      className="px-3 py-1.5 text-[var(--tx7)] text-xs rounded-lg">{t.cancel}</button>
                   </form>
                 ) : (
                   <button onClick={() => { setAddingConcept(unit.id); setConceptTitle(''); }}
                     className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-purple-400 text-xs
                                transition-colors mt-1 py-1">
-                    <Plus size={12} /> Add concept
+                    <Plus size={12} /> {t.teacher.addConceptBtn}
                   </button>
                 )}
               </div>
@@ -599,16 +598,16 @@ export default function CourseDetailPage() {
               onChange={e => setUnitTitle(e.target.value)}
               className={`${inputCls} flex-1`} />
             <button type="submit"
-              className="px-3 py-2 bg-purple-600 text-white text-sm rounded-xl">Add</button>
+              className="px-3 py-2 bg-purple-600 text-white text-sm rounded-xl">{t.teacher.addBtn}</button>
             <button type="button" onClick={() => { setAddingUnit(false); setUnitTitle(''); }}
-              className="px-3 py-2 text-[var(--tx7)] text-sm rounded-xl">Cancel</button>
+              className="px-3 py-2 text-[var(--tx7)] text-sm rounded-xl">{t.cancel}</button>
           </form>
         ) : (
           <button onClick={() => setAddingUnit(true)}
             className="w-full flex items-center justify-center gap-2 py-3 border border-dashed
                        border-[var(--bd)] hover:border-purple-500/40 rounded-2xl text-[var(--tx7)]
                        hover:text-purple-400 text-sm transition-all">
-            <Plus size={15} /> Add unit
+            <Plus size={15} /> {t.teacher.addUnitBtn}
           </button>
         )}
       </div>
@@ -618,7 +617,7 @@ export default function CourseDetailPage() {
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <Users size={16} className="text-[var(--tx6)]" />
-            <p className="text-[var(--tx2)] text-sm font-medium">Assign to classrooms</p>
+            <p className="text-[var(--tx2)] text-sm font-medium">{t.teacher.assignToClassrooms}</p>
           </div>
           <div className="space-y-2">
             {myClassrooms.map(cls => {
@@ -635,7 +634,7 @@ export default function CourseDetailPage() {
                         : 'bg-[var(--ov3)] text-[var(--tx6)] hover:bg-purple-500/15 hover:text-purple-400'
                     }`}
                   >
-                    {assigned ? <><Check size={11} /> Assigned</> : <><Plus size={11} /> Assign</>}
+                    {assigned ? <><Check size={11} /> {t.teacher.assignedBadge}</> : <><Plus size={11} /> {t.teacher.assignBadge}</>}
                   </button>
                 </div>
               );

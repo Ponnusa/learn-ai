@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, BookOpen, Layers, FileText, Loader2 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -23,6 +24,7 @@ export default function StudentClassroomPage() {
   const classroomId = params.id as string;
   const { user, token } = useSessionStore();
 
+  const { t, tF } = useTranslation();
   const [courses,  setCourses]  = useState<Course[]>([]);
   const [loading,  setLoading]  = useState(true);
 
@@ -51,12 +53,12 @@ export default function StudentClassroomPage() {
     <div className="p-6 max-w-2xl mx-auto">
       <button onClick={() => router.push('/classrooms')}
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
-        <ArrowLeft size={15} /> My classrooms
+        <ArrowLeft size={15} /> {t.classrooms.title}
       </button>
 
       <div className="mb-8">
-        <h1 className="text-[var(--tx1)] text-2xl font-bold">Courses</h1>
-        <p className="text-[var(--tx6)] text-sm mt-1">{courses.length} course{courses.length !== 1 ? 's' : ''} assigned by your teacher</p>
+        <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.classrooms.courses}</h1>
+        <p className="text-[var(--tx6)] text-sm mt-1">{tF(t.classrooms.coursesSubtitle, { n: courses.length })}</p>
       </div>
 
       {courses.length === 0 ? (
@@ -64,8 +66,8 @@ export default function StudentClassroomPage() {
           <div className="w-16 h-16 rounded-2xl bg-[var(--ov2)] flex items-center justify-center mx-auto mb-4">
             <BookOpen size={28} className="text-[var(--tx7)]" />
           </div>
-          <p className="text-[var(--tx3)] font-medium mb-1">No courses yet</p>
-          <p className="text-[var(--tx7)] text-sm">Your teacher hasn't assigned any courses to this classroom yet</p>
+          <p className="text-[var(--tx3)] font-medium mb-1">{t.classrooms.noCourses}</p>
+          <p className="text-[var(--tx7)] text-sm">{t.classrooms.noCoursesHint}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -85,7 +87,7 @@ export default function StudentClassroomPage() {
                     <div className="flex items-center gap-3 mt-1 text-xs text-[var(--tx7)]">
                       {c.subject && <span>{c.subject}</span>}
                       {c.grade   && <span>{c.grade}</span>}
-                      <span className="flex items-center gap-1"><Layers size={10} /> {c.unit_count} units</span>
+                      <span className="flex items-center gap-1"><Layers size={10} /> {tF(t.classrooms.unitsCount, { n: c.unit_count })}</span>
                       <span className="flex items-center gap-1"><FileText size={10} /> {c.concept_count} concepts</span>
                     </div>
                   </div>
@@ -100,7 +102,7 @@ export default function StudentClassroomPage() {
                   />
                 </div>
                 <p className="text-[var(--tx8)] text-xs mt-1.5">
-                  {c.visited_count} of {c.concept_count} concepts visited
+                  {tF(t.classrooms.conceptsVisited, { visited: c.visited_count, total: c.concept_count })}
                 </p>
               </button>
             );

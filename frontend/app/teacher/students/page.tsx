@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Loader2, GraduationCap, Layers, AlertTriangle } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -16,15 +17,16 @@ interface StudentRow {
   last_seen_at: string | null; risk: Risk;
 }
 
-const RISK_BADGE: Record<Risk, { label: string; cls: string; dot: string }> = {
-  at_risk: { label: 'At risk', cls: 'bg-red-500/15 text-red-400',     dot: 'bg-red-400' },
-  watch:   { label: 'Watch',   cls: 'bg-amber-500/15 text-amber-400', dot: 'bg-amber-400' },
-  ok:      { label: 'On track', cls: 'bg-green-500/15 text-green-400', dot: 'bg-green-400' },
-};
-
 export default function TeacherStudentsPage() {
   const router = useRouter();
   const { user, token } = useSessionStore();
+  const { t, tF } = useTranslation();
+
+  const RISK_BADGE: Record<Risk, { label: string; cls: string; dot: string }> = {
+    at_risk: { label: t.teacher.riskAt,    cls: 'bg-red-500/15 text-red-400',     dot: 'bg-red-400' },
+    watch:   { label: t.teacher.riskWatch, cls: 'bg-amber-500/15 text-amber-400', dot: 'bg-amber-400' },
+    ok:      { label: t.teacher.riskOnTrack, cls: 'bg-green-500/15 text-green-400', dot: 'bg-green-400' },
+  };
 
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [loading,  setLoading]  = useState(true);
@@ -66,8 +68,8 @@ export default function TeacherStudentsPage() {
     <div className="p-6 max-w-4xl mx-auto pb-16">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-[var(--tx1)] text-2xl font-bold">Students</h1>
-          <p className="text-[var(--tx6)] text-sm mt-1">Across all your classrooms — {students.length} student{students.length === 1 ? '' : 's'}</p>
+          <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.teacher.studentsTitle}</h1>
+          <p className="text-[var(--tx6)] text-sm mt-1">{tF(t.teacher.studentsSubtitle, { n: students.length })}</p>
         </div>
         <button
           onClick={() => { setAtRiskOnly(v => !v); setSelected(new Set()); }}
@@ -76,17 +78,17 @@ export default function TeacherStudentsPage() {
               ? 'border-red-500/40 text-red-400 bg-red-500/10'
               : 'border-[var(--bd)] text-[var(--tx6)] hover:border-red-500/30 hover:text-red-400'
           }`}>
-          <AlertTriangle size={14} /> At risk only
+          <AlertTriangle size={14} /> {t.teacher.atRiskOnly}
         </button>
       </div>
 
       {selected.size > 0 && (
         <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl p-4 mb-4 flex items-center justify-between gap-3">
-          <p className="text-purple-300 text-sm">{selected.size} student{selected.size === 1 ? '' : 's'} selected</p>
+          <p className="text-purple-300 text-sm">{tF(t.teacher.selectedStudents, { n: selected.size })}</p>
           <button
             onClick={() => router.push(`/teacher/students/assign?ids=${[...selected].join(',')}`)}
             className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium rounded-xl transition-all">
-            Assign extra practice
+            {t.teacher.assignPractice}
           </button>
         </div>
       )}
@@ -96,7 +98,7 @@ export default function TeacherStudentsPage() {
           <div className="w-16 h-16 rounded-2xl bg-[var(--ov2)] flex items-center justify-center mx-auto mb-4">
             <GraduationCap size={28} className="text-[var(--tx7)]" />
           </div>
-          <p className="text-[var(--tx3)] font-medium mb-1">{atRiskOnly ? 'No students at risk right now' : 'No students yet'}</p>
+          <p className="text-[var(--tx3)] font-medium mb-1">{atRiskOnly ? t.teacher.noAtRisk : t.teacher.noStudentsYet}</p>
           <p className="text-[var(--tx7)] text-sm">{atRiskOnly ? 'Nice work — check back as more data comes in' : 'Students will show up here once they join a classroom'}</p>
         </div>
       ) : (
@@ -125,16 +127,16 @@ export default function TeacherStudentsPage() {
                       {s.classrooms.map(c => c.name).join(', ')}
                     </p>
                     <div className="flex items-center gap-3 text-xs text-[var(--tx7)] flex-wrap">
-                      <span>{s.visited_pct !== null ? `${s.visited_pct}% visited` : 'No activity yet'}</span>
+                      <span>{s.visited_pct !== null ? tF(t.teacher.pctVisited, { pct: s.visited_pct }) : t.teacher.noActivity}</span>
                       {s.avg_quiz_score !== null && (
                         <span className={
                           s.avg_quiz_score >= 70 ? 'text-green-400' : s.avg_quiz_score >= 40 ? 'text-amber-400' : 'text-red-400'
-                        }>{s.avg_quiz_score}% avg quiz</span>
+                        }>{tF(t.teacher.avgQuiz, { pct: s.avg_quiz_score })}</span>
                       )}
                       {s.due_flashcards > 0 && (
-                        <span className="flex items-center gap-1 text-amber-400"><Layers size={10} /> {s.due_flashcards} due</span>
+                        <span className="flex items-center gap-1 text-amber-400"><Layers size={10} /> {tF(t.teacher.dueReview, { n: s.due_flashcards })}</span>
                       )}
-                      <span>{s.last_seen_at ? `Last active ${new Date(s.last_seen_at).toLocaleDateString()}` : 'Never active'}</span>
+                      <span>{s.last_seen_at ? tF(t.teacher.lastActive, { date: new Date(s.last_seen_at).toLocaleDateString() }) : t.teacher.neverActive}</span>
                     </div>
                   </div>
                   <ArrowRight size={16} className="text-[var(--tx8)] group-hover:text-purple-400 transition-colors shrink-0 mt-1" />

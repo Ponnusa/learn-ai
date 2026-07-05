@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { MessageSquare, Loader2 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -16,6 +17,7 @@ export default function MessagesPage() {
   const router = useRouter();
   const { user, token } = useSessionStore();
 
+  const { t } = useTranslation();
   const [threads, setThreads] = useState<Thread[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -47,10 +49,10 @@ export default function MessagesPage() {
           ) : (
             <div className="p-6 max-w-2xl mx-auto">
               <div className="mb-6">
-                <h1 className="text-[var(--tx1)] text-2xl font-bold">Messages</h1>
+                <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.messages.title}</h1>
                 <p className="text-[var(--tx6)] text-sm mt-1">
                   {user?.account_type === 'teacher' || user?.account_type === 'institution_admin' || user?.account_type === 'super_admin'
-                    ? 'Direct messages with your students' : 'Direct messages with your teachers'}
+                    ? t.messages.teacherSubtitle : t.messages.studentSubtitle}
                 </p>
               </div>
 
@@ -59,8 +61,8 @@ export default function MessagesPage() {
                   <div className="w-16 h-16 rounded-2xl bg-[var(--ov2)] flex items-center justify-center mx-auto mb-4">
                     <MessageSquare size={28} className="text-[var(--tx7)]" />
                   </div>
-                  <p className="text-[var(--tx3)] font-medium mb-1">No conversations yet</p>
-                  <p className="text-[var(--tx7)] text-sm">Messages with your classroom contacts will show up here</p>
+                  <p className="text-[var(--tx3)] font-medium mb-1">{t.messages.noConversations}</p>
+                  <p className="text-[var(--tx7)] text-sm">{t.messages.noConversationsHint}</p>
                 </div>
               ) : (
                 <div className="space-y-2">
