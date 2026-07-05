@@ -423,6 +423,22 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'ai'",
             # ── Per-concept authoring chat (teacher-only) ─────────────────────────
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS concept_id UUID REFERENCES course_concepts(id) ON DELETE CASCADE",
+            # ── Concept supplementary resources (images, PDFs, videos) ────────────
+            """
+            CREATE TABLE IF NOT EXISTS concept_resources (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                concept_id  UUID NOT NULL REFERENCES course_concepts(id) ON DELETE CASCADE,
+                type        TEXT NOT NULL,
+                title       TEXT NOT NULL DEFAULT '',
+                file_data   BYTEA,
+                mime_type   TEXT,
+                raw_text    TEXT,
+                video_url   TEXT,
+                position    INT  NOT NULL DEFAULT 0,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_concept_resources_concept ON concept_resources(concept_id, position)",
         ]:
             try:
                 await db.execute(sql)

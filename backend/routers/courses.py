@@ -1137,16 +1137,17 @@ async def get_course_student_view(course_id: str, authorization: str = Header(..
 @router.post("/concepts/{concept_id}/activate")
 async def activate_concept(concept_id: str, authorization: str = Header(...)):
     """
-    Student taps a concept:
-    1. Auto-create a study_set if none exists yet (links it to the concept)
-    2. Record progress (mark visited)
-    Returns study_set_id so frontend can navigate to /study/[id]
+    Student opens a concept:
+    1. Record visited progress
+    2. Auto-create the seeded study set if one doesn't exist yet
+    3. Sync any PDF concept_resources to study_materials for chat grounding
+    Returns study_set_id for the Q&A chat.
     """
     student_id = await _get_student(authorization)
 
     async with get_db() as db:
         concept = await db.fetchrow("""
-            SELECT cc.id, cc.title, cc.description, cc.study_set_id, cc.unit_id,
+            SELECT cc.id, cc.title, cc.study_set_id, cc.source_text, cc.chapter_ref,
                    cu.course_id, c.subject
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
@@ -1154,12 +1155,11 @@ async def activate_concept(concept_id: str, authorization: str = Header(...)):
             WHERE cc.id = $1::uuid
         """, concept_id)
 
-        if not concept:
-            raise HTTPException(404, "Concept not found")
+    if not concept:
+        raise HTTPException(404, "Concept not found")
 
-        study_set_id = concept["study_set_id"]
-
-        # Upsert progress (do NOT auto-create study set — teacher creates it)
+    # Mark visited
+    async with get_db() as db:
         await db.execute("""
             INSERT INTO student_concept_progress
               (student_id, concept_id, course_id, visited, visited_at, last_seen_at)
@@ -1168,6 +1168,46 @@ async def activate_concept(concept_id: str, authorization: str = Header(...)):
             DO UPDATE SET visited = true, visited_at = COALESCE(student_concept_progress.visited_at, NOW()),
                           last_seen_at = NOW()
         """, student_id, concept_id, str(concept["course_id"]))
+
+    study_set_id = concept["study_set_id"]
+
+    # Auto-create study set from concept source material
+    if not study_set_id:
+        material_text = concept["source_text"] or concept["title"]
+        if concept["chapter_ref"]:
+            async with get_db() as db:
+                chapter = await db.fetchrow(
+                    "SELECT pdf_data FROM course_chapters WHERE id = $1::uuid", concept["chapter_ref"]
+                )
+            if chapter and chapter["pdf_data"]:
+                from services.studyset_processor import extract_text_from_pdf
+                full_text, _ = extract_text_from_pdf(bytes(chapter["pdf_data"]))
+                if full_text:
+                    material_text = full_text
+
+        study_set_id = await _create_seeded_study_set(concept["title"], concept["subject"], material_text)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET study_set_id = $1::uuid WHERE id = $2::uuid",
+                study_set_id, concept_id,
+            )
+
+    # Sync PDF resources not yet in study_materials
+    async with get_db() as db:
+        pdf_resources = await db.fetch("""
+            SELECT id, title, raw_text
+            FROM concept_resources
+            WHERE concept_id = $1::uuid AND type = 'pdf' AND raw_text IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM study_materials sm
+                WHERE sm.study_set_id = $2::uuid AND sm.filename = 'resource:' || id::text
+              )
+        """, concept_id, study_set_id)
+        for res in pdf_resources:
+            await db.execute("""
+                INSERT INTO study_materials (study_set_id, filename, raw_text, char_count, status)
+                VALUES ($1::uuid, $2, $3, $4, 'ready')
+            """, study_set_id, f"resource:{res['id']}", res["raw_text"], len(res["raw_text"]))
 
     return {"study_set_id": str(study_set_id)}
 
@@ -1937,6 +1977,13 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
             ORDER BY position, created_at
         """, concept_id)
 
+        resources = await db.fetch("""
+            SELECT id, type, title, mime_type, video_url, position
+            FROM concept_resources
+            WHERE concept_id = $1::uuid
+            ORDER BY position, created_at
+        """, concept_id)
+
     return {
         "id":              str(concept["id"]),
         "title":           concept["title"],
@@ -1966,6 +2013,18 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
                 "position": img["position"],
             }
             for img in images
+        ],
+        "resources": [
+            {
+                "id":       str(r["id"]),
+                "type":     r["type"],
+                "title":    r["title"] or "",
+                "mime_type": r["mime_type"],
+                "video_url": r["video_url"],
+                "file_url":  f"/api/courses/concepts/resources/{r['id']}/file" if r["type"] in ("image", "pdf") else None,
+                "position":  r["position"],
+            }
+            for r in resources
         ],
     }
 
@@ -2141,6 +2200,145 @@ async def serve_concept_image(image_id: str):
     return Response(
         content=bytes(row["data"]),
         media_type=row["mime_type"],
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/concepts/{concept_id}/resources")
+async def list_concept_resources(concept_id: str, authorization: str = Header(...)):
+    """Teacher: list supplementary resources for a concept."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT id, type, title, mime_type, video_url, position
+            FROM concept_resources
+            WHERE concept_id = $1::uuid
+            ORDER BY position, created_at
+        """, concept_id)
+    return [
+        {
+            "id":       str(r["id"]),
+            "type":     r["type"],
+            "title":    r["title"] or "",
+            "mime_type": r["mime_type"],
+            "video_url": r["video_url"],
+            "file_url":  f"/api/courses/concepts/resources/{r['id']}/file" if r["type"] in ("image", "pdf") else None,
+            "position":  r["position"],
+        }
+        for r in rows
+    ]
+
+
+@router.post("/concepts/{concept_id}/resources")
+async def add_concept_resource(
+    concept_id: str,
+    authorization: str = Header(...),
+    resource_type: str = Form(None, alias="type"),
+    title: str = Form(""),
+    video_url: str = Form(None),
+    file: UploadFile = File(None),
+):
+    """
+    Teacher: upload a supplementary image or PDF, or add a video URL.
+    For PDFs, text is extracted and stored for student chat grounding.
+    """
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        exists = await db.fetchval("SELECT 1 FROM course_concepts WHERE id = $1::uuid", concept_id)
+    if not exists:
+        raise HTTPException(404, "Concept not found")
+
+    if resource_type == "video":
+        if not video_url:
+            raise HTTPException(400, "video_url required for video type")
+        async with get_db() as db:
+            max_pos = await db.fetchval(
+                "SELECT COALESCE(MAX(position), -1) FROM concept_resources WHERE concept_id = $1::uuid", concept_id
+            )
+            row = await db.fetchrow("""
+                INSERT INTO concept_resources (concept_id, type, title, video_url, position)
+                VALUES ($1::uuid, 'video', $2, $3, $4)
+                RETURNING id, position
+            """, concept_id, title or "Video", video_url, int(max_pos) + 1)
+        return {"id": str(row["id"]), "type": "video", "title": title or "Video",
+                "video_url": video_url, "file_url": None, "position": row["position"]}
+
+    if not file:
+        raise HTTPException(400, "file required for image or pdf type")
+
+    data     = await file.read()
+    mime     = file.content_type or "application/octet-stream"
+    raw_text = None
+
+    if mime.startswith("image/"):
+        rtype = "image"
+    elif mime == "application/pdf" or (file.filename or "").lower().endswith(".pdf"):
+        rtype    = "pdf"
+        from services.studyset_processor import extract_text_from_pdf
+        raw_text, _ = extract_text_from_pdf(data)
+        mime = "application/pdf"
+    else:
+        raise HTTPException(400, "Unsupported file type — upload an image or PDF")
+
+    async with get_db() as db:
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM concept_resources WHERE concept_id = $1::uuid", concept_id
+        )
+        row = await db.fetchrow("""
+            INSERT INTO concept_resources (concept_id, type, title, file_data, mime_type, raw_text, position)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+            RETURNING id, position
+        """, concept_id, rtype, title or file.filename or rtype, data, mime, raw_text, int(max_pos) + 1)
+
+    resource_id = str(row["id"])
+
+    # Immediately sync to study_materials if the concept already has a study set
+    if rtype == "pdf" and raw_text:
+        async with get_db() as db:
+            ss_id = await db.fetchval("SELECT study_set_id FROM course_concepts WHERE id = $1::uuid", concept_id)
+        if ss_id:
+            async with get_db() as db:
+                await db.execute("""
+                    INSERT INTO study_materials (study_set_id, filename, raw_text, char_count, status)
+                    VALUES ($1::uuid, $2, $3, $4, 'ready')
+                    ON CONFLICT DO NOTHING
+                """, ss_id, f"resource:{resource_id}", raw_text, len(raw_text))
+
+    return {
+        "id":        resource_id,
+        "type":      rtype,
+        "title":     title or file.filename or rtype,
+        "mime_type": mime,
+        "video_url": None,
+        "file_url":  f"/api/courses/concepts/resources/{resource_id}/file",
+        "position":  row["position"],
+    }
+
+
+@router.delete("/concepts/{concept_id}/resources/{resource_id}")
+async def delete_concept_resource(concept_id: str, resource_id: str, authorization: str = Header(...)):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM concept_resources WHERE id = $1::uuid AND concept_id = $2::uuid",
+            resource_id, concept_id,
+        )
+    return {"ok": True}
+
+
+@router.get("/concepts/resources/{resource_id}/file")
+async def serve_concept_resource_file(resource_id: str):
+    """Serve a concept resource binary (image or PDF). No auth — UUID is unguessable."""
+    from fastapi.responses import Response
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT file_data, mime_type FROM concept_resources WHERE id = $1::uuid", resource_id
+        )
+    if not row or not row["file_data"]:
+        raise HTTPException(404, "Resource not found")
+    return Response(
+        content=bytes(row["file_data"]),
+        media_type=row["mime_type"] or "application/octet-stream",
         headers={"Cache-Control": "public, max-age=86400"},
     )
 

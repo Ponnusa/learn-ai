@@ -9,7 +9,7 @@ import { preprocessMath } from '@/lib/preprocessMath';
 import {
   ArrowLeft, BookOpen, MessageSquare, Loader2, ImageIcon,
   HelpCircle, Layers, Volume2, Video, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, Send,
+  CheckCircle2, XCircle, Send, FileText,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { chatWithStudySet } from '@/lib/api';
@@ -19,6 +19,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 interface ConceptImage  { id: string; url: string; caption: string; }
 interface QuizQuestion  { id: string; question: string; options: string[]; correct_idx: number; explanation: string; }
 interface Flashcard     { id: string; front: string; back: string; is_due?: boolean; }
+interface ConceptResource { id: string; type: 'image' | 'pdf' | 'video'; title: string; file_url?: string; video_url?: string; }
 
 interface ConceptDetail {
   id: string; title: string; description?: string;
@@ -27,6 +28,7 @@ interface ConceptDetail {
   quiz_status?: string; flashcard_status?: string; audio_status?: string;
   has_audio?: boolean; audio_url?: string;
   images: ConceptImage[];
+  resources: ConceptResource[];
 }
 
 interface Assets {
@@ -189,6 +191,21 @@ export default function StudentConceptDetailPage() {
     setCardsDone(new Set()); setCardsAgain([]); setDeckFinished(false);
   }
 
+  function toEmbedUrl(url: string): string | null {
+    try {
+      const u = new URL(url);
+      if (u.hostname.includes('youtube.com') || u.hostname.includes('youtu.be')) {
+        const id = u.searchParams.get('v') || u.pathname.split('/').pop() || '';
+        return id ? `https://www.youtube.com/embed/${id}` : null;
+      }
+      if (u.hostname.includes('vimeo.com')) {
+        const id = u.pathname.split('/').pop() || '';
+        return id ? `https://player.vimeo.com/video/${id}` : null;
+      }
+      return url;
+    } catch { return null; }
+  }
+
   if (loading) return (
     <div className="flex-1 flex items-center justify-center">
       <Loader2 size={28} className="text-purple-400 animate-spin" />
@@ -269,6 +286,79 @@ export default function StudentConceptDetailPage() {
               </figure>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Resources (teacher-uploaded images, PDFs, videos) */}
+      {concept.resources?.length > 0 && (
+        <div className="mb-6 space-y-3">
+          <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+            <FileText size={12} /> Learning Materials
+          </h2>
+
+          {/* Resource images */}
+          {concept.resources.filter(r => r.type === 'image').length > 0 && (
+            <div className="grid grid-cols-2 gap-3">
+              {concept.resources.filter(r => r.type === 'image').map(r => (
+                <figure key={r.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
+                  <img src={`${API_BASE}${r.file_url}`} alt={r.title}
+                    className="w-full aspect-video object-contain bg-[var(--ov2)]" />
+                  {r.title && (
+                    <figcaption className="px-3 py-2 text-xs text-[var(--tx6)]">{r.title}</figcaption>
+                  )}
+                </figure>
+              ))}
+            </div>
+          )}
+
+          {/* PDFs */}
+          {concept.resources.filter(r => r.type === 'pdf').map(r => (
+            <div key={r.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
+              <div className="flex items-center gap-3 px-4 py-3">
+                <FileText size={18} className="text-purple-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[var(--tx1)] truncate">{r.title}</p>
+                  <p className="text-xs text-[var(--tx7)]">PDF document</p>
+                </div>
+                <a href={`${API_BASE}${r.file_url}`} target="_blank" rel="noreferrer"
+                  className="text-xs text-purple-400 hover:text-purple-300 transition-colors shrink-0">
+                  Open PDF
+                </a>
+              </div>
+              <div className="px-4 pb-3">
+                <button
+                  onClick={() => {
+                    setChatInput(`Can you explain the content in "${r.title}"?`);
+                    setChatOpen(true);
+                  }}
+                  className="text-xs text-purple-400 hover:text-purple-300 transition-colors">
+                  Ask AI about this →
+                </button>
+              </div>
+            </div>
+          ))}
+
+          {/* Videos */}
+          {concept.resources.filter(r => r.type === 'video').map(r => {
+            const embedUrl = r.video_url ? toEmbedUrl(r.video_url) : null;
+            return (
+              <div key={r.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
+                {embedUrl ? (
+                  <div className="aspect-video">
+                    <iframe src={embedUrl} title={r.title} allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen className="w-full h-full" />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <Video size={18} className="text-purple-400 shrink-0" />
+                    <a href={r.video_url} target="_blank" rel="noreferrer"
+                      className="text-sm text-purple-400 hover:text-purple-300 transition-colors truncate">{r.title}</a>
+                  </div>
+                )}
+                {r.title && <p className="px-4 py-2 text-xs text-[var(--tx6)] border-t border-[var(--bd)]">{r.title}</p>}
+              </div>
+            );
+          })}
         </div>
       )}
 

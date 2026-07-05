@@ -16,7 +16,9 @@ import { preprocessMath } from '@/lib/preprocessMath';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab            = 'summary' | 'transcript' | 'images' | 'assets';
+type Tab            = 'summary' | 'transcript' | 'resources' | 'assets';
+type ResourceType   = 'image' | 'pdf' | 'video';
+interface Resource  { id: string; type: ResourceType; title: string; mime_type?: string; video_url?: string; file_url?: string; position: number; }
 type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
 type AssetStatus    = 'none' | 'generating' | 'ready' | 'approved' | 'failed';
 
@@ -93,7 +95,17 @@ export default function ConceptEditorPage() {
   const pdfRef = useRef<string | null>(null);
 
   const [uploading,  setUploading]  = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef    = useRef<HTMLInputElement>(null);
+
+  // Resources tab state
+  const [resources,        setResources]        = useState<Resource[]>([]);
+  const [resourcesLoaded,  setResourcesLoaded]  = useState(false);
+  const [uploadingRes,     setUploadingRes]      = useState(false);
+  const [videoUrlInput,    setVideoUrlInput]     = useState('');
+  const [videoTitleInput,  setVideoTitleInput]   = useState('');
+  const [addingVideo,      setAddingVideo]       = useState(false);
+  const [showVideoForm,    setShowVideoForm]     = useState(false);
+  const resFileRef = useRef<HTMLInputElement>(null);
 
   const [assets,          setAssets]         = useState<Assets | null>(null);
   const [assetsLoaded,    setAssetsLoaded]    = useState(false);
@@ -159,6 +171,58 @@ export default function ConceptEditorPage() {
     setChatLoaded(true);
   }, [conceptId, token]);
 
+  const loadResources = useCallback(async () => {
+    const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/resources`, { headers: authH });
+    if (res.ok) setResources(await res.json());
+    setResourcesLoaded(true);
+  }, [conceptId, token]);
+
+  async function uploadResourceFile(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploadingRes(true);
+    try {
+      for (const file of Array.from(files)) {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('title', file.name);
+        const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/resources`, {
+          method: 'POST', headers: authH, body: form,
+        });
+        if (res.ok) {
+          const r: Resource = await res.json();
+          setResources(prev => [...prev, r]);
+        }
+      }
+    } finally { setUploadingRes(false); }
+  }
+
+  async function addVideoResource() {
+    const url = videoUrlInput.trim();
+    if (!url) return;
+    setAddingVideo(true);
+    try {
+      const form = new FormData();
+      form.append('type', 'video');
+      form.append('title', videoTitleInput.trim() || 'Video');
+      form.append('video_url', url);
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/resources`, {
+        method: 'POST', headers: authH, body: form,
+      });
+      if (res.ok) {
+        const r: Resource = await res.json();
+        setResources(prev => [...prev, r]);
+        setVideoUrlInput(''); setVideoTitleInput(''); setShowVideoForm(false);
+      }
+    } finally { setAddingVideo(false); }
+  }
+
+  async function deleteResource(id: string) {
+    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/resources/${id}`, {
+      method: 'DELETE', headers: authH,
+    });
+    setResources(prev => prev.filter(r => r.id !== id));
+  }
+
   async function sendChatMessage() {
     const message = chatInput.trim();
     if (!message || chatSending) return;
@@ -221,6 +285,11 @@ export default function ConceptEditorPage() {
   useEffect(() => {
     if (activeTab === 'assets' && !assetsLoaded) loadAssets();
   }, [activeTab, assetsLoaded]);
+
+  // Load resources when Resources tab first opens
+  useEffect(() => {
+    if (activeTab === 'resources' && !resourcesLoaded) loadResources();
+  }, [activeTab, resourcesLoaded]);
 
   // Load the authoring chat when Summary tab first opens
   useEffect(() => {
@@ -444,7 +513,7 @@ export default function ConceptEditorPage() {
             {([
               ['summary',    'Summary',    BookOpen],
               ['transcript', 'Transcript', Mic2],
-              ['images',     'Images',     ImageIcon],
+              ['resources',  'Resources',  ImageIcon],
               ['assets',     'Assets',     Zap],
             ] as const).map(([t, label, Icon]) => (
               <button key={t} onClick={() => setActiveTab(t)}
@@ -609,36 +678,91 @@ export default function ConceptEditorPage() {
             </div>
           )}
 
-          {/* ── Images ── */}
-          {activeTab === 'images' && (
+          {/* ── Resources ── */}
+          {activeTab === 'resources' && (
             <div>
-              <div className="flex items-center justify-between mb-3">
-                <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">Images</label>
-                <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+              {/* Upload bar */}
+              <div className="flex items-center gap-2 mb-4 flex-wrap">
+                <button onClick={() => resFileRef.current?.click()} disabled={uploadingRes}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] transition-colors disabled:opacity-40">
-                  {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Upload
+                  {uploadingRes ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Upload image / PDF
                 </button>
-                <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
+                <input ref={resFileRef} type="file" accept="image/*,application/pdf" multiple className="hidden"
+                  onChange={e => uploadResourceFile(e.target.files)} />
+                <button onClick={() => setShowVideoForm(v => !v)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] transition-colors">
+                  <Plus size={12} /> Add video URL
+                </button>
               </div>
-              {concept.images.length === 0 ? (
+
+              {/* Video URL form */}
+              {showVideoForm && (
+                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl p-4 mb-4 space-y-2">
+                  <input value={videoTitleInput} onChange={e => setVideoTitleInput(e.target.value)}
+                    placeholder="Title (optional)"
+                    className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-3 py-2 text-sm text-[var(--tx1)] placeholder:text-[var(--tx8)] outline-none focus:border-purple-500" />
+                  <div className="flex gap-2">
+                    <input value={videoUrlInput} onChange={e => setVideoUrlInput(e.target.value)}
+                      placeholder="https://youtube.com/watch?v=..."
+                      className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-3 py-2 text-sm text-[var(--tx1)] placeholder:text-[var(--tx8)] outline-none focus:border-purple-500" />
+                    <button onClick={addVideoResource} disabled={addingVideo || !videoUrlInput.trim()}
+                      className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-lg transition-colors disabled:opacity-40">
+                      {addingVideo ? <Loader2 size={14} className="animate-spin" /> : 'Add'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {!resourcesLoaded ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 size={22} className="text-purple-400 animate-spin" />
+                </div>
+              ) : resources.length === 0 ? (
                 <div className="border border-dashed border-[var(--bd)] rounded-xl p-10 text-center">
                   <ImageIcon size={24} className="text-[var(--tx8)] mx-auto mb-2" />
-                  <p className="text-[var(--tx7)] text-sm">No images yet</p>
+                  <p className="text-[var(--tx7)] text-sm">No resources yet — upload an image, PDF, or add a video URL</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  {concept.images.map(img => (
-                    <div key={img.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
-                      <div className="relative aspect-video bg-[var(--ov2)]">
-                        <img src={`${API_BASE}${img.url}`} alt={img.caption} className="w-full h-full object-contain" />
-                        <button onClick={() => deleteImage(img.id)}
-                          className="absolute top-2 right-2 p-1 bg-red-500/80 hover:bg-red-500 text-white rounded-lg transition-colors">
-                          <Trash2 size={11} />
+                <div className="space-y-3">
+                  {resources.map(r => (
+                    <div key={r.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
+                      {r.type === 'image' && r.file_url && (
+                        <div className="relative aspect-video bg-[var(--ov2)]">
+                          <img src={`${API_BASE}${r.file_url}`} alt={r.title} className="w-full h-full object-contain" />
+                        </div>
+                      )}
+                      {r.type === 'pdf' && (
+                        <div className="flex items-center gap-3 px-4 py-3 bg-[var(--ov1)]">
+                          <FileText size={20} className="text-purple-400 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-[var(--tx1)] font-medium truncate">{r.title}</p>
+                            <p className="text-xs text-[var(--tx7)]">PDF — grounded in student chat</p>
+                          </div>
+                          {r.file_url && (
+                            <a href={`${API_BASE}${r.file_url}`} target="_blank" rel="noreferrer"
+                              className="text-xs text-purple-400 hover:text-purple-300 shrink-0">Preview</a>
+                          )}
+                        </div>
+                      )}
+                      {r.type === 'video' && (
+                        <div className="flex items-center gap-3 px-4 py-3 bg-[var(--ov1)]">
+                          <Video size={20} className="text-purple-400 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-[var(--tx1)] font-medium truncate">{r.title}</p>
+                            <p className="text-xs text-[var(--tx7)] truncate">{r.video_url}</p>
+                          </div>
+                          {r.video_url && (
+                            <a href={r.video_url} target="_blank" rel="noreferrer"
+                              className="text-xs text-purple-400 hover:text-purple-300 shrink-0">Open</a>
+                          )}
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--bd)]">
+                        <p className="text-xs text-[var(--tx6)] truncate">{r.title}</p>
+                        <button onClick={() => deleteResource(r.id)}
+                          className="p-1 text-[var(--tx8)] hover:text-red-400 transition-colors shrink-0">
+                          <Trash2 size={13} />
                         </button>
-                      </div>
-                      <div className="px-3 py-2 border-t border-[var(--bd)]">
-                        <input placeholder="Caption" value={img.caption} onChange={e => updateCaption(img.id, e.target.value)}
-                          className="w-full bg-transparent text-xs text-[var(--tx3)] outline-none placeholder:text-[var(--tx8)]" />
                       </div>
                     </div>
                   ))}
