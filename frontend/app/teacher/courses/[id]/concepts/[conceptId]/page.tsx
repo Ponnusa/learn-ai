@@ -7,7 +7,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
-  Loader2, Check, ExternalLink, Plus, FileText, Mic2,
+  Loader2, Check, Plus, FileText, Mic2,
   CheckCircle, Circle, AlertCircle, Zap, HelpCircle, Layers,
   RefreshCw, Volume2, Video, Send, Sparkles,
 } from 'lucide-react';
@@ -16,7 +16,7 @@ import { preprocessMath } from '@/lib/preprocessMath';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab            = 'summary' | 'transcript' | 'images' | 'assets' | 'studyset';
+type Tab            = 'summary' | 'transcript' | 'images' | 'assets';
 type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
 type AssetStatus    = 'none' | 'generating' | 'ready' | 'approved' | 'failed';
 
@@ -94,8 +94,6 @@ export default function ConceptEditorPage() {
 
   const [uploading,  setUploading]  = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [creatingStudySet, setCreatingStudySet] = useState(false);
 
   const [assets,          setAssets]         = useState<Assets | null>(null);
   const [assetsLoaded,    setAssetsLoaded]    = useState(false);
@@ -335,21 +333,6 @@ export default function ConceptEditorPage() {
     setConcept(prev => prev ? { ...prev, images: prev.images.filter(i => i.id !== imgId) } : prev);
   }
 
-  async function createStudySet() {
-    if (!concept || !user) return;
-    setCreatingStudySet(true);
-    try {
-      // Auto-seeded from the chapter's own material — no empty study set, no upload step.
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/studyset`, {
-        method: 'POST', headers: jsonH,
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Could not create study set');
-      setConcept(prev => prev ? { ...prev, study_set_id: data.study_set_id } : prev);
-      router.push(`/study/${data.study_set_id}`);
-    } catch { setCreatingStudySet(false); }
-  }
-
   async function triggerGenerate(type: 'quiz' | 'flashcards' | 'audio' | 'video') {
     if (type === 'quiz')       setGeneratingQuiz(true);
     if (type === 'flashcards') setGeneratingCards(true);
@@ -463,7 +446,6 @@ export default function ConceptEditorPage() {
               ['transcript', 'Transcript', Mic2],
               ['images',     'Images',     ImageIcon],
               ['assets',     'Assets',     Zap],
-              ['studyset',   'Study Set',  ExternalLink],
             ] as const).map(([t, label, Icon]) => (
               <button key={t} onClick={() => setActiveTab(t)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -797,34 +779,6 @@ export default function ConceptEditorPage() {
           )}
 
           {/* ── Study Set ── */}
-          {activeTab === 'studyset' && (
-            <div>
-              <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider block mb-3">Study materials</label>
-              {concept.study_set_id ? (
-                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl p-4 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-[var(--tx1)] text-sm font-medium">Study set linked</p>
-                    <p className="text-[var(--tx7)] text-xs mt-0.5">Students access videos, PDFs and flashcards from this set</p>
-                  </div>
-                  <button onClick={() => router.push(`/study/${concept.study_set_id}`)}
-                    className="flex items-center gap-1.5 text-sm text-purple-400 hover:text-purple-300 whitespace-nowrap transition-colors">
-                    Open <ExternalLink size={13} />
-                  </button>
-                </div>
-              ) : (
-                <div className="bg-[var(--surface)] border border-dashed border-[var(--bd)] rounded-xl p-6 text-center">
-                  <p className="text-[var(--tx3)] text-sm mb-1">No study materials yet</p>
-                  <p className="text-[var(--tx7)] text-xs mb-4">Create a study set to add videos, PDFs and flashcards</p>
-                  <button onClick={createStudySet} disabled={creatingStudySet}
-                    className="inline-flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium rounded-xl transition-all disabled:opacity-40">
-                    {creatingStudySet ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                    Create study materials
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
         </div>
       </div>
     </div>
