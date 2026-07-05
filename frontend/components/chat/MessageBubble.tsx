@@ -591,7 +591,7 @@ export function ImageStatusCard({
           <div className="rounded-xl border border-[var(--bd)] bg-[var(--surface)] px-4 py-3 mt-2">
             <div className="ai-content text-sm leading-relaxed text-[var(--tx2)]">
               <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                {description}
+                {preprocessMath(description)}
               </ReactMarkdown>
             </div>
           </div>

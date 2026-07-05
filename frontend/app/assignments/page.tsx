@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
+import { MathText } from '@/components/ui/MathText';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -143,7 +144,7 @@ export default function AssignmentsPage() {
                           const answered = chosen !== undefined;
                           return (
                             <div key={qi}>
-                              <p className="text-[var(--tx1)] text-sm font-medium mb-2">{qi + 1}. {q.question}</p>
+                              <p className="text-[var(--tx1)] text-sm font-medium mb-2">{qi + 1}. <MathText inline>{q.question}</MathText></p>
                               <div className="space-y-1.5">
                                 {q.options.map((opt, oi) => {
                                   let cls = 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx2)]';
@@ -156,7 +157,7 @@ export default function AssignmentsPage() {
                                     <button key={oi} disabled={answered}
                                       onClick={() => setQuizAnswers(p => ({ ...p, [qi]: oi }))}
                                       className={`w-full text-left flex items-center gap-2 px-3 py-2 border rounded-xl text-sm transition-all ${cls}`}>
-                                      <span className="flex-1">{opt}</span>
+                                      <span className="flex-1"><MathText inline>{opt}</MathText></span>
                                       {answered && oi === q.correct_idx && <CheckCircle2 size={13} className="text-green-400 shrink-0" />}
                                       {answered && oi === chosen && oi !== q.correct_idx && <XCircle size={13} className="text-red-400 shrink-0" />}
                                     </button>
@@ -164,7 +165,7 @@ export default function AssignmentsPage() {
                                 })}
                               </div>
                               {answered && q.explanation && (
-                                <p className="text-[var(--tx6)] text-xs mt-1.5">{q.explanation}</p>
+                                <p className="text-[var(--tx6)] text-xs mt-1.5"><MathText inline>{q.explanation}</MathText></p>
                               )}
                             </div>
                           );
@@ -210,7 +211,7 @@ function FlipCard({ front, back }: { front: string; back: string }) {
   return (
     <div onClick={() => setFlipped(f => !f)}
       className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-3 min-h-[80px] flex items-center justify-center text-center cursor-pointer">
-      <p className="text-sm text-[var(--tx2)]">{flipped ? back : front}</p>
+      <p className="text-sm text-[var(--tx2)]"><MathText inline>{flipped ? back : front}</MathText></p>
     </div>
   );
 }

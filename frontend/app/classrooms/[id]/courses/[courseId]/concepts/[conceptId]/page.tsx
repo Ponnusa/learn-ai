@@ -6,6 +6,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { preprocessMath } from '@/lib/preprocessMath';
+import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, MessageSquare, Loader2, ImageIcon,
   HelpCircle, Layers, Volume2, Video, ChevronLeft, ChevronRight,
@@ -272,7 +273,7 @@ export default function StudentConceptDetailPage() {
             <BookOpen size={12} />
             {concept.pipeline_status === 'approved' ? 'Summary' : 'Explanation'}
           </h2>
-          <div className="text-[var(--tx2)] text-sm leading-relaxed whitespace-pre-wrap">{explanation}</div>
+          <div className="text-[var(--tx2)] text-sm leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0"><MathText>{explanation}</MathText></div>
         </div>
       )}
 
@@ -402,14 +403,14 @@ export default function StudentConceptDetailPage() {
                   {/* Front */}
                   <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 min-h-[140px] flex flex-col items-center justify-center text-center"
                     style={{ backfaceVisibility: 'hidden' }}>
-                    <p className="text-[var(--tx1)] text-base font-semibold">{currentCard.front}</p>
+                    <p className="text-[var(--tx1)] text-base font-semibold"><MathText inline>{currentCard.front}</MathText></p>
                     <p className="text-[var(--tx8)] text-xs mt-3">Tap to reveal</p>
                   </div>
 
                   {/* Back */}
                   <div className="absolute inset-0 bg-purple-600/10 border border-purple-500/30 rounded-2xl p-8 flex flex-col items-center justify-center text-center"
                     style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
-                    <p className="text-[var(--tx1)] text-sm leading-relaxed">{currentCard.back}</p>
+                    <p className="text-[var(--tx1)] text-sm leading-relaxed"><MathText inline>{currentCard.back}</MathText></p>
                   </div>
                 </div>
               </div>
@@ -473,7 +474,7 @@ export default function StudentConceptDetailPage() {
 
               return (
                 <div key={q.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
-                  <p className="text-[var(--tx1)] text-sm font-medium mb-3">{qi + 1}. {q.question}</p>
+                  <p className="text-[var(--tx1)] text-sm font-medium mb-3">{qi + 1}. <MathText inline>{q.question}</MathText></p>
                   <div className="space-y-2">
                     {q.options.map((opt, oi) => {
                       let cls = 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx2)] hover:border-purple-500/50 hover:bg-[var(--ov2)]';
@@ -486,7 +487,7 @@ export default function StudentConceptDetailPage() {
                         <button key={oi} onClick={() => selectAnswer(qi, oi)} disabled={answered}
                           className={`w-full text-left flex items-center gap-3 px-4 py-3 border rounded-xl text-sm transition-all ${cls}`}>
                           <span className="font-mono text-xs opacity-70">{String.fromCharCode(65 + oi)}</span>
-                          <span className="flex-1">{opt}</span>
+                          <span className="flex-1"><MathText inline>{opt}</MathText></span>
                           {answered && oi === q.correct_idx && <CheckCircle2 size={14} className="text-green-400 shrink-0" />}
                           {answered && oi === chosen && oi !== q.correct_idx && <XCircle size={14} className="text-red-400 shrink-0" />}
                         </button>
@@ -495,7 +496,7 @@ export default function StudentConceptDetailPage() {
                   </div>
                   {answered && q.explanation && (
                     <div className={`mt-3 text-xs p-3 rounded-xl border ${correct ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx6)]'}`}>
-                      💡 {q.explanation}
+                      <span>💡 </span><MathText inline>{q.explanation}</MathText>
                     </div>
                   )}
                 </div>

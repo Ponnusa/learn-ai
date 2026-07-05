@@ -199,5 +199,8 @@ body {
 .ai-content th     { color: var(--tx1); background: var(--ov2); padding: 0.4rem 0.75rem; border: 1px solid var(--bd); text-align: left; }
 .ai-content td     { color: var(--tx3); padding: 0.4rem 0.75rem; border: 1px solid var(--bd2); }
 .ai-content hr     { border: none; border-top: 1px solid var(--bd); margin: 1rem 0; }
+/* KaTeX inherits parent color by default so it works in any context (quiz, flashcards, etc.) */
+.katex         { color: inherit; }
+.katex-display { overflow-x: auto; margin: 0.5rem 0; }
 .ai-content .katex         { color: var(--tx2) !important; }
 .ai-content .katex-display { margin: 0.75rem 0; overflow-x: auto; }

@@ -7,6 +7,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { preprocessMath } from '@/lib/preprocessMath';
+import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, ArrowRight, Upload, Loader, LayoutGrid, MessageSquare,
   ChevronLeft, ChevronRight, CheckCircle, RefreshCw,
@@ -159,7 +160,7 @@ function OverviewTab({
       {ss.summary && (
         <div className="rounded-2xl bg-[var(--surface)] border border-[var(--bd)] p-5">
           <p className="text-[var(--tx5)] text-[11px] font-semibold uppercase tracking-wide mb-2">{t.studySets.summary}</p>
-          <p className="text-[var(--tx2)] text-sm leading-relaxed">{ss.summary}</p>
+          <div className="text-[var(--tx2)] text-sm leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0"><MathText>{ss.summary}</MathText></div>
         </div>
       )}
 
@@ -291,13 +292,13 @@ function ConceptCard({
         {/* Definition */}
         <p className={`text-[var(--tx4)] text-sm leading-relaxed
                        ${!expanded && hasExtra ? 'line-clamp-3' : ''}`}>
-          {concept.definition}
+          <MathText inline>{concept.definition}</MathText>
         </p>
 
         {/* Explanation (shown when expanded) */}
         {expanded && hasExtra && (
           <p className="text-[var(--tx5)] text-xs leading-relaxed border-t border-[var(--bd)] pt-3">
-            {concept.explanation}
+            <MathText inline>{concept.explanation}</MathText>
           </p>
         )}
 
@@ -441,7 +442,7 @@ function FlashcardsTab({ ss }: { ss: StudySetDetail }) {
           {flipped ? t.studySets.answerLabel : t.studySets.questionReveal}
         </span>
         <p className={`text-[var(--tx1)] leading-relaxed ${flipped ? 'text-base' : 'text-lg font-medium'}`}>
-          {flipped ? card?.back : card?.front}
+          <MathText inline>{(flipped ? card?.back : card?.front) ?? ''}</MathText>
         </p>
       </div>
       {flipped ? (

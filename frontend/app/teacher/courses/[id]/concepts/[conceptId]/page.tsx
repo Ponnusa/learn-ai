@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, Plus, FileText, Mic2,
@@ -798,19 +799,19 @@ export default function ConceptEditorPage() {
                       <div className="space-y-3 mt-3 px-4 pb-4">
                         {assets.quiz.map((q, qi) => (
                           <div key={q.id} className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-4">
-                            <p className="text-[var(--tx1)] text-sm font-medium mb-2">{qi + 1}. {q.question}</p>
+                            <p className="text-[var(--tx1)] text-sm font-medium mb-2">{qi + 1}. <MathText inline>{q.question}</MathText></p>
                             <ul className="space-y-1">
                               {q.options.map((opt, oi) => (
                                 <li key={oi} className={`text-xs px-3 py-1.5 rounded-lg ${
                                   oi === q.correct_idx ? 'bg-green-500/15 text-green-400 font-medium' : 'text-[var(--tx6)]'
                                 }`}>
-                                  {String.fromCharCode(65 + oi)}. {opt}
+                                  {String.fromCharCode(65 + oi)}. <MathText inline>{opt}</MathText>
                                 </li>
                               ))}
                             </ul>
                             {q.explanation && (
                               <p className="text-[var(--tx7)] text-xs mt-2 pt-2 border-t border-[var(--bd)]">
-                                💡 {q.explanation}
+                                <span>💡 </span><MathText inline>{q.explanation}</MathText>
                               </p>
                             )}
                           </div>
@@ -833,8 +834,8 @@ export default function ConceptEditorPage() {
                       <div className="grid grid-cols-2 gap-2 mt-3 px-4 pb-4">
                         {assets.flashcards.map(card => (
                           <div key={card.id} className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-3">
-                            <p className="text-[var(--tx1)] text-xs font-semibold mb-1">{card.front}</p>
-                            <p className="text-[var(--tx6)] text-xs leading-relaxed">{card.back}</p>
+                            <p className="text-[var(--tx1)] text-xs font-semibold mb-1"><MathText inline>{card.front}</MathText></p>
+                            <p className="text-[var(--tx6)] text-xs leading-relaxed"><MathText inline>{card.back}</MathText></p>
                           </div>
                         ))}
                       </div>
