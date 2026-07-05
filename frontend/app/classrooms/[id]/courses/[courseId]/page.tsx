@@ -183,7 +183,7 @@ export default function StudentCoursePage() {
                           )}
                           {concept.quiz_score !== undefined && concept.quiz_score !== null && (
                             <p className="text-xs text-amber-400 mt-0.5">
-                              Quiz: {Math.round(concept.quiz_score * 100)}%
+                              Quiz: {Math.round(concept.quiz_score)}%
                             </p>
                           )}
                         </div>
