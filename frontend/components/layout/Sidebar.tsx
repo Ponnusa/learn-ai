@@ -216,31 +216,36 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
   const isTeacher  = ['teacher', 'institution_admin'].includes(user?.account_type ?? '');
   const isSuperAdmin = user?.account_type === 'super_admin';
 
-  const navItems = [
+  // Individual learning — same for every role
+  const individualItems = [
+    { icon: <Video size={18} />,    label: t.sidebar.myVideos,  href: '/videos'   },
+    { icon: <BookOpen size={18} />, label: t.sidebar.studySets, href: '/study'    },
+    { icon: <Sparkles size={18} />, label: t.progress.diagrams, href: '/images'   },
+    ...(!isTeacher && !isSuperAdmin
+      ? [{ icon: <BarChart2 size={18} />, label: t.sidebar.progress, href: '/progress' }]
+      : []),
+  ];
+
+  // Classroom / role-specific
+  const classroomItems = [
     ...(isTeacher
       ? [{ icon: <LayoutDashboard size={18} />, label: 'Dashboard', href: '/teacher/dashboard' }]
       : []),
     ...(isSuperAdmin
       ? [{ icon: <LayoutDashboard size={18} />, label: 'Admin', href: '/admin' }]
       : []),
-    { icon: <Video size={18} />,     label: t.sidebar.myVideos,  href: '/videos'   },
-    { icon: <BookOpen size={18} />,  label: t.sidebar.studySets, href: '/study'    },
-    { icon: <Sparkles size={18} />,  label: t.progress.diagrams, href: '/images'   },
-    ...(isTeacher || isSuperAdmin
-      ? []
-      : [{ icon: <BarChart2 size={18} />, label: t.sidebar.progress, href: '/progress' }]),
     { icon: <Mail size={18} />, label: 'Messages', href: '/messages', badge: unreadMessages },
     ...(isTeacher || isSuperAdmin
       ? [
-          { icon: <Users size={18} />,        label: 'Classrooms',     href: '/teacher/classrooms' },
-          { icon: <BookOpen size={18} />,     label: 'Course Builder', href: '/teacher/courses'    },
-          { icon: <GraduationCap size={18} />, label: 'Students',      href: '/teacher/students'   },
+          { icon: <Users size={18} />,         label: 'Classrooms',     href: '/teacher/classrooms' },
+          { icon: <BookOpen size={18} />,      label: 'Course Builder', href: '/teacher/courses'    },
+          { icon: <GraduationCap size={18} />, label: 'Students',       href: '/teacher/students'   },
         ]
       : [
-          { icon: <Users size={18} />,         label: 'Classrooms',  href: '/classrooms' },
-          { icon: <ClipboardList size={18} />, label: 'Assignments', href: '/assignments' },
+          { icon: <Users size={18} />,         label: 'Classrooms',  href: '/classrooms'  },
+          { icon: <ClipboardList size={18} />, label: 'Assignments', href: '/assignments'  },
         ]),
-    { icon: <Settings size={18} />,  label: t.sidebar.settings,  href: '/settings' },
+    { icon: <Settings size={18} />, label: t.sidebar.settings, href: '/settings' },
   ];
 
   return (
@@ -313,9 +318,32 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
           {/* Divider */}
           <div className="mx-3 my-1 border-t border-[var(--bd)] shrink-0" />
 
-          {/* Nav links */}
-          <div className="flex flex-col items-center gap-1 px-2 py-2 shrink-0">
-            {navItems.map(({ icon, label, href, badge }) => (
+          {/* Nav links — scrollable, two-tier */}
+          <div
+            className="flex-1 overflow-y-auto flex flex-col items-center px-2 py-1 gap-1"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            {/* Individual learning */}
+            {individualItems.map(({ icon, label, href }) => (
+              <Link
+                key={href}
+                href={href}
+                title={label}
+                className={`relative w-10 h-10 flex items-center justify-center rounded-xl transition-colors ${
+                  pathname === href
+                    ? 'bg-[var(--ov4)] text-[var(--tx1)]'
+                    : 'text-[var(--tx5)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)]'
+                }`}
+              >
+                {icon}
+              </Link>
+            ))}
+
+            {/* Section divider */}
+            <div className="w-5 border-t border-[var(--bd)] my-1 shrink-0" />
+
+            {/* Classroom */}
+            {classroomItems.map(({ icon, label, href, badge }) => (
               <Link
                 key={href}
                 href={href}
@@ -329,16 +357,13 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
                 {icon}
                 {!!badge && (
                   <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 rounded-full
-                                    bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                   bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
                     {badge > 9 ? '9+' : badge}
                   </span>
                 )}
               </Link>
             ))}
           </div>
-
-          {/* Spacer */}
-          <div className="flex-1" />
 
           {/* User avatar / sign-in */}
           <div className="flex items-center justify-center px-2 py-3 border-t border-[var(--bd)] shrink-0">
