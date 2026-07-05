@@ -2343,6 +2343,211 @@ async def serve_concept_resource_file(resource_id: str):
     )
 
 
+class StudentChatRequest(BaseModel):
+    message:         str
+    resource_id:     str | None = None  # concept_resources.id to ground/visualise
+    conversation_id: str | None = None
+
+
+@router.get("/concepts/{concept_id}/student-chat")
+async def get_student_chat(concept_id: str, authorization: str = Header(...)):
+    """Return the student's conversation history for this concept."""
+    student_id = await _get_student(authorization)
+    async with get_db() as db:
+        ss_id = await db.fetchval(
+            "SELECT study_set_id FROM course_concepts WHERE id = $1::uuid", concept_id
+        )
+        if not ss_id:
+            return []
+        conv = await db.fetchrow("""
+            SELECT id FROM conversations
+            WHERE study_set_id = $1::uuid AND user_id = $2::uuid
+            ORDER BY created_at ASC LIMIT 1
+        """, ss_id, student_id)
+        if not conv:
+            return []
+        rows = await db.fetch("""
+            SELECT id, role, content, created_at
+            FROM messages WHERE conversation_id = $1::uuid
+            ORDER BY created_at ASC LIMIT 60
+        """, conv["id"])
+    return [
+        {"id": str(r["id"]), "role": r["role"], "content": r["content"],
+         "created_at": r["created_at"].isoformat()}
+        for r in rows
+    ]
+
+
+@router.post("/concepts/{concept_id}/student-chat")
+async def post_student_chat(
+    concept_id: str, req: StudentChatRequest, authorization: str = Header(...)
+):
+    """
+    Student Q&A chat grounded in the concept's source text + PDF resources.
+    When resource_id points to an image resource the image bytes are sent as
+    base64 inline vision content so the AI can actually see the diagram.
+    When resource_id points to a PDF its raw_text is surfaced prominently in
+    the grounding context for that turn.
+    """
+    import base64
+    from openai import AsyncOpenAI
+
+    student_id = await _get_student(authorization)
+
+    # ── 1. Load concept + auto-create study set ───────────────────────────────
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.id, cc.title, cc.source_text, cc.study_set_id,
+                   cc.chapter_ref, c.subject
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id  = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+
+    study_set_id = concept["study_set_id"]
+    if not study_set_id:
+        material_text = concept["source_text"] or concept["title"]
+        if concept["chapter_ref"]:
+            async with get_db() as db:
+                ch = await db.fetchrow(
+                    "SELECT pdf_data FROM course_chapters WHERE id = $1::uuid", concept["chapter_ref"]
+                )
+            if ch and ch["pdf_data"]:
+                from services.studyset_processor import extract_text_from_pdf
+                full, _ = extract_text_from_pdf(bytes(ch["pdf_data"]))
+                if full:
+                    material_text = full
+        study_set_id = await _create_seeded_study_set(concept["title"], concept["subject"], material_text)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET study_set_id = $1::uuid WHERE id = $2::uuid",
+                study_set_id, concept_id,
+            )
+
+    # ── 2. Load PDF resources for grounding ───────────────────────────────────
+    async with get_db() as db:
+        pdf_resources = await db.fetch("""
+            SELECT id, title, raw_text FROM concept_resources
+            WHERE concept_id = $1::uuid AND type = 'pdf' AND raw_text IS NOT NULL
+        """, concept_id)
+
+    # ── 3. Resolve the referenced resource (image or PDF) ────────────────────
+    resource_row  = None
+    image_b64_url = None
+    focused_pdf   = None
+
+    if req.resource_id:
+        async with get_db() as db:
+            resource_row = await db.fetchrow("""
+                SELECT id, type, title, file_data, mime_type, raw_text
+                FROM concept_resources WHERE id = $1::uuid AND concept_id = $2::uuid
+            """, req.resource_id, concept_id)
+
+        if resource_row:
+            if resource_row["type"] == "image" and resource_row["file_data"]:
+                mime   = resource_row["mime_type"] or "image/jpeg"
+                b64    = base64.b64encode(bytes(resource_row["file_data"])).decode()
+                image_b64_url = f"data:{mime};base64,{b64}"
+            elif resource_row["type"] == "pdf" and resource_row["raw_text"]:
+                focused_pdf = resource_row
+
+    # ── 4. Get or create conversation (keyed by study_set + student) ──────────
+    conv_id = req.conversation_id
+    if not conv_id:
+        async with get_db() as db:
+            existing = await db.fetchrow("""
+                SELECT id FROM conversations
+                WHERE study_set_id = $1::uuid AND user_id = $2::uuid
+                ORDER BY created_at ASC LIMIT 1
+            """, study_set_id, student_id)
+        if existing:
+            conv_id = str(existing["id"])
+        else:
+            async with get_db() as db:
+                conv = await db.fetchrow("""
+                    INSERT INTO conversations (user_id, title, study_set_id)
+                    VALUES ($1::uuid, $2, $3::uuid) RETURNING id
+                """, student_id, f"{concept['title']} — Q&A", study_set_id)
+            conv_id = str(conv["id"])
+
+    # ── 5. Load recent history ────────────────────────────────────────────────
+    async with get_db() as db:
+        history = list(reversed(await db.fetch("""
+            SELECT role, content FROM messages
+            WHERE conversation_id = $1::uuid
+            ORDER BY created_at DESC LIMIT 8
+        """, conv_id)))
+
+    # ── 6. Build system prompt ────────────────────────────────────────────────
+    grounding_parts = []
+    if concept["source_text"]:
+        grounding_parts.append(f"## Concept notes\n{concept['source_text']}")
+    for pr in pdf_resources:
+        if focused_pdf and str(pr["id"]) == str(focused_pdf["id"]):
+            continue  # will be added first, prominently
+        grounding_parts.append(f"## Supplementary PDF: {pr['title']}\n{pr['raw_text']}")
+    if focused_pdf:
+        grounding_parts.insert(0, f"## Focus document: {focused_pdf['title']}\n{focused_pdf['raw_text']}")
+
+    grounding = "\n\n".join(grounding_parts) or concept["title"]
+
+    system_prompt = (
+        f"You are a helpful AI tutor helping a student understand \"{concept['title']}\" "
+        f"({concept['subject'] or 'General'}).\n\n"
+        f"Answer ONLY from the material below. If the student asks something not covered, say so.\n\n"
+        f"{grounding[:12000]}"
+    )
+    if image_b64_url:
+        system_prompt += (
+            "\n\nThe student has shared an image from the concept material. "
+            "Describe what you see in it and explain how it relates to the concept."
+        )
+
+    # ── 7. Save user message ──────────────────────────────────────────────────
+    async with get_db() as db:
+        await db.execute(
+            "INSERT INTO messages (conversation_id, role, content) VALUES ($1::uuid, 'user', $2)",
+            conv_id, req.message,
+        )
+
+    # ── 8. Build AI messages ──────────────────────────────────────────────────
+    ai_messages = [{"role": "system", "content": system_prompt}]
+    for h in history:
+        ai_messages.append({"role": h["role"], "content": h["content"]})
+
+    user_content: list | str
+    if image_b64_url:
+        user_content = [
+            {"type": "text", "text": req.message},
+            {"type": "image_url", "image_url": {"url": image_b64_url, "detail": "high"}},
+        ]
+    else:
+        user_content = req.message
+    ai_messages.append({"role": "user", "content": user_content})
+
+    # ── 9. Call AI ────────────────────────────────────────────────────────────
+    client = AsyncOpenAI()
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=ai_messages,
+        max_tokens=1200,
+        temperature=0.3,
+    )
+    reply = response.choices[0].message.content
+
+    # ── 10. Save reply ────────────────────────────────────────────────────────
+    async with get_db() as db:
+        await db.execute(
+            "INSERT INTO messages (conversation_id, role, content) VALUES ($1::uuid, 'assistant', $2)",
+            conv_id, reply,
+        )
+
+    return {"reply": reply, "conversation_id": conv_id}
+
+
 @router.get("/concepts/{concept_id}/video")
 async def serve_concept_video(concept_id: str):
     """

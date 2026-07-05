@@ -12,7 +12,6 @@ import {
   CheckCircle2, XCircle, Send, FileText,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
-import { chatWithStudySet } from '@/lib/api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -52,12 +51,13 @@ export default function StudentConceptDetailPage() {
 
   // Chat Q&A state
   type ChatMsg = { role: 'user' | 'assistant'; content: string };
-  const [chatOpen,      setChatOpen]      = useState(false);
-  const [chatStudySetId, setChatStudySetId] = useState<string | null>(null);
-  const [chatConvId,    setChatConvId]    = useState<string | null>(null);
-  const [chatMsgs,      setChatMsgs]      = useState<ChatMsg[]>([]);
-  const [chatInput,     setChatInput]     = useState('');
-  const [chatSending,   setChatSending]   = useState(false);
+  const [chatOpen,    setChatOpen]    = useState(false);
+  const [chatConvId,  setChatConvId]  = useState<string | null>(null);
+  const [chatMsgs,    setChatMsgs]    = useState<ChatMsg[]>([]);
+  const [chatInput,   setChatInput]   = useState('');
+  const [chatSending, setChatSending] = useState(false);
+  // resource context: when set, next message carries this resource_id for vision/PDF grounding
+  const [chatResource, setChatResource] = useState<{ id: string; title: string; type: string } | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // Quiz state
@@ -98,37 +98,44 @@ export default function StudentConceptDetailPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMsgs]);
 
-  async function openChat() {
-    if (chatOpen) { setChatOpen(false); return; }
-    setActivating(true);
-    try {
-      const res  = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/activate`, {
-        method: 'POST', headers: authH,
-      });
-      const data = res.ok ? await res.json() : null;
-      const ssid = data?.study_set_id ?? concept?.study_set_id ?? null;
-      if (ssid) setChatStudySetId(ssid);
-      setChatOpen(true);
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-    } finally { setActivating(false); }
+  async function openChat(resource?: { id: string; title: string; type: string }) {
+    if (chatOpen && !resource) { setChatOpen(false); return; }
+    if (resource) {
+      setChatResource(resource);
+      if (!chatOpen) {
+        // pre-fill question for the resource
+        setChatInput(
+          resource.type === 'image'
+            ? `Can you explain what this diagram "${resource.title}" shows?`
+            : `Can you explain the content from "${resource.title}"?`
+        );
+      }
+    }
+    setChatOpen(true);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   }
 
   async function sendChatMessage(e: React.FormEvent) {
     e.preventDefault();
     const msg = chatInput.trim();
-    if (!msg || !chatStudySetId || chatSending) return;
+    if (!msg || chatSending) return;
+    const resource = chatResource;
     setChatInput('');
-    const userMsg: ChatMsg = { role: 'user', content: msg };
-    setChatMsgs(prev => [...prev, userMsg]);
+    setChatResource(null);
+    setChatMsgs(prev => [...prev, { role: 'user', content: msg }]);
     setChatSending(true);
     try {
-      const history = chatMsgs.map(m => ({ role: m.role, content: m.content }));
-      const data = await chatWithStudySet(
-        chatStudySetId, msg, history, token ?? undefined,
-        concept?.title, chatConvId ?? undefined, user?.id,
-      );
+      const body: Record<string, string> = { message: msg };
+      if (chatConvId) body.conversation_id = chatConvId;
+      if (resource)   body.resource_id     = resource.id;
+      const res  = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
       if (data.conversation_id) setChatConvId(data.conversation_id);
-      setChatMsgs(prev => [...prev, { role: 'assistant', content: data.reply }]);
+      setChatMsgs(prev => [...prev, { role: 'assistant', content: data.reply ?? 'Sorry, something went wrong.' }]);
     } catch {
       setChatMsgs(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }]);
     } finally { setChatSending(false); }
@@ -303,9 +310,13 @@ export default function StudentConceptDetailPage() {
                 <figure key={r.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
                   <img src={`${API_BASE}${r.file_url}`} alt={r.title}
                     className="w-full aspect-video object-contain bg-[var(--ov2)]" />
-                  {r.title && (
-                    <figcaption className="px-3 py-2 text-xs text-[var(--tx6)]">{r.title}</figcaption>
-                  )}
+                  <div className="px-3 py-2 flex items-center justify-between">
+                    {r.title && <figcaption className="text-xs text-[var(--tx6)] truncate">{r.title}</figcaption>}
+                    <button onClick={() => openChat({ id: r.id, title: r.title, type: 'image' })}
+                      className="text-xs text-purple-400 hover:text-purple-300 transition-colors shrink-0 ml-2">
+                      Ask AI →
+                    </button>
+                  </div>
                 </figure>
               ))}
             </div>
@@ -327,10 +338,7 @@ export default function StudentConceptDetailPage() {
               </div>
               <div className="px-4 pb-3">
                 <button
-                  onClick={() => {
-                    setChatInput(`Can you explain the content in "${r.title}"?`);
-                    setChatOpen(true);
-                  }}
+                  onClick={() => openChat({ id: r.id, title: r.title, type: r.type })}
                   className="text-xs text-purple-400 hover:text-purple-300 transition-colors">
                   Ask AI about this →
                 </button>
@@ -514,7 +522,7 @@ export default function StudentConceptDetailPage() {
       {/* Chat Q&A */}
       <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden">
         <button
-          onClick={openChat}
+          onClick={() => openChat()}
           disabled={activating}
           className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors disabled:opacity-50"
         >
@@ -561,13 +569,23 @@ export default function StudentConceptDetailPage() {
               <div ref={chatEndRef} />
             </div>
 
+            {/* Resource context badge */}
+            {chatResource && (
+              <div className="flex items-center gap-2 px-4 py-2 border-t border-[var(--bd)] bg-purple-500/5">
+                <span className="text-xs text-purple-400">
+                  {chatResource.type === 'image' ? '🖼' : '📄'} Asking about: <span className="font-medium">{chatResource.title}</span>
+                </span>
+                <button onClick={() => setChatResource(null)} className="ml-auto text-[var(--tx8)] hover:text-[var(--tx3)] text-xs">✕</button>
+              </div>
+            )}
+
             {/* Input */}
             <form onSubmit={sendChatMessage}
               className="flex gap-2 px-4 py-3 border-t border-[var(--bd)]">
               <input
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
-                placeholder="Ask a question…"
+                placeholder={chatResource ? `Ask about ${chatResource.title}…` : 'Ask a question…'}
                 disabled={chatSending}
                 className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                            text-[var(--tx1)] placeholder-[var(--tx8)] focus:outline-none focus:border-purple-500
