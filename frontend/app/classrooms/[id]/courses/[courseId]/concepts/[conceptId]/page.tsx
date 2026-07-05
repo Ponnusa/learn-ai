@@ -1,12 +1,18 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
+import { preprocessMath } from '@/lib/preprocessMath';
 import {
-  ArrowLeft, BookOpen, Zap, Loader2, ImageIcon,
+  ArrowLeft, BookOpen, MessageSquare, Loader2, ImageIcon,
   HelpCircle, Layers, Volume2, Video, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle,
+  CheckCircle2, XCircle, Send,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { chatWithStudySet } from '@/lib/api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -42,6 +48,16 @@ export default function StudentConceptDetailPage() {
   const [loading,    setLoading]    = useState(true);
   const [activating, setActivating] = useState(false);
 
+  // Chat Q&A state
+  type ChatMsg = { role: 'user' | 'assistant'; content: string };
+  const [chatOpen,      setChatOpen]      = useState(false);
+  const [chatStudySetId, setChatStudySetId] = useState<string | null>(null);
+  const [chatConvId,    setChatConvId]    = useState<string | null>(null);
+  const [chatMsgs,      setChatMsgs]      = useState<ChatMsg[]>([]);
+  const [chatInput,     setChatInput]     = useState('');
+  const [chatSending,   setChatSending]   = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
   // Quiz state
   const [quizAnswers, setQuizAnswers]   = useState<Record<number, number>>({});
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
@@ -76,15 +92,44 @@ export default function StudentConceptDetailPage() {
     } finally { setLoading(false); }
   }
 
-  async function startLearning() {
-    if (!concept?.study_set_id) return;
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMsgs]);
+
+  async function openChat() {
+    if (chatOpen) { setChatOpen(false); return; }
     setActivating(true);
     try {
-      await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/activate`, {
+      const res  = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/activate`, {
         method: 'POST', headers: authH,
       });
-      router.push(`/study/${concept.study_set_id}`);
+      const data = res.ok ? await res.json() : null;
+      const ssid = data?.study_set_id ?? concept?.study_set_id ?? null;
+      if (ssid) setChatStudySetId(ssid);
+      setChatOpen(true);
+      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     } finally { setActivating(false); }
+  }
+
+  async function sendChatMessage(e: React.FormEvent) {
+    e.preventDefault();
+    const msg = chatInput.trim();
+    if (!msg || !chatStudySetId || chatSending) return;
+    setChatInput('');
+    const userMsg: ChatMsg = { role: 'user', content: msg };
+    setChatMsgs(prev => [...prev, userMsg]);
+    setChatSending(true);
+    try {
+      const history = chatMsgs.map(m => ({ role: m.role, content: m.content }));
+      const data = await chatWithStudySet(
+        chatStudySetId, msg, history, token ?? undefined,
+        concept?.title, chatConvId ?? undefined, user?.id,
+      );
+      if (data.conversation_id) setChatConvId(data.conversation_id);
+      setChatMsgs(prev => [...prev, { role: 'assistant', content: data.reply }]);
+    } catch {
+      setChatMsgs(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }]);
+    } finally { setChatSending(false); }
   }
 
   function selectAnswer(qi: number, oi: number) {
@@ -376,25 +421,75 @@ export default function StudentConceptDetailPage() {
         </div>
       )}
 
-      {/* CTA */}
-      <div className={`rounded-2xl border p-5 text-center ${
-        concept.study_set_id ? 'bg-[var(--surface)] border-[var(--bd)]' : 'bg-[var(--ov1)] border-dashed border-[var(--bd)]'
-      }`}>
-        {concept.study_set_id ? (
-          <>
-            <p className="text-[var(--tx3)] text-sm mb-3">Ready to study with flashcards and videos?</p>
-            <button onClick={startLearning} disabled={activating}
-              className="inline-flex items-center gap-2 px-6 py-3 bg-purple-600 hover:bg-purple-500
-                         text-white font-medium rounded-xl transition-all disabled:opacity-40">
-              {activating ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
-              Start learning
-            </button>
-          </>
-        ) : (
-          <>
-            <p className="text-[var(--tx3)] text-sm font-medium mb-1">Study materials coming soon</p>
-            <p className="text-[var(--tx7)] text-xs">Your teacher is preparing materials for this concept</p>
-          </>
+      {/* Chat Q&A */}
+      <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden">
+        <button
+          onClick={openChat}
+          disabled={activating}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors disabled:opacity-50"
+        >
+          <span className="flex items-center gap-2 text-[var(--tx1)] font-semibold text-sm">
+            {activating
+              ? <Loader2 size={16} className="animate-spin text-purple-400" />
+              : <MessageSquare size={16} className="text-purple-400" />}
+            Ask AI about this concept
+          </span>
+          <span className="text-[var(--tx7)] text-xs">{chatOpen ? 'Close' : 'Open'}</span>
+        </button>
+
+        {chatOpen && (
+          <div className="border-t border-[var(--bd)]">
+            {/* Message list */}
+            <div className="px-4 py-3 space-y-3 max-h-80 overflow-y-auto">
+              {chatMsgs.length === 0 && (
+                <p className="text-[var(--tx7)] text-sm text-center py-4">
+                  Ask anything about <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
+                </p>
+              )}
+              {chatMsgs.map((msg, i) => (
+                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'user' ? (
+                    <div className="max-w-[80%] bg-purple-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <div className="max-w-[85%] bg-[var(--ov1)] border border-[var(--bd)] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-[var(--tx2)] prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                        {preprocessMath(msg.content)}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {chatSending && (
+                <div className="flex justify-start">
+                  <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-2xl rounded-tl-sm px-4 py-2.5">
+                    <Loader2 size={14} className="animate-spin text-purple-400" />
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Input */}
+            <form onSubmit={sendChatMessage}
+              className="flex gap-2 px-4 py-3 border-t border-[var(--bd)]">
+              <input
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                placeholder="Ask a question…"
+                disabled={chatSending}
+                className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
+                           text-[var(--tx1)] placeholder-[var(--tx8)] focus:outline-none focus:border-purple-500
+                           disabled:opacity-50"
+              />
+              <button type="submit" disabled={chatSending || !chatInput.trim()}
+                className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-colors
+                           disabled:opacity-40 disabled:cursor-not-allowed">
+                <Send size={15} />
+              </button>
+            </form>
+          </div>
         )}
       </div>
     </div>
