@@ -19,6 +19,8 @@ import json
 from database import get_db
 from services.ai_router import openai_client, get_model
 
+_SUMMARIZER_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish'}
+
 KEEP_RECENT        = 6    # messages kept verbatim (3 user+assistant pairs)
 COMPRESS_THRESHOLD = 10   # don't summarise until we have at least this many
 NEW_MSG_TRIGGER    = 8    # re-summarise after this many new msgs since last run
@@ -81,6 +83,11 @@ async def _run(conversation_id: str, total_msg_count: int) -> None:
                 WHERE conversation_id = $1
                 ORDER BY created_at ASC
             """, conversation_id)
+            lang_val = await db.fetchval("""
+                SELECT u.language FROM conversations c
+                JOIN users u ON u.id = c.user_id
+                WHERE c.id = $1
+            """, conversation_id)
 
         if len(all_msgs) <= KEEP_RECENT:
             return
@@ -93,9 +100,13 @@ async def _run(conversation_id: str, total_msg_count: int) -> None:
             for m in to_compress
         )
 
+        lang_note = ""
+        if lang_val and lang_val in _SUMMARIZER_LANGUAGE_NAMES:
+            lang_note = f"\n\nWrite the summary and topic lists in {_SUMMARIZER_LANGUAGE_NAMES[lang_val]}."
+
         resp = await openai_client.chat.completions.create(
             model=get_model("conversation_summary"),
-            messages=[{"role": "user", "content": _PROMPT.format(transcript=transcript)}],
+            messages=[{"role": "user", "content": _PROMPT.format(transcript=transcript) + lang_note}],
             max_tokens=450,
             temperature=0.2,
             response_format={"type": "json_object"},

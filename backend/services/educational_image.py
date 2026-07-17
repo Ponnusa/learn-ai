@@ -273,7 +273,10 @@ async def store_image_r2(
 # AI description generator — runs after image is stored
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def generate_image_description(knowledge_model: dict, diagram_plan: dict) -> str:
+_DESC_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish'}
+
+
+async def generate_image_description(knowledge_model: dict, diagram_plan: dict, language: str = 'en') -> str:
     """
     Generate a rich markdown explanation of the diagram using Claude.
     This text is shown as an AI message next to the image — it replaces all
@@ -315,6 +318,9 @@ Write 3–5 short paragraphs in plain educational language:
 Format: use **bold** for key terms. Keep it concise and student-friendly.
 Do NOT describe the image visually (no "the arrow on the left..."). Explain the science.
 Do NOT use headers. Just flowing paragraphs."""
+
+    if language in _DESC_LANGUAGE_NAMES:
+        prompt += f"\n\nWrite the entire explanation in {_DESC_LANGUAGE_NAMES[language]}."
 
     try:
         response = await client.messages.create(
@@ -394,7 +400,13 @@ async def process_image_job(
         r2_url = await store_image_r2(image_bytes, job_id, user_id, session_id)
 
         # ── 9. Generate AI description (runs in parallel with nothing — fast) ─
-        description = await generate_image_description(knowledge_model, diagram_plan)
+        user_language = 'en'
+        if user_id:
+            async with get_db() as db:
+                lang_row = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", user_id)
+            if lang_row:
+                user_language = lang_row
+        description = await generate_image_description(knowledge_model, diagram_plan, user_language)
 
         # Build backward-compatible spec for frontend display
         all_elements: list[str] = []

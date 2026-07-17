@@ -41,10 +41,14 @@ def extract_pages_from_pdf(file_bytes: bytes) -> list[str]:
 
 # ─── AI generation ────────────────────────────────────────────────────────────
 
+_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish'}
+
+
 async def generate_concepts_and_flashcards(
     text: str,
     title: str,
     subject: str | None,
+    language: str = 'en',
 ) -> dict:
     """
     Call GPT-4o with the extracted text and return structured JSON containing:
@@ -56,6 +60,11 @@ async def generate_concepts_and_flashcards(
 
     # Truncate to ~80 000 chars ≈ 20 000 tokens — enough for ~40 pages
     truncated = text[:80_000]
+
+    lang_instruction = ""
+    if language in _LANGUAGE_NAMES:
+        lang_name = _LANGUAGE_NAMES[language]
+        lang_instruction = f"\n\nIMPORTANT: Generate ALL content (summary, concept names, definitions, explanations, flashcard fronts and backs) in {lang_name}. Do not use English."
 
     prompt = f"""You are an expert educator. Analyze the study material below and extract structured learning content.
 
@@ -84,7 +93,7 @@ Requirements:
 - Extract 10-20 key concepts (most important ideas, terms, principles)
 - Generate 20-30 flashcards mixing term→definition and question→answer formats
 - Focus on testable, examinable content
-- Keep language clear and student-friendly
+- Keep language clear and student-friendly{lang_instruction}
 
 --- MATERIAL ---
 {truncated}"""
@@ -106,6 +115,7 @@ async def process_material_bg(
     material_id: str,
     study_set_id: str,
     file_bytes: bytes,
+    user_id: str | None = None,
 ) -> None:
     """
     Full processing pipeline (runs in background):
@@ -116,13 +126,20 @@ async def process_material_bg(
     """
     from database import get_db
 
-    # ── 1. Fetch study set metadata ──────────────────────────────────────────
+    # ── 1. Fetch study set metadata + user language ──────────────────────────
     try:
         async with get_db() as db:
             ss = await db.fetchrow(
                 "SELECT title, subject FROM study_sets WHERE id = $1::uuid",
                 study_set_id,
             )
+            language = 'en'
+            if user_id:
+                lang_row = await db.fetchval(
+                    "SELECT language FROM users WHERE id = $1::uuid", user_id
+                )
+                if lang_row:
+                    language = lang_row
         if not ss:
             logger.error("[studyset] study_set %s not found", study_set_id)
             return
@@ -156,8 +173,8 @@ async def process_material_bg(
 
     # ── 4. AI generation ─────────────────────────────────────────────────────
     try:
-        logger.info("[studyset] %s: calling GPT-4o", study_set_id)
-        result = await generate_concepts_and_flashcards(text, ss["title"], ss["subject"])
+        logger.info("[studyset] %s: calling GPT-4o (language=%s)", study_set_id, language)
+        result = await generate_concepts_and_flashcards(text, ss["title"], ss["subject"], language)
     except Exception as exc:
         logger.error("[studyset] AI generation failed for %s: %s", study_set_id, exc)
         await _mark_failed(material_id, study_set_id, f"AI generation failed: {exc}")

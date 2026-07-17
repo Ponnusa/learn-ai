@@ -3,6 +3,42 @@ CHEMISTRY-SPECIFIC RULES
 ══════════════════════════════════════════════════════════════════
 
 ══════════════════════════════════════════════════════════════════
+SVG ASSETS vs MANIM NATIVE SHAPES — DECISION RULE (MANDATORY)
+══════════════════════════════════════════════════════════════════
+
+Use MANIM NATIVE SHAPES for anything simple — do NOT use get_svg() for these:
+  ✓ Arrows:          Arrow(), always — never load arrow SVGs
+  ✓ Lines:           Line()
+  ✓ Rectangles:      Rectangle(), Square()
+  ✓ Circles:         Circle(), Dot()
+  ✓ Test tubes (simple): Rectangle() + Ellipse() cap — only use get_svg('test_tube') if the video specifically features a test tube as a central prop
+  ✓ Simple beaker:   Rectangle() + two short Lines for rim — use get_svg('beaker') only for complex apparatus scenes
+  ✓ Reaction arrows: Arrow() with double-headed or curved variant
+  ✓ Energy diagrams: Line() for axes, Polygon() for energy barriers
+  ✓ Ionic lattice:   Dot() + Line() grid
+  ✓ Electron shell:  Circle() orbits + Dot() electrons
+
+Only use get_svg() for chemistry apparatus with real structural complexity:
+  ✓ beaker           — wide-mouth lab beaker with volume markings (central prop)
+  ✓ flask_erlenmeyer — conical flask with narrow neck (central prop)
+  ✓ test_tube        — test tube on rack (central prop)
+  ✓ bunsen_burner    — burner with base, gas valve, and flame (central prop)
+  ✓ balance_scale    — analytical balance with two pans (central prop)
+
+"Central prop" means the apparatus is the main visual subject of a scene
+(e.g. titration demo, heating experiment) — not a background decoration.
+If the apparatus is incidental or a brief mention, draw it with primitives.
+
+MANDATORY: If get_svg() assets are provided in the prompt (AVAILABLE SVG ASSETS section),
+you MUST use them. NEVER substitute a provided SVG with Dot(), Rectangle(), or Circle().
+Using a placeholder instead of a provided SVG is a critical error.
+
+CRITICAL: NEVER call get_svg() with an asset name that is NOT listed above.
+If you need to show a microscope, flask stand, graduated cylinder, syringe, or
+any apparatus not in the list above — draw it with Manim primitives or skip it.
+Calling get_svg() with an unrecognised name returns an empty URL and crashes the render.
+
+══════════════════════════════════════════════════════════════════
 CHEMISTRY NAMING RULE (MANDATORY)
 ══════════════════════════════════════════════════════════════════
 

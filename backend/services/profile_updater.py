@@ -10,6 +10,8 @@ from database import get_db
 from services.ai_router import openai_client, get_model
 from services.scoring import apply_delta
 
+_PROFILE_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish'}
+
 PROFILE_UPDATE_PROMPT = """\
 You are an educational intelligence system analysing a student's learning session.
 Update their personalised AI tutor profile based on the evidence below.
@@ -48,6 +50,7 @@ null means no change. Be conservative — only update with clear evidence.
 
 For prompt_modifier: write 2-4 sentences of direct instruction for the AI tutor.
 What works for this student? What to avoid? What to reinforce?
+Write the prompt_modifier in {language_name}.
 Example: "Explain with sports analogies first. Reinforce the difference between
 force and energy proactively. Prefer step-by-step builds over top-down explanations."
 """
@@ -74,6 +77,9 @@ async def update_student_profile(
             profile = await db.fetchrow(
                 "SELECT * FROM student_profiles WHERE user_id = $1", user_id
             )
+            lang_val = await db.fetchval("SELECT language FROM users WHERE id = $1", user_id)
+
+        language_name = _PROFILE_LANGUAGE_NAMES.get(lang_val or 'en', 'English')
 
         if not msgs:
             return
@@ -115,6 +121,7 @@ async def update_student_profile(
                     simplify_count=simplify_count,
                     deeper_count=deeper_count,
                     followup_count=followup_count,
+                    language_name=language_name,
                 ),
             }],
             max_tokens=400,

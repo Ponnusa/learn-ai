@@ -246,7 +246,7 @@ async def upload_material(
 
     # Kick off background processing
     from services.studyset_processor import process_material_bg
-    bg.add_task(process_material_bg, material_id, study_set_id, data)
+    bg.add_task(process_material_bg, material_id, study_set_id, data, user_id)
 
     return {"material_id": material_id, "status": "processing"}
 

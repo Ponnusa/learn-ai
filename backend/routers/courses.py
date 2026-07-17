@@ -18,6 +18,8 @@ from routers.auth import decode_jwt
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
+_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish'}
+
 
 async def _summarize_one_concept(concept_id: str, course: dict | None):
     """Generate AI summary + transcript for a single concept ('Generate explanation')."""
@@ -30,11 +32,26 @@ async def _summarize_one_concept(concept_id: str, course: dict | None):
                 "SELECT title, description, source_text FROM course_concepts WHERE id = $1::uuid",
                 concept_id,
             )
+            # Look up the teacher's language through the concept → unit → course → teacher chain
+            lang_val = await db.fetchval("""
+                SELECT u.language
+                FROM course_concepts cc
+                JOIN course_units cu ON cu.id = cc.unit_id
+                JOIN courses c       ON c.id  = cu.course_id
+                JOIN users u         ON u.id  = c.teacher_id
+                WHERE cc.id = $1::uuid
+            """, concept_id)
         if not concept:
             return
 
+        language = lang_val or 'en'
         source = concept["source_text"] or concept["description"] or concept["title"]
         subject = (course["subject"] if course else None) or "General"
+
+        lang_instruction = ""
+        if language in _LANGUAGE_NAMES:
+            lang_name = _LANGUAGE_NAMES[language]
+            lang_instruction = f'\n\nIMPORTANT: Write ALL content in {lang_name}. Do not use English.'
 
         prompt = f"""You are an expert educator creating study material for students.
 
@@ -60,7 +77,7 @@ Create two things grounded strictly in the source above:
    • End with a brief recap sentence
 
 Return ONLY valid JSON:
-{{"summary": "...", "transcript": "..."}}"""
+{{"summary": "...", "transcript": "..."}}{lang_instruction}"""
 
         response = await client.chat.completions.create(
             model="gpt-4o",
@@ -729,8 +746,11 @@ async def send_concept_chat_message(
             JOIN courses c       ON c.id = cu.course_id
             WHERE cc.id = $1::uuid
         """, concept_id)
+        teacher_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
     if not concept:
         raise HTTPException(404, "Concept not found")
+
+    teacher_language = teacher_lang or 'en'
 
     async with get_db() as db:
         conv = await db.fetchrow(
@@ -770,6 +790,11 @@ async def send_concept_chat_message(
             if full_text:
                 material_text = full_text
 
+    concept_lang_note = ""
+    if teacher_language in _LANGUAGE_NAMES:
+        lang_name = _LANGUAGE_NAMES[teacher_language]
+        concept_lang_note = f"\n\nWrite all content in {lang_name}."
+
     system_prompt = f"""You are helping a teacher draft and refine the student-facing explanation for one
 concept in their course. This conversation is teacher-only — students never see it.
 
@@ -795,7 +820,7 @@ Whenever the teacher asks for a draft or a full revision, respond with exactly t
 <a short spoken-style narration script>
 
 For anything else (questions, brainstorming, partial feedback), just respond conversationally —
-only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can apply."""
+only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can apply.{concept_lang_note}"""
 
     ai_messages = [{"role": "system", "content": system_prompt}]
     for h in history:
@@ -905,8 +930,11 @@ async def import_syllabus(
             "SELECT id, name, subject FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
             course_id, teacher_id,
         )
+        teacher_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
     if not course:
         raise HTTPException(404, "Course not found")
+
+    teacher_language = teacher_lang or 'en'
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files are supported")
@@ -920,6 +948,10 @@ async def import_syllabus(
 
     text, page_count = extract_text_from_pdf(file_bytes)
     truncated = text[:80_000]
+
+    syllabus_lang_note = ""
+    if teacher_language in _LANGUAGE_NAMES:
+        syllabus_lang_note = f"\nIMPORTANT: Write ALL titles and descriptions in {_LANGUAGE_NAMES[teacher_language]}."
 
     client = AsyncOpenAI()
     prompt = f"""You are an expert curriculum designer. Analyze the syllabus/textbook below and extract a structured course outline.
@@ -947,7 +979,7 @@ Requirements:
 - Extract 4-10 units (major chapters or topic groups)
 - Each unit should have 3-8 concepts (specific topics, subtopics)
 - Titles should be concise and student-friendly
-- Follow the order as it appears in the syllabus
+- Follow the order as it appears in the syllabus{syllabus_lang_note}
 
 --- SYLLABUS ---
 {truncated}"""
@@ -1341,7 +1373,7 @@ async def _create_chapter_only(course_id: str, course: dict, file_bytes: bytes, 
     }
 
 
-async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: dict, file_bytes: bytes) -> list[str]:
+async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: dict, file_bytes: bytes, language: str = 'en') -> list[str]:
     """
     AI-extracts concepts with verbatim source chunks from a chapter's full text and
     appends them to an existing unit (after whatever concepts — manual or AI — are
@@ -1353,6 +1385,10 @@ async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: d
 
     text, _ = extract_text_from_pdf(file_bytes)
     truncated = text[:80_000]
+
+    concept_lang_note = ""
+    if language in _LANGUAGE_NAMES:
+        concept_lang_note = f"\nIMPORTANT: Write ALL titles and descriptions in {_LANGUAGE_NAMES[language]}. The source_text must remain verbatim from the document."
 
     client = AsyncOpenAI()
     extract_prompt = f"""You are an expert educator. Analyze this chapter and extract the key concepts students must learn.
@@ -1377,7 +1413,7 @@ Return ONLY valid JSON:
 Rules:
 - 4–12 concepts, in the order they appear in the text
 - source_text must be a direct quote from the document
-- Each concept = one distinct learnable idea
+- Each concept = one distinct learnable idea{concept_lang_note}
 
 --- CHAPTER ---
 {truncated}"""
@@ -1418,7 +1454,7 @@ Rules:
     return concept_ids
 
 
-async def _create_chapter_from_pdf(course_id: str, course: dict, file_bytes: bytes, filename: str) -> dict:
+async def _create_chapter_from_pdf(course_id: str, course: dict, file_bytes: bytes, filename: str, language: str = 'en') -> dict:
     """
     Shared by the bulk-split flow: create the chapter+unit, then immediately
     AI-extract concepts for it. Single-chapter upload (upload_chapter below) no
@@ -1426,7 +1462,7 @@ async def _create_chapter_from_pdf(course_id: str, course: dict, file_bytes: byt
     as an opt-in "Suggest concepts" action.
     """
     base = await _create_chapter_only(course_id, course, file_bytes, filename)
-    concept_ids = await _extract_concepts_for_chapter(base["chapter_id"], base["unit_id"], course, file_bytes)
+    concept_ids = await _extract_concepts_for_chapter(base["chapter_id"], base["unit_id"], course, file_bytes, language)
     base["concept_ids"]   = concept_ids
     base["concept_count"] = len(concept_ids)
     return base
@@ -1475,12 +1511,13 @@ async def suggest_concepts(
             JOIN courses c       ON c.id = ch.course_id AND c.teacher_id = $2::uuid
             WHERE ch.id = $1::uuid
         """, chapter_id, teacher_id)
+        suggest_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
     if not chapter or not chapter["pdf_data"]:
         raise HTTPException(404, "Chapter not found")
 
     course = {"name": chapter["name"], "subject": chapter["subject"]}
     concept_ids = await _extract_concepts_for_chapter(
-        chapter_id, str(chapter["unit_id"]), course, bytes(chapter["pdf_data"]),
+        chapter_id, str(chapter["unit_id"]), course, bytes(chapter["pdf_data"]), suggest_lang or 'en',
     )
     bg.add_task(_summarize_concepts_bg, concept_ids, str(chapter["course_id"]))
     return {"concept_ids": concept_ids, "concept_count": len(concept_ids)}
@@ -1503,7 +1540,7 @@ async def create_concept_from_region(
     Vision-transcribes it to source_text, creates a draft concept, stores the
     crop as the concept's first image, and seeds a chat study set immediately.
     """
-    await _require_teacher(authorization)
+    region_teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         chapter = await db.fetchrow(
             "SELECT id, course_id FROM course_chapters WHERE id = $1::uuid", chapter_id
@@ -1511,8 +1548,11 @@ async def create_concept_from_region(
         course = await db.fetchrow(
             "SELECT subject FROM courses WHERE id = $1::uuid", chapter["course_id"] if chapter else None
         )
+        region_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", region_teacher_id)
     if not chapter:
         raise HTTPException(404, "Chapter not found")
+
+    region_language = region_lang or 'en'
 
     try:
         header, b64data = req.image_data_url.split(",", 1)
@@ -1521,16 +1561,20 @@ async def create_concept_from_region(
     except Exception:
         raise HTTPException(400, "Invalid image data")
 
+    region_lang_note = ""
+    if region_language in _LANGUAGE_NAMES:
+        region_lang_note = f"\n\nWrite the title in {_LANGUAGE_NAMES[region_language]}. The source_text must remain verbatim from the image."
+
     from openai import AsyncOpenAI
     client = AsyncOpenAI()
-    vision_prompt = """This is a cropped region of a textbook page, selected by a teacher to become one
+    vision_prompt = f"""This is a cropped region of a textbook page, selected by a teacher to become one
 learning concept. Transcribe the text in this image verbatim (preserve numbers, symbols and
 equations exactly as shown). If the image is mostly a diagram/illustration with little or no
 text, instead write a one-sentence description of what it shows.
 
-Also suggest a concise 3-6 word title for this as a learning concept.
+Also suggest a concise 3-6 word title for this as a learning concept.{region_lang_note}
 
-Return ONLY valid JSON: {"title": "...", "source_text": "..."}"""
+Return ONLY valid JSON: {{"title": "...", "source_text": "..."}}"""
 
     response = await client.chat.completions.create(
         model="gpt-4o",
@@ -1584,7 +1628,7 @@ async def check_chapter_coverage(chapter_id: str, authorization: str = Header(..
     not covered by any concept yet? Topic-level, not page-accurate — good enough
     to point the teacher at what's left without forcing them to re-read the PDF.
     """
-    await _require_teacher(authorization)
+    coverage_teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         chapter = await db.fetchrow(
             "SELECT pdf_data FROM course_chapters WHERE id = $1::uuid", chapter_id
@@ -1593,6 +1637,7 @@ async def check_chapter_coverage(chapter_id: str, authorization: str = Header(..
             "SELECT title, source_text FROM course_concepts WHERE chapter_ref = $1::uuid ORDER BY position",
             chapter_id,
         )
+        coverage_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", coverage_teacher_id)
     if not chapter or not chapter["pdf_data"]:
         raise HTTPException(404, "Chapter not found")
 
@@ -1604,6 +1649,10 @@ async def check_chapter_coverage(chapter_id: str, authorization: str = Header(..
 
     covered = "\n\n".join(f"- {c['title']}: {(c['source_text'] or '')[:500]}" for c in concepts)
 
+    coverage_lang_note = ""
+    if (coverage_lang or 'en') in _LANGUAGE_NAMES:
+        coverage_lang_note = f"\n\nWrite your answer in {_LANGUAGE_NAMES[coverage_lang]}."
+
     from openai import AsyncOpenAI
     client = AsyncOpenAI()
     prompt = f"""Here is the full text of a textbook chapter, and a list of concepts a teacher has
@@ -1611,7 +1660,7 @@ already created from it (title + excerpt each).
 
 Identify anything meaningful from the chapter that is NOT yet covered by any of these concepts.
 Answer in 2-5 short bullet points naming the missing topic/section. If everything meaningful is
-already covered, just answer "Fully covered."
+already covered, just answer "Fully covered."{coverage_lang_note}
 
 --- FULL CHAPTER TEXT ---
 {full_text[:40_000]}
@@ -1645,8 +1694,11 @@ async def detect_chapter_toc(
             "SELECT id FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
             course_id, teacher_id,
         )
+        toc_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
     if not course:
         raise HTTPException(404, "Course not found")
+
+    toc_language = toc_lang or 'en'
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files are supported")
@@ -1729,7 +1781,7 @@ async def detect_chapter_toc(
     if method == "outline" and chapters:
         if pages is None:
             pages = extract_pages_from_pdf(file_bytes)
-        await _clean_outline_titles(chapters, list(range(len(chapters))), pages)
+        await _clean_outline_titles(chapters, list(range(len(chapters))), pages, toc_language)
 
     return {
         "detected":   len(chapters) >= 2,
@@ -1744,15 +1796,10 @@ _FRONT_MATTER_RE = re.compile(
 )
 
 
-async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages: list[str]) -> None:
+async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages: list[str], language: str = 'en') -> None:
     """
     Cross-check each outline title against that chapter's actual first-page text,
-    replacing it in place with a clean ENGLISH title — covers both internal
-    filename slugs ('01_Chapter_01_Vargangal') and labels that look like ordinary
-    words but are a transliteration of the book's non-English content (e.g.
-    'Vargangal', literally that chapter's real heading, just not translated).
-    Course units/concepts elsewhere in this pipeline are always titled in
-    English regardless of source material language — this matches that.
+    replacing it in place with a clean readable title in the teacher's language.
     """
     snippets = []
     for i in indices:
@@ -1760,6 +1807,7 @@ async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages:
         text = pages[start_idx][:1200] if 0 <= start_idx < len(pages) else ""
         snippets.append({"index": i, "label": chapters[i]["title"], "page_text": text})
 
+    target_lang = _LANGUAGE_NAMES.get(language, 'English')
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI()
@@ -1771,9 +1819,9 @@ async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages:
                 "a transliteration of the book's own (possibly non-English) heading — labels can look "
                 "like perfectly normal words and still need fixing for this reason, so always check "
                 "against the page text rather than trusting the label's shape.\n\n"
-                "For each item, return a clean, concise chapter title IN ENGLISH, translating from the "
-                "page text if the book's own content is in another language. Even if the label already "
-                "looks like a real title, translate it to English if it isn't already.\n\n"
+                f"For each item, return a clean, concise chapter title in {target_lang}, derived from the "
+                "page text. Even if the label already looks like a real title, verify and translate it "
+                f"to {target_lang} if it isn't already.\n\n"
                 "Return ONLY valid JSON: {\"titles\": [{\"index\": <int>, \"title\": \"...\"}]}\n\n"
                 f"{json.dumps(snippets)[:12000]}"
             )}],
@@ -1815,8 +1863,11 @@ async def bulk_split_chapters(
             "SELECT id, name, subject FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
             course_id, teacher_id,
         )
+        bulk_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
     if not course:
         raise HTTPException(404, "Course not found")
+
+    bulk_language = bulk_lang or 'en'
 
     try:
         chapter_specs = [BulkSplitChapter(**c) for c in json.loads(chapters)]
@@ -1845,7 +1896,7 @@ async def bulk_split_chapters(
         sliced.close()
 
         chapter_result = await _create_chapter_from_pdf(
-            course_id, dict(course), sliced_bytes, f"{spec.title}.pdf"
+            course_id, dict(course), sliced_bytes, f"{spec.title}.pdf", bulk_language
         )
         all_concept_ids.extend(chapter_result["concept_ids"])
         results.append(chapter_result)
@@ -2353,6 +2404,7 @@ class StudentChatRequest(BaseModel):
     message:         str
     resource_id:     str | None = None  # concept_resources.id to ground/visualise
     conversation_id: str | None = None
+    language:        str = 'en'
 
 
 @router.get("/concepts/{concept_id}/student-chat")
@@ -2515,12 +2567,17 @@ async def post_student_chat(
 
     grounding = "\n\n".join(grounding_parts) or concept["title"]
 
+    lang_note = ""
+    if req.language in _LANGUAGE_NAMES:
+        lang_name = _LANGUAGE_NAMES[req.language]
+        lang_note = f"\n\nRespond entirely in {lang_name}."
+
     system_prompt = (
         f"You are a helpful AI tutor helping a student understand \"{concept['title']}\" "
         f"({concept['subject'] or 'General'}).\n\n"
         f"Answer primarily from the material below. If a topic isn't covered, say so briefly "
         f"and answer from your general knowledge where safe to do so.\n\n"
-        f"{grounding[:12000]}"
+        f"{grounding[:12000]}{lang_note}"
     )
     if image_b64_url:
         system_prompt += (
@@ -2595,8 +2652,12 @@ async def serve_concept_video(concept_id: str):
 
 # ── Asset generation backgrounds ─────────────────────────────────────────────
 
-def build_quiz_prompt(title: str, subject: str, source: str, extra: str = "") -> str:
+def build_quiz_prompt(title: str, subject: str, source: str, extra: str = "", language: str = 'en') -> str:
     """Shared by the per-concept quiz generator and the per-student assignment generator."""
+    lang_instruction = ""
+    if language in _LANGUAGE_NAMES:
+        lang_name = _LANGUAGE_NAMES[language]
+        lang_instruction = f"\nIMPORTANT: Generate ALL questions, answer options, and explanations in {lang_name}. Do not use English."
     return f"""You are an expert educator. Create 6 multiple-choice quiz questions to test student understanding.
 
 Concept: {title}
@@ -2611,14 +2672,18 @@ Rules:
 - Each question must be answerable from the source material
 - All 4 options must be plausible (avoid obviously wrong distractors)
 - Include a 1-2 sentence explanation for the correct answer
-- Vary difficulty: 2 recall, 2 comprehension, 2 application questions
+- Vary difficulty: 2 recall, 2 comprehension, 2 application questions{lang_instruction}
 
 Return ONLY valid JSON:
 {{"questions": [{{"question": "...", "options": ["A", "B", "C", "D"], "correct_idx": 0, "explanation": "..."}}]}}"""
 
 
-def build_flashcard_prompt(title: str, source: str, extra: str = "") -> str:
+def build_flashcard_prompt(title: str, source: str, extra: str = "", language: str = 'en') -> str:
     """Shared by the per-concept flashcard generator and the per-student assignment generator."""
+    lang_instruction = ""
+    if language in _LANGUAGE_NAMES:
+        lang_name = _LANGUAGE_NAMES[language]
+        lang_instruction = f"\nIMPORTANT: Generate ALL flashcard fronts and backs in {lang_name}. Do not use English."
     return f"""You are an expert educator. Create 10 flashcards to help students memorise key terms and ideas.
 
 Concept: {title}
@@ -2632,7 +2697,7 @@ Rules:
 - Front: term, definition prompt, or short question (max 12 words)
 - Back: precise answer or definition (1-2 sentences)
 - Cover key vocabulary, key facts, and cause-effect relationships
-- Keep language student-friendly
+- Keep language student-friendly{lang_instruction}
 
 Return ONLY valid JSON:
 {{"flashcards": [{{"front": "...", "back": "..."}}]}}"""
@@ -2649,12 +2714,16 @@ async def _generate_quiz_bg(concept_id: str, course_id: str):
                 "SELECT title, ai_summary, source_text FROM course_concepts WHERE id = $1::uuid",
                 concept_id,
             )
-            course = await db.fetchrow("SELECT subject FROM courses WHERE id = $1::uuid", course_id)
+            course = await db.fetchrow("SELECT subject, teacher_id FROM courses WHERE id = $1::uuid", course_id)
+            lang_val = None
+            if course and course["teacher_id"]:
+                lang_val = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", course["teacher_id"])
 
-        source  = (concept["source_text"] or concept["ai_summary"] or concept["title"])
-        subject = (course["subject"] if course else None) or "General"
+        source   = (concept["source_text"] or concept["ai_summary"] or concept["title"])
+        subject  = (course["subject"] if course else None) or "General"
+        language = lang_val or 'en'
 
-        prompt = build_quiz_prompt(concept["title"], subject, source)
+        prompt = build_quiz_prompt(concept["title"], subject, source, language=language)
 
         response = await client.chat.completions.create(
             model="gpt-4o",
@@ -2699,10 +2768,16 @@ async def _generate_flashcards_bg(concept_id: str, course_id: str):
                 "SELECT title, ai_summary, source_text FROM course_concepts WHERE id = $1::uuid",
                 concept_id,
             )
+            lang_val = await db.fetchval("""
+                SELECT u.language FROM courses c
+                JOIN users u ON u.id = c.teacher_id
+                WHERE c.id = $1::uuid
+            """, course_id)
 
-        source = (concept["source_text"] or concept["ai_summary"] or concept["title"])
+        source   = (concept["source_text"] or concept["ai_summary"] or concept["title"])
+        language = lang_val or 'en'
 
-        prompt = build_flashcard_prompt(concept["title"], source)
+        prompt = build_flashcard_prompt(concept["title"], source, language=language)
 
         response = await client.chat.completions.create(
             model="gpt-4o",

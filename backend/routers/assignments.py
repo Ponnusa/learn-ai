@@ -168,6 +168,7 @@ async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, 
                 "SELECT struggle_areas, known_misconceptions FROM student_profiles WHERE user_id = $1::uuid",
                 student_id,
             )
+            student_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", student_id)
         weak_spots = [*(profile["struggle_areas"] or []), *(profile["known_misconceptions"] or [])] if profile else []
         extra = (
             f"This student is struggling with: {', '.join(weak_spots[:5])}. "
@@ -175,17 +176,18 @@ async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, 
             if weak_spots else ""
         )
 
-        source  = concept["source_text"] or concept["ai_summary"] or concept["title"]
-        subject = concept["subject"] or "General"
+        source   = concept["source_text"] or concept["ai_summary"] or concept["title"]
+        subject  = concept["subject"] or "General"
+        language = student_lang or 'en'
 
         if kind == "quiz":
-            await _generate_assignment_quiz(assignment_id, concept["title"], subject, source, extra)
+            await _generate_assignment_quiz(assignment_id, concept["title"], subject, source, extra, language)
         elif kind == "flashcards":
-            await _generate_assignment_flashcards(assignment_id, concept["title"], source, extra)
+            await _generate_assignment_flashcards(assignment_id, concept["title"], source, extra, language)
         elif kind == "studyset":
             await _generate_assignment_studyset(assignment_id, student_id, concept, subject, source)
         elif kind == "video":
-            await _generate_assignment_video(assignment_id, concept, subject, extra)
+            await _generate_assignment_video(assignment_id, concept, subject, extra, language)
 
     except Exception as exc:
         logger.error("[assignment] %s (%s) failed: %s", assignment_id, kind, exc, exc_info=True)
@@ -196,13 +198,13 @@ async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, 
             )
 
 
-async def _generate_assignment_quiz(assignment_id: str, title: str, subject: str, source: str, extra: str):
+async def _generate_assignment_quiz(assignment_id: str, title: str, subject: str, source: str, extra: str, language: str = 'en'):
     from openai import AsyncOpenAI
     client = AsyncOpenAI()
 
     response = await client.chat.completions.create(
         model="gpt-4o",
-        messages=[{"role": "user", "content": build_quiz_prompt(title, subject, source, extra)}],
+        messages=[{"role": "user", "content": build_quiz_prompt(title, subject, source, extra, language=language)}],
         response_format={"type": "json_object"},
         max_tokens=3000,
         temperature=0.3,
@@ -216,13 +218,13 @@ async def _generate_assignment_quiz(assignment_id: str, title: str, subject: str
         )
 
 
-async def _generate_assignment_flashcards(assignment_id: str, title: str, source: str, extra: str):
+async def _generate_assignment_flashcards(assignment_id: str, title: str, source: str, extra: str, language: str = 'en'):
     from openai import AsyncOpenAI
     client = AsyncOpenAI()
 
     response = await client.chat.completions.create(
         model="gpt-4o",
-        messages=[{"role": "user", "content": build_flashcard_prompt(title, source, extra)}],
+        messages=[{"role": "user", "content": build_flashcard_prompt(title, source, extra, language=language)}],
         response_format={"type": "json_object"},
         max_tokens=2500,
         temperature=0.3,
@@ -258,7 +260,7 @@ async def _generate_assignment_studyset(assignment_id: str, student_id: str, con
         )
 
 
-async def _generate_assignment_video(assignment_id: str, concept: dict, subject: str, extra: str):
+async def _generate_assignment_video(assignment_id: str, concept: dict, subject: str, extra: str, language: str = 'en'):
     from services.manim import (
         generate_solution_only, generate_manim_from_solution,
         fix_manim_colors, ensure_numpy_import, strip_invalid_tex_weight, _trigger_video_generation,
@@ -273,15 +275,15 @@ async def _generate_assignment_video(assignment_id: str, concept: dict, subject:
     async with get_db() as db:
         video = await db.fetchrow("""
             INSERT INTO videos (prompt, subject, language, aspect_ratio, max_duration, status)
-            VALUES ($1, $2, 'en', '16:9', $3, 'pending')
+            VALUES ($1, $2, $4, '16:9', $3, 'pending')
             RETURNING id
-        """, prompt, manim_subject, duration)
+        """, prompt, manim_subject, duration, language)
         video_id = video["id"]
         await db.execute(
             "UPDATE student_assignments SET video_job_id = $1 WHERE id = $2::uuid", video_id, assignment_id,
         )
 
-    solution_data = await generate_solution_only(prompt, "en", duration)
+    solution_data = await generate_solution_only(prompt, language, duration)
     async with get_db() as db:
         await db.execute("""
             UPDATE videos SET transcript_markdown = $1, verified_solution = $2,
@@ -290,7 +292,7 @@ async def _generate_assignment_video(assignment_id: str, concept: dict, subject:
         """, solution_data["transcript_markdown"], solution_data["verified_solution"], video_id)
 
     code_data = await asyncio.wait_for(
-        generate_manim_from_solution(solution_data, "en", duration, "16:9"), timeout=900
+        generate_manim_from_solution(solution_data, language, duration, "16:9"), timeout=900
     )
     code     = fix_manim_colors(code_data["code"])
     code     = ensure_numpy_import(code)

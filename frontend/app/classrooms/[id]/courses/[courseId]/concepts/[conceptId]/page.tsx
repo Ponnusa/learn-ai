@@ -13,6 +13,7 @@ import {
   CheckCircle2, XCircle, Send, FileText,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -44,6 +45,7 @@ export default function StudentConceptDetailPage() {
   const courseId    = params.courseId  as string;
   const conceptId   = params.conceptId as string;
   const { user, token } = useSessionStore();
+  const { language } = useTranslation();
 
   const [concept,    setConcept]    = useState<ConceptDetail | null>(null);
   const [assets,     setAssets]     = useState<Assets | null>(null);
@@ -126,7 +128,7 @@ export default function StudentConceptDetailPage() {
     setChatMsgs(prev => [...prev, { role: 'user', content: msg }]);
     setChatSending(true);
     try {
-      const body: Record<string, string> = { message: msg };
+      const body: Record<string, string> = { message: msg, language };
       if (chatConvId) body.conversation_id = chatConvId;
       if (resource)   body.resource_id     = resource.id;
       const res  = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat`, {

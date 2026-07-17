@@ -344,14 +344,19 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     }
 
 
+_TITLE_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish'}
+
 async def _generate_title(message: str, language: str) -> str:
     """Generate a short conversation title from the first message."""
     try:
+        lang_note = ""
+        if language in _TITLE_LANGUAGE_NAMES:
+            lang_note = f" Write the title in {_TITLE_LANGUAGE_NAMES[language]}."
         resp = await openai_client.chat.completions.create(
             model=get_model("title_generation"),
             messages=[{
                 "role": "user",
-                "content": f"Generate a short title (max 5 words) for a conversation starting with: {message[:200]}. Return plain text only.",
+                "content": f"Generate a short title (max 5 words) for a conversation starting with: {message[:200]}. Return plain text only.{lang_note}",
             }],
             max_tokens=20,
             temperature=0.3,
