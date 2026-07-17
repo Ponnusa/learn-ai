@@ -255,8 +255,11 @@ async def upload_material(
 async def proxy_material_pdf(study_set_id: str, material_id: str):
     """
     Proxy the stored PDF through the backend so the browser avoids R2 CORS
-    restrictions. Returns the raw PDF bytes with correct Content-Type.
+    restrictions. Downloads via the authenticated R2 S3 API (same path as
+    uploads) so the bucket does not need to be publicly accessible.
     """
+    from fastapi.responses import Response
+
     async with get_db() as db:
         mat = await db.fetchrow(
             """SELECT file_url, filename FROM study_materials
@@ -266,20 +269,38 @@ async def proxy_material_pdf(study_set_id: str, material_id: str):
     if not mat or not mat["file_url"]:
         raise HTTPException(404, "Material PDF not found or not yet uploaded to storage")
 
-    import httpx
-    from fastapi.responses import Response
-
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            r = await client.get(mat["file_url"])
-        if r.status_code != 200:
-            raise HTTPException(502, "Could not fetch PDF from storage")
-    except httpx.RequestError as exc:
-        raise HTTPException(502, f"Storage fetch failed: {exc}")
+    # Derive the R2 object key from the stored public URL
+    from services.manim import _make_r2_client, R2_BUCKET_NAME, R2_PUBLIC_URL
+    r2 = _make_r2_client()
+    if r2 and R2_PUBLIC_URL:
+        # Strip public base URL to recover the object key, e.g.
+        # "https://pub-xxx.r2.dev/studysets/abc/file.pdf" → "studysets/abc/file.pdf"
+        base = R2_PUBLIC_URL.rstrip('/')
+        r2_key = mat["file_url"][len(base):].lstrip('/')
+        try:
+            import asyncio
+            obj = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: r2.get_object(Bucket=R2_BUCKET_NAME, Key=r2_key)
+            )
+            pdf_bytes = obj["Body"].read()
+        except Exception as exc:
+            logger.error("[studyset] R2 get_object failed for %s: %s", r2_key, exc)
+            raise HTTPException(502, "Could not retrieve PDF from storage")
+    else:
+        # Fallback: direct HTTP fetch (requires public bucket)
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                r = await client.get(mat["file_url"])
+            if r.status_code != 200:
+                raise HTTPException(502, "Could not fetch PDF from storage")
+            pdf_bytes = r.content
+        except httpx.RequestError as exc:
+            raise HTTPException(502, f"Storage fetch failed: {exc}")
 
     safe_name = (mat["filename"] or "material.pdf").replace('"', '')
     return Response(
-        content=r.content,
+        content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
     )
