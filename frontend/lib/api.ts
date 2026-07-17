@@ -463,8 +463,9 @@ export const deleteEduImage = (jobId: string, token?: string) =>
 export const retryEduImage = (jobId: string, token?: string) =>
   post<{ jobId: string; status: string }>(`/api/images/${jobId}/retry`, {}, token);
 
-/** Fetch a study-set PDF. Tries the R2 public URL first (no proxy overhead),
- *  falls back to the authenticated backend proxy if CORS or network blocks it. */
+/** Fetch a study-set PDF.
+ *  1. If R2 URL is known, proxy it through the Next.js API route (avoids R2 CORS restrictions).
+ *  2. Fall back to the Railway backend proxy (reads file_data from DB). */
 export async function fetchMaterialPdf(
   studySetId: string,
   materialId: string,
@@ -472,20 +473,20 @@ export async function fetchMaterialPdf(
   token?: string,
   fileUrl?: string,
 ): Promise<File> {
-  // Try R2 public URL directly first — no proxy needed if publicly accessible
+  // Next.js server-side proxy — fetches R2 server-side so CORS never applies
   if (fileUrl) {
     try {
-      const r2Res = await fetch(fileUrl);
-      if (r2Res.ok) {
-        const blob = await r2Res.blob();
+      const proxyRes = await fetch(`/api/pdf-proxy?url=${encodeURIComponent(fileUrl)}`);
+      if (proxyRes.ok) {
+        const blob = await proxyRes.blob();
         return new File([blob], filename, { type: 'application/pdf' });
       }
     } catch {
-      // CORS or network error — fall through to backend proxy
+      // network error — fall through to Railway proxy
     }
   }
 
-  // Backend proxy fallback
+  // Railway backend proxy fallback (reads file_data from DB)
   const res = await fetch(
     `${API_BASE}/api/studysets/${studySetId}/materials/${materialId}/pdf`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
