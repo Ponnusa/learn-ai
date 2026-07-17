@@ -254,9 +254,8 @@ async def upload_material(
 @router.get("/{study_set_id}/materials/{material_id}/pdf")
 async def proxy_material_pdf(study_set_id: str, material_id: str):
     """
-    Proxy the stored PDF through the backend so the browser avoids R2 CORS
-    restrictions. Downloads via the authenticated R2 S3 API (same path as
-    uploads) so the bucket does not need to be publicly accessible.
+    Proxy the stored PDF through the backend.
+    Downloads via authenticated R2 S3 API (bucket is private — public URL returns 403).
     """
     from fastapi.responses import Response
 
@@ -269,38 +268,30 @@ async def proxy_material_pdf(study_set_id: str, material_id: str):
     if not mat or not mat["file_url"]:
         raise HTTPException(404, "Material PDF not found — please re-upload the file")
 
-    import asyncio
-    from urllib.parse import urlparse
-    from services.manim import _make_r2_client, R2_BUCKET_NAME
+    try:
+        import asyncio
+        from urllib.parse import urlparse
+        from services.manim import _make_r2_client, R2_BUCKET_NAME
 
-    # Extract the object key from the URL path, e.g.
-    # "https://pub-xxx.r2.dev/studysets/abc/file.pdf" → "studysets/abc/file.pdf"
-    r2_key = urlparse(mat["file_url"]).path.lstrip('/')
-    logger.info("[studyset] proxy PDF: key=%s", r2_key)
+        r2_key = urlparse(mat["file_url"]).path.lstrip('/')
+        logger.info("[studyset] proxy PDF: bucket=%s key=%s", R2_BUCKET_NAME, r2_key)
 
-    r2 = _make_r2_client()
-    if r2 and r2_key:
-        try:
-            # Run the blocking boto3 call (including stream read) on a thread
-            def _fetch():
-                obj = r2.get_object(Bucket=R2_BUCKET_NAME, Key=r2_key)
-                return obj["Body"].read()
+        r2 = _make_r2_client()
+        if not r2:
+            raise RuntimeError("R2 client not available (check R2_ACCOUNT_ID env var)")
 
-            pdf_bytes = await asyncio.get_running_loop().run_in_executor(None, _fetch)
-        except Exception as exc:
-            logger.error("[studyset] R2 get_object failed for key=%s: %s", r2_key, exc)
-            raise HTTPException(502, f"Could not retrieve PDF from storage: {exc}")
-    else:
-        # Fallback: direct HTTP fetch (requires public bucket)
-        import httpx
-        try:
-            async with httpx.AsyncClient(timeout=60) as client:
-                r = await client.get(mat["file_url"])
-            if r.status_code != 200:
-                raise HTTPException(502, f"Storage returned HTTP {r.status_code}")
-            pdf_bytes = r.content
-        except httpx.RequestError as exc:
-            raise HTTPException(502, f"Storage fetch failed: {exc}")
+        def _download():
+            obj = r2.get_object(Bucket=R2_BUCKET_NAME, Key=r2_key)
+            return obj["Body"].read()
+
+        pdf_bytes = await asyncio.get_running_loop().run_in_executor(None, _download)
+        logger.info("[studyset] proxy PDF: served %d bytes", len(pdf_bytes))
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[studyset] PDF proxy error: %s", exc, exc_info=True)
+        raise HTTPException(500, f"PDF proxy error: {exc}")
 
     safe_name = (mat["filename"] or "material.pdf").replace('"', '')
     return Response(
