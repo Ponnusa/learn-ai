@@ -444,7 +444,7 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest, bg: Background
     reply = response.choices[0].message.content
 
     # ── 9. Generate contextual chips ──────────────────────────────────────────
-    chips = await generate_chips(reply)
+    chips = await generate_chips(reply, req.language)
 
     # ── 10. Save AI reply ─────────────────────────────────────────────────────
     async with get_db() as db:
