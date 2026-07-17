@@ -463,13 +463,29 @@ export const deleteEduImage = (jobId: string, token?: string) =>
 export const retryEduImage = (jobId: string, token?: string) =>
   post<{ jobId: string; status: string }>(`/api/images/${jobId}/retry`, {}, token);
 
-/** Fetch a study-set PDF through the backend proxy (avoids R2 CORS). */
+/** Fetch a study-set PDF. Tries the R2 public URL first (no proxy overhead),
+ *  falls back to the authenticated backend proxy if CORS or network blocks it. */
 export async function fetchMaterialPdf(
   studySetId: string,
   materialId: string,
   filename: string,
   token?: string,
+  fileUrl?: string,
 ): Promise<File> {
+  // Try R2 public URL directly first — no proxy needed if publicly accessible
+  if (fileUrl) {
+    try {
+      const r2Res = await fetch(fileUrl);
+      if (r2Res.ok) {
+        const blob = await r2Res.blob();
+        return new File([blob], filename, { type: 'application/pdf' });
+      }
+    } catch {
+      // CORS or network error — fall through to backend proxy
+    }
+  }
+
+  // Backend proxy fallback
   const res = await fetch(
     `${API_BASE}/api/studysets/${studySetId}/materials/${materialId}/pdf`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },

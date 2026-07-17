@@ -1302,7 +1302,7 @@ export default function StudySetPage() {
     setPdfMaterial(mat);
     setPdfError(null);
     try {
-      const file = await fetchMaterialPdf(id, mat.id, mat.filename, token ?? undefined);
+      const file = await fetchMaterialPdf(id, mat.id, mat.filename, token ?? undefined, mat.file_url);
       setPdfFile(file);
     } catch (e: any) {
       setPdfError(e?.message || 'Could not load PDF — please try re-uploading.');

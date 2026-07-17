@@ -141,7 +141,8 @@ async def get_study_set(study_set_id: str, user_id: str | None = None):
                 study_set_id,
             )
         materials = await db.fetch(
-            """SELECT id, filename, page_count, char_count, status, error_msg, created_at
+            """SELECT id, filename, page_count, char_count, status, error_msg, created_at,
+                      file_url, (file_data IS NOT NULL) AS has_file_data
                FROM study_materials WHERE study_set_id = $1::uuid
                ORDER BY created_at""",
             study_set_id,
