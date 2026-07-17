@@ -1229,6 +1229,7 @@ export default function StudySetPage() {
   const [pdfMaterial, setPdfMaterial] = useState<StudyMaterial | null>(null);
   const [pdfFile,     setPdfFile]     = useState<File | null>(null);
   const [pdfLoading,  setPdfLoading]  = useState(false);
+  const [pdfError,    setPdfError]    = useState<string | null>(null);
 
   const pollRef          = useRef<ReturnType<typeof setTimeout> | null>(null);
   const urlRestoredRef   = useRef(false);
@@ -1299,11 +1300,12 @@ export default function StudySetPage() {
   async function handleOpenPdf(mat: StudyMaterial) {
     setPdfLoading(true);
     setPdfMaterial(mat);
+    setPdfError(null);
     try {
       const file = await fetchMaterialPdf(id, mat.id, mat.filename, token ?? undefined);
       setPdfFile(file);
     } catch {
-      alert('Could not load PDF. Please try again.');
+      setPdfError('PDF file is not available. The original file may not have been saved — please delete this material and re-upload the PDF.');
       setPdfMaterial(null);
     } finally { setPdfLoading(false); }
   }
@@ -1376,6 +1378,18 @@ export default function StudySetPage() {
             </span>
           )}
         </div>
+
+        {/* PDF load error banner */}
+        {pdfError && (
+          <div className="mx-4 sm:mx-6 mt-3 flex items-start gap-2.5 px-4 py-3 rounded-xl
+                          bg-red-500/8 border border-red-500/20 text-red-400 text-xs leading-relaxed">
+            <AlertCircle size={13} className="shrink-0 mt-0.5" />
+            <span>{pdfError}</span>
+            <button onClick={() => setPdfError(null)} className="ml-auto shrink-0 text-red-400/50 hover:text-red-400">
+              ×
+            </button>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="flex border-b border-[var(--bd)] px-4 sm:px-6 shrink-0 overflow-x-auto no-scrollbar">

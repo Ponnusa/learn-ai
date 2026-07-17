@@ -140,12 +140,43 @@ async def process_material_bg(
                 )
                 if lang_row:
                     language = lang_row
+            # Check whether R2 upload succeeded at request time
+            existing_url = await db.fetchval(
+                "SELECT file_url FROM study_materials WHERE id = $1::uuid", material_id
+            )
         if not ss:
             logger.error("[studyset] study_set %s not found", study_set_id)
             return
     except Exception as exc:
         logger.error("[studyset] DB fetch failed for %s: %s", study_set_id, exc)
         return
+
+    # ── 1b. Retry R2 upload if it failed at request time ─────────────────────
+    if not existing_url:
+        try:
+            import uuid as _uuid
+            from datetime import datetime, timezone
+            from services.manim import _make_r2_client, R2_BUCKET_NAME, R2_PUBLIC_URL
+            ts = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+            uid = _uuid.uuid4().hex[:8]
+            r2_key = f"studysets/{study_set_id}/{ts}_{uid}.pdf"
+            r2 = _make_r2_client()
+            if r2:
+                r2.put_object(
+                    Bucket=R2_BUCKET_NAME,
+                    Key=r2_key,
+                    Body=file_bytes,
+                    ContentType="application/pdf",
+                )
+                recovered_url = f"{R2_PUBLIC_URL.rstrip('/')}/{r2_key}"
+                async with get_db() as db:
+                    await db.execute(
+                        "UPDATE study_materials SET file_url = $1 WHERE id = $2::uuid",
+                        recovered_url, material_id,
+                    )
+                logger.info("[studyset] %s: R2 retry succeeded → %s", study_set_id, r2_key)
+        except Exception as exc:
+            logger.warning("[studyset] %s: R2 retry also failed: %s", study_set_id, exc)
 
     # ── 2. Extract PDF text ──────────────────────────────────────────────────
     try:
