@@ -33,11 +33,16 @@ import {
 import { DebugPromptModal } from '@/components/chat/DebugPromptModal';
 import { ImageStatusCard } from '@/components/chat/MessageBubble';
 
-// PDFViewerModal uses browser-only APIs — never SSR
+// Browser-only components — never SSR
 const PDFViewerModal = dynamic(
   () => import('@/components/chat/PDFViewerModal').then(m => m.PDFViewerModal),
   { ssr: false, loading: () => null },
 );
+const StudyPDFPane = dynamic(
+  () => import('@/components/study/StudyPDFPane').then(m => m.StudyPDFPane),
+  { ssr: false, loading: () => null },
+);
+import type { PinnedCtx } from '@/components/study/StudyPDFPane';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -638,10 +643,15 @@ function StudyQuizCard({
 
 function ActiveChat({
   ss, seed, loadConversation,
+  pendingFire, onFired, pinnedCtx, onClearCtx,
 }: {
   ss: StudySetDetail;
   seed: ChatSeed | null;
   loadConversation: StudySetConversation | null;
+  pendingFire?: { text: string; imageDataUrl?: string } | null;
+  onFired?: () => void;
+  pinnedCtx?: PinnedCtx | null;
+  onClearCtx?: () => void;
 }) {
   const { user, token, sessionId } = useSessionStore();
   const { language }               = useLanguageStore();
@@ -775,6 +785,21 @@ function ActiveChat({
     autoFire();
   }, [seed, ss.status, histLoaded]);
 
+  // Auto-fire messages from the PDF pane (preset actions like Explain/Summarize)
+  useEffect(() => {
+    if (!pendingFire || loading || !histLoaded) return;
+    const captured = pendingFire;
+    onFired?.(); // clear parent state immediately so this effect won't re-run
+    async function doPdfFire() {
+      let imageUrl: string | undefined;
+      if (captured.imageDataUrl) {
+        try { imageUrl = await uploadRegionImage(captured.imageDataUrl, user?.id, sessionId || undefined, token ?? undefined); } catch { }
+      }
+      await fireMessage(captured.text, undefined, imageUrl);
+    }
+    doPdfFire();
+  }, [pendingFire]);
+
   const notReady = ss.status !== 'ready';
 
   async function fireMessage(text: string, conceptName?: string, imageUrl?: string) {
@@ -802,7 +827,19 @@ function ActiveChat({
 
   async function send() {
     const text = input.trim(); if (!text) return;
-    setInput(''); await fireMessage(text);
+    setInput('');
+    let imageUrl: string | undefined;
+    let fullText = text;
+    if (pinnedCtx) {
+      if (pinnedCtx.imageDataUrl) {
+        try { imageUrl = await uploadRegionImage(pinnedCtx.imageDataUrl, user?.id, sessionId || undefined, token ?? undefined); } catch { }
+      }
+      if (pinnedCtx.text) {
+        fullText = `${text}\n\n[Page ${pinnedCtx.pageNum} content:]\n${pinnedCtx.text}`;
+      }
+      onClearCtx?.();
+    }
+    await fireMessage(fullText, undefined, imageUrl);
   }
 
   async function handleDebug() {
@@ -1152,6 +1189,31 @@ function ActiveChat({
         <div ref={bottomRef} />
       </div>
 
+      {/* Pinned PDF context chip */}
+      {pinnedCtx && (
+        <div className="flex items-center gap-2 mb-2 px-3 py-2 rounded-xl
+                        bg-indigo-500/8 border border-indigo-500/20 shrink-0">
+          {pinnedCtx.imageDataUrl && (
+            <img src={pinnedCtx.imageDataUrl} alt=""
+              className="h-10 w-auto rounded-lg border border-indigo-500/25 object-contain bg-white shrink-0"
+              style={{ maxWidth: '80px' }} />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] text-indigo-300 font-medium">
+              {pinnedCtx.type === 'region' ? '📌 Region from' : '📄 Page'}{' '}
+              {pinnedCtx.type === 'region' ? `page ${pinnedCtx.pageNum}` : pinnedCtx.pageNum}
+              {pinnedCtx.mode === 'text' ? ' (text)' : ' (image)'}
+            </p>
+            {pinnedCtx.text && (
+              <p className="text-[10px] text-indigo-300/50 truncate mt-0.5">{pinnedCtx.text.slice(0, 80)}…</p>
+            )}
+          </div>
+          <button onClick={onClearCtx} className="text-indigo-400/40 hover:text-indigo-400 transition-colors shrink-0">
+            <XIcon size={13} />
+          </button>
+        </div>
+      )}
+
       {/* Input */}
       <div className="flex gap-2 pt-3 border-t border-[var(--bd)] shrink-0">
         <input value={input} onChange={e => setInput(e.target.value)}
@@ -1183,22 +1245,72 @@ function ActiveChat({
   );
 }
 
-// ─── ChatTab ──────────────────────────────────────────────────────────────────
+// ─── ChatTab ─── split container ─────────────────────────────────────────────
 
 function ChatTab({
-  ss, initSeed, initConversation,
+  ss, initSeed, initConversation, pdfFile, onLoadPdf,
 }: {
   ss: StudySetDetail;
   initSeed: ChatSeed | null;
   initConversation: StudySetConversation | null;
+  pdfFile: File | null;
+  onLoadPdf: () => void;
 }) {
+  const [pdfOpen,     setPdfOpen]     = useState(false);
+  const [pendingFire, setPendingFire] = useState<{ text: string; imageDataUrl?: string } | null>(null);
+  const [pinnedCtx,   setPinnedCtx]   = useState<PinnedCtx | null>(null);
+
+  // Auto-open when a PDF is loaded in
+  useEffect(() => { if (pdfFile) setPdfOpen(true); }, [pdfFile]);
+
+  function handleFire(prompt: string, imageDataUrl?: string) {
+    setPendingFire({ text: prompt, imageDataUrl });
+  }
+
+  const hasMaterial = ss.materials.some(m => m.status === 'ready' && m.file_url);
+
   return (
-    <ActiveChat
-      key={`seed-${initSeed?.concept ?? initSeed?.pdfQuestion ?? 'none'}-conv-${initConversation?.id ?? 'new'}`}
-      ss={ss}
-      seed={initSeed}
-      loadConversation={initConversation}
-    />
+    <div className="flex flex-1 min-h-0 overflow-hidden">
+      {/* PDF pane */}
+      {pdfFile && pdfOpen && (
+        <div className="w-[44%] min-w-[280px] max-w-[520px] border-r border-[var(--bd)] flex flex-col min-h-0 shrink-0">
+          <StudyPDFPane
+            file={pdfFile}
+            onClose={() => setPdfOpen(false)}
+            onFire={handleFire}
+            onPin={ctx => setPinnedCtx(ctx)}
+          />
+        </div>
+      )}
+
+      {/* Chat panel */}
+      <div className="flex-1 min-w-0 flex flex-col min-h-0 px-4 sm:px-5 py-4">
+        {/* PDF toggle strip */}
+        {hasMaterial && (
+          <div className="flex items-center gap-2 pb-2 mb-2 border-b border-[var(--bd)] shrink-0">
+            {pdfFile && pdfOpen ? null : (
+              <button
+                onClick={pdfFile ? () => setPdfOpen(true) : onLoadPdf}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                           border border-[var(--bd)] text-[var(--tx5)] hover:text-indigo-400
+                           hover:border-indigo-500/30 hover:bg-indigo-500/5 transition-all">
+                <FileText size={12} /> {pdfFile ? 'Show PDF' : 'Open PDF'}
+              </button>
+            )}
+          </div>
+        )}
+        <ActiveChat
+          key={`seed-${initSeed?.concept ?? initSeed?.pdfQuestion ?? 'none'}-conv-${initConversation?.id ?? 'new'}`}
+          ss={ss}
+          seed={initSeed}
+          loadConversation={initConversation}
+          pendingFire={pendingFire}
+          onFired={() => setPendingFire(null)}
+          pinnedCtx={pinnedCtx}
+          onClearCtx={() => setPinnedCtx(null)}
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1296,7 +1408,7 @@ export default function StudySetPage() {
     setTab('chat');
   }
 
-  // Open PDF from material
+  // Open PDF — loads bytes, switches to chat tab where the split pane lives
   async function handleOpenPdf(mat: StudyMaterial) {
     setPdfLoading(true);
     setPdfMaterial(mat);
@@ -1304,6 +1416,7 @@ export default function StudySetPage() {
     try {
       const file = await fetchMaterialPdf(id, mat.id, mat.filename, token ?? undefined, mat.file_url);
       setPdfFile(file);
+      setTab('chat');  // Switch to chat tab — ChatTab will auto-open the PDF pane
     } catch (e: any) {
       setPdfError(e?.message || 'Could not load PDF — please try re-uploading.');
       setPdfMaterial(null);
@@ -1405,42 +1518,44 @@ export default function StudySetPage() {
           ))}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 chat-scroll px-4 sm:px-6 py-6">
-          {tab === 'overview' && (
-            <OverviewTab ss={ss} onRefresh={handleUploaded} onOpenPdf={handleOpenPdf} />
-          )}
-          {tab === 'concepts' && (
-            <ConceptsTab ss={ss} onChat={handleNewConceptChat} />
-          )}
-          {tab === 'flashcards' && <FlashcardsTab ss={ss} />}
-          {tab === 'diagrams' && (
-            <DiagramsGallery
-              studySetId={ss.id}
-              userId={user?.id}
-              sessionId={sessionId ?? undefined}
-              token={token ?? undefined}
-            />
-          )}
-          {tab === 'chat' && (
-            <ChatTab
-              key={`${chatSeed?.concept ?? chatSeed?.pdfQuestion ?? 'general'}-${chatConv?.id ?? 'new'}`}
-              ss={ss}
-              initSeed={chatSeed}
-              initConversation={chatConv}
-            />
-          )}
-        </div>
+        {/* Non-chat tabs — scrollable */}
+        {tab !== 'chat' && (
+          <div className="flex-1 chat-scroll px-4 sm:px-6 py-6">
+            {tab === 'overview' && (
+              <OverviewTab ss={ss} onRefresh={handleUploaded} onOpenPdf={handleOpenPdf} />
+            )}
+            {tab === 'concepts' && (
+              <ConceptsTab ss={ss} onChat={handleNewConceptChat} />
+            )}
+            {tab === 'flashcards' && <FlashcardsTab ss={ss} />}
+            {tab === 'diagrams' && (
+              <DiagramsGallery
+                studySetId={ss.id}
+                userId={user?.id}
+                sessionId={sessionId ?? undefined}
+                token={token ?? undefined}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Chat tab — fills remaining height; PDF pane and chat scroll independently */}
+        {tab === 'chat' && (
+          <ChatTab
+            key={`${chatSeed?.concept ?? chatSeed?.pdfQuestion ?? 'general'}-${chatConv?.id ?? 'new'}`}
+            ss={ss}
+            initSeed={chatSeed}
+            initConversation={chatConv}
+            pdfFile={pdfFile}
+            onLoadPdf={() => {
+              const mat = ss.materials.find(m => m.status === 'ready' && m.file_url);
+              if (mat) handleOpenPdf(mat);
+            }}
+          />
+        )}
       </main>
 
-      {/* PDF Viewer Modal */}
-      {pdfFile && (
-        <PDFViewerModal
-          file={pdfFile}
-          onClose={() => { setPdfFile(null); setPdfMaterial(null); }}
-          onAsk={handlePdfAsk}
-        />
-      )}
+      {/* PDFViewerModal removed — PDF now opens inline beside chat */}
     </div>
   );
 }
