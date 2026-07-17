@@ -474,7 +474,11 @@ export async function fetchMaterialPdf(
     `${API_BASE}/api/studysets/${studySetId}/materials/${materialId}/pdf`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
-  if (!res.ok) throw new Error('Could not load PDF');
+  if (!res.ok) {
+    let detail = 'Could not load PDF';
+    try { detail = (await res.json()).detail ?? detail; } catch {}
+    throw new Error(detail);
+  }
   const blob = await res.blob();
   return new File([blob], filename, { type: 'application/pdf' });
 }

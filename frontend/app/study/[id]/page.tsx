@@ -1304,8 +1304,8 @@ export default function StudySetPage() {
     try {
       const file = await fetchMaterialPdf(id, mat.id, mat.filename, token ?? undefined);
       setPdfFile(file);
-    } catch {
-      setPdfError('PDF file is not available. The original file may not have been saved — please delete this material and re-upload the PDF.');
+    } catch (e: any) {
+      setPdfError(e?.message || 'Could not load PDF — please try re-uploading.');
       setPdfMaterial(null);
     } finally { setPdfLoading(false); }
   }
