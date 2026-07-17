@@ -228,14 +228,14 @@ async def upload_material(
         except Exception as exc:
             logger.warning("[studyset] R2 upload failed (continuing without): %s", exc)
 
-    # Insert material record + flip study set to 'processing'
+    # Insert material record — store raw bytes in DB so proxy always works
     async with get_db() as db:
         mat = await db.fetchrow(
             """INSERT INTO study_materials
-                 (study_set_id, filename, file_url, status)
-               VALUES ($1::uuid, $2, $3, 'processing')
+                 (study_set_id, filename, file_url, file_data, status)
+               VALUES ($1::uuid, $2, $3, $4, 'processing')
                RETURNING id""",
-            study_set_id, file.filename or "upload.pdf", file_url,
+            study_set_id, file.filename or "upload.pdf", file_url, data,
         )
         await db.execute(
             "UPDATE study_sets SET status = 'processing', updated_at = NOW() WHERE id = $1::uuid",
@@ -253,45 +253,47 @@ async def upload_material(
 
 @router.get("/{study_set_id}/materials/{material_id}/pdf")
 async def proxy_material_pdf(study_set_id: str, material_id: str):
-    """
-    Proxy the stored PDF through the backend.
-    Downloads via authenticated R2 S3 API (bucket is private — public URL returns 403).
-    """
+    """Serve the PDF — reads bytes from DB (always works, no R2 read perms needed)."""
     from fastapi.responses import Response
 
     async with get_db() as db:
         mat = await db.fetchrow(
-            """SELECT file_url, filename FROM study_materials
+            """SELECT filename, file_data, file_url FROM study_materials
                WHERE id = $1::uuid AND study_set_id = $2::uuid""",
             material_id, study_set_id,
         )
-    if not mat or not mat["file_url"]:
-        raise HTTPException(404, "Material PDF not found — please re-upload the file")
+    if not mat:
+        raise HTTPException(404, "Material not found")
 
-    try:
-        import asyncio
-        from urllib.parse import urlparse
-        from services.manim import _make_r2_client, R2_BUCKET_NAME
+    # Primary: bytes stored in DB at upload time
+    if mat["file_data"]:
+        pdf_bytes = bytes(mat["file_data"])
+        logger.info("[studyset] PDF served from DB (%d bytes)", len(pdf_bytes))
+    else:
+        # Fallback: try R2 via boto3 for older materials uploaded before this fix
+        try:
+            import asyncio
+            from urllib.parse import urlparse
+            from services.manim import _make_r2_client, R2_BUCKET_NAME
 
-        r2_key = urlparse(mat["file_url"]).path.lstrip('/')
-        logger.info("[studyset] proxy PDF: bucket=%s key=%s", R2_BUCKET_NAME, r2_key)
+            if not mat["file_url"]:
+                raise HTTPException(404, "PDF not available — please re-upload")
 
-        r2 = _make_r2_client()
-        if not r2:
-            raise RuntimeError("R2 client not available (check R2_ACCOUNT_ID env var)")
+            r2_key = urlparse(mat["file_url"]).path.lstrip('/')
+            r2 = _make_r2_client()
+            if not r2:
+                raise HTTPException(503, "Storage not configured")
 
-        def _download():
-            obj = r2.get_object(Bucket=R2_BUCKET_NAME, Key=r2_key)
-            return obj["Body"].read()
+            def _download():
+                return r2.get_object(Bucket=R2_BUCKET_NAME, Key=r2_key)["Body"].read()
 
-        pdf_bytes = await asyncio.get_running_loop().run_in_executor(None, _download)
-        logger.info("[studyset] proxy PDF: served %d bytes", len(pdf_bytes))
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("[studyset] PDF proxy error: %s", exc, exc_info=True)
-        raise HTTPException(500, f"PDF proxy error: {exc}")
+            pdf_bytes = await asyncio.get_running_loop().run_in_executor(None, _download)
+            logger.info("[studyset] PDF served from R2 (%d bytes)", len(pdf_bytes))
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.error("[studyset] R2 fallback failed: %s", exc, exc_info=True)
+            raise HTTPException(500, f"Could not load PDF: {exc}")
 
     safe_name = (mat["filename"] or "material.pdf").replace('"', '')
     return Response(
