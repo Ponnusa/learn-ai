@@ -202,7 +202,22 @@ async def process_material_bg(
         logger.error("[studyset] raw_text save failed: %s", exc)
         # Non-fatal — continue
 
-    # ── 4. AI generation ─────────────────────────────────────────────────────
+    # ── 4. AI generation — TEMPORARILY DISABLED for upload testing ───────────
+    # TODO: re-enable when testing is done
+    _AI_DISABLED = True
+    if _AI_DISABLED:
+        logger.info("[studyset] %s: AI skipped (disabled for testing)", study_set_id)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE study_materials SET status = 'ready' WHERE id = $1::uuid",
+                material_id,
+            )
+            await db.execute(
+                "UPDATE study_sets SET status = 'ready', updated_at = NOW() WHERE id = $1::uuid",
+                study_set_id,
+            )
+        return
+
     try:
         logger.info("[studyset] %s: calling GPT-4o (language=%s)", study_set_id, language)
         result = await generate_concepts_and_flashcards(text, ss["title"], ss["subject"], language)
