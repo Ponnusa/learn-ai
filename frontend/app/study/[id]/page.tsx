@@ -1544,8 +1544,11 @@ export default function StudySetPage() {
           </div>
         )}
 
-        {/* Chat tab — fills remaining height; PDF pane and chat scroll independently */}
-        {tab === 'chat' && (
+        {/*
+          Chat tab — always mounted so component state (messages, convId, PDF pane)
+          survives tab switches. CSS hidden when another tab is active.
+        */}
+        <div className={tab === 'chat' ? 'flex flex-1 min-h-0 overflow-hidden' : 'hidden'}>
           <ChatTab
             key={`${chatSeed?.concept ?? chatSeed?.pdfQuestion ?? 'general'}-${chatConv?.id ?? 'new'}`}
             ss={ss}
@@ -1562,7 +1565,7 @@ export default function StudySetPage() {
                 .catch(() => {});
             }}
           />
-        )}
+        </div>
       </main>
 
       {/* PDFViewerModal removed — PDF now opens inline beside chat */}
