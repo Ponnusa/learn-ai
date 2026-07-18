@@ -644,6 +644,7 @@ function StudyQuizCard({
 function ActiveChat({
   ss, seed, loadConversation,
   pendingFire, onFired, pinnedCtx, onClearCtx,
+  onNewConversation,
 }: {
   ss: StudySetDetail;
   seed: ChatSeed | null;
@@ -652,6 +653,7 @@ function ActiveChat({
   onFired?: () => void;
   pinnedCtx?: PinnedCtx | null;
   onClearCtx?: () => void;
+  onNewConversation?: (convId: string) => void;
 }) {
   const { user, token, sessionId } = useSessionStore();
   const { language }               = useLanguageStore();
@@ -814,6 +816,7 @@ function ActiveChat({
         user?.id, sessionId || undefined,
         imageUrl, language,
       );
+      if (!convId) onNewConversation?.(res.conversation_id);
       setConvId(res.conversation_id);
       setLastMsgId(res.message_id);
       const ACTION_CHIPS = new Set(['Create a video', 'Quiz me on this']);
@@ -1248,13 +1251,14 @@ function ActiveChat({
 // ─── ChatTab ─── split container ─────────────────────────────────────────────
 
 function ChatTab({
-  ss, initSeed, initConversation, pdfFile, onLoadPdf,
+  ss, initSeed, initConversation, pdfFile, onLoadPdf, onNewConversation,
 }: {
   ss: StudySetDetail;
   initSeed: ChatSeed | null;
   initConversation: StudySetConversation | null;
   pdfFile: File | null;
   onLoadPdf: () => void;
+  onNewConversation?: (convId: string) => void;
 }) {
   const [pdfOpen,     setPdfOpen]     = useState(false);
   const [pendingFire, setPendingFire] = useState<{ text: string; imageDataUrl?: string } | null>(null);
@@ -1308,6 +1312,7 @@ function ChatTab({
           onFired={() => setPendingFire(null)}
           pinnedCtx={pinnedCtx}
           onClearCtx={() => setPinnedCtx(null)}
+          onNewConversation={onNewConversation}
         />
       </div>
     </div>
@@ -1550,6 +1555,11 @@ export default function StudySetPage() {
             onLoadPdf={() => {
               const mat = ss.materials.find(m => m.status === 'ready' && m.file_url);
               if (mat) handleOpenPdf(mat);
+            }}
+            onNewConversation={() => {
+              getStudySetConversations(ss.id, token ?? undefined)
+                .then(r => setConvs(r))
+                .catch(() => {});
             }}
           />
         )}
