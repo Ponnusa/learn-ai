@@ -1092,14 +1092,32 @@ MANIM_VERSION: {manim_ver} (Manim Community)
 Adapt all positioning and font sizes according to TARGET_ASPECT_RATIO rules above.
 Use TARGET_LANGUAGE for voiceover text and screen titles.
 
-VERSION-SPECIFIC API NOTES FOR {manim_ver}:
-- ChangeDecimalValue is REMOVED → use decimal_obj.animate.set_value(new_val) inside self.play()
-- ShowCreation is RENAMED → use Create()
-- VGroup(*self.mobjects) is unsafe → use Group(*self.mobjects)
-- Colors must be Manim constants or ManimColor("#rrggbb") — not CSS names
-- .animate proxy works for set_value, set_color, set_opacity, shift, move_to, scale, rotate
-- DecimalNumber best practice: create ValueTracker + always_redraw updater in SETUP BLOCK;
-  then in beats use tracker.animate.set_value(val) to drive smooth value change
+VERSION-SPECIFIC API NOTES FOR {manim_ver} (Manim Community):
+REMOVED APIs (will cause NameError — do NOT use):
+- ChangeDecimalValue → use decimal_obj.animate.set_value(new_val)
+- ShowCreation       → use Create()
+- CurvedDoubleArrow  → use DoubleArrow()
+- ShowPassingFlashAround → use ShowPassingFlash()
+
+CHANGED IN 0.18+:
+- ManimColor is now the preferred color type: ManimColor("#rrggbb") for any hex color
+- color= accepts ManimColor, named constants (WHITE/BLUE/etc.), or "#rrggbb" strings
+- VGroup(*self.mobjects) is unreliable → use Group(*self.mobjects)
+- FadeIn/FadeOut accept shift= kwarg: FadeIn(obj, shift=UP*0.3)
+- Always use rate_func=smooth (not ease_in, ease_out, which don't exist)
+
+DECIMALNUMBER BEST PRACTICE (0.19):
+- In SETUP BLOCK: tracker = ValueTracker(initial_value)
+                  display = always_redraw(lambda: DecimalNumber(tracker.get_value(), ...))
+                  self.add(display)
+- In animation beat: self.play(tracker.animate.set_value(new_val), run_time=1.5)
+  (do NOT use ChangeDecimalValue — it was removed before 0.17)
+
+VALID COLORS ONLY: WHITE, BLACK, RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK,
+GRAY, GREY, DARK_BLUE, DARK_BROWN, DARK_GRAY, LIGHT_GRAY, TEAL, GOLD, MAROON,
+BLUE_A/B/C/D/E, GREEN_A/B/C/D/E, RED_A/B/C/D/E, GRAY_A/B/C/D/E,
+TEAL_A/B/C/D/E, GOLD_A/B/C/D/E, MAROON_A/B/C/D/E, PURPLE_A/B/C,
+or ManimColor("#rrggbb") for any custom color.
 """
     return combined + runtime_config
 
