@@ -329,16 +329,20 @@ async def _generate_video_bg(
                 """, video_id)
         except Exception as _db_err:
             _log.error(f"[pipeline] video {video_id}: also failed to write timeout error — {_db_err}")
-    except Exception as e:
-        _log.error(f"[pipeline] video {video_id}: Phase 2 failed — {e}", exc_info=True)
+    except BaseException as e:
+        # Catches Exception AND asyncio.CancelledError (BaseException subclass in Python 3.8+)
+        # so Railway SIGTERM / event-loop shutdown never leaves a video stuck at transcript_ready.
+        _log.error(f"[pipeline] video {video_id}: Phase 2 failed — {type(e).__name__}: {e}", exc_info=True)
         try:
             async with get_db() as db:
                 await db.execute("""
                     UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
                     WHERE id = $2
-                """, f"Manim code generation failed: {e}", video_id)
+                """, f"Manim code generation failed: {type(e).__name__}: {e}", video_id)
         except Exception as _db_err:
             _log.error(f"[pipeline] video {video_id}: also failed to write Phase 2 error — {_db_err}")
+        if isinstance(e, asyncio.CancelledError):
+            raise  # re-raise so the event loop can finish cleanup
 
 
 async def _retry_manim_bg(
@@ -400,16 +404,18 @@ async def _retry_manim_bg(
                 """, video_id)
         except Exception as _db_err:
             _log.error(f"[retry] video {video_id}: also failed to write timeout error — {_db_err}")
-    except Exception as e:
-        _log.error(f"[retry] video {video_id}: Manim generation failed — {e}", exc_info=True)
+    except BaseException as e:
+        _log.error(f"[retry] video {video_id}: Manim generation failed — {type(e).__name__}: {e}", exc_info=True)
         try:
             async with get_db() as db:
                 await db.execute("""
                     UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
                     WHERE id = $2
-                """, f"Manim retry failed: {e}", video_id)
+                """, f"Manim retry failed: {type(e).__name__}: {e}", video_id)
         except Exception as _db_err2:
             _log.error(f"[retry] video {video_id}: also failed to write error to DB — {_db_err2}")
+        if isinstance(e, asyncio.CancelledError):
+            raise
 
 
 async def _check_video_credit(user_id: str | None, session_id: str | None, tier: str):
