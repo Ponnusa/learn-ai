@@ -693,8 +693,15 @@ export function MessageBubble({
 
   const LANG_BCP47: Record<string, string> = { en: 'en-US', fi: 'fi-FI', sv: 'sv-SE' };
 
-  function stripMarkdownForSpeech(text: string): string {
-    return text
+  const MATH_SYMBOLS: Record<string, Record<string, string>> = {
+    en: { '⋅': ' times ', '·': ' times ', '×': ' times ', '÷': ' divided by ', '=': ' equals ', '≈': ' approximately equals ', '≠': ' is not equal to ', '≤': ' is less than or equal to ', '≥': ' is greater than or equal to ', '<': ' is less than ', '>': ' is greater than ', '²': ' squared ', '³': ' cubed ', '√': ' square root of ', '∑': ' sum of ', '∫': ' integral of ', '∆': ' delta ', '∞': ' infinity ', '°': ' degrees ', 'α': ' alpha ', 'β': ' beta ', 'γ': ' gamma ', 'θ': ' theta ', 'λ': ' lambda ', 'μ': ' mu ', 'π': ' pi ', 'σ': ' sigma ', 'ω': ' omega ' },
+    fi: { '⋅': ' kertaa ', '·': ' kertaa ', '×': ' kertaa ', '÷': ' jaettuna ', '=': ' on yhtä kuin ', '≈': ' on noin ', '≠': ' ei ole yhtä kuin ', '≤': ' on pienempi tai yhtä suuri kuin ', '≥': ' on suurempi tai yhtä suuri kuin ', '<': ' on pienempi kuin ', '>': ' on suurempi kuin ', '²': ' toiseen ', '³': ' kolmanteen ', '√': ' neliöjuuri ', '∑': ' summa ', '∫': ' integraali ', '∆': ' delta ', '∞': ' ääretön ', '°': ' astetta ', 'α': ' alfa ', 'β': ' beeta ', 'γ': ' gamma ', 'θ': ' theeta ', 'λ': ' lambda ', 'μ': ' myy ', 'π': ' pii ', 'σ': ' sigma ', 'ω': ' omega ' },
+    sv: { '⋅': ' gånger ', '·': ' gånger ', '×': ' gånger ', '÷': ' delat med ', '=': ' är lika med ', '≈': ' är ungefär lika med ', '≠': ' är inte lika med ', '≤': ' är mindre än eller lika med ', '≥': ' är större än eller lika med ', '<': ' är mindre än ', '>': ' är större än ', '²': ' i kvadrat ', '³': ' i kubik ', '√': ' kvadratroten av ', '∑': ' summan av ', '∫': ' integralen av ', '∆': ' delta ', '∞': ' oändlighet ', '°': ' grader ', 'α': ' alfa ', 'β': ' beta ', 'γ': ' gamma ', 'θ': ' theta ', 'λ': ' lambda ', 'μ': ' my ', 'π': ' pi ', 'σ': ' sigma ', 'ω': ' omega ' },
+  };
+
+  function stripMarkdownForSpeech(text: string, lang: string): string {
+    const symbols = MATH_SYMBOLS[lang] ?? MATH_SYMBOLS.en;
+    let s = text
       .replace(/!\[.*?\]\(.*?\)/g, '')
       .replace(/\[([^\]]+)\]\(.*?\)/g, '$1')
       .replace(/\${1,2}[^$\n]+\${1,2}/g, ' ')
@@ -705,8 +712,11 @@ export function MessageBubble({
       .replace(/^[-*+]\s+/gm, '')
       .replace(/^\d+\.\s+/gm, '')
       .replace(/\n{2,}/g, '. ')
-      .replace(/\n/g, ' ')
-      .trim();
+      .replace(/\n/g, ' ');
+    for (const [sym, word] of Object.entries(symbols)) {
+      s = s.split(sym).join(word);
+    }
+    return s.replace(/\s{2,}/g, ' ').trim();
   }
 
   function handleSpeak() {
@@ -716,7 +726,7 @@ export function MessageBubble({
       setSpeaking(false);
       return;
     }
-    const text = stripMarkdownForSpeech(message.content);
+    const text = stripMarkdownForSpeech(message.content, language);
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = LANG_BCP47[language] ?? 'en-US';
     utter.onend = () => setSpeaking(false);
