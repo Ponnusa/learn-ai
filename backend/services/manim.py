@@ -1078,6 +1078,7 @@ def _build_system_prompt(subject: str, aspect_ratio: str, language: str) -> str:
     combined = apply_tts_placeholders(combined)
 
     # 4. Runtime config
+    manim_ver = settings.MANIM_VERSION
     runtime_config = f"""
 
 ══════════════════════════════════════════════════════════════════
@@ -1086,9 +1087,19 @@ RUNTIME CONFIGURATION
 
 TARGET_ASPECT_RATIO: {aspect_ratio}
 TARGET_LANGUAGE: {language}
+MANIM_VERSION: {manim_ver} (Manim Community)
 
 Adapt all positioning and font sizes according to TARGET_ASPECT_RATIO rules above.
 Use TARGET_LANGUAGE for voiceover text and screen titles.
+
+VERSION-SPECIFIC API NOTES FOR {manim_ver}:
+- ChangeDecimalValue is REMOVED → use decimal_obj.animate.set_value(new_val) inside self.play()
+- ShowCreation is RENAMED → use Create()
+- VGroup(*self.mobjects) is unsafe → use Group(*self.mobjects)
+- Colors must be Manim constants or ManimColor("#rrggbb") — not CSS names
+- .animate proxy works for set_value, set_color, set_opacity, shift, move_to, scale, rotate
+- DecimalNumber best practice: create ValueTracker + always_redraw updater in SETUP BLOCK;
+  then in beats use tracker.animate.set_value(val) to drive smooth value change
 """
     return combined + runtime_config
 

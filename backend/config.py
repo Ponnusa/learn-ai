@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     R2_PUBLIC_URL: str = ""
     CLOUD_RUN_VIDEO_URL: str = ""
     CLOUD_RUN_SECRET: str = ""
+    MANIM_VERSION: str = "0.18.1"
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_LEARNER_PRICE_ID: str = ""
