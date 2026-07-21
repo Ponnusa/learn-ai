@@ -1624,13 +1624,19 @@ def _svg_asset_url(r2_key: str) -> str:
     )
 
 
-def generate_svg_assets(svg_list: list) -> dict:
-    """For each asset: check R2 cache, generate via Claude, upload. Returns {name: url}."""
+def generate_svg_assets(svg_list: list) -> tuple[dict, dict]:
+    """
+    For each asset: check R2 cache, generate via Claude, upload.
+    Returns ({name: url}, {name: svg_xml_string}).
+    The svg_xml_string dict is used to embed SVGs inline in the generated code,
+    eliminating the need for Cloud Run to download from R2 (avoids 403 on private buckets).
+    """
     MAX_ASSETS = 5
-    svg_urls = {}
+    svg_urls: dict = {}
+    svg_xml_map: dict = {}
     if r2_client is None:
         logger.warning("⚠️  R2 not configured — skipping SVG asset generation")
-        return svg_urls
+        return svg_urls, svg_xml_map
 
     for asset_name in svg_list[:MAX_ASSETS]:
         r2_key = f"svg_assets/{asset_name}.svg"
@@ -1638,8 +1644,11 @@ def generate_svg_assets(svg_list: list) -> dict:
             logger.info(f"🖼️  SVG cache hit: {asset_name}")
             try:
                 svg_urls[asset_name] = _svg_asset_url(r2_key)
+                # Read content for inline injection (avoids public-URL 403 at render time)
+                resp = r2_client.get_object(Bucket=R2_BUCKET_NAME, Key=r2_key)
+                svg_xml_map[asset_name] = resp["Body"].read().decode("utf-8")
             except Exception as e:
-                logger.warning(f"⚠️  Could not get URL for cached SVG '{asset_name}': {e}")
+                logger.warning(f"⚠️  Could not read cached SVG '{asset_name}': {e}")
             continue
         svg_xml = None
         for attempt in range(1, SVG_MAX_RETRIES + 1):
@@ -1665,10 +1674,11 @@ def generate_svg_assets(svg_list: list) -> dict:
                 ContentType="image/svg+xml",
             )
             svg_urls[asset_name] = _svg_asset_url(r2_key)
+            svg_xml_map[asset_name] = svg_xml
             logger.info(f"✅ SVG uploaded: {r2_key}")
         except Exception as e:
             logger.error(f"❌ R2 upload failed for '{asset_name}': {e}")
-    return svg_urls
+    return svg_urls, svg_xml_map
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────
@@ -1724,6 +1734,9 @@ _INVALID_MANIM_COLORS = {
     "BROWN": "DARK_BROWN", "CYAN": "TEAL", "MAGENTA": "PINK", "VIOLET": "PURPLE",
     "NAVY": "DARK_BLUE", "BEIGE": "LIGHT_BROWN", "INDIGO": "PURPLE", "CORAL": "RED",
     "TURQUOISE": "TEAL", "LIME": "GREEN", "SILVER": "LIGHT_GRAY",
+    "YELLOW_GREEN": "YELLOW", "CHARTREUSE": "GREEN", "AQUA": "TEAL",
+    "LIGHT_BLUE": "BLUE_B", "DARK_GREEN": "GREEN_E", "DARK_RED": "RED_E",
+    "LIGHT_GREEN": "GREEN_B", "LIGHT_YELLOW": "YELLOW", "LIGHT_PURPLE": "PURPLE_A",
 }
 
 
@@ -1731,6 +1744,33 @@ def fix_manim_colors(code: str) -> str:
     """Replace color constants not defined in Manim with valid equivalents."""
     for bad, good in _INVALID_MANIM_COLORS.items():
         code = re.sub(rf'\b{bad}\b', good, code)
+    return code
+
+
+# Removed/renamed Manim APIs the LLM hallucinates from older training data.
+# Each entry: regex pattern → replacement string (re.sub compatible).
+_DEPRECATED_MANIM_APIS: list[tuple[str, str]] = [
+    # ChangeDecimalValue was removed — use .animate.set_value()
+    (r'\bChangeDecimalValue\s*\(\s*(\w+)\s*,\s*([^,)]+)\)',
+     r'\1.animate.set_value(\2)'),
+    # ShowCreation was renamed to Create in Manim Community
+    (r'\bShowCreation\b', 'Create'),
+    # CurvedDoubleArrow is not in Manim Community
+    (r'\bCurvedDoubleArrow\b', 'DoubleArrow'),
+    # Restore → deprecated, use Transform
+    (r'\bRestore\b', 'FadeIn'),
+    # ApplyWave not in Manim Community
+    (r'\bApplyWave\b', 'Indicate'),
+]
+
+
+def fix_deprecated_manim_apis(code: str) -> str:
+    """Replace removed or renamed Manim APIs with their current equivalents."""
+    for pattern, replacement in _DEPRECATED_MANIM_APIS:
+        new_code, count = re.subn(pattern, replacement, code)
+        if count:
+            logger.info(f"🔧 Replaced deprecated API ({pattern[:40]}…) × {count}")
+        code = new_code
     return code
 
 
@@ -2289,10 +2329,11 @@ def _generate_manim_code_enhanced_sync(
 
     # ─── Stage 1.5 — SVG planning + generation ────────────────────────────────
     svg_list = plan_svg_assets(verified_solution, promptSubject)
-    svg_urls = {}
+    svg_urls: dict = {}
+    svg_xml_map: dict = {}
     if svg_list:
         logger.info(f"🖼️  SVG plan: {svg_list}")
-        svg_urls = generate_svg_assets(svg_list)
+        svg_urls, svg_xml_map = generate_svg_assets(svg_list)
         logger.info(f"🖼️  SVGs ready: {list(svg_urls.keys())}")
 
     # ─── Stage 1.75 — Animation storyboard ────────────────────────────────────
@@ -2444,6 +2485,7 @@ MANDATORY RULES:
 
     # Safety patches
     code = fix_manim_colors(code)
+    code = fix_deprecated_manim_apis(code)
     code = ensure_numpy_import(code)
     code = strip_invalid_tex_weight(code)
     code = re.sub(r'VGroup\(\s*\*\s*self\.mobjects\s*\)', 'Group(*self.mobjects)', code)
@@ -2481,13 +2523,29 @@ MANDATORY RULES:
         code = re.sub(r"^import os as _os[^\n]*\n",        "", code, flags=re.MULTILINE)
         code = re.sub(r"^import requests\n", "", code, flags=re.MULTILINE)
         code = re.sub(r"^import os\n", "",     code, flags=re.MULTILINE)
+        code = re.sub(r"^import base64[^\n]*\n", "", code, flags=re.MULTILINE)
+
+        # Build inline SVG data dict from xml map (avoids HTTP 403 on private R2 buckets)
+        import base64 as _b64_module
+        svg_data_entries = []
+        for _name, _xml in svg_xml_map.items():
+            _b64 = _b64_module.b64encode(_xml.encode("utf-8")).decode("ascii")
+            svg_data_entries.append(f'    "{_name}": "{_b64}"')
+        svg_data_block = "_SVG_DATA = {\n" + ",\n".join(svg_data_entries) + "\n}\n"
+
         svg_helper = (
-            "import urllib.request, os as _os\n\n"
-            "def get_svg(name, url, height=0.8):\n"
-            "    \"\"\"Download SVG from R2 and return as a sized SVGMobject.\"\"\"\n"
+            "import base64 as _b64_svg, os as _os\n\n"
+            + svg_data_block + "\n"
+            "def get_svg(name, url=None, height=0.8):\n"
+            "    \"\"\"Write inline SVG to /tmp and return as a sized SVGMobject.\"\"\"\n"
             "    tmp = f\"/tmp/svg_{name}.svg\"\n"
             "    if not _os.path.exists(tmp):\n"
-            "        urllib.request.urlretrieve(url, tmp)\n"
+            "        if name in _SVG_DATA:\n"
+            "            with open(tmp, 'wb') as _f:\n"
+            "                _f.write(_b64_svg.b64decode(_SVG_DATA[name]))\n"
+            "        elif url:\n"
+            "            import urllib.request\n"
+            "            urllib.request.urlretrieve(url, tmp)\n"
             "    return SVGMobject(tmp).set_height(height)\n\n"
         )
         lines = code.split("\n")
@@ -2596,6 +2654,7 @@ CODE TO REVIEW:
     # Re-apply safety patches after critic
     code = re.sub(r'VGroup\(\s*\*\s*self\.mobjects\s*\)', 'Group(*self.mobjects)', code)
     code = fix_manim_colors(code)
+    code = fix_deprecated_manim_apis(code)
     code = ensure_numpy_import(code)
     code = strip_invalid_tex_weight(code)
 
@@ -2608,6 +2667,7 @@ CODE TO REVIEW:
             # Re-apply patches after fix
             code = re.sub(r'VGroup\(\s*\*\s*self\.mobjects\s*\)', 'Group(*self.mobjects)', code)
             code = fix_manim_colors(code)
+            code = fix_deprecated_manim_apis(code)
             code = ensure_numpy_import(code)
             code = strip_invalid_tex_weight(code)
             # Verify fix actually resolved the issues

@@ -508,6 +508,33 @@ Before outputting, verify:
 ✔ Key objects use fill_opacity >= 0.85
 ✔ self.wait() pauses after key reveals
 
+══════════════════════════════════════════════════════════════════
+BANNED MANIM APIS — THESE DO NOT EXIST IN MANIM COMMUNITY (CAUSES NameError)
+══════════════════════════════════════════════════════════════════
+
+❌ ChangeDecimalValue(decimal, value) — REMOVED. Use: decimal.animate.set_value(value)
+❌ ShowCreation(obj) — RENAMED. Use: Create(obj)
+❌ CurvedDoubleArrow — DOES NOT EXIST. Use: DoubleArrow
+❌ Restore(obj) — DOES NOT EXIST. Use: FadeIn(obj) or Transform
+❌ ApplyWave(obj) — DOES NOT EXIST. Use: Indicate(obj)
+
+BANNED MANIM COLORS — THESE DO NOT EXIST IN MANIM COMMUNITY (CAUSES NameError):
+❌ YELLOW_GREEN  → use YELLOW or GREEN
+❌ CHARTREUSE    → use GREEN
+❌ AQUA          → use TEAL
+❌ LIGHT_BLUE    → use BLUE_B
+❌ DARK_GREEN    → use GREEN_E
+❌ DARK_RED      → use RED_E
+❌ LIGHT_GREEN   → use GREEN_B
+
+ALLOWED COLORS ONLY: WHITE, BLACK, RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK,
+GRAY, GREY, DARK_BLUE, DARK_BROWN, DARK_GRAY, LIGHT_GRAY, LIGHT_BROWN, LIGHT_PINK,
+BLUE_A/B/C/D/E, GREEN_A/B/C/D/E, RED_A/B/C/D/E, GRAY_A/B/C/D/E,
+TEAL, TEAL_A/B/C/D/E, GOLD, GOLD_A/B/C/D/E, MAROON, MAROON_A/B/C/D/E,
+PURPLE_A/B/C, and ManimColor("#rrggbb") for any custom hex color.
+
+══════════════════════════════════════════════════════════════════
+
 UNDEFINED VARIABLE CHECK (MANDATORY — run mentally before output):
 ✔ A two-phase structure exists: SETUP BLOCK first, then animation beats
 ✔ Every name passed to self.play(), FadeIn(), FadeOut(), GrowArrow(),
