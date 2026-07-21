@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Copy, Check, CheckCircle, Loader, Play, XCircle, X, FileText, RefreshCw, ImageIcon, Trash2, ZoomIn } from 'lucide-react';
+import { Copy, Check, CheckCircle, Loader, Play, XCircle, X, FileText, RefreshCw, ImageIcon, Trash2, ZoomIn, Volume2, Square } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
@@ -687,8 +687,44 @@ export function MessageBubble({
   videoId, imageJobId, onDeleteImage, onDeleteVideo, token,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
-  const { t } = useTranslation();
+  const [speaking, setSpeaking] = useState(false);
+  const { t, language } = useTranslation();
   const isUser  = message.role === 'user';
+
+  const LANG_BCP47: Record<string, string> = { en: 'en-US', fi: 'fi-FI', sv: 'sv-SE' };
+
+  function stripMarkdownForSpeech(text: string): string {
+    return text
+      .replace(/!\[.*?\]\(.*?\)/g, '')
+      .replace(/\[([^\]]+)\]\(.*?\)/g, '$1')
+      .replace(/\${1,2}[^$\n]+\${1,2}/g, ' ')
+      .replace(/`{1,3}[^`]*`{1,3}/g, '')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*{1,3}([^*\n]+)\*{1,3}/g, '$1')
+      .replace(/_{1,2}([^_\n]+)_{1,2}/g, '$1')
+      .replace(/^[-*+]\s+/gm, '')
+      .replace(/^\d+\.\s+/gm, '')
+      .replace(/\n{2,}/g, '. ')
+      .replace(/\n/g, ' ')
+      .trim();
+  }
+
+  function handleSpeak() {
+    if (!('speechSynthesis' in window)) return;
+    if (speaking) {
+      window.speechSynthesis.cancel();
+      setSpeaking(false);
+      return;
+    }
+    const text = stripMarkdownForSpeech(message.content);
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = LANG_BCP47[language] ?? 'en-US';
+    utter.onend = () => setSpeaking(false);
+    utter.onerror = () => setSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utter);
+    setSpeaking(true);
+  }
   const subject = message.metadata?.subject;
   const aiChips = message.metadata?.chips ?? [];
 
@@ -804,9 +840,18 @@ export function MessageBubble({
                 </button>
 
                 <button
+                  onClick={handleSpeak}
+                  title={speaking ? 'Stop reading' : 'Read aloud'}
+                  className="ml-auto text-[var(--txa)] hover:text-[var(--tx4)] transition-colors p-1 rounded-lg hover:bg-[var(--ov1)]"
+                >
+                  {speaking
+                    ? <Square size={13} className="text-[var(--indigo)]" />
+                    : <Volume2 size={13} />}
+                </button>
+                <button
                   onClick={copy}
                   title="Copy"
-                  className="ml-auto text-[var(--txa)] hover:text-[var(--tx4)] transition-colors p-1 rounded-lg hover:bg-[var(--ov1)]"
+                  className="text-[var(--txa)] hover:text-[var(--tx4)] transition-colors p-1 rounded-lg hover:bg-[var(--ov1)]"
                 >
                   {copied
                     ? <Check size={14} className="text-[var(--green)]" />
