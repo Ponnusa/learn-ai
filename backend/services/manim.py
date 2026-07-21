@@ -35,11 +35,12 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 # ── Synchronous AI clients (Manim pipeline is CPU/IO-bound, runs via asyncio.to_thread) ─
-# Timeout: 120 s per request so hung calls fail fast and surface as 'failed'
-# rather than keeping the video stuck at 'transcript_ready' for 10+ minutes.
+# Timeout: 600 s per request — Manim code-gen calls can produce up to 16 000 tokens
+# (~400 s at 40 tok/s). 120 s was too short and caused 499 client-disconnect errors
+# on the Anthropic side for setup-block / animation-beats / critic passes.
 _claude_sync = anthropic.Anthropic(
     api_key=settings.ANTHROPIC_API_KEY,
-    timeout=120.0,
+    timeout=600.0,
 )
 _openai_sync = _openai_module.OpenAI(
     api_key=settings.OPENAI_API_KEY,
