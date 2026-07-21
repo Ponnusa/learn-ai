@@ -295,6 +295,9 @@ export const listStudySets = (userId?: string, sessionId?: string, token?: strin
 export const getStudySet = (id: string, token?: string, userId?: string) =>
   get<StudySetDetail>(`/api/studysets/${id}${userId ? `?user_id=${userId}` : ''}`, token);
 
+export const extractStudySetConcepts = (id: string, token?: string) =>
+  post<{ concepts: number; flashcards_added: number }>(`/api/studysets/${id}/extract-concepts`, {}, token);
+
 export const getStudySetStatus = (id: string, token?: string) =>
   get<{ status: string; summary?: string; concept_count: number; flashcard_count: number }>(
     `/api/studysets/${id}/status`, token
@@ -326,18 +329,20 @@ export const chatWithStudySet = (
   sessionId?: string,
   imageUrl?: string,
   language?: string,
+  studyConceptId?: string | null,
 ) =>
   post<{ reply: string; chips: string[]; conversation_id: string; message_id: string }>(
     `/api/studysets/${id}/chat`,
     {
       message,
       history,
-      concept_name:    conceptName    ?? null,
-      conversation_id: conversationId ?? null,
-      user_id:         userId         ?? null,
-      session_id:      sessionId      ?? null,
-      image_url:       imageUrl       ?? null,
-      language:        language       ?? 'en',
+      concept_name:      conceptName     ?? null,
+      conversation_id:   conversationId  ?? null,
+      user_id:           userId          ?? null,
+      session_id:        sessionId       ?? null,
+      image_url:         imageUrl        ?? null,
+      language:          language        ?? 'en',
+      study_concept_id:  studyConceptId  ?? null,
     },
     token,
   );
@@ -371,8 +376,13 @@ export async function uploadRegionImage(
 }
 
 export type StudySetConversation = {
-  id: string; title: string; created_at: string;
-  message_count: number; video_count: number; quiz_count: number;
+  id: string;
+  title: string;
+  created_at: string;
+  study_concept_id?: string | null;
+  message_count: number;
+  video_count: number;
+  quiz_count: number;
 };
 
 export const getStudySetConversations = (studySetId: string, token?: string) =>

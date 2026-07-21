@@ -27,6 +27,7 @@ import {
   getConversationVideos, listEduImages, fetchMaterialPdf, uploadRegionImage, generateEduImage,
   getQuiz,
   createSession,
+  extractStudySetConcepts,
   debugStudysetPrompt,
   StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial, StudyConcept,
 } from '@/lib/api';
@@ -60,12 +61,6 @@ type ChatMsg = {
   quizId?:           string;
   quizTopic?:        string;
   quizQuestionCount?: number;
-};
-
-type ChatSeed = {
-  concept?: string;          // concept name
-  pdfQuestion?: string;      // question from PDF selection
-  pdfContext?: { text?: string; imageDataUrl?: string };
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -268,7 +263,7 @@ function ConceptCard({
 }: {
   concept: StudyConcept;
   index: number;
-  onChat: (name: string) => void;
+  onChat: (id: string) => void;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -321,7 +316,7 @@ function ConceptCard({
       {/* Action row */}
       <div className="flex gap-2 px-4 pb-4 pt-1">
         <button
-          onClick={() => onChat(concept.name)}
+          onClick={() => onChat(concept.id)}
           className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl
                      text-xs font-medium border transition-colors
                      bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border-indigo-500/20">
@@ -335,18 +330,50 @@ function ConceptCard({
 // ─── ConceptsTab ──────────────────────────────────────────────────────────────
 
 function ConceptsTab({
-  ss, onChat,
+  ss, onChat, onConceptsGenerated,
 }: {
   ss: StudySetDetail;
-  onChat: (conceptName: string) => void;
+  onChat: (conceptId: string) => void;
+  onConceptsGenerated?: () => void;
 }) {
   const { t } = useTranslation();
+  const { token } = useSessionStore();
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+
+  const hasMaterialText = ss.materials.some(m => m.status === 'ready');
+
+  async function handleGenerate() {
+    setGenerating(true);
+    setGenError(null);
+    try {
+      await extractStudySetConcepts(ss.id, token ?? undefined);
+      onConceptsGenerated?.();
+    } catch (e: any) {
+      setGenError(e?.message || 'Failed to generate concepts');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   if (ss.concepts.length === 0) return (
-    <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
+    <div className="flex flex-col items-center justify-center py-20 text-center gap-4">
       <BookOpen size={32} className="text-[var(--tx6)]" />
       <p className="text-[var(--tx4)] text-sm">
         {ss.status === 'ready' ? t.studySets.noConcepts : t.studySets.noConceptsUpload}
       </p>
+      {ss.status === 'ready' && hasMaterialText && (
+        <button
+          onClick={handleGenerate}
+          disabled={generating}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+                     bg-indigo-500/10 hover:bg-indigo-500/15 border border-indigo-500/30
+                     text-indigo-400 hover:text-indigo-300 transition-all disabled:opacity-50">
+          {generating ? <Loader size={14} className="animate-spin" /> : <BookOpen size={14} />}
+          {generating ? 'Generating…' : 'Generate concepts with AI'}
+        </button>
+      )}
+      {genError && <p className="text-red-400 text-xs">{genError}</p>}
     </div>
   );
 
@@ -642,12 +669,12 @@ function StudyQuizCard({
 // ─── ActiveChat ───────────────────────────────────────────────────────────────
 
 function ActiveChat({
-  ss, seed, loadConversation,
+  ss, studyConceptId, loadConversation,
   pendingFire, onFired, pinnedCtx, onClearCtx,
   onNewConversation,
 }: {
   ss: StudySetDetail;
-  seed: ChatSeed | null;
+  studyConceptId?: string | null;
   loadConversation: StudySetConversation | null;
   pendingFire?: { text: string; imageDataUrl?: string } | null;
   onFired?: () => void;
@@ -671,8 +698,8 @@ function ActiveChat({
   const [convId, setConvId]        = useState<string | null>(null);
   const [lastMsgId, setLastMsgId]  = useState<string | null>(null);
   const [debugData,  setDebugData] = useState<any>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const firedRef  = useRef(false);
+  const bottomRef   = useRef<HTMLDivElement>(null);
+  const firedRef    = useRef(false);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, loading]);
 
@@ -756,37 +783,6 @@ function ActiveChat({
     }).catch(() => {}).finally(() => { setHistLoading(false); setHistLoaded(true); });
   }, [loadConversation?.id]);
 
-  // Auto-fire seed message — waits for history to load if a conversation is being restored
-  useEffect(() => {
-    if (!seed || firedRef.current || !histLoaded || ss.status !== 'ready') return;
-    firedRef.current = true;
-
-    async function autoFire() {
-      if (seed!.pdfQuestion) {
-        let imageUrl: string | undefined;
-
-        // Upload captured region to R2 before sending
-        if (seed!.pdfContext?.imageDataUrl) {
-          try {
-            imageUrl = await uploadRegionImage(
-              seed!.pdfContext.imageDataUrl,
-              user?.id, sessionId || undefined, token ?? undefined,
-            );
-          } catch { /* best-effort: continue without image */ }
-        }
-
-        // For text-selected context (legacy), quote it in the message body
-        const userText = seed!.pdfContext?.text
-          ? `${seed!.pdfQuestion}\n\n> ${seed!.pdfContext.text}`
-          : seed!.pdfQuestion;
-        fireMessage(userText, undefined, imageUrl);
-      } else if (seed!.concept) {
-        fireMessage(`Tell me about "${seed!.concept}"`, seed!.concept);
-      }
-    }
-    autoFire();
-  }, [seed, ss.status, histLoaded]);
-
   // Auto-fire messages from the PDF pane (preset actions like Explain/Summarize)
   useEffect(() => {
     if (!pendingFire || loading || !histLoaded) return;
@@ -815,6 +811,7 @@ function ActiveChat({
         conceptName, convId ?? undefined,
         user?.id, sessionId || undefined,
         imageUrl, language,
+        studyConceptId ?? null,
       );
       if (!convId) onNewConversation?.(res.conversation_id);
       setConvId(res.conversation_id);
@@ -858,7 +855,7 @@ function ActiveChat({
   }
 
   function currentTopic() {
-    return seed?.concept
+    return (studyConceptId && ss.concepts.find(c => c.id === studyConceptId)?.name)
       || messages.filter(m => m.role === 'user').slice(-1)[0]?.content?.slice(0, 120)
       || ss.title;
   }
@@ -1008,28 +1005,15 @@ function ActiveChat({
     }
   }
 
-  function chatTitle() {
-    if (loadConversation?.title) return loadConversation.title;
-    if (seed?.concept) return seed.concept;
-    if (seed?.pdfContext?.text) {
-      const snippet = seed.pdfContext.text.length > 80
-        ? seed.pdfContext.text.slice(0, 80) + '…'
-        : seed.pdfContext.text;
-      return `📄 "${snippet}"`;
-    }
-    if (seed?.pdfQuestion) {
-      const q = seed.pdfQuestion.length > 80 ? seed.pdfQuestion.slice(0, 80) + '…' : seed.pdfQuestion;
-      return `📄 ${q}`;
-    }
-    return 'New chat';
-  }
-  const title = chatTitle();
+  const chatTitle = loadConversation?.title || (studyConceptId
+    ? (ss.concepts.find(c => c.id === studyConceptId)?.name ?? 'Concept Chat')
+    : 'General Chat');
 
   return (
     <div className="flex flex-col h-full">
       {/* Sub-header */}
       <div className="flex items-center gap-2 pb-3 mb-3 border-b border-[var(--bd)] shrink-0">
-        <p className="text-[var(--tx2)] text-sm font-medium truncate flex-1">{title}</p>
+        <p className="text-[var(--tx2)] text-sm font-medium truncate flex-1 min-w-0">{chatTitle}</p>
       </div>
 
       {/* Messages */}
@@ -1251,18 +1235,25 @@ function ActiveChat({
 // ─── ChatTab ─── split container ─────────────────────────────────────────────
 
 function ChatTab({
-  ss, initSeed, initConversation, pdfFile, onLoadPdf, onNewConversation,
+  ss, convs, openWithConceptId, pdfFile, onLoadPdf, onNewConversation,
 }: {
   ss: StudySetDetail;
-  initSeed: ChatSeed | null;
-  initConversation: StudySetConversation | null;
+  convs: StudySetConversation[];
+  openWithConceptId?: string | null;
   pdfFile: File | null;
   onLoadPdf: () => void;
   onNewConversation?: (convId: string) => void;
 }) {
+  // null = General chat, string = concept ID
+  const [activeConceptId, setActiveConceptId] = useState<string | null>(openWithConceptId ?? null);
   const [pdfOpen,     setPdfOpen]     = useState(false);
   const [pendingFire, setPendingFire] = useState<{ text: string; imageDataUrl?: string } | null>(null);
   const [pinnedCtx,   setPinnedCtx]   = useState<PinnedCtx | null>(null);
+
+  // When parent navigates to a concept (e.g. from Concepts tab)
+  useEffect(() => {
+    if (openWithConceptId !== undefined) setActiveConceptId(openWithConceptId ?? null);
+  }, [openWithConceptId]);
 
   // Auto-open when a PDF is loaded in
   useEffect(() => { if (pdfFile) setPdfOpen(true); }, [pdfFile]);
@@ -1272,10 +1263,61 @@ function ChatTab({
   }
 
   const hasMaterial = ss.materials.some(m => m.status === 'ready' && m.file_url);
+  const hasConcepts = ss.concepts.length > 0;
+
+  // Find the existing conversation for the current selection
+  const activeConv = activeConceptId
+    ? (convs.find(c => c.study_concept_id === activeConceptId) ?? null)
+    : (convs.find(c => !c.study_concept_id) ?? null);
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
-      {/* PDF pane */}
+
+      {/* ── Concept sidebar ─────────────────────────────────────── */}
+      {hasConcepts && !pdfOpen && (
+        <div className="hidden sm:flex w-44 shrink-0 border-r border-[var(--bd)] flex-col min-h-0">
+          <div className="px-2 pt-3 pb-1.5 shrink-0">
+            <p className="text-[10px] font-semibold text-[var(--tx6)] uppercase tracking-wider px-2">Chats</p>
+          </div>
+          <div className="flex-1 overflow-y-auto chat-scroll pb-2">
+            {/* General */}
+            <button
+              onClick={() => setActiveConceptId(null)}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors
+                          ${!activeConceptId
+                ? 'bg-indigo-500/10 text-indigo-300'
+                : 'text-[var(--tx4)] hover:text-[var(--tx2)] hover:bg-[var(--ov1)]'}`}>
+              <BookOpen size={12} className="shrink-0" />
+              <span className="text-xs truncate">General</span>
+              {convs.some(c => !c.study_concept_id) && (
+                <span className="ml-auto w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+              )}
+            </button>
+
+            <div className="h-px bg-[var(--bd)] mx-2 my-1" />
+
+            {/* Per-concept */}
+            {ss.concepts.map(c => {
+              const hasConv = convs.some(cv => cv.study_concept_id === c.id);
+              const isActive = activeConceptId === c.id;
+              return (
+                <button key={c.id}
+                  onClick={() => setActiveConceptId(c.id)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-colors
+                              ${isActive
+                    ? 'bg-indigo-500/10 text-indigo-300'
+                    : 'text-[var(--tx4)] hover:text-[var(--tx2)] hover:bg-[var(--ov1)]'}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 mt-px
+                                   ${hasConv ? 'bg-indigo-400' : 'bg-[var(--tx7)]'}`} />
+                  <span className="text-xs truncate flex-1">{c.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── PDF pane ─────────────────────────────────────────────── */}
       {pdfFile && pdfOpen && (
         <div className="w-[44%] min-w-[280px] max-w-[520px] border-r border-[var(--bd)] flex flex-col min-h-0 shrink-0">
           <StudyPDFPane
@@ -1287,9 +1329,8 @@ function ChatTab({
         </div>
       )}
 
-      {/* Chat panel */}
+      {/* ── Chat panel ───────────────────────────────────────────── */}
       <div className="flex-1 min-w-0 flex flex-col min-h-0 px-4 sm:px-5 py-4">
-        {/* PDF toggle strip */}
         {hasMaterial && (
           <div className="flex items-center gap-2 pb-2 mb-2 border-b border-[var(--bd)] shrink-0">
             {pdfFile && pdfOpen ? null : (
@@ -1304,10 +1345,10 @@ function ChatTab({
           </div>
         )}
         <ActiveChat
-          key={`seed-${initSeed?.concept ?? initSeed?.pdfQuestion ?? 'none'}-conv-${initConversation?.id ?? 'new'}`}
+          key={activeConceptId ?? 'general'}
           ss={ss}
-          seed={initSeed}
-          loadConversation={initConversation}
+          studyConceptId={activeConceptId}
+          loadConversation={activeConv}
           pendingFire={pendingFire}
           onFired={() => setPendingFire(null)}
           pinnedCtx={pinnedCtx}
@@ -1335,12 +1376,11 @@ export default function StudySetPage() {
     (searchParams.get('tab') as Tab | null) ?? 'overview'
   );
 
-  // Chat entry state — cleared after ChatTab mounts
-  const [chatSeed,     setChatSeed]     = useState<ChatSeed | null>(null);
-  const [chatConv,     setChatConv]     = useState<StudySetConversation | null>(null);
+  // Which concept to open in ChatTab (null = General)
+  const [openWithConceptId, setOpenWithConceptId] = useState<string | null | undefined>(undefined);
 
-  // Conversations list — shared between ConceptsTab and ChatTab list
-  const [convs,        setConvs]        = useState<StudySetConversation[]>([]);
+  // Conversations list — loaded once, refreshed on new conversation
+  const [convs, setConvs] = useState<StudySetConversation[]>([]);
 
   // PDF state
   const [pdfMaterial, setPdfMaterial] = useState<StudyMaterial | null>(null);
@@ -1381,14 +1421,17 @@ export default function StudySetPage() {
       .catch(() => {});
   }, [ss?.id, ss?.status]);
 
-  // Restore active conversation from URL on refresh
+  // Restore active conversation from URL on refresh — navigate to its concept
   useEffect(() => {
     if (urlRestoredRef.current || !convs.length) return;
     const convParam = new URLSearchParams(window.location.search).get('conv');
     if (!convParam) return;
     urlRestoredRef.current = true;
     const found = convs.find(c => c.id === convParam);
-    if (found) { setChatSeed(null); setChatConv(found); setTab('chat'); }
+    if (found) {
+      setOpenWithConceptId(found.study_concept_id ?? null);
+      setTab('chat');
+    }
   }, [convs]);
 
   function startPoll() {
@@ -1399,17 +1442,9 @@ export default function StudySetPage() {
 
   function handleUploaded() { load().then(() => startPoll()); }
 
-  // Auto-load the single conversation when chat tab is opened without explicit seed/conv
-  useEffect(() => {
-    if (tab === 'chat' && !chatSeed && !chatConv && convs.length > 0) {
-      setChatConv(convs[0]);
-    }
-  }, [tab, convs]);
-
-  // Navigate to Chat tab with a concept — reuses the existing studyset conversation
-  function handleNewConceptChat(conceptName: string) {
-    setChatSeed({ concept: conceptName });
-    setChatConv(convs[0] ?? null);
+  // Navigate to Chat tab focused on a specific concept
+  function handleConceptChat(conceptId: string) {
+    setOpenWithConceptId(conceptId);
     setTab('chat');
   }
 
@@ -1429,14 +1464,6 @@ export default function StudySetPage() {
   }
 
   // When user asks from PDF selection
-  function handlePdfAsk(question: string, context: { text?: string; imageDataUrl?: string }) {
-    setPdfFile(null);
-    setPdfMaterial(null);
-    setChatSeed({ pdfQuestion: question, pdfContext: context });
-    setChatConv(null);
-    setTab('chat');
-  }
-
   const TABS: { key: Tab; label: string; icon: React.ReactNode; disabled?: boolean }[] = [
     { key: 'overview',   label: t.studySets.tabOverview,   icon: <BookOpen size={13} /> },
     { key: 'concepts',   label: t.studySets.tabConcepts,   icon: <FileText size={13} />,   disabled: ss?.status !== 'ready' },
@@ -1530,7 +1557,7 @@ export default function StudySetPage() {
               <OverviewTab ss={ss} onRefresh={handleUploaded} onOpenPdf={handleOpenPdf} />
             )}
             {tab === 'concepts' && (
-              <ConceptsTab ss={ss} onChat={handleNewConceptChat} />
+              <ConceptsTab ss={ss} onChat={handleConceptChat} onConceptsGenerated={load} />
             )}
             {tab === 'flashcards' && <FlashcardsTab ss={ss} />}
             {tab === 'diagrams' && (
@@ -1550,10 +1577,9 @@ export default function StudySetPage() {
         */}
         <div className={tab === 'chat' ? 'flex flex-1 min-h-0 overflow-hidden' : 'hidden'}>
           <ChatTab
-            key={`${chatSeed?.concept ?? chatSeed?.pdfQuestion ?? 'general'}-${chatConv?.id ?? 'new'}`}
             ss={ss}
-            initSeed={chatSeed}
-            initConversation={chatConv}
+            convs={convs}
+            openWithConceptId={openWithConceptId}
             pdfFile={pdfFile}
             onLoadPdf={() => {
               const mat = ss.materials.find(m => m.status === 'ready' && m.file_url);

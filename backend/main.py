@@ -441,6 +441,8 @@ async def lifespan(app: FastAPI):
             "CREATE INDEX IF NOT EXISTS idx_concept_resources_concept ON concept_resources(concept_id, position)",
             # ── Store PDF bytes in DB so proxy never depends on R2 read access ───
             "ALTER TABLE study_materials ADD COLUMN IF NOT EXISTS file_data BYTEA",
+            # ── Per-study-concept chat conversations ──────────────────────────────
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS study_concept_id UUID REFERENCES study_concepts(id) ON DELETE CASCADE",
         ]:
             try:
                 await db.execute(sql)

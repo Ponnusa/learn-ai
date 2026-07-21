@@ -46,12 +46,13 @@ class CreateStudySetRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    concept_name: str | None = None      # set when student clicks a concept → seeds intro
+    concept_name: str | None = None      # legacy seed text (kept for backwards compat)
     conversation_id: str | None = None   # None on first message; subsequent messages pass it back
     user_id: str | None = None
     session_id: str | None = None
     image_url: str | None = None         # R2 URL of a captured PDF region (vision input)
     language: str = "en"
+    study_concept_id: str | None = None  # links this chat to a specific study_concept row
 
 
 class ReviewRequest(BaseModel):
@@ -334,31 +335,55 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest, bg: Background
     if not mat_rows:
         raise HTTPException(400, "No processed material yet — please wait for processing to finish")
 
-    # ── 3. Get or create conversation (one per studyset per user/session) ─────
+    # ── 3. Get or create conversation ─────────────────────────────────────────
+    # Concept chats are keyed on (study_set_id, study_concept_id); one row per concept.
+    # General chats (study_concept_id IS NULL) are keyed per user/session as before.
     conv_id = req.conversation_id
+    actual_study_concept_id = req.study_concept_id  # track which concept owns this conv
+
     if not conv_id:
         async with get_db() as db:
-            existing = await db.fetchrow(
-                """SELECT id FROM conversations
-                   WHERE study_set_id = $1::uuid
-                     AND (
-                       ($2::uuid IS NOT NULL AND user_id    = $2::uuid)
-                       OR ($3::uuid IS NOT NULL AND session_id = $3::uuid)
-                     )
-                   ORDER BY created_at ASC LIMIT 1""",
-                study_set_id, req.user_id, req.session_id,
-            )
+            if req.study_concept_id:
+                # Concept chat: find the conversation for this exact concept
+                existing = await db.fetchrow(
+                    """SELECT id FROM conversations
+                       WHERE study_set_id = $1::uuid AND study_concept_id = $2::uuid
+                       LIMIT 1""",
+                    study_set_id, req.study_concept_id,
+                )
+            else:
+                # General chat: find existing general conversation for this user/session
+                existing = await db.fetchrow(
+                    """SELECT id FROM conversations
+                       WHERE study_set_id = $1::uuid
+                         AND study_concept_id IS NULL
+                         AND (
+                           ($2::uuid IS NOT NULL AND user_id    = $2::uuid)
+                           OR ($3::uuid IS NOT NULL AND session_id = $3::uuid)
+                         )
+                       ORDER BY created_at ASC LIMIT 1""",
+                    study_set_id, req.user_id, req.session_id,
+                )
         if existing:
             conv_id = str(existing["id"])
         else:
+            # Determine title for new conversation
+            conv_title = f"{ss['title']} — Study Chat"
+            if req.study_concept_id:
+                async with get_db() as db:
+                    sc = await db.fetchrow(
+                        "SELECT name FROM study_concepts WHERE id = $1::uuid", req.study_concept_id
+                    )
+                if sc:
+                    conv_title = sc["name"]
             async with get_db() as db:
                 conv = await db.fetchrow(
                     """INSERT INTO conversations
-                         (user_id, session_id, title, subject, study_set_id)
-                       VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid)
+                         (user_id, session_id, title, subject, study_set_id, study_concept_id)
+                       VALUES ($1::uuid, $2::uuid, $3, $4, $5::uuid, $6::uuid)
                        RETURNING id""",
                     req.user_id, req.session_id,
-                    f"{ss['title']} — Study Chat", ss["subject"], study_set_id,
+                    conv_title, ss["subject"], study_set_id, req.study_concept_id,
                 )
             conv_id = str(conv["id"])
 
@@ -394,14 +419,37 @@ async def chat_with_studyset(study_set_id: str, req: ChatRequest, bg: Background
                 req.session_id,
             )
 
-    # ── 6. Build system prompt (grounded + personalised + continuity) ─────────
-    full_text     = "\n\n".join(r["raw_text"] or "" for r in mat_rows if r["raw_text"])
+    # ── 6. Build system prompt (grounded + personalised + concept focus) ────────
+    full_text = "\n\n".join(r["raw_text"] or "" for r in mat_rows if r["raw_text"])
+
+    # Fetch the concept that owns this conversation (set at creation, never changes)
+    focus_concept = None
+    if actual_study_concept_id:
+        async with get_db() as db:
+            focus_concept = await db.fetchrow(
+                "SELECT name, definition, explanation FROM study_concepts WHERE id = $1::uuid",
+                actual_study_concept_id,
+            )
+    elif conv_id and not req.study_concept_id:
+        # Existing conversation — load its study_concept_id from DB
+        async with get_db() as db:
+            conv_meta = await db.fetchrow(
+                "SELECT study_concept_id FROM conversations WHERE id = $1::uuid", conv_id
+            )
+        if conv_meta and conv_meta["study_concept_id"]:
+            async with get_db() as db:
+                focus_concept = await db.fetchrow(
+                    "SELECT name, definition, explanation FROM study_concepts WHERE id = $1::uuid",
+                    conv_meta["study_concept_id"],
+                )
+
     system_prompt = await build_studyset_prompt(
         title=ss["title"],
         subject=ss["subject"],
         material_text=full_text,
         user_id=req.user_id,
         language=req.language,
+        focus_concept=dict(focus_concept) if focus_concept else None,
     )
     system_prompt = inject_conversation_context(system_prompt, conv_summary, topics_covered)
 
@@ -542,7 +590,7 @@ async def get_studyset_conversations(study_set_id: str):
     async with get_db() as db:
         rows = await db.fetch(
             """SELECT
-                 c.id, c.title, c.created_at,
+                 c.id, c.title, c.created_at, c.study_concept_id,
                  COUNT(DISTINCT m.id) FILTER (WHERE m.role = 'user') AS message_count,
                  COUNT(DISTINCT v.id)                                 AS video_count,
                  COUNT(DISTINCT q.id)                                 AS quiz_count
@@ -553,7 +601,7 @@ async def get_studyset_conversations(study_set_id: str):
                WHERE c.study_set_id = $1::uuid
                GROUP BY c.id
                ORDER BY c.created_at DESC
-               LIMIT 30""",
+               LIMIT 60""",
             study_set_id,
         )
     return [dict(r) for r in rows]
@@ -597,6 +645,60 @@ async def review_card(study_set_id: str, card_id: str, req: ReviewRequest):
         """, req.user_id, card_id, repetitions, ease_factor, interval_days, due_at)
 
     return {"ok": True, "due_at": due_at.isoformat(), "interval_days": interval_days}
+
+
+@router.post("/{study_set_id}/extract-concepts")
+async def extract_concepts(study_set_id: str):
+    """
+    (Re-)generate study_concepts for an existing study set using its material raw_text.
+    Safe to call on sets with existing concepts — clears them first and regenerates.
+    """
+    from services.studyset_processor import generate_concepts_and_flashcards
+    async with get_db() as db:
+        ss = await db.fetchrow(
+            "SELECT title, subject FROM study_sets WHERE id = $1::uuid", study_set_id
+        )
+        if not ss:
+            raise HTTPException(404, "Study set not found")
+        mat = await db.fetchrow(
+            "SELECT raw_text FROM study_materials WHERE study_set_id = $1::uuid AND status = 'ready' LIMIT 1",
+            study_set_id,
+        )
+        if not mat or not mat["raw_text"]:
+            raise HTTPException(400, "No processed material text found — upload a PDF first")
+
+    result = await generate_concepts_and_flashcards(
+        mat["raw_text"], ss["title"], ss["subject"] or "General", "en"
+    )
+    concepts = result.get("concepts", [])
+    flashcards = result.get("flashcards", [])
+
+    flashcards_added = 0
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM study_concepts WHERE study_set_id = $1::uuid", study_set_id
+        )
+        for i, c in enumerate(concepts):
+            await db.execute(
+                """INSERT INTO study_concepts (study_set_id, name, definition, explanation, order_index)
+                   VALUES ($1::uuid, $2, $3, $4, $5)""",
+                study_set_id, c.get("name", ""), c.get("definition", ""),
+                c.get("explanation", ""), i,
+            )
+        if flashcards:
+            existing = await db.fetchval(
+                "SELECT COUNT(*) FROM study_flashcards WHERE study_set_id = $1::uuid", study_set_id
+            )
+            if not existing:
+                for i, f in enumerate(flashcards):
+                    await db.execute(
+                        """INSERT INTO study_flashcards (study_set_id, front, back, order_index)
+                           VALUES ($1::uuid, $2, $3, $4)""",
+                        study_set_id, f.get("front", ""), f.get("back", ""), i,
+                    )
+                flashcards_added = len(flashcards)
+
+    return {"concepts": len(concepts), "flashcards_added": flashcards_added}
 
 
 @router.delete("/{study_set_id}")

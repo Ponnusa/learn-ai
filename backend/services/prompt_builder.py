@@ -229,16 +229,30 @@ async def build_studyset_prompt(
     material_text: str,
     user_id: str | None,
     language: str = "en",
+    focus_concept: dict | None = None,
 ) -> str:
     """
     Returns the full system prompt for a grounded studyset chat response.
     Applies student personalisation from the profile if user_id is provided.
+    When focus_concept is set, the AI prioritises that concept in its responses.
     """
     prompt = STUDYSET_SYSTEM_PROMPT_TEMPLATE.format(
         title=title,
         subject=subject or "General",
         material=material_text[:60_000],
     )
+
+    if focus_concept:
+        prompt += (
+            "\n\n--- CURRENT FOCUS ---\n"
+            f"The student is currently focusing on: \"{focus_concept['name']}\"\n"
+            f"Definition: {focus_concept['definition']}\n"
+            f"Explanation: {focus_concept['explanation']}\n"
+            "Prioritise this concept in your responses. When the student's question "
+            "relates to this topic, ground your answer primarily in the above definition "
+            "and explanation, using the full study material for additional context.\n"
+            "--- END FOCUS ---"
+        )
 
     lang_name = _LANGUAGE_NAMES.get(language)
     if lang_name:
