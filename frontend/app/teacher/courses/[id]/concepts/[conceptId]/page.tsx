@@ -128,6 +128,7 @@ export default function ConceptEditorPage() {
   const [generatingVideoMsg, setGeneratingVideoMsg] = useState<string | null>(null);
   const videoPollingRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
   const [removedVideoBlocks, setRemovedVideoBlocks] = useState<Set<string>>(new Set());
+  const [showDraftPrompt,   setShowDraftPrompt]   = useState(false);
 
   const [assetPolling,    setAssetPolling]    = useState(false);
 
@@ -442,11 +443,11 @@ export default function ConceptEditorPage() {
     if (activeTab === 'studio' && !chatLoaded) loadChat();
   }, [activeTab, chatLoaded]);
 
-  // Auto-generate first draft when teacher opens a concept that has never been chatted
+  // Show draft prompt when teacher opens a concept with no chat history
   useEffect(() => {
     if (chatLoaded && chatMsgs.length === 0 && !autoStartedRef.current) {
       autoStartedRef.current = true;
-      sendChatMessage('Write a clear, student-friendly explanation of this concept with a ### SUMMARY and ### TRANSCRIPT section.');
+      setShowDraftPrompt(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatLoaded]);
@@ -703,6 +704,33 @@ export default function ConceptEditorPage() {
                 <div className="px-4 py-3 space-y-3">
                   {!chatLoaded ? (
                     <div className="flex justify-center py-10"><Loader2 size={16} className="animate-spin text-[var(--tx7)]" /></div>
+                  ) : chatMsgs.length === 0 && showDraftPrompt ? (
+                    <div className="flex flex-col items-center gap-4 py-10 text-center">
+                      <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                        <Wand2 size={18} className="text-purple-400" />
+                      </div>
+                      <div>
+                        <p className="text-[var(--tx2)] text-sm font-medium mb-1">Generate a first draft?</p>
+                        <p className="text-[var(--tx7)] text-xs max-w-xs">
+                          I'll write a Summary and Transcript for this concept based on the source material.
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setShowDraftPrompt(false);
+                            sendChatMessage('Write a clear, student-friendly explanation of this concept with a ### SUMMARY and ### TRANSCRIPT section.');
+                          }}
+                          className="px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium transition-colors">
+                          Generate first draft
+                        </button>
+                        <button
+                          onClick={() => setShowDraftPrompt(false)}
+                          className="px-4 py-1.5 rounded-lg border border-[var(--bd)] hover:bg-[var(--ov2)] text-[var(--tx6)] text-xs transition-colors">
+                          Skip
+                        </button>
+                      </div>
+                    </div>
                   ) : chatMsgs.length === 0 ? (
                     <div className="flex flex-col items-center gap-3 py-10 text-center">
                       <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
