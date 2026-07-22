@@ -444,17 +444,12 @@ export default function ConceptEditorPage() {
 
   // Auto-generate first draft when teacher opens a concept that has never been chatted
   useEffect(() => {
-    if (
-      chatLoaded &&
-      chatMsgs.length === 0 &&
-      concept?.pipeline_status === 'draft' &&
-      !autoStartedRef.current
-    ) {
+    if (chatLoaded && chatMsgs.length === 0 && !autoStartedRef.current) {
       autoStartedRef.current = true;
       sendChatMessage('Write a clear, student-friendly explanation of this concept with a ### SUMMARY and ### TRANSCRIPT section.');
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatLoaded, chatMsgs.length, concept?.pipeline_status]);
+  }, [chatLoaded]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
