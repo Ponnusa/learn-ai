@@ -659,7 +659,7 @@ export default function ConceptEditorPage() {
               </p>
 
               <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
-                <div className="max-h-[60vh] overflow-y-auto px-4 py-3 space-y-3">
+                <div className="px-4 py-3 space-y-3">
                   {!chatLoaded ? (
                     <div className="flex justify-center py-10"><Loader2 size={16} className="animate-spin text-[var(--tx7)]" /></div>
                   ) : chatMsgs.length === 0 ? (
