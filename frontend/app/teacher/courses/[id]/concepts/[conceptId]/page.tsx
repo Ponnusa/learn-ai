@@ -587,15 +587,31 @@ export default function ConceptEditorPage() {
                   <div ref={chatEndRef} />
                 </div>
 
-                {/* Prompt chips — always visible so teacher never loses access to any prompt */}
-                <div className="flex gap-1.5 px-3 py-2 border-t border-[var(--bd)] overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-                  {STUDIO_PROMPTS.map(p => (
-                    <button key={p.label} onClick={() => sendChatMessage(p.text)} disabled={chatSending}
-                      className="shrink-0 px-2.5 py-1 rounded-full border border-[var(--bd)] bg-[var(--ov1)]
-                                 text-[var(--tx7)] text-xs hover:border-purple-500/40 hover:text-purple-400
-                                 transition-all disabled:opacity-40 whitespace-nowrap">
-                      {p.label}
-                    </button>
+                {/* Marquee prompt chips — two rows, opposite directions, pause on hover */}
+                <style>{`
+                  @keyframes marquee-l { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+                  @keyframes marquee-r { from { transform: translateX(-50%) } to { transform: translateX(0) } }
+                  .sc-track-l { animation: marquee-l 30s linear infinite; }
+                  .sc-track-r { animation: marquee-r 36s linear infinite; }
+                  .sc-wrap:hover .sc-track-l,
+                  .sc-wrap:hover .sc-track-r { animation-play-state: paused; }
+                `}</style>
+                <div className="sc-wrap border-t border-[var(--bd)] py-2.5 overflow-hidden space-y-2">
+                  {[STUDIO_PROMPTS.slice(0, 5), STUDIO_PROMPTS.slice(5)].map((row, ri) => (
+                    <div key={ri} className="flex">
+                      <div className={`flex gap-2 ${ri === 0 ? 'sc-track-l' : 'sc-track-r'}`}>
+                        {[...row, ...row].map((p, i) => (
+                          <button key={i} onClick={() => sendChatMessage(p.text)} disabled={chatSending}
+                            className="shrink-0 px-3 py-1.5 rounded-full
+                                       border border-[var(--bd)] bg-[var(--ov1)]
+                                       text-[var(--tx6)] text-xs whitespace-nowrap
+                                       hover:border-purple-500/50 hover:text-purple-400 hover:bg-purple-500/5
+                                       transition-colors disabled:opacity-40 cursor-pointer">
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
 
