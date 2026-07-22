@@ -88,6 +88,7 @@ export default function ConceptEditorPage() {
   const [pdfReady,      setPdfReady]      = useState(false);
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
   const [pickerOpen,    setPickerOpen]    = useState(false);
+  const [lightbox,      setLightbox]      = useState<{ url: string; page: number } | null>(null);
   const pdfRef = useRef<string | null>(null);
 
   const [uploading,  setUploading]  = useState(false);
@@ -579,19 +580,24 @@ export default function ConceptEditorPage() {
                           {/* Attached page images — shown above the message text */}
                           {m.images && m.images.length > 0 && (
                             <div className="flex gap-1.5 flex-wrap p-2 pb-0 border-b border-white/15">
-                              {m.images.map((url, ii) => (
-                                <div key={ii} className="relative shrink-0">
-                                  <img
-                                    src={url}
-                                    alt={`Page ${(m.imagePages?.[ii] ?? ii + 1)}`}
-                                    className="h-28 w-auto rounded border border-white/20 object-contain bg-white/5"
-                                  />
-                                  <span className="absolute bottom-1 left-1 text-[9px] text-white/70
-                                                   bg-black/60 px-1 py-0.5 rounded leading-none">
-                                    p.{m.imagePages?.[ii] ?? ii + 1}
-                                  </span>
-                                </div>
-                              ))}
+                              {m.images.map((url, ii) => {
+                                const pageNum = m.imagePages?.[ii] ?? ii + 1;
+                                return (
+                                  <div key={ii} className="relative shrink-0 group/img">
+                                    <img
+                                      src={url}
+                                      alt={`Page ${pageNum}`}
+                                      onClick={() => setLightbox({ url, page: pageNum })}
+                                      className="h-28 w-auto rounded border border-white/20 object-contain
+                                                 bg-white/5 cursor-zoom-in hover:border-white/40 transition-colors"
+                                    />
+                                    <span className="absolute bottom-1 left-1 text-[9px] text-white/70
+                                                     bg-black/60 px-1 py-0.5 rounded leading-none">
+                                      p.{pageNum}
+                                    </span>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                           <div className="px-3.5 py-2.5 whitespace-pre-wrap">
@@ -738,6 +744,32 @@ export default function ConceptEditorPage() {
                     onClose={() => setPickerOpen(false)}
                     onAttach={pages => { setSelectedPages(pages); setPickerOpen(false); }}
                   />
+                )}
+
+                {/* Page image lightbox */}
+                {lightbox && (
+                  <div
+                    className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+                    onClick={() => setLightbox(null)}
+                  >
+                    <div className="relative max-w-[90vw] max-h-[90vh] flex flex-col items-center gap-2"
+                      onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-between w-full px-1">
+                        <span className="text-white/60 text-xs font-medium">Page {lightbox.page}</span>
+                        <button onClick={() => setLightbox(null)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg
+                                     text-white/40 hover:text-white/80 hover:bg-white/10 transition-colors">
+                          <X size={15} />
+                        </button>
+                      </div>
+                      <img
+                        src={lightbox.url}
+                        alt={`Page ${lightbox.page}`}
+                        className="max-w-[90vw] max-h-[85vh] rounded-lg object-contain shadow-2xl
+                                   border border-white/10"
+                      />
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
