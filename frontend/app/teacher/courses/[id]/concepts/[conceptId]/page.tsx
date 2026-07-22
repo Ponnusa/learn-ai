@@ -412,7 +412,7 @@ export default function ConceptEditorPage() {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMsgs]);
+  }, [chatMsgs.length]); // only scroll on new messages, not on in-place status updates
 
   // When chat history loads (or PDF becomes available), re-render page images for
   // messages that have imagePages stored in DB but no images in local state yet.
