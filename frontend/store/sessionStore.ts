@@ -39,6 +39,12 @@ interface SessionState {
   // ── Conversation list (in-memory only, NOT persisted to localStorage) ─────
   conversations: Conversation[];
 
+  // ── Hydration flag (not persisted) ───────────────────────────────────────
+  // true once Zustand has finished reading localStorage on the client.
+  // Auth guards must wait for this before redirecting, otherwise a refresh
+  // fires the redirect before user is restored from storage.
+  _hasHydrated: boolean;
+
   // ── Actions ────────────────────────────────────────────────────────────────
   setSessionId: (id: string) => void;
   incrementMsg: () => void;
@@ -63,6 +69,7 @@ export const useSessionStore = create<SessionState>()(
       token:                null,
       activeConversationId: null,
       conversations:        [],
+      _hasHydrated:         false,
 
       setSessionId:            (id)    => set({ sessionId: id }),
       incrementMsg:            ()      => set((s) => ({ msgCount:   s.msgCount   + 1 })),
@@ -81,6 +88,7 @@ export const useSessionStore = create<SessionState>()(
     {
       name: 'learnai-session',
       // conversations is large and fetched fresh from the API — don't persist it
+      // _hasHydrated is runtime-only, never persisted
       partialize: (s) => ({
         sessionId:            s.sessionId,
         msgCount:             s.msgCount,
@@ -90,6 +98,9 @@ export const useSessionStore = create<SessionState>()(
         token:                s.token,
         activeConversationId: s.activeConversationId,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state) state._hasHydrated = true;
+      },
     }
   )
 );
