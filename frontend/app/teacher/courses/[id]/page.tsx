@@ -564,6 +564,16 @@ export default function CourseDetailPage() {
                         )}
                       </span>
                     </button>
+                    {unit.chapter_ref && (
+                      <button
+                        onClick={() => router.push(`/teacher/courses/${courseId}/chapters/${unit.chapter_ref}/studio`)}
+                        title="Open Studio"
+                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 text-[10px]
+                                   rounded-lg border border-purple-500/30 text-purple-400 hover:bg-purple-500/10
+                                   transition-all shrink-0">
+                        <Wand2 size={11} /> Studio
+                      </button>
+                    )}
                     <button onClick={() => deleteConcept(unit.id, c.id)}
                       className="opacity-0 group-hover:opacity-100 text-[var(--tx8)] hover:text-red-400
                                  transition-all p-1 shrink-0">
