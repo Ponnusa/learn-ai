@@ -14,7 +14,7 @@ import {
   Scissors, Lightbulb, AlignLeft,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
-import { PDFViewerModal } from '@/components/chat/PDFViewerModal';
+import { ContinuousSnipModal } from '@/components/course/ContinuousSnipModal';
 import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -691,16 +691,11 @@ export default function ConceptEditorPage() {
             </div>
           )}
 
-          {/* PDF snip modal */}
+          {/* PDF snip modal — continuous scroll, drag-to-clip */}
           {snipOpen && pdfFile && (
-            <PDFViewerModal
+            <ContinuousSnipModal
               file={pdfFile}
-              unlimitedPages
               onClose={() => setSnipOpen(false)}
-              onAsk={(question, ctx) => {
-                sendChatMessage(question, ctx.imageDataUrl);
-                setSnipOpen(false);
-              }}
               actions={[
                 {
                   label: 'Pin to chat input',
