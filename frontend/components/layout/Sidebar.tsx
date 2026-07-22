@@ -131,15 +131,18 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     }
   }, [pathname]);
 
-  // ── Auto-expand whichever study-set group contains the active conversation ─
+  // ── Auto-expand only when the parent explicitly selects a conversation ──────
+  // (selectedConversationId is a prop set on user click — NOT from localStorage)
+  // activeConversationId from the store IS persisted, so we intentionally ignore
+  // it here to keep groups collapsed on refresh.
   const activeId = selectedConversationId ?? activeConversationId ?? undefined;
   useEffect(() => {
-    if (!activeId) return;
-    const activeConv = conversations.find(c => c.id === activeId);
+    if (!selectedConversationId) return;
+    const activeConv = conversations.find(c => c.id === selectedConversationId);
     if (activeConv?.study_set_id) {
       setExpandedGroups(prev => new Set([...prev, activeConv.study_set_id!]));
     }
-  }, [activeId, conversations]);
+  }, [selectedConversationId, conversations]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   function handleChatsClick() {
