@@ -388,9 +388,27 @@ async def get_course(course_id: str, authorization: str = Header(...)):
             concepts = await db.fetch("""
                 SELECT cc.id, cc.unit_id, cc.title, cc.description,
                        cc.study_set_id, cc.position, cc.pipeline_status, cc.source,
-                       ss.status AS ss_status
+                       cc.quiz_status, cc.flashcard_status, cc.audio_status, cc.video_status,
+                       ss.status AS ss_status,
+                       COALESCE(chat.msg_count, 0) AS chat_msg_count,
+                       chat.last_msg_at               AS last_activity_at,
+                       COALESCE(blocks.block_count, 0) AS textbook_block_count
                 FROM course_concepts cc
                 LEFT JOIN study_sets ss ON ss.id = cc.study_set_id
+                LEFT JOIN (
+                    SELECT conv.concept_id,
+                           COUNT(m.id)       AS msg_count,
+                           MAX(m.created_at) AS last_msg_at
+                    FROM conversations conv
+                    LEFT JOIN messages m ON m.conversation_id = conv.id
+                    WHERE conv.concept_id IS NOT NULL
+                    GROUP BY conv.concept_id
+                ) chat ON chat.concept_id = cc.id
+                LEFT JOIN (
+                    SELECT concept_id, COUNT(*) AS block_count
+                    FROM concept_content_blocks
+                    GROUP BY concept_id
+                ) blocks ON blocks.concept_id = cc.id
                 WHERE cc.unit_id = ANY($1::uuid[])
                 ORDER BY cc.unit_id, cc.position, cc.created_at
             """, unit_ids)
@@ -408,14 +426,21 @@ async def get_course(course_id: str, authorization: str = Header(...)):
         uid = str(c["unit_id"])
         if uid in concept_map:
             concept_map[uid].append({
-                "id":              str(c["id"]),
-                "title":           c["title"],
-                "description":     c["description"],
-                "study_set_id":    str(c["study_set_id"]) if c["study_set_id"] else None,
-                "ss_status":       c["ss_status"],
-                "position":        c["position"],
-                "pipeline_status": c["pipeline_status"],
-                "source":          c["source"],
+                "id":                   str(c["id"]),
+                "title":                c["title"],
+                "description":          c["description"],
+                "study_set_id":         str(c["study_set_id"]) if c["study_set_id"] else None,
+                "ss_status":            c["ss_status"],
+                "position":             c["position"],
+                "pipeline_status":      c["pipeline_status"],
+                "source":               c["source"],
+                "quiz_status":          c["quiz_status"],
+                "flashcard_status":     c["flashcard_status"],
+                "audio_status":         c["audio_status"],
+                "video_status":         c["video_status"],
+                "chat_msg_count":       int(c["chat_msg_count"] or 0),
+                "last_activity_at":     c["last_activity_at"].isoformat() if c["last_activity_at"] else None,
+                "textbook_block_count": int(c["textbook_block_count"] or 0),
             })
 
     return {

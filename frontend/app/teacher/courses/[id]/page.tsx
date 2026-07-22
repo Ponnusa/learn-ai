@@ -16,6 +16,9 @@ type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
 interface Concept {
   id: string; title: string; description?: string; study_set_id?: string; ss_status?: string;
   pipeline_status?: PipelineStatus; position: number; source?: 'ai' | 'manual';
+  chat_msg_count?: number; last_activity_at?: string | null; textbook_block_count?: number;
+  quiz_status?: string | null; flashcard_status?: string | null;
+  audio_status?: string | null; video_status?: string | null;
 }
 interface Unit    { id: string; title: string; description?: string; position: number; chapter_ref?: string | null; concepts: Concept[]; }
 interface Classroom { id: string; name: string; }
@@ -23,6 +26,30 @@ interface Course  {
   id: string; name: string; description?: string;
   subject?: string; grade?: string; status: string;
   units: Unit[]; classrooms: Classroom[];
+}
+
+function relTime(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (mins < 1)    return 'just now';
+  if (mins < 60)   return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)    return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30)   return `${days}d ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
+function assetBadge(status: string | null | undefined, label: string) {
+  if (!status || status === 'none') return null;
+  const cls =
+    status === 'approved'   ? 'text-green-400' :
+    status === 'ready'      ? 'text-blue-400'  :
+    status === 'failed'     ? 'text-red-400'   : 'text-amber-400';
+  const sym =
+    status === 'approved'   ? '✓' :
+    status === 'ready'      ? '●' :
+    status === 'failed'     ? '✗' : '…';
+  return <span className={`text-[10px] ${cls}`}>{label} {sym}</span>;
 }
 
 export default function CourseDetailPage() {
@@ -563,6 +590,30 @@ export default function CourseDetailPage() {
                             : <span className="text-[var(--tx8)]">{t.teacher.statusClickEdit}</span>
                         )}
                       </span>
+                      {/* Activity strip */}
+                      {c.chat_msg_count !== undefined && (
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className={`flex items-center gap-0.5 text-[10px] ${
+                            (c.chat_msg_count ?? 0) > 0 ? 'text-violet-400' : 'text-[var(--tx8)]'
+                          }`}>
+                            <Wand2 size={8} />
+                            {(c.chat_msg_count ?? 0) > 0
+                              ? `${c.chat_msg_count} msg${c.chat_msg_count !== 1 ? 's' : ''}`
+                              : '—'}
+                          </span>
+                          {assetBadge(c.video_status, 'Video')}
+                          {assetBadge(c.audio_status, 'Audio')}
+                          {assetBadge(c.quiz_status,  'Quiz')}
+                          {(c.textbook_block_count ?? 0) > 0 && (
+                            <span className="text-[10px] text-purple-400">
+                              {c.textbook_block_count} block{c.textbook_block_count !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {c.last_activity_at && (
+                            <span className="text-[10px] text-[var(--tx8)]">{relTime(c.last_activity_at)}</span>
+                          )}
+                        </div>
+                      )}
                     </button>
                     {unit.chapter_ref && (
                       <button
