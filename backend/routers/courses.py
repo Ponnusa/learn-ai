@@ -699,8 +699,9 @@ async def summarize_concept(
 # ── Per-concept authoring chat (teacher-only — never shown to students) ───────
 
 class ConceptChatMessage(BaseModel):
-    message:        str
-    image_data_url: str | None = None  # PNG/JPEG data URL from PDF clip or page capture
+    message:         str
+    image_data_url:  str | None       = None  # legacy single image
+    image_data_urls: list[str] | None = None  # multiple PDF pages as context
 
 
 @router.get("/concepts/{concept_id}/concept-chat")
@@ -845,16 +846,18 @@ Keep each suggestion under 8 words. Do not mention this block in your visible re
     for h in history:
         ai_messages.append({"role": h["role"], "content": h["content"]})
 
-    # Prefer a clip/page capture sent with this message; fall back to the
-    # concept's stored source image (e.g. original cropped diagram).
-    user_content: object = req.message
-    image_url_str: str | None = req.image_data_url
-    if not image_url_str and image_row:
+    # Build image list: explicit page URLs first, then legacy single URL, then stored concept image.
+    image_urls: list[str] = list(req.image_data_urls or [])
+    if not image_urls and req.image_data_url:
+        image_urls = [req.image_data_url]
+    if not image_urls and image_row:
         b64 = base64.b64encode(bytes(image_row["data"])).decode("utf-8")
-        image_url_str = f"data:{image_row['mime_type']};base64,{b64}"
-    if image_url_str:
+        image_urls = [f"data:{image_row['mime_type']};base64,{b64}"]
+
+    user_content: object = req.message
+    if image_urls:
         user_content = [
-            {"type": "image_url", "image_url": {"url": image_url_str}},
+            *[{"type": "image_url", "image_url": {"url": u}} for u in image_urls],
             {"type": "text", "text": req.message},
         ]
     ai_messages.append({"role": "user", "content": user_content})

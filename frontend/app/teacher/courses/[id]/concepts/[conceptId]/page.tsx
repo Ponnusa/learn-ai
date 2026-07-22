@@ -10,11 +10,10 @@ import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, Plus, FileText,
   CheckCircle, Zap, HelpCircle, Layers,
-  RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X,
-  Scissors, Lightbulb, AlignLeft,
+  RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X, FileImage,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
-import { ContinuousSnipModal } from '@/components/course/ContinuousSnipModal';
+import { PDFThumbnailStrip, PDFThumbnailStripRef } from '@/components/course/PDFThumbnailStrip';
 import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -84,12 +83,12 @@ export default function ConceptEditorPage() {
   const [showLeft,   setShowLeft]   = useState(true);
 
 
-  const [pdfUrl,    setPdfUrl]    = useState<string | null>(null);
-  const [pdfFile,   setPdfFile]   = useState<File | null>(null);
-  const [pdfReady,  setPdfReady]  = useState(false);
-  const [snipOpen,  setSnipOpen]  = useState(false);
-  const [pinnedCtx, setPinnedCtx] = useState<{ imageDataUrl?: string; text?: string; pageNum: number } | null>(null);
-  const pdfRef = useRef<string | null>(null);
+  const [pdfUrl,        setPdfUrl]        = useState<string | null>(null);
+  const [pdfFile,       setPdfFile]       = useState<File | null>(null);
+  const [pdfReady,      setPdfReady]      = useState(false);
+  const [selectedPages, setSelectedPages] = useState<number[]>([]);
+  const pdfRef      = useRef<string | null>(null);
+  const thumbStrip  = useRef<PDFThumbnailStripRef>(null);
 
   const [uploading,  setUploading]  = useState(false);
   const fileInputRef    = useRef<HTMLInputElement>(null);
@@ -225,22 +224,24 @@ export default function ConceptEditorPage() {
     setResources(prev => prev.filter(r => r.id !== id));
   }
 
-  async function sendChatMessage(override?: string, imageDataUrl?: string) {
+  async function sendChatMessage(override?: string) {
     const message = (override ?? chatInput).trim();
     if (!message || chatSending) return;
-    // Resolve image: explicit arg first, then pinned context
-    const imgUrl = imageDataUrl ?? pinnedCtx?.imageDataUrl ?? undefined;
-    // For text context, prepend to message
-    const fullMessage = pinnedCtx?.text
-      ? `[Page ${pinnedCtx.pageNum} context]\n${pinnedCtx.text}\n\n${message}`
-      : message;
+    const pages = selectedPages.slice();
     setChatInput('');
-    setPinnedCtx(null);
+    setSelectedPages([]);
     setChatMsgs(prev => [...prev, { id: `local-${Date.now()}`, role: 'user', content: message, created_at: new Date().toISOString() }]);
     setChatSending(true);
     try {
-      const body: Record<string, unknown> = { message: fullMessage };
-      if (imgUrl) body.image_data_url = imgUrl;
+      // Render selected pages to images (reuses the already-loaded PDF.js doc in the strip)
+      const imageDataUrls: string[] = [];
+      if (pages.length > 0 && thumbStrip.current) {
+        for (const pg of pages) {
+          try { imageDataUrls.push(await thumbStrip.current.renderPage(pg)); } catch { /* skip */ }
+        }
+      }
+      const body: Record<string, unknown> = { message };
+      if (imageDataUrls.length > 0) body.image_data_urls = imageDataUrls;
       const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat`, {
         method: 'POST', headers: jsonH, body: JSON.stringify(body),
       });
@@ -467,11 +468,31 @@ export default function ConceptEditorPage() {
   return (
     <div className="h-full flex overflow-hidden">
 
-      {/* ── Left panel: Chapter PDF ── */}
-      <div className={`border-r border-[var(--bd)] flex flex-col overflow-hidden transition-all duration-200 ${showLeft ? 'w-2/5' : 'w-0'}`}>
+      {/* ── Left panel: thumbnail strip + PDF iframe ── */}
+      <div className={`border-r border-[var(--bd)] flex overflow-hidden transition-all duration-200 ${showLeft ? 'w-2/5' : 'w-0'}`}>
         {showLeft && (
-          pdfUrl
-            ? <iframe src={pdfUrl} className="flex-1 w-full" title="Chapter PDF" />
+          pdfUrl && pdfFile
+            ? <>
+                {/* Thumbnail strip — click pages to select as context */}
+                <div className="w-[100px] shrink-0 overflow-y-auto bg-[var(--bg2)] border-r border-[var(--bd)]">
+                  <div className="sticky top-0 z-10 px-2 py-1.5 bg-[var(--bg2)] border-b border-[var(--bd)]">
+                    <p className="text-[9px] text-[var(--tx8)] text-center leading-tight">
+                      Click pages<br />to add context
+                    </p>
+                  </div>
+                  <PDFThumbnailStrip
+                    ref={thumbStrip}
+                    file={pdfFile}
+                    selectedPages={selectedPages}
+                    onTogglePage={n => setSelectedPages(prev =>
+                      prev.includes(n) ? prev.filter(p => p !== n) : [...prev, n]
+                    )}
+                    maxSelect={3}
+                  />
+                </div>
+                {/* PDF continuous scroll */}
+                <iframe src={pdfUrl} className="flex-1 h-full" title="Chapter PDF" />
+              </>
             : <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)]">
                 {!pdfReady
                   ? <Loader2 size={20} className="animate-spin text-purple-400" />
@@ -647,18 +668,15 @@ export default function ConceptEditorPage() {
                   ))}
                 </div>
 
-                {/* Pinned PDF context preview */}
-                {pinnedCtx && (
-                  <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--bd)] bg-purple-500/5">
-                    {pinnedCtx.imageDataUrl && (
-                      <img src={pinnedCtx.imageDataUrl} alt="PDF clip"
-                        className="h-10 w-16 object-cover rounded border border-[var(--bd)] shrink-0" />
-                    )}
-                    <span className="text-[11px] text-purple-400 flex-1 truncate">
-                      {pinnedCtx.pageNum ? `Page ${pinnedCtx.pageNum} clip` : 'PDF clip'}
-                      {pinnedCtx.text && ` — ${pinnedCtx.text.slice(0, 60)}…`}
+                {/* Selected pages context badge */}
+                {selectedPages.length > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--bd)] bg-violet-500/5">
+                    <FileImage size={12} className="text-violet-400 shrink-0" />
+                    <span className="text-[11px] text-violet-400 flex-1">
+                      Page{selectedPages.length > 1 ? 's' : ''}{' '}
+                      {selectedPages.slice().sort((a, b) => a - b).join(', ')} as context
                     </span>
-                    <button onClick={() => setPinnedCtx(null)}
+                    <button onClick={() => setSelectedPages([])}
                       className="text-[var(--tx8)] hover:text-red-400 transition-colors shrink-0 p-0.5">
                       <X size={12} />
                     </button>
@@ -667,15 +685,6 @@ export default function ConceptEditorPage() {
 
                 <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
                   className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">
-                  {pdfFile && (
-                    <button type="button" onClick={() => setSnipOpen(true)}
-                      title="Clip a region from the PDF"
-                      className="flex items-center justify-center w-8 h-8 rounded-lg
-                                 bg-[var(--ov1)] hover:bg-purple-500/15 text-[var(--tx7)]
-                                 hover:text-purple-400 transition-colors shrink-0">
-                      <Scissors size={13} />
-                    </button>
-                  )}
                   <input value={chatInput} onChange={e => setChatInput(e.target.value)}
                     placeholder={t.teacher.chatPlaceholder}
                     disabled={chatSending}
@@ -691,48 +700,6 @@ export default function ConceptEditorPage() {
             </div>
           )}
 
-          {/* PDF snip modal — continuous scroll, drag-to-clip */}
-          {snipOpen && pdfFile && (
-            <ContinuousSnipModal
-              file={pdfFile}
-              onClose={() => setSnipOpen(false)}
-              actions={[
-                {
-                  label: 'Pin to chat input',
-                  icon: Scissors,
-                  primary: true,
-                  onClick: (url) => {
-                    setPinnedCtx({ imageDataUrl: url, pageNum: 0 });
-                    setSnipOpen(false);
-                  },
-                },
-                {
-                  label: 'Explain this',
-                  icon: Lightbulb,
-                  onClick: (url) => {
-                    sendChatMessage('Explain this and write a clear student-friendly explanation', url);
-                    setSnipOpen(false);
-                  },
-                },
-                {
-                  label: 'Write content from this',
-                  icon: Wand2,
-                  onClick: (url) => {
-                    sendChatMessage('Use this as the basis to draft student-facing textbook content', url);
-                    setSnipOpen(false);
-                  },
-                },
-                {
-                  label: 'Summarize',
-                  icon: AlignLeft,
-                  onClick: (url) => {
-                    sendChatMessage('Summarize this concisely', url);
-                    setSnipOpen(false);
-                  },
-                },
-              ]}
-            />
-          )}
 
           {/* ── Resources ── */}
           {activeTab === 'resources' && (
