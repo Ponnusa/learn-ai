@@ -48,7 +48,7 @@ interface Assets {
   audio_status: AssetStatus; video_status: AssetStatus;
   video_error?: string; video_stage?: string;
   has_audio: boolean;
-  audio_url?: string; video_url?: string;
+  audio_url?: string; video_url?: string; video_job_id?: number;
   audio_duration_sec?: number;
   quiz: QuizQuestion[]; flashcards: Flashcard[];
 }
@@ -111,8 +111,10 @@ export default function ConceptEditorPage() {
   const [generatingQuiz,  setGeneratingQuiz]  = useState(false);
   const [generatingCards, setGeneratingCards] = useState(false);
   const [generatingAudio, setGeneratingAudio] = useState(false);
-  const [generatingVideo, setGeneratingVideo] = useState(false);
-  const [approvingA,      setApprovingA]      = useState<Record<string, boolean>>({});
+  const [generatingVideo,   setGeneratingVideo]   = useState(false);
+  const [approvingA,        setApprovingA]        = useState<Record<string, boolean>>({});
+  const [addingToTextbook,  setAddingToTextbook]  = useState<'video' | 'audio' | null>(null);
+  const [addedToTextbook,   setAddedToTextbook]   = useState<Set<string>>(new Set());
 
   const [pipelinePolling, setPipelinePolling] = useState(false);
   const [assetPolling,    setAssetPolling]    = useState(false);
@@ -425,6 +427,42 @@ export default function ConceptEditorPage() {
   async function clearAsset(type: 'quiz' | 'flashcards') {
     await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/${type}`, { method: 'DELETE', headers: authH });
     await loadAssets();
+  }
+
+  async function addVideoToTextbook() {
+    if (!assets?.video_job_id) return;
+    setAddingToTextbook('video');
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`, {
+        method: 'POST', headers: jsonH,
+        body: JSON.stringify({
+          type:     'video',
+          title:    (concept?.title ?? 'Concept') + ' — Video',
+          video_id: assets.video_job_id,
+        }),
+      });
+      if (res.ok) setAddedToTextbook(prev => new Set([...prev, 'video']));
+    } catch { /* ignore */ } finally {
+      setAddingToTextbook(null);
+    }
+  }
+
+  async function addAudioToTextbook() {
+    if (!assets?.audio_url) return;
+    setAddingToTextbook('audio');
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`, {
+        method: 'POST', headers: jsonH,
+        body: JSON.stringify({
+          type:  'audio',
+          title: (concept?.title ?? 'Concept') + ' — Audio narration',
+          body:  `${API_BASE}${assets.audio_url}`,
+        }),
+      });
+      if (res.ok) setAddedToTextbook(prev => new Set([...prev, 'audio']));
+    } catch { /* ignore */ } finally {
+      setAddingToTextbook(null);
+    }
   }
 
   async function approveAsset(type: 'quiz' | 'flashcards' | 'audio' | 'video') {
@@ -871,6 +909,18 @@ export default function ConceptEditorPage() {
                             <p className="text-[var(--tx8)] text-xs mt-1.5">{tF(t.teacher.audioFromTranscript, { min: Math.round(assets.audio_duration_sec / 60) })}</p>
                           )}
                         </div>
+                        <button
+                          onClick={addAudioToTextbook}
+                          disabled={!!addingToTextbook || addedToTextbook.has('audio')}
+                          className="mt-2 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
+                                     text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all
+                                     disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {addingToTextbook === 'audio' ? <Loader2 size={11} className="animate-spin" /> :
+                           addedToTextbook.has('audio') ? <Check size={11} className="text-green-400" /> :
+                           <LayoutList size={11} />}
+                          {addedToTextbook.has('audio') ? 'Added to Textbook' : '→ Add to Textbook'}
+                        </button>
                       </div>
                     )}
                   </AssetSection>
@@ -899,9 +949,21 @@ export default function ConceptEditorPage() {
                         <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl overflow-hidden">
                           <video controls src={`${API_BASE}${assets.video_url}`} className="w-full aspect-video" />
                         </div>
-                        <p className="text-[var(--tx8)] text-xs mt-2">
-                          {t.teacher.animatedWithManim}
-                        </p>
+                        <div className="flex items-center gap-3 mt-2">
+                          <p className="text-[var(--tx8)] text-xs flex-1">{t.teacher.animatedWithManim}</p>
+                          <button
+                            onClick={addVideoToTextbook}
+                            disabled={!!addingToTextbook || addedToTextbook.has('video')}
+                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
+                                       text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all
+                                       disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                          >
+                            {addingToTextbook === 'video' ? <Loader2 size={11} className="animate-spin" /> :
+                             addedToTextbook.has('video') ? <Check size={11} className="text-green-400" /> :
+                             <LayoutList size={11} />}
+                            {addedToTextbook.has('video') ? 'Added to Textbook' : '→ Add to Textbook'}
+                          </button>
+                        </div>
                       </div>
                     )}
                     {assets.video_status === 'failed' && assets.video_error && (

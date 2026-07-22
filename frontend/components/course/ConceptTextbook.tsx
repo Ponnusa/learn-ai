@@ -9,7 +9,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Loader2, Video, Trash2, GripVertical } from 'lucide-react';
+import { Loader2, Video, Volume2, Trash2 } from 'lucide-react';
 import { ContentBlock, listContentBlocks, deleteContentBlock } from '@/lib/api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -80,6 +80,28 @@ function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: s
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function AudioBlock({ block, onDelete }: { block: ContentBlock; onDelete?: () => void }) {
+  return (
+    <div className="rounded-xl border border-[var(--bd)] overflow-hidden">
+      {block.title && (
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
+          <span className="text-sm font-medium text-[var(--tx2)] flex items-center gap-2">
+            <Volume2 size={14} className="text-blue-400" /> {block.title}
+          </span>
+          {onDelete && (
+            <button onClick={onDelete} className="text-[var(--tx8)] hover:text-red-400 transition-colors p-0.5">
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      )}
+      <div className="px-4 py-3">
+        <audio controls src={block.body || ''} className="w-full" />
+      </div>
     </div>
   );
 }
@@ -164,6 +186,11 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
             <VideoBlock
               block={block}
               token={token}
+              onDelete={editable ? () => handleDelete(block.id) : undefined}
+            />
+          ) : block.type === 'audio' ? (
+            <AudioBlock
+              block={block}
               onDelete={editable ? () => handleDelete(block.id) : undefined}
             />
           ) : (

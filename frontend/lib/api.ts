@@ -515,7 +515,7 @@ export async function fetchMaterialPdf(
 
 export interface ContentBlock {
   id:           string;
-  type:         'text' | 'video';
+  type:         'text' | 'video' | 'audio';
   position:     number;
   title:        string | null;
   body:         string | null;

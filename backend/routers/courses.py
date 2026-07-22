@@ -3274,6 +3274,7 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
         "video_error":        video_error,
         "video_stage":        video_stage,
         "video_url":          f"/api/courses/concepts/{concept_id}/video" if video_status in ("ready", "approved") else None,
+        "video_job_id":       concept["video_job_id"],
         "quiz": [
             {
                 "id":          str(q["id"]),
