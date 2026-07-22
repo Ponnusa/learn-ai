@@ -11,9 +11,10 @@ import {
   Loader2, Check, Plus, FileText,
   CheckCircle, Zap, HelpCircle, Layers,
   RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X,
+  Scissors, Lightbulb, AlignLeft,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
-import { StudyPDFPane, PinnedCtx } from '@/components/study/StudyPDFPane';
+import { PDFViewerModal } from '@/components/chat/PDFViewerModal';
 import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -83,9 +84,12 @@ export default function ConceptEditorPage() {
   const [showLeft,   setShowLeft]   = useState(true);
 
 
-  const [pdfFile,  setPdfFile]  = useState<File | null>(null);
-  const [pdfReady, setPdfReady] = useState(false);
-  const [pinnedCtx, setPinnedCtx] = useState<PinnedCtx | null>(null);
+  const [pdfUrl,    setPdfUrl]    = useState<string | null>(null);
+  const [pdfFile,   setPdfFile]   = useState<File | null>(null);
+  const [pdfReady,  setPdfReady]  = useState(false);
+  const [snipOpen,  setSnipOpen]  = useState(false);
+  const [pinnedCtx, setPinnedCtx] = useState<{ imageDataUrl?: string; text?: string; pageNum: number } | null>(null);
+  const pdfRef = useRef<string | null>(null);
 
   const [uploading,  setUploading]  = useState(false);
   const fileInputRef    = useRef<HTMLInputElement>(null);
@@ -142,6 +146,10 @@ export default function ConceptEditorPage() {
       }
 
       if (blob) {
+        if (pdfRef.current) URL.revokeObjectURL(pdfRef.current);
+        const url = URL.createObjectURL(blob);
+        pdfRef.current = url;
+        setPdfUrl(url);
         setPdfFile(new File([blob], 'chapter.pdf', { type: 'application/pdf' }));
       }
     } finally { setPdfReady(true); }
@@ -305,6 +313,7 @@ export default function ConceptEditorPage() {
       setLoading(false);
     })();
 
+    return () => { if (pdfRef.current) URL.revokeObjectURL(pdfRef.current); };
   }, [user, conceptId]);
 
   // Load assets when Assets tab first opens
@@ -461,19 +470,8 @@ export default function ConceptEditorPage() {
       {/* ── Left panel: Chapter PDF ── */}
       <div className={`border-r border-[var(--bd)] flex flex-col overflow-hidden transition-all duration-200 ${showLeft ? 'w-2/5' : 'w-0'}`}>
         {showLeft && (
-          pdfFile
-            ? <StudyPDFPane
-                file={pdfFile}
-                onClose={() => setShowLeft(false)}
-                onFire={(prompt, imageDataUrl) => {
-                  setActiveTab('studio');
-                  sendChatMessage(prompt, imageDataUrl);
-                }}
-                onPin={ctx => {
-                  setPinnedCtx(ctx);
-                  setActiveTab('studio');
-                }}
-              />
+          pdfUrl
+            ? <iframe src={pdfUrl} className="flex-1 w-full" title="Chapter PDF" />
             : <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)]">
                 {!pdfReady
                   ? <Loader2 size={20} className="animate-spin text-purple-400" />
@@ -657,7 +655,7 @@ export default function ConceptEditorPage() {
                         className="h-10 w-16 object-cover rounded border border-[var(--bd)] shrink-0" />
                     )}
                     <span className="text-[11px] text-purple-400 flex-1 truncate">
-                      {pinnedCtx.type === 'region' ? 'Region clip' : `Page ${pinnedCtx.pageNum}`}
+                      {pinnedCtx.pageNum ? `Page ${pinnedCtx.pageNum} clip` : 'PDF clip'}
                       {pinnedCtx.text && ` — ${pinnedCtx.text.slice(0, 60)}…`}
                     </span>
                     <button onClick={() => setPinnedCtx(null)}
@@ -669,6 +667,15 @@ export default function ConceptEditorPage() {
 
                 <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
                   className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">
+                  {pdfFile && (
+                    <button type="button" onClick={() => setSnipOpen(true)}
+                      title="Clip a region from the PDF"
+                      className="flex items-center justify-center w-8 h-8 rounded-lg
+                                 bg-[var(--ov1)] hover:bg-purple-500/15 text-[var(--tx7)]
+                                 hover:text-purple-400 transition-colors shrink-0">
+                      <Scissors size={13} />
+                    </button>
+                  )}
                   <input value={chatInput} onChange={e => setChatInput(e.target.value)}
                     placeholder={t.teacher.chatPlaceholder}
                     disabled={chatSending}
@@ -682,6 +689,54 @@ export default function ConceptEditorPage() {
                 </form>
               </div>
             </div>
+          )}
+
+          {/* PDF snip modal */}
+          {snipOpen && pdfFile && (
+            <PDFViewerModal
+              file={pdfFile}
+              unlimitedPages
+              onClose={() => setSnipOpen(false)}
+              onAsk={(question, ctx) => {
+                sendChatMessage(question, ctx.imageDataUrl);
+                setSnipOpen(false);
+              }}
+              actions={[
+                {
+                  label: 'Pin to chat input',
+                  icon: Scissors,
+                  primary: true,
+                  onClick: (url) => {
+                    setPinnedCtx({ imageDataUrl: url, pageNum: 0 });
+                    setSnipOpen(false);
+                  },
+                },
+                {
+                  label: 'Explain this',
+                  icon: Lightbulb,
+                  onClick: (url) => {
+                    sendChatMessage('Explain this and write a clear student-friendly explanation', url);
+                    setSnipOpen(false);
+                  },
+                },
+                {
+                  label: 'Write content from this',
+                  icon: Wand2,
+                  onClick: (url) => {
+                    sendChatMessage('Use this as the basis to draft student-facing textbook content', url);
+                    setSnipOpen(false);
+                  },
+                },
+                {
+                  label: 'Summarize',
+                  icon: AlignLeft,
+                  onClick: (url) => {
+                    sendChatMessage('Summarize this concisely', url);
+                    setSnipOpen(false);
+                  },
+                },
+              ]}
+            />
           )}
 
           {/* ── Resources ── */}
