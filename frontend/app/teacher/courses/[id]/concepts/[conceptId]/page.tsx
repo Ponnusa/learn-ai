@@ -125,7 +125,8 @@ export default function ConceptEditorPage() {
   const [chatLoaded,  setChatLoaded]  = useState(false);
   const [chatInput,   setChatInput]   = useState('');
   const [chatSending, setChatSending] = useState(false);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatEndRef     = useRef<HTMLDivElement>(null);
+  const renderedIdsRef = useRef<Set<string>>(new Set());
 
   const authH = { Authorization: `Bearer ${token}` };
   const jsonH = { ...authH, 'Content-Type': 'application/json' };
@@ -263,7 +264,10 @@ export default function ConceptEditorPage() {
         created_at: new Date().toISOString(),
       }]);
       const body: Record<string, unknown> = { message };
-      if (imageDataUrls.length > 0) body.image_data_urls = imageDataUrls;
+      if (imageDataUrls.length > 0) {
+        body.image_data_urls  = imageDataUrls;
+        body.image_page_nums  = pages;  // persisted in DB for display on reload
+      }
       const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat`, {
         method: 'POST', headers: jsonH, body: JSON.stringify(body),
       });
@@ -357,6 +361,41 @@ export default function ConceptEditorPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMsgs]);
+
+  // When chat history loads (or PDF becomes available), re-render page images for
+  // messages that have imagePages stored in DB but no images in local state yet.
+  useEffect(() => {
+    if (!pdfFile) return;
+    const toRender = chatMsgs.filter(
+      m => m.imagePages?.length && !m.images && !renderedIdsRef.current.has(m.id),
+    );
+    if (!toRender.length) return;
+    let cancelled = false;
+    (async () => {
+      // Ensure PDF.js is loaded (may not be if picker was never opened this session)
+      if (!(window as any).pdfjsLib) {
+        try {
+          await new Promise<void>((res, rej) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+            s.onload = () => res(); s.onerror = () => rej();
+            document.head.appendChild(s);
+          });
+          (window as any).pdfjsLib.GlobalWorkerOptions.workerSrc =
+            'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        } catch { return; }
+      }
+      for (const msg of toRender) {
+        if (cancelled) break;
+        renderedIdsRef.current.add(msg.id);
+        const urls = await renderSelectedPageUrls(msg.imagePages!);
+        if (!cancelled && urls.length) {
+          setChatMsgs(prev => prev.map(m => m.id === msg.id ? { ...m, images: urls } : m));
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [chatMsgs.length, pdfFile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll while any asset is generating
   useEffect(() => {

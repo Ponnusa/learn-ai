@@ -699,9 +699,10 @@ async def summarize_concept(
 # ── Per-concept authoring chat (teacher-only — never shown to students) ───────
 
 class ConceptChatMessage(BaseModel):
-    message:         str
-    image_data_url:  str | None       = None  # legacy single image
-    image_data_urls: list[str] | None = None  # multiple PDF pages as context
+    message:          str
+    image_data_url:   str | None       = None  # legacy single image
+    image_data_urls:  list[str] | None = None  # multiple PDF pages as context
+    image_page_nums:  list[int] | None = None  # page numbers, stored for display on reload
 
 
 @router.get("/concepts/{concept_id}/concept-chat")
@@ -720,20 +721,25 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
     import json as _json
     result = []
     for r in rows:
-        suggestions = []
+        suggestions  = []
+        image_pages: list[int] = []
         if r["metadata"]:
             try:
                 meta = r["metadata"] if isinstance(r["metadata"], dict) else _json.loads(r["metadata"])
-                suggestions = meta.get("suggestions", [])
+                suggestions  = meta.get("suggestions", [])
+                image_pages  = meta.get("image_page_nums", [])
             except Exception:
                 pass
-        result.append({
+        entry: dict = {
             "id":          str(r["id"]),
             "role":        r["role"],
             "content":     r["content"],
             "suggestions": suggestions,
             "created_at":  r["created_at"].isoformat(),
-        })
+        }
+        if image_pages:
+            entry["imagePages"] = image_pages
+        result.append(entry)
     return result
 
 
@@ -788,9 +794,13 @@ async def send_concept_chat_message(
             WHERE concept_id = $1::uuid ORDER BY position LIMIT 1
         """, concept_id)
 
+        import json as _json
+        _user_meta = {}
+        if req.image_page_nums:
+            _user_meta["image_page_nums"] = req.image_page_nums
         await db.execute(
-            "INSERT INTO messages (conversation_id, role, content) VALUES ($1::uuid, 'user', $2)",
-            conv_id, req.message,
+            "INSERT INTO messages (conversation_id, role, content, metadata) VALUES ($1::uuid, 'user', $2, $3::jsonb)",
+            conv_id, req.message, _json.dumps(_user_meta) if _user_meta else None,
         )
 
     # Ground in the chapter's full text if available, else just the concept's own excerpt
