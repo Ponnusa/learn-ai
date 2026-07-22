@@ -34,6 +34,7 @@ interface ChatMsg {
   suggestions?: string[]; created_at: string;
   images?: string[]; imagePages?: number[];
   videoBlockId?: string;
+  videoSourceMsgId?: string;
   videoStatus?: string;
   videoUrl?: string;
   videoError?: string;
@@ -799,18 +800,21 @@ export default function ConceptEditorPage() {
                                     : addedMsgBlocks.has(m.id) ? <Check size={11} /> : <LayoutList size={11} />}
                                   {addedMsgBlocks.has(m.id) ? 'Added' : '+ Textbook'}
                                 </button>
-                                <button
-                                  onClick={() => addMsgAsVideo(m.id)}
-                                  disabled={generatingVideoMsg === m.id}
-                                  title="Generate an animated video from this content and add it to Textbook"
-                                  className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
-                                             bg-blue-600/15 hover:bg-blue-600/25 text-blue-400
-                                             transition-all disabled:opacity-50">
-                                  {generatingVideoMsg === m.id
-                                    ? <Loader2 size={11} className="animate-spin" />
-                                    : <Video size={11} />}
-                                  {generatingVideoMsg === m.id ? 'Starting…' : '+ Video'}
-                                </button>
+                                {/* Hide "+ Video" once a non-failed video card exists for this message */}
+                                {!chatMsgs.some(v => v.videoSourceMsgId === m.id && v.videoStatus !== 'failed') && (
+                                  <button
+                                    onClick={() => addMsgAsVideo(m.id)}
+                                    disabled={generatingVideoMsg === m.id}
+                                    title="Generate an animated video from this content and add it to Textbook"
+                                    className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
+                                               bg-blue-600/15 hover:bg-blue-600/25 text-blue-400
+                                               transition-all disabled:opacity-50">
+                                    {generatingVideoMsg === m.id
+                                      ? <Loader2 size={11} className="animate-spin" />
+                                      : <Video size={11} />}
+                                    {generatingVideoMsg === m.id ? 'Starting…' : '+ Video'}
+                                  </button>
+                                )}
                               </div>
                             </div>
                           )}

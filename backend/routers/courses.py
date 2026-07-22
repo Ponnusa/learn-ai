@@ -724,13 +724,15 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
         suggestions    = []
         image_pages:   list[int] = []
         video_block_id = ""
+        video_source_id = ""
         if r["metadata"]:
             try:
                 meta = r["metadata"] if isinstance(r["metadata"], dict) else _json.loads(r["metadata"])
                 suggestions    = meta.get("suggestions", [])
                 image_pages    = meta.get("image_page_nums", [])
                 if meta.get("content_type") == "video":
-                    video_block_id = meta.get("block_id", "")
+                    video_block_id    = meta.get("block_id", "")
+                    video_source_id   = meta.get("source_msg_id", "")
             except Exception:
                 pass
         entry: dict = {
@@ -744,6 +746,8 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
             entry["imagePages"] = image_pages
         if video_block_id:
             entry["videoBlockId"] = video_block_id
+        if video_source_id:
+            entry["videoSourceMsgId"] = video_source_id
         result.append(entry)
     return result
 
@@ -1096,12 +1100,13 @@ async def generate_chat_video_from_message(
 
     return {
         "id":           str(card["id"]),
-        "role":         "assistant",
-        "content":      "",
-        "suggestions":  [],
-        "created_at":   card["created_at"].isoformat(),
-        "videoBlockId": block_id,
-        "videoStatus":  "pending",
+        "role":             "assistant",
+        "content":          "",
+        "suggestions":      [],
+        "created_at":       card["created_at"].isoformat(),
+        "videoBlockId":     block_id,
+        "videoStatus":      "pending",
+        "videoSourceMsgId": source_msg_id,
     }
 
 
