@@ -482,10 +482,21 @@ export default function ConceptEditorPage() {
               className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm transition-colors">
               <ArrowLeft size={15} /> {t.teacher.backToCourse}
             </button>
-            <button onClick={() => setShowLeft(p => !p)}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] transition-colors">
-              <BookOpen size={13} />{showLeft ? t.teacher.hidePanel : t.teacher.showPanel}
-            </button>
+            <div className="flex items-center gap-2">
+              {concept.chapter_ref && (
+                <button
+                  onClick={() => router.push(`/teacher/courses/${courseId}/chapters/${concept.chapter_ref}/studio`)}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-500/30
+                             text-purple-400 hover:bg-purple-500/10 transition-all"
+                >
+                  <Sparkles size={12} /> Studio
+                </button>
+              )}
+              <button onClick={() => setShowLeft(p => !p)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] transition-colors">
+                <BookOpen size={13} />{showLeft ? t.teacher.hidePanel : t.teacher.showPanel}
+              </button>
+            </div>
           </div>
 
           {/* Title + pipeline badge */}
