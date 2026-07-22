@@ -793,7 +793,7 @@ async def send_concept_chat_message(
     concept_lang_note = ""
     if teacher_language in _LANGUAGE_NAMES:
         lang_name = _LANGUAGE_NAMES[teacher_language]
-        concept_lang_note = f"\n\nWrite all content in {lang_name}."
+        concept_lang_note = f"\n\nIMPORTANT: Write ALL content in {lang_name}. Do not use English."
 
     system_prompt = f"""You are helping a teacher draft and refine the student-facing explanation for one
 concept in their course. This conversation is teacher-only — students never see it.
@@ -1070,7 +1070,7 @@ async def studio_chat(
     teacher_language = teacher_lang or 'en'
     lang_note = ""
     if teacher_language in _LANGUAGE_NAMES:
-        lang_note = f"\n\nWrite all content in {_LANGUAGE_NAMES[teacher_language]}."
+        lang_note = f"\n\nIMPORTANT: Write ALL content in {_LANGUAGE_NAMES[teacher_language]}. Do not use English."
 
     system_prompt = f"""You are helping a teacher create educational content for their course. You have access to the full chapter text, and optionally a cropped region from the PDF that the teacher has highlighted.
 
