@@ -660,5 +660,12 @@ export const sv: Translation = {
     colStudent: 'Elev',
     colVisited: 'Besökta',
     colAvgQuiz: 'Snitt quiz',
+    studioGenerateTitle: 'Skapa ett första utkast?',
+    studioGenerateDesc: 'Jag skriver en sammanfattning och ett transkript för detta begrepp baserat på källmaterialet.',
+    studioGenerateBtn: 'Skapa första utkast',
+    studioFirstDraftMsg: 'Skriv en tydlig, elevvänlig förklaring av detta begrepp med ett ### SUMMARY- och ett ### TRANSCRIPT-avsnitt.',
+    removeFromTextbook: 'Ta bort från läroboken',
+    viewInTextbook: 'Visa i läroboken',
+    addToTextbook: 'Lägg till i läroboken',
   },
 };

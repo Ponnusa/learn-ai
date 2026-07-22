@@ -710,24 +710,22 @@ export default function ConceptEditorPage() {
                         <Wand2 size={18} className="text-purple-400" />
                       </div>
                       <div>
-                        <p className="text-[var(--tx2)] text-sm font-medium mb-1">Generate a first draft?</p>
-                        <p className="text-[var(--tx7)] text-xs max-w-xs">
-                          I'll write a Summary and Transcript for this concept based on the source material.
-                        </p>
+                        <p className="text-[var(--tx2)] text-sm font-medium mb-1">{t.teacher.studioGenerateTitle}</p>
+                        <p className="text-[var(--tx7)] text-xs max-w-xs">{t.teacher.studioGenerateDesc}</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => {
                             setShowDraftPrompt(false);
-                            sendChatMessage('Write a clear, student-friendly explanation of this concept with a ### SUMMARY and ### TRANSCRIPT section.');
+                            sendChatMessage(t.teacher.studioFirstDraftMsg);
                           }}
                           className="px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium transition-colors">
-                          Generate first draft
+                          {t.teacher.studioGenerateBtn}
                         </button>
                         <button
                           onClick={() => setShowDraftPrompt(false)}
                           className="px-4 py-1.5 rounded-lg border border-[var(--bd)] hover:bg-[var(--ov2)] text-[var(--tx6)] text-xs transition-colors">
-                          Skip
+                          {t.skip}
                         </button>
                       </div>
                     </div>
@@ -780,17 +778,17 @@ export default function ConceptEditorPage() {
                                       <>
                                         <button onClick={() => removeVideoFromTextbook(m.videoBlockId!)}
                                           className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-red-400 transition-colors">
-                                          <X size={11} /> Remove from Textbook
+                                          <X size={11} /> {t.teacher.removeFromTextbook}
                                         </button>
                                         <button onClick={() => setActiveTab('textbook')}
                                           className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors">
-                                          <LayoutList size={11} /> View in Textbook
+                                          <LayoutList size={11} /> {t.teacher.viewInTextbook}
                                         </button>
                                       </>
                                     ) : m.videoBlockId && m.videoId ? (
                                       <button onClick={() => addVideoBackToTextbook(m.id, m.videoId!, m.videoBlockId!)}
                                         className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-green-400 transition-colors">
-                                        <Plus size={11} /> Add to Textbook
+                                        <Plus size={11} /> {t.teacher.addToTextbook}
                                       </button>
                                     ) : null}
                                   </div>

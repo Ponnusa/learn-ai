@@ -660,5 +660,12 @@ export const fi: Translation = {
     colStudent: 'Oppilas',
     colVisited: 'Vierailtu',
     colAvgQuiz: 'Testin ka.',
+    studioGenerateTitle: 'Luodaanko ensimmäinen luonnos?',
+    studioGenerateDesc: 'Kirjoitan tälle käsitteelle yhteenvedon ja transkriptin lähdeaineiston pohjalta.',
+    studioGenerateBtn: 'Luo ensimmäinen luonnos',
+    studioFirstDraftMsg: 'Kirjoita selkeä, oppilasystävällinen selitys tästä käsitteestä, joka sisältää ### SUMMARY- ja ### TRANSCRIPT-osiot.',
+    removeFromTextbook: 'Poista oppikirjasta',
+    viewInTextbook: 'Näytä oppikirjassa',
+    addToTextbook: 'Lisää oppikirjaan',
   },
 };

@@ -650,5 +650,12 @@ export interface Translation {
     colStudent: string;
     colVisited: string;
     colAvgQuiz: string;
+    studioGenerateTitle: string;
+    studioGenerateDesc: string;
+    studioGenerateBtn: string;
+    studioFirstDraftMsg: string;
+    removeFromTextbook: string;
+    viewInTextbook: string;
+    addToTextbook: string;
   };
 }

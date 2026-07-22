@@ -660,5 +660,12 @@ export const en: Translation = {
     colStudent: 'Student',
     colVisited: 'Visited',
     colAvgQuiz: 'Avg quiz',
+    studioGenerateTitle: 'Generate a first draft?',
+    studioGenerateDesc: "I'll write a Summary and Transcript for this concept based on the source material.",
+    studioGenerateBtn: 'Generate first draft',
+    studioFirstDraftMsg: 'Write a clear, student-friendly explanation of this concept with a ### SUMMARY and ### TRANSCRIPT section.',
+    removeFromTextbook: 'Remove from Textbook',
+    viewInTextbook: 'View in Textbook',
+    addToTextbook: 'Add to Textbook',
   },
 };
