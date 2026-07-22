@@ -10,9 +10,10 @@ import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, Plus, FileText,
   CheckCircle, Zap, HelpCircle, Layers,
-  RefreshCw, Volume2, Video, Send, LayoutList, Wand2,
+  RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
+import { StudyPDFPane, PinnedCtx } from '@/components/study/StudyPDFPane';
 import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -82,9 +83,9 @@ export default function ConceptEditorPage() {
   const [showLeft,   setShowLeft]   = useState(true);
 
 
-  const [pdfUrl,   setPdfUrl]   = useState<string | null>(null);
+  const [pdfFile,  setPdfFile]  = useState<File | null>(null);
   const [pdfReady, setPdfReady] = useState(false);
-  const pdfRef = useRef<string | null>(null);
+  const [pinnedCtx, setPinnedCtx] = useState<PinnedCtx | null>(null);
 
   const [uploading,  setUploading]  = useState(false);
   const fileInputRef    = useRef<HTMLInputElement>(null);
@@ -141,10 +142,7 @@ export default function ConceptEditorPage() {
       }
 
       if (blob) {
-        if (pdfRef.current) URL.revokeObjectURL(pdfRef.current);
-        const url = URL.createObjectURL(blob);
-        pdfRef.current = url;
-        setPdfUrl(url);
+        setPdfFile(new File([blob], 'chapter.pdf', { type: 'application/pdf' }));
       }
     } finally { setPdfReady(true); }
   }
@@ -219,15 +217,24 @@ export default function ConceptEditorPage() {
     setResources(prev => prev.filter(r => r.id !== id));
   }
 
-  async function sendChatMessage(override?: string) {
+  async function sendChatMessage(override?: string, imageDataUrl?: string) {
     const message = (override ?? chatInput).trim();
     if (!message || chatSending) return;
+    // Resolve image: explicit arg first, then pinned context
+    const imgUrl = imageDataUrl ?? pinnedCtx?.imageDataUrl ?? undefined;
+    // For text context, prepend to message
+    const fullMessage = pinnedCtx?.text
+      ? `[Page ${pinnedCtx.pageNum} context]\n${pinnedCtx.text}\n\n${message}`
+      : message;
     setChatInput('');
+    setPinnedCtx(null);
     setChatMsgs(prev => [...prev, { id: `local-${Date.now()}`, role: 'user', content: message, created_at: new Date().toISOString() }]);
     setChatSending(true);
     try {
+      const body: Record<string, unknown> = { message: fullMessage };
+      if (imgUrl) body.image_data_url = imgUrl;
       const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat`, {
-        method: 'POST', headers: jsonH, body: JSON.stringify({ message }),
+        method: 'POST', headers: jsonH, body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Could not send message');
@@ -298,7 +305,6 @@ export default function ConceptEditorPage() {
       setLoading(false);
     })();
 
-    return () => { if (pdfRef.current) URL.revokeObjectURL(pdfRef.current); };
   }, [user, conceptId]);
 
   // Load assets when Assets tab first opens
@@ -455,8 +461,19 @@ export default function ConceptEditorPage() {
       {/* ── Left panel: Chapter PDF ── */}
       <div className={`border-r border-[var(--bd)] flex flex-col overflow-hidden transition-all duration-200 ${showLeft ? 'w-2/5' : 'w-0'}`}>
         {showLeft && (
-          pdfUrl
-            ? <iframe src={pdfUrl} className="flex-1 w-full" title="Chapter PDF" />
+          pdfFile
+            ? <StudyPDFPane
+                file={pdfFile}
+                onClose={() => setShowLeft(false)}
+                onFire={(prompt, imageDataUrl) => {
+                  setActiveTab('studio');
+                  sendChatMessage(prompt, imageDataUrl);
+                }}
+                onPin={ctx => {
+                  setPinnedCtx(ctx);
+                  setActiveTab('studio');
+                }}
+              />
             : <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)]">
                 {!pdfReady
                   ? <Loader2 size={20} className="animate-spin text-purple-400" />
@@ -631,6 +648,24 @@ export default function ConceptEditorPage() {
                     </div>
                   ))}
                 </div>
+
+                {/* Pinned PDF context preview */}
+                {pinnedCtx && (
+                  <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--bd)] bg-purple-500/5">
+                    {pinnedCtx.imageDataUrl && (
+                      <img src={pinnedCtx.imageDataUrl} alt="PDF clip"
+                        className="h-10 w-16 object-cover rounded border border-[var(--bd)] shrink-0" />
+                    )}
+                    <span className="text-[11px] text-purple-400 flex-1 truncate">
+                      {pinnedCtx.type === 'region' ? 'Region clip' : `Page ${pinnedCtx.pageNum}`}
+                      {pinnedCtx.text && ` — ${pinnedCtx.text.slice(0, 60)}…`}
+                    </span>
+                    <button onClick={() => setPinnedCtx(null)}
+                      className="text-[var(--tx8)] hover:text-red-400 transition-colors shrink-0 p-0.5">
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
 
                 <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
                   className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">

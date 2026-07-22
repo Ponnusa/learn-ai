@@ -699,7 +699,8 @@ async def summarize_concept(
 # ── Per-concept authoring chat (teacher-only — never shown to students) ───────
 
 class ConceptChatMessage(BaseModel):
-    message: str
+    message:        str
+    image_data_url: str | None = None  # PNG/JPEG data URL from PDF clip or page capture
 
 
 @router.get("/concepts/{concept_id}/concept-chat")
@@ -844,11 +845,16 @@ Keep each suggestion under 8 words. Do not mention this block in your visible re
     for h in history:
         ai_messages.append({"role": h["role"], "content": h["content"]})
 
+    # Prefer a clip/page capture sent with this message; fall back to the
+    # concept's stored source image (e.g. original cropped diagram).
     user_content: object = req.message
-    if image_row:
+    image_url_str: str | None = req.image_data_url
+    if not image_url_str and image_row:
         b64 = base64.b64encode(bytes(image_row["data"])).decode("utf-8")
+        image_url_str = f"data:{image_row['mime_type']};base64,{b64}"
+    if image_url_str:
         user_content = [
-            {"type": "image_url", "image_url": {"url": f"data:{image_row['mime_type']};base64,{b64}"}},
+            {"type": "image_url", "image_url": {"url": image_url_str}},
             {"type": "text", "text": req.message},
         ]
     ai_messages.append({"role": "user", "content": user_content})
