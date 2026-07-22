@@ -8,7 +8,7 @@ import 'katex/dist/katex.min.css';
 import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
-  Loader2, Check, Plus, FileText, Mic2,
+  Loader2, Check, Plus, FileText,
   CheckCircle, Zap, HelpCircle, Layers,
   RefreshCw, Volume2, Video, Send, LayoutList, Wand2,
 } from 'lucide-react';
@@ -110,6 +110,8 @@ export default function ConceptEditorPage() {
   const [addedToTextbook,   setAddedToTextbook]   = useState<Set<string>>(new Set());
   const [addingMsgBlock,    setAddingMsgBlock]    = useState<string | null>(null);
   const [addedMsgBlocks,    setAddedMsgBlocks]    = useState<Set<string>>(new Set());
+  const [generatingVideoMsg, setGeneratingVideoMsg] = useState<string | null>(null);
+  const [videoGeneratedMsgs, setVideoGeneratedMsgs] = useState<Set<string>>(new Set());
 
   const [assetPolling,    setAssetPolling]    = useState(false);
 
@@ -118,7 +120,6 @@ export default function ConceptEditorPage() {
   const [chatLoaded,  setChatLoaded]  = useState(false);
   const [chatInput,   setChatInput]   = useState('');
   const [chatSending, setChatSending] = useState(false);
-  const [applyingId,  setApplyingId]  = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const authH = { Authorization: `Bearer ${token}` };
@@ -238,40 +239,17 @@ export default function ConceptEditorPage() {
     }
   }
 
-  const STUDIO_STARTER_PROMPTS = [
-    { label: 'Write an explanation',       text: 'Write a clear, student-friendly explanation of this concept with 2 worked examples.' },
-    { label: 'Draft audio narration',      text: 'Write a natural-sounding narration script I can convert to audio. Keep it conversational, around 150 words.' },
-    { label: 'Step-by-step walkthrough',   text: 'Break this concept down into clear numbered steps a student can follow.' },
-    { label: 'Short introduction',         text: 'Write a short introductory paragraph (3–4 sentences) that hooks the student and explains why this concept matters.' },
+  const STUDIO_PROMPTS = [
+    { label: 'Write an explanation',     text: 'Write a clear, student-friendly explanation of this concept with 2 worked examples.' },
+    { label: 'Draft audio script',       text: 'Write a natural-sounding narration script for audio. Keep it conversational, around 150 words.' },
+    { label: 'Step-by-step walkthrough', text: 'Break this concept down into clear numbered steps a student can follow.' },
+    { label: 'Short introduction',       text: 'Write a short introductory paragraph (3–4 sentences) that hooks the student and explains why this concept matters.' },
+    { label: 'Add examples',             text: 'Add 2 more worked examples to the last explanation.' },
+    { label: 'Simplify',                 text: 'Rewrite the last response in simpler language for a beginner.' },
+    { label: 'Add an analogy',           text: 'Add a real-world analogy that makes this concept easier to grasp.' },
+    { label: 'Make it shorter',          text: 'Make the explanation more concise without losing the key ideas.' },
+    { label: 'Add a summary',            text: 'Add a 2-sentence summary at the end.' },
   ];
-
-  const STUDIO_FOLLOWUP_PROMPTS = [
-    { label: 'Add examples',     text: 'Add 2 more worked examples to the explanation.' },
-    { label: 'Simplify',         text: 'Rewrite this in simpler language for a beginner.' },
-    { label: 'Add an analogy',   text: 'Add a real-world analogy that makes this concept easier to grasp.' },
-    { label: 'Make it shorter',  text: 'Make the explanation more concise without losing the key ideas.' },
-    { label: 'Add a summary',    text: 'Add a 2-sentence summary at the end.' },
-  ];
-
-  async function applyChatMessage(messageId: string, action: 'summary' | 'transcript') {
-    setApplyingId(messageId);
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat/apply`, {
-        method: 'POST', headers: jsonH, body: JSON.stringify({ message_id: messageId, action }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Could not apply');
-      setConcept(prev => prev ? {
-        ...prev,
-        ...(action === 'summary'    ? { ai_summary:    data.ai_summary }    : {}),
-        ...(action === 'transcript' ? { ai_transcript: data.ai_transcript } : {}),
-      } : prev);
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setApplyingId(null);
-    }
-  }
 
   async function addMsgToTextbook(messageId: string) {
     setAddingMsgBlock(messageId);
@@ -286,6 +264,23 @@ export default function ConceptEditorPage() {
       alert(err.message);
     } finally {
       setAddingMsgBlock(null);
+    }
+  }
+
+  async function addMsgAsVideo(messageId: string, content: string) {
+    setGeneratingVideoMsg(messageId);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/generate-video`, {
+        method: 'POST', headers: jsonH,
+        body: JSON.stringify({ title: (concept?.title ?? 'Concept') + ' — Video', transcript: content }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not start video generation');
+      setVideoGeneratedMsgs(prev => new Set([...prev, messageId]));
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setGeneratingVideoMsg(null);
     }
   }
 
@@ -530,24 +525,11 @@ export default function ConceptEditorPage() {
                   {!chatLoaded ? (
                     <div className="flex justify-center py-10"><Loader2 size={16} className="animate-spin text-[var(--tx7)]" /></div>
                   ) : chatMsgs.length === 0 ? (
-                    <div className="flex flex-col items-center gap-4 py-10 text-center">
+                    <div className="flex flex-col items-center gap-3 py-10 text-center">
                       <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
                         <Wand2 size={18} className="text-purple-400" />
                       </div>
-                      <div>
-                        <p className="text-[var(--tx3)] text-sm font-medium mb-1">What would you like to create?</p>
-                        <p className="text-[var(--tx7)] text-xs">Pick a starting point or type your own below</p>
-                      </div>
-                      <div className="flex flex-wrap justify-center gap-2 px-2">
-                        {STUDIO_STARTER_PROMPTS.map(p => (
-                          <button key={p.label} onClick={() => sendChatMessage(p.text)} disabled={chatSending}
-                            className="px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/5
-                                       text-purple-400 text-xs hover:bg-purple-500/15 hover:border-purple-500/50
-                                       transition-all disabled:opacity-40">
-                            {p.label}
-                          </button>
-                        ))}
-                      </div>
+                      <p className="text-[var(--tx3)] text-sm font-medium">What would you like to create?</p>
                     </div>
                   ) : (
                     chatMsgs.map(m => (
@@ -566,7 +548,6 @@ export default function ConceptEditorPage() {
                           ) : m.content}
                           {m.role === 'assistant' && (
                             <div className="mt-2 pt-2 border-t border-[var(--bd)] flex flex-wrap gap-1.5">
-                              {/* Primary: add to textbook */}
                               <button
                                 onClick={() => addMsgToTextbook(m.id)}
                                 disabled={addingMsgBlock === m.id || addedMsgBlocks.has(m.id)}
@@ -575,32 +556,20 @@ export default function ConceptEditorPage() {
                                            transition-all disabled:opacity-50">
                                 {addingMsgBlock === m.id
                                   ? <Loader2 size={11} className="animate-spin" />
-                                  : addedMsgBlocks.has(m.id)
-                                    ? <Check size={11} />
-                                    : <LayoutList size={11} />}
+                                  : addedMsgBlocks.has(m.id) ? <Check size={11} /> : <LayoutList size={11} />}
                                 {addedMsgBlocks.has(m.id) ? 'Added' : '+ Textbook'}
                               </button>
-                              {/* Secondary: set as summary (silent) */}
                               <button
-                                onClick={() => applyChatMessage(m.id, 'summary')}
-                                disabled={applyingId === m.id}
-                                title="Set as concept summary (used for quiz/flashcard generation)"
+                                onClick={() => addMsgAsVideo(m.id, m.content)}
+                                disabled={generatingVideoMsg === m.id || videoGeneratedMsgs.has(m.id)}
+                                title="Generate an animated video from this content and add it to Textbook"
                                 className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
-                                           bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx6)]
+                                           bg-blue-600/15 hover:bg-blue-600/25 text-blue-400
                                            transition-all disabled:opacity-50">
-                                {applyingId === m.id ? <Loader2 size={11} className="animate-spin" /> : <BookOpen size={11} />}
-                                Set Summary
-                              </button>
-                              {/* Secondary: set as transcript (silent, powers audio) */}
-                              <button
-                                onClick={() => applyChatMessage(m.id, 'transcript')}
-                                disabled={applyingId === m.id}
-                                title="Set as audio transcript (used for concept-level audio generation)"
-                                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
-                                           bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx6)]
-                                           transition-all disabled:opacity-50">
-                                {applyingId === m.id ? <Loader2 size={11} className="animate-spin" /> : <Mic2 size={11} />}
-                                Set Transcript
+                                {generatingVideoMsg === m.id
+                                  ? <Loader2 size={11} className="animate-spin" />
+                                  : videoGeneratedMsgs.has(m.id) ? <Check size={11} /> : <Video size={11} />}
+                                {videoGeneratedMsgs.has(m.id) ? 'Generating…' : '+ Video'}
                               </button>
                             </div>
                           )}
@@ -618,19 +587,17 @@ export default function ConceptEditorPage() {
                   <div ref={chatEndRef} />
                 </div>
 
-                {/* Follow-up chips — visible once conversation has started */}
-                {chatMsgs.length > 0 && (
-                  <div className="flex gap-1.5 px-3 py-2 border-t border-[var(--bd)] overflow-x-auto scrollbar-hide">
-                    {STUDIO_FOLLOWUP_PROMPTS.map(p => (
-                      <button key={p.label} onClick={() => sendChatMessage(p.text)} disabled={chatSending}
-                        className="shrink-0 px-2.5 py-1 rounded-full border border-[var(--bd)] bg-[var(--ov1)]
-                                   text-[var(--tx7)] text-xs hover:border-purple-500/40 hover:text-purple-400
-                                   transition-all disabled:opacity-40">
-                        {p.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {/* Prompt chips — always visible so teacher never loses access to any prompt */}
+                <div className="flex gap-1.5 px-3 py-2 border-t border-[var(--bd)] overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+                  {STUDIO_PROMPTS.map(p => (
+                    <button key={p.label} onClick={() => sendChatMessage(p.text)} disabled={chatSending}
+                      className="shrink-0 px-2.5 py-1 rounded-full border border-[var(--bd)] bg-[var(--ov1)]
+                                 text-[var(--tx7)] text-xs hover:border-purple-500/40 hover:text-purple-400
+                                 transition-all disabled:opacity-40 whitespace-nowrap">
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
 
                 <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
                   className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">

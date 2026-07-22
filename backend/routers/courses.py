@@ -898,6 +898,15 @@ async def apply_concept_chat_message(
                 VALUES ($1::uuid, 'text', $2, $3, $4::uuid)
                 RETURNING id, type, position, title, body, audio_status, created_at
             """, concept_id, int(max_pos) + 1, body, teacher_id)
+            # Silently set ai_summary if not yet populated — powers quiz/flashcard generation
+            existing_summary = await db.fetchval(
+                "SELECT ai_summary FROM course_concepts WHERE id = $1::uuid", concept_id
+            )
+            if not existing_summary or not existing_summary.strip():
+                await db.execute(
+                    "UPDATE course_concepts SET ai_summary = $1, pipeline_status = 'ready' WHERE id = $2::uuid",
+                    body, concept_id,
+                )
         return {
             "action":       "block",
             "id":           str(block["id"]),
