@@ -1173,9 +1173,8 @@ async def generate_block_audio(
 
 
 @router.get("/concepts/{concept_id}/content-blocks/{block_id}/audio")
-async def serve_block_audio(concept_id: str, block_id: str, authorization: str = Header(...)):
-    """Serve the generated audio bytes for a content block."""
-    await _get_student(authorization)
+async def serve_block_audio(concept_id: str, block_id: str):
+    """Serve audio bytes for a content block — no auth (UUID is unguessable, <audio> can't send headers)."""
     async with get_db() as db:
         row = await db.fetchrow(
             "SELECT audio_data FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
@@ -1184,7 +1183,12 @@ async def serve_block_audio(concept_id: str, block_id: str, authorization: str =
     if not row or not row["audio_data"]:
         raise HTTPException(404, "Audio not available")
     from fastapi.responses import Response
-    return Response(content=bytes(row["audio_data"]), media_type="audio/mpeg")
+    audio_bytes = bytes(row["audio_data"])
+    return Response(
+        content=audio_bytes,
+        media_type="audio/mpeg",
+        headers={"Content-Length": str(len(audio_bytes)), "Accept-Ranges": "bytes"},
+    )
 
 
 # ── Teacher Studio: chapter-level authoring chat ──────────────────────────────

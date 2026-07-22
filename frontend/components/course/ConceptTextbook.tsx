@@ -34,19 +34,18 @@ function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: s
   }, [polling, block.video_id, token]);
 
   return (
-    <div className="rounded-xl border border-[var(--bd)] overflow-hidden">
-      {block.title && (
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
-          <span className="text-sm font-medium text-[var(--tx2)] flex items-center gap-2">
-            <Video size={14} className="text-purple-400" /> {block.title}
-          </span>
-          {onDelete && (
-            <button onClick={onDelete} className="text-[var(--tx8)] hover:text-red-400 transition-colors p-0.5">
-              <Trash2 size={13} />
-            </button>
-          )}
-        </div>
-      )}
+    <div className="rounded-xl border border-[var(--bd)] overflow-hidden group">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
+        <span className="text-sm font-medium text-[var(--tx2)] flex items-center gap-2">
+          <Video size={14} className="text-purple-400" /> {block.title || 'Video'}
+        </span>
+        {onDelete && (
+          <button onClick={onDelete}
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--tx8)] hover:text-red-400 p-0.5">
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
       {videoUrl ? (
         <video src={videoUrl} controls className="w-full aspect-video bg-black" preload="metadata" />
       ) : (
@@ -72,19 +71,18 @@ function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: s
 
 function AudioBlock({ block, onDelete }: { block: ContentBlock; onDelete?: () => void }) {
   return (
-    <div className="rounded-xl border border-[var(--bd)] overflow-hidden">
-      {block.title && (
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
-          <span className="text-sm font-medium text-[var(--tx2)] flex items-center gap-2">
-            <Volume2 size={14} className="text-blue-400" /> {block.title}
-          </span>
-          {onDelete && (
-            <button onClick={onDelete} className="text-[var(--tx8)] hover:text-red-400 transition-colors p-0.5">
-              <Trash2 size={13} />
-            </button>
-          )}
-        </div>
-      )}
+    <div className="rounded-xl border border-[var(--bd)] overflow-hidden group">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
+        <span className="text-sm font-medium text-[var(--tx2)] flex items-center gap-2">
+          <Volume2 size={14} className="text-blue-400" /> {block.title || 'Audio'}
+        </span>
+        {onDelete && (
+          <button onClick={onDelete}
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--tx8)] hover:text-red-400 p-0.5">
+            <Trash2 size={13} />
+          </button>
+        )}
+      </div>
       <div className="px-4 py-3">
         <audio controls src={block.body || ''} className="w-full" />
       </div>
@@ -135,16 +133,20 @@ function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerat
     try {
       await generateBlockAudio(conceptId, block.id, token);
       setAudioStatus('generating');
-    } catch { /* ignore */ } finally {
+    } catch {
+      setAudioStatus('failed');
+    } finally {
       setGeneratingAudio(false);
     }
   }
 
   return (
     <div className="relative group">
-      {block.title && (
+      {(block.title || onDelete) && (
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-base font-semibold text-[var(--tx2)]">{block.title}</h3>
+          {block.title
+            ? <h3 className="text-base font-semibold text-[var(--tx2)]">{block.title}</h3>
+            : <span />}
           {onDelete && (
             <button onClick={onDelete}
               className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--tx8)] hover:text-red-400">
@@ -191,10 +193,6 @@ function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerat
         ) : null}
       </div>
 
-      {!editable && onDelete === undefined && (
-        /* Delete button for teacher when no title (title row already has it) */
-        null
-      )}
     </div>
   );
 }
