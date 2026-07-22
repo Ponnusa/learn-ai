@@ -136,8 +136,9 @@ export default function ConceptEditorPage() {
   const [chatLoaded,  setChatLoaded]  = useState(false);
   const [chatInput,   setChatInput]   = useState('');
   const [chatSending, setChatSending] = useState(false);
-  const chatEndRef     = useRef<HTMLDivElement>(null);
-  const renderedIdsRef = useRef<Set<string>>(new Set());
+  const chatEndRef      = useRef<HTMLDivElement>(null);
+  const renderedIdsRef  = useRef<Set<string>>(new Set());
+  const autoStartedRef  = useRef(false);
 
   const authH = { Authorization: `Bearer ${token}` };
   const jsonH = { ...authH, 'Content-Type': 'application/json' };
@@ -440,6 +441,20 @@ export default function ConceptEditorPage() {
   useEffect(() => {
     if (activeTab === 'studio' && !chatLoaded) loadChat();
   }, [activeTab, chatLoaded]);
+
+  // Auto-generate first draft when teacher opens a concept that has never been chatted
+  useEffect(() => {
+    if (
+      chatLoaded &&
+      chatMsgs.length === 0 &&
+      concept?.pipeline_status === 'draft' &&
+      !autoStartedRef.current
+    ) {
+      autoStartedRef.current = true;
+      sendChatMessage('Write a clear, student-friendly explanation of this concept with a ### SUMMARY and ### TRANSCRIPT section.');
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatLoaded, chatMsgs.length, concept?.pipeline_status]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
