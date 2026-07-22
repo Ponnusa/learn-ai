@@ -29,7 +29,15 @@ type AssetStatus    = 'none' | 'generating' | 'ready' | 'approved' | 'failed';
 interface ConceptImage { id: string; url: string; caption: string; }
 interface QuizQuestion { id: string; question: string; options: string[]; correct_idx: number; explanation: string; }
 interface Flashcard    { id: string; front: string; back: string; }
-interface ChatMsg      { id: string; role: 'user' | 'assistant'; content: string; suggestions?: string[]; created_at: string; images?: string[]; imagePages?: number[]; }
+interface ChatMsg {
+  id: string; role: 'user' | 'assistant'; content: string;
+  suggestions?: string[]; created_at: string;
+  images?: string[]; imagePages?: number[];
+  videoBlockId?: string;
+  videoStatus?: string;
+  videoUrl?: string;
+  videoError?: string;
+}
 
 interface ConceptDetail {
   id: string; title: string; description?: string;
@@ -116,7 +124,7 @@ export default function ConceptEditorPage() {
   const [addingMsgBlock,    setAddingMsgBlock]    = useState<string | null>(null);
   const [addedMsgBlocks,    setAddedMsgBlocks]    = useState<Set<string>>(new Set());
   const [generatingVideoMsg, setGeneratingVideoMsg] = useState<string | null>(null);
-  const [videoGeneratedMsgs, setVideoGeneratedMsgs] = useState<Set<string>>(new Set());
+  const videoPollingRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
 
   const [assetPolling,    setAssetPolling]    = useState(false);
 
@@ -309,20 +317,63 @@ export default function ConceptEditorPage() {
     }
   }
 
-  async function addMsgAsVideo(messageId: string, content: string) {
+  function startVideoPolling(blockId: string, msgId: string) {
+    if (videoPollingRef.current.has(blockId)) return;
+    const iv = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${blockId}/status`,
+          { headers: authH },
+        );
+        if (!res.ok) return;
+        const d = await res.json();
+        const done = d.video_url || d.video_status === 'failed';
+        setChatMsgs(prev => prev.map(m => m.id === msgId ? {
+          ...m,
+          videoStatus: d.video_status,
+          videoUrl:    d.video_url   || undefined,
+          videoError:  d.video_error || undefined,
+        } : m));
+        if (done) {
+          clearInterval(videoPollingRef.current.get(blockId));
+          videoPollingRef.current.delete(blockId);
+        }
+      } catch { /* ignore */ }
+    }, 5000);
+    videoPollingRef.current.set(blockId, iv);
+  }
+
+  async function addMsgAsVideo(messageId: string) {
     setGeneratingVideoMsg(messageId);
     try {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/generate-video`, {
-        method: 'POST', headers: jsonH,
-        body: JSON.stringify({ title: (concept?.title ?? 'Concept') + ' — Video', transcript: content }),
-      });
+      const res = await fetch(
+        `${API_BASE}/api/courses/concepts/${conceptId}/concept-chat/${messageId}/generate-video`,
+        { method: 'POST', headers: jsonH, body: JSON.stringify({ title: (concept?.title ?? 'Concept') + ' — Video' }) },
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Could not start video generation');
-      setVideoGeneratedMsgs(prev => new Set([...prev, messageId]));
+      setChatMsgs(prev => [...prev, data]);
+      startVideoPolling(data.videoBlockId, data.id);
     } catch (err: any) {
       alert(err.message);
     } finally {
       setGeneratingVideoMsg(null);
+    }
+  }
+
+  async function retryVideoGeneration(msgId: string, blockId: string) {
+    setChatMsgs(prev => prev.map(m => m.id === msgId
+      ? { ...m, videoStatus: 'pending', videoUrl: undefined, videoError: undefined } : m));
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${blockId}/retry-video`,
+        { method: 'POST', headers: authH },
+      );
+      if (!res.ok) throw new Error('Retry failed');
+      startVideoPolling(blockId, msgId);
+    } catch (err: any) {
+      setChatMsgs(prev => prev.map(m => m.id === msgId
+        ? { ...m, videoStatus: 'failed', videoError: err.message } : m));
     }
   }
 
@@ -396,6 +447,15 @@ export default function ConceptEditorPage() {
     })();
     return () => { cancelled = true; };
   }, [chatMsgs.length, pdfFile]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Resume video polling for any in-progress video cards after reload
+  useEffect(() => {
+    chatMsgs.forEach(m => {
+      if (m.videoBlockId && !m.videoUrl && m.videoStatus !== 'failed') {
+        startVideoPolling(m.videoBlockId, m.id);
+      }
+    });
+  }, [chatMsgs.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll while any asset is generating
   useEffect(() => {
@@ -609,7 +669,69 @@ export default function ConceptEditorPage() {
                       <p className="text-[var(--tx3)] text-sm font-medium">What would you like to create?</p>
                     </div>
                   ) : (
-                    chatMsgs.map(m => (
+                    chatMsgs.map(m => {
+                      // ── Video card message ──────────────────────────────────
+                      if (m.videoBlockId !== undefined) {
+                        const vidReady  = !!m.videoUrl;
+                        const vidFailed = m.videoStatus === 'failed';
+                        return (
+                          <div key={m.id} className="flex justify-start">
+                            <div className="max-w-[85%] rounded-xl text-sm overflow-hidden bg-[var(--ov1)] border border-[var(--bd)]">
+                              <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--bd)]">
+                                <Video size={12} className="text-blue-400 shrink-0" />
+                                <span className="text-[var(--tx2)] text-xs font-medium">Animated Video</span>
+                                {!vidReady && !vidFailed && (
+                                  <span className="ml-auto text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
+                                    {m.videoStatus === 'transcript_ready' ? 'Writing animation…'
+                                    : m.videoStatus === 'queued' || m.videoStatus === 'rendering' ? 'Rendering…'
+                                    : 'Generating script…'}
+                                  </span>
+                                )}
+                                {vidFailed && <span className="ml-auto text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">Failed</span>}
+                                {vidReady  && <span className="ml-auto text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">Ready</span>}
+                              </div>
+
+                              {!vidReady && !vidFailed && (
+                                <div className="flex items-center gap-2 px-3.5 py-3">
+                                  <Loader2 size={13} className="animate-spin text-blue-400 shrink-0" />
+                                  <span className="text-[var(--tx7)] text-xs">
+                                    {m.videoStatus === 'transcript_ready' ? 'Writing Manim animation code…'
+                                    : m.videoStatus === 'queued' || m.videoStatus === 'rendering' ? 'Rendering video, this may take a few minutes…'
+                                    : 'Writing animation script…'}
+                                  </span>
+                                </div>
+                              )}
+
+                              {vidReady && (
+                                <div>
+                                  <video src={m.videoUrl} controls className="w-full aspect-video bg-black" preload="metadata" />
+                                  <div className="px-3 py-2 border-t border-[var(--bd)]">
+                                    <button onClick={() => setActiveTab('textbook')}
+                                      className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors">
+                                      <LayoutList size={11} /> View in Textbook
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+
+                              {vidFailed && (
+                                <div className="px-3.5 py-3">
+                                  <p className="text-red-400 text-xs mb-2.5">{m.videoError || 'Video generation failed'}</p>
+                                  <button onClick={() => retryVideoGeneration(m.id, m.videoBlockId!)}
+                                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg
+                                               border border-[var(--bd)] bg-[var(--ov2)]
+                                               text-[var(--tx6)] hover:text-red-400 hover:border-red-500/30 transition-colors">
+                                    <RefreshCw size={10} /> Retry
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // ── Normal message ──────────────────────────────────────
+                      return (
                       <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
                         <div className={`max-w-[85%] rounded-xl text-sm overflow-hidden ${
                           m.role === 'user'
@@ -678,23 +800,24 @@ export default function ConceptEditorPage() {
                                   {addedMsgBlocks.has(m.id) ? 'Added' : '+ Textbook'}
                                 </button>
                                 <button
-                                  onClick={() => addMsgAsVideo(m.id, m.content)}
-                                  disabled={generatingVideoMsg === m.id || videoGeneratedMsgs.has(m.id)}
+                                  onClick={() => addMsgAsVideo(m.id)}
+                                  disabled={generatingVideoMsg === m.id}
                                   title="Generate an animated video from this content and add it to Textbook"
                                   className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
                                              bg-blue-600/15 hover:bg-blue-600/25 text-blue-400
                                              transition-all disabled:opacity-50">
                                   {generatingVideoMsg === m.id
                                     ? <Loader2 size={11} className="animate-spin" />
-                                    : videoGeneratedMsgs.has(m.id) ? <Check size={11} /> : <Video size={11} />}
-                                  {videoGeneratedMsgs.has(m.id) ? 'Generating…' : '+ Video'}
+                                    : <Video size={11} />}
+                                  {generatingVideoMsg === m.id ? 'Starting…' : '+ Video'}
                                 </button>
                               </div>
                             </div>
                           )}
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   )}
                   {chatSending && (
                     <div className="flex justify-start">

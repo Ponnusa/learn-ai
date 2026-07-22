@@ -721,13 +721,16 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
     import json as _json
     result = []
     for r in rows:
-        suggestions  = []
-        image_pages: list[int] = []
+        suggestions    = []
+        image_pages:   list[int] = []
+        video_block_id = ""
         if r["metadata"]:
             try:
                 meta = r["metadata"] if isinstance(r["metadata"], dict) else _json.loads(r["metadata"])
-                suggestions  = meta.get("suggestions", [])
-                image_pages  = meta.get("image_page_nums", [])
+                suggestions    = meta.get("suggestions", [])
+                image_pages    = meta.get("image_page_nums", [])
+                if meta.get("content_type") == "video":
+                    video_block_id = meta.get("block_id", "")
             except Exception:
                 pass
         entry: dict = {
@@ -739,6 +742,8 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
         }
         if image_pages:
             entry["imagePages"] = image_pages
+        if video_block_id:
+            entry["videoBlockId"] = video_block_id
         result.append(entry)
     return result
 
@@ -1012,6 +1017,94 @@ async def apply_concept_chat_message(
     raise HTTPException(400, "action must be 'block', 'summary', or 'transcript'")
 
 
+class GenerateChatVideoRequest(BaseModel):
+    title: str | None = None
+
+
+@router.post("/concepts/{concept_id}/concept-chat/{source_msg_id}/generate-video")
+async def generate_chat_video_from_message(
+    concept_id:    str,
+    source_msg_id: str,
+    req:           GenerateChatVideoRequest,
+    bg:            BackgroundTasks,
+    authorization: str = Header(...),
+):
+    """
+    Start video generation from a Studio chat assistant message and insert a
+    video card into the conversation so the teacher can track progress inline.
+    """
+    teacher_id = await _require_teacher(authorization)
+
+    async with get_db() as db:
+        msg = await db.fetchrow("""
+            SELECT m.id, m.content, m.conversation_id
+            FROM messages m
+            JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.id = $1::uuid AND c.concept_id = $2::uuid AND m.role = 'assistant'
+        """, source_msg_id, concept_id)
+    if not msg:
+        raise HTTPException(404, "Message not found")
+
+    transcript = (msg["content"] or "").strip()
+    if not transcript:
+        raise HTTPException(400, "Message is empty — cannot generate video")
+
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT c.subject FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+
+    title = (req.title or "").strip() or "Video"
+
+    import json as _json
+
+    async with get_db() as db:
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+            concept_id,
+        )
+        block = await db.fetchrow("""
+            INSERT INTO concept_content_blocks
+              (concept_id, type, position, title, body, created_by)
+            VALUES ($1::uuid, 'video', $2, $3, $4, $5::uuid)
+            RETURNING id, position, title, created_at
+        """, concept_id, int(max_pos) + 1, title, transcript, teacher_id)
+
+    block_id = str(block["id"])
+    bg.add_task(
+        _generate_block_video_bg,
+        block_id, concept_id, title, transcript, concept["subject"],
+    )
+
+    card_meta = _json.dumps({
+        "content_type": "video",
+        "block_id": block_id,
+        "source_msg_id": source_msg_id,
+    })
+
+    async with get_db() as db:
+        card = await db.fetchrow("""
+            INSERT INTO messages (conversation_id, role, content, metadata)
+            VALUES ($1::uuid, 'assistant', '', $2::jsonb)
+            RETURNING id, created_at
+        """, msg["conversation_id"], card_meta)
+
+    return {
+        "id":           str(card["id"]),
+        "role":         "assistant",
+        "content":      "",
+        "suggestions":  [],
+        "created_at":   card["created_at"].isoformat(),
+        "videoBlockId": block_id,
+        "videoStatus":  "pending",
+    }
+
+
 # ── Concept content blocks (textbook-style ordered blocks per concept) ────────
 
 class ContentBlockRequest(BaseModel):
@@ -1128,6 +1221,64 @@ async def delete_content_block(
             block_id, concept_id,
         )
     return {"ok": True}
+
+
+@router.get("/concepts/{concept_id}/content-blocks/{block_id}/status")
+async def get_block_video_status(
+    concept_id:    str,
+    block_id:      str,
+    authorization: str = Header(...),
+):
+    """Poll the current video generation status for a content block."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT cb.video_id, v.status AS video_status, v.video_url, v.error_message
+            FROM concept_content_blocks cb
+            LEFT JOIN videos v ON v.id = cb.video_id
+            WHERE cb.id = $1::uuid AND cb.concept_id = $2::uuid
+        """, block_id, concept_id)
+    if not row:
+        raise HTTPException(404, "Block not found")
+    return {
+        "video_id":     row["video_id"],
+        "video_status": row["video_status"] or "pending",
+        "video_url":    row["video_url"],
+        "video_error":  row["error_message"],
+    }
+
+
+@router.post("/concepts/{concept_id}/content-blocks/{block_id}/retry-video")
+async def retry_block_video(
+    concept_id:    str,
+    block_id:      str,
+    bg:            BackgroundTasks,
+    authorization: str = Header(...),
+):
+    """Retry a failed video generation for a content block."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        block = await db.fetchrow(
+            "SELECT id, title, body FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid AND type = 'video'",
+            block_id, concept_id,
+        )
+        if not block:
+            raise HTTPException(404, "Block not found")
+        concept = await db.fetchrow("""
+            SELECT c.subject FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+        await db.execute(
+            "UPDATE concept_content_blocks SET video_id = NULL WHERE id = $1::uuid", block_id,
+        )
+    bg.add_task(
+        _generate_block_video_bg,
+        block_id, concept_id, block["title"] or "", block["body"] or "",
+        concept["subject"] if concept else None,
+    )
+    return {"video_status": "pending"}
 
 
 async def _generate_block_audio_bg(concept_id: str, block_id: str):
