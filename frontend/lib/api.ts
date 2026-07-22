@@ -220,6 +220,7 @@ export const getUserVideos = (userId: string, token?: string) =>
     transcript_markdown?: string;
     conversation_id?: string;
     message_id?: string;
+    error_message?: string;
   }[]>(`/api/videos/user/${userId}`, token);
 
 export const getConversationVideos = (conversationId: string, token?: string) =>

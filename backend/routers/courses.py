@@ -1107,7 +1107,7 @@ async def generate_chat_video_from_message(
     block_id = str(block["id"])
     bg.add_task(
         _generate_block_video_bg,
-        block_id, concept_id, title, transcript, concept["subject"],
+        block_id, concept_id, title, transcript, concept["subject"], teacher_id,
     )
 
     card_meta = _json.dumps({
@@ -1286,7 +1286,7 @@ async def retry_block_video(
     authorization: str = Header(...),
 ):
     """Retry a failed video generation for a content block."""
-    await _require_teacher(authorization)
+    teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         block = await db.fetchrow(
             "SELECT id, title, body FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid AND type = 'video'",
@@ -1306,7 +1306,7 @@ async def retry_block_video(
     bg.add_task(
         _generate_block_video_bg,
         block_id, concept_id, block["title"] or "", block["body"] or "",
-        concept["subject"] if concept else None,
+        concept["subject"] if concept else None, teacher_id,
     )
     return {"video_status": "pending"}
 
@@ -3841,6 +3841,7 @@ async def _generate_block_video_bg(
     title:      str,
     transcript: str,
     subject:    str | None,
+    user_id:    str | None = None,
 ):
     """
     Background: generate a Manim video from a teacher-written transcript.
@@ -3856,15 +3857,16 @@ async def _generate_block_video_bg(
     video_id = None
     try:
         manim_subject = _map_manim_subject(subject)
-        duration = max(45, min(180, len(transcript) // 12))
-        prompt   = f"Concept: {title}\n\nScript:\n{transcript}"
+        duration   = max(45, min(180, len(transcript) // 12))
+        gen_prompt = f"Concept: {title}\n\nScript:\n{transcript}"
 
         async with get_db() as db:
             video = await db.fetchrow("""
-                INSERT INTO videos (prompt, subject, language, aspect_ratio, max_duration, status, concept_id)
-                VALUES ($1, $2, 'en', '16:9', $3, 'pending', $4::uuid)
+                INSERT INTO videos
+                  (prompt, subject, language, aspect_ratio, max_duration, status, concept_id, user_id)
+                VALUES ($1, $2, 'en', '16:9', $3, 'pending', $4::uuid, $5::uuid)
                 RETURNING id
-            """, prompt, manim_subject, duration, concept_id)
+            """, title, manim_subject, duration, concept_id, user_id)
             video_id = video["id"]
             await db.execute(
                 "UPDATE concept_content_blocks SET video_id = $1 WHERE id = $2::uuid",
@@ -3872,7 +3874,7 @@ async def _generate_block_video_bg(
             )
 
         logger.info("[block-video] block %s: Phase 1 starting (video %s)", block_id, video_id)
-        solution_data = await generate_solution_only(prompt, "en", duration)
+        solution_data = await generate_solution_only(gen_prompt, "en", duration)
         solution_data["transcript_markdown"] = transcript  # use teacher's exact words
 
         async with get_db() as db:
@@ -3957,7 +3959,7 @@ async def generate_block_video(
 
     bg.add_task(
         _generate_block_video_bg,
-        str(block["id"]), concept_id, req.title, req.transcript, concept["subject"],
+        str(block["id"]), concept_id, req.title, req.transcript, concept["subject"], teacher_id,
     )
     return {
         "id":           str(block["id"]),

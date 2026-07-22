@@ -52,6 +52,7 @@ type VideoItem = {
   transcript_markdown?: string;
   conversation_id?: string;
   message_id?: string;
+  error_message?: string;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -86,6 +87,16 @@ function formatDuration(secs?: number): string {
   const m = Math.floor(secs / 60);
   const s = Math.floor(secs % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'pending':          return 'Writing script…';
+    case 'transcript_ready': return 'Generating animation…';
+    case 'queued':           return 'Queued for render…';
+    case 'rendering':        return 'Rendering…';
+    default:                 return 'Processing…';
+  }
 }
 
 function formatDate(iso: string, todayStr: string, yesterdayStr: string, daysAgoTpl: string): string {
@@ -172,17 +183,22 @@ function VideoLibraryCard({
   v,
   onTranscript,
   onGoToConversation,
+  onRetry,
 }: {
   v: VideoItem;
   onTranscript: (markdown: string) => void;
   onGoToConversation: (conversationId: string) => void;
+  onRetry?: (id: number) => void;
 }) {
   const router   = useRouter();
   const { t }    = useTranslation();
   const { gradient, badge } = subjectStyle(v.subject);
-  const duration = formatDuration(v.duration_secs);
-  const date     = formatDate(v.created_at, t.sidebar.today, t.sidebar.yesterday, t.studySets.daysAgo);
-  const title    = v.prompt || 'Untitled Video';
+  const duration  = formatDuration(v.duration_secs);
+  const date      = formatDate(v.created_at, t.sidebar.today, t.sidebar.yesterday, t.studySets.daysAgo);
+  const title     = v.prompt || 'Untitled Video';
+  const inProgress = LOADING_STATUSES.has(v.status);
+  const isFailed   = v.status === 'failed';
+  const isDone     = DONE_STATUSES.has(v.status);
 
   return (
     <div
@@ -190,93 +206,120 @@ function VideoLibraryCard({
       tabIndex={0}
       onClick={() => router.push(`/videos?id=${v.id}`)}
       onKeyDown={e => { if (e.key === 'Enter') router.push(`/videos?id=${v.id}`); }}
-      className="group bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden
-                 cursor-pointer hover:border-purple-500/30
-                 hover:shadow-xl hover:shadow-purple-500/8
-                 transition-all duration-200 flex flex-col"
+      className={`group bg-[var(--surface)] border rounded-2xl overflow-hidden cursor-pointer
+                  transition-all duration-200 flex flex-col
+                  ${isFailed
+                    ? 'border-red-500/20 hover:border-red-500/40'
+                    : 'border-[var(--bd)] hover:border-purple-500/30 hover:shadow-xl hover:shadow-purple-500/8'
+                  }`}
     >
-      {/* ── Thumbnail ── */}
-      <div className={`aspect-video relative overflow-hidden bg-gradient-to-br ${gradient} shrink-0`}>
-        {v.thumbnail_url ? (
-          <img src={v.thumbnail_url} alt={title} className="w-full h-full object-cover" />
-        ) : v.video_url ? (
-          <video
-            src={v.video_url}
-            muted
-            playsInline
-            preload="metadata"
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          /* Decorative gradient overlay with play icon */
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="w-14 h-14 rounded-full bg-white/5 border border-white/10
-                            flex items-center justify-center">
-              <Play size={22} className="text-white/30 ml-1" />
-            </div>
+      {/* ── Thumbnail / status area ── */}
+      <div className={`aspect-video relative overflow-hidden shrink-0 bg-gradient-to-br
+                       ${isFailed ? 'from-red-950 via-slate-900 to-zinc-900' : gradient}`}>
+
+        {/* In-progress overlay */}
+        {inProgress && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <div className="w-10 h-10 rounded-full border-2 border-purple-500/30 border-t-purple-400 animate-spin" />
+            <span className="text-white/50 text-[11px]">{statusLabel(v.status)}</span>
           </div>
         )}
 
-        {/* Play overlay on hover */}
-        <div className="absolute inset-0 flex items-center justify-center
-                        opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
-          <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full
-                          flex items-center justify-center ring-1 ring-white/30">
-            <Play size={20} className="text-white ml-0.5" fill="currentColor" />
+        {/* Failed overlay */}
+        {isFailed && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <XCircle size={32} className="text-red-400/40" />
           </div>
-        </div>
+        )}
 
-        {/* Duration pill */}
-        {duration && (
-          <div className="absolute bottom-2 right-2 px-1.5 py-0.5
-                          bg-black/70 backdrop-blur-sm rounded text-white text-[10px] font-mono
-                          leading-none">
-            {duration}
-          </div>
+        {/* Done: thumbnail / video */}
+        {isDone && (
+          <>
+            {v.thumbnail_url ? (
+              <img src={v.thumbnail_url} alt={title} className="w-full h-full object-cover" />
+            ) : v.video_url ? (
+              <video src={v.video_url} muted playsInline preload="metadata"
+                     className="w-full h-full object-cover" />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-14 h-14 rounded-full bg-white/5 border border-white/10
+                                flex items-center justify-center">
+                  <Play size={22} className="text-white/30 ml-1" />
+                </div>
+              </div>
+            )}
+            {/* Play hover overlay */}
+            <div className="absolute inset-0 flex items-center justify-center
+                            opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+              <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-full
+                              flex items-center justify-center ring-1 ring-white/30">
+                <Play size={20} className="text-white ml-0.5" fill="currentColor" />
+              </div>
+            </div>
+            {duration && (
+              <div className="absolute bottom-2 right-2 px-1.5 py-0.5
+                              bg-black/70 backdrop-blur-sm rounded text-white text-[10px] font-mono leading-none">
+                {duration}
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {/* ── Card body ── */}
       <div className="p-3 flex flex-col gap-2 flex-1">
-        {/* Title */}
-        <p className="text-[var(--tx1)] text-sm font-medium line-clamp-2 leading-snug
-                      min-h-[2.5rem]">
+        <p className="text-[var(--tx1)] text-sm font-medium line-clamp-2 leading-snug min-h-[2.5rem]">
           {title}
         </p>
 
-        {/* Footer row: badge + date | action buttons */}
         <div className="flex items-center justify-between gap-1 mt-auto">
           <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-            {v.subject && (
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium capitalize
-                               border shrink-0 ${badge}`}>
-                {v.subject}
-              </span>
+            {isFailed ? (
+              <span className="text-red-400 text-[10px] font-medium">Failed</span>
+            ) : inProgress ? (
+              <span className="text-amber-400 text-[10px] font-medium">In progress</span>
+            ) : (
+              <>
+                {v.subject && (
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium capitalize
+                                   border shrink-0 ${badge}`}>
+                    {v.subject}
+                  </span>
+                )}
+              </>
             )}
             <span className="text-[var(--tx6)] text-xs truncate">{date}</span>
           </div>
 
           <div className="flex items-center gap-0.5 shrink-0">
-            {v.transcript_markdown && (
+            {isFailed && onRetry && (
+              <button
+                onClick={e => { e.stopPropagation(); onRetry(v.id); }}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium
+                           bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+                title="Retry video generation"
+              >
+                <RefreshCw size={10} /> Retry
+              </button>
+            )}
+            {!isFailed && v.transcript_markdown && (
               <button
                 onClick={e => { e.stopPropagation(); onTranscript(v.transcript_markdown!); }}
                 className="w-7 h-7 flex items-center justify-center rounded-lg
                            text-[var(--tx5)] hover:text-purple-400 hover:bg-purple-500/10
                            transition-colors"
                 title="View transcript"
-                aria-label="View transcript"
               >
                 <FileText size={13} />
               </button>
             )}
-            {v.conversation_id && (
+            {!isFailed && v.conversation_id && (
               <button
                 onClick={e => { e.stopPropagation(); onGoToConversation(v.conversation_id!); }}
                 className="w-7 h-7 flex items-center justify-center rounded-lg
                            text-[var(--tx5)] hover:text-blue-400 hover:bg-blue-500/10
                            transition-colors"
                 title="Go to conversation"
-                aria-label="Go to conversation"
               >
                 <MessageSquare size={13} />
               </button>
@@ -335,6 +378,7 @@ function VideoLibraryGrid({
   loading,
   onTranscript,
   onGoToConversation,
+  onRetry,
   embedded = false,
   emptyTitle,
   emptyDesc,
@@ -346,6 +390,7 @@ function VideoLibraryGrid({
   loading: boolean;
   onTranscript: (markdown: string) => void;
   onGoToConversation: (conversationId: string) => void;
+  onRetry?: (id: number) => void;
   embedded?: boolean;
   emptyTitle?: string;
   emptyDesc?: string;
@@ -414,6 +459,7 @@ function VideoLibraryGrid({
               v={v}
               onTranscript={onTranscript}
               onGoToConversation={onGoToConversation}
+              onRetry={onRetry}
             />
           ))}
         </div>
@@ -595,6 +641,16 @@ function VideosContent() {
     load.then(r => setVideos(r as VideoItem[])).catch(() => {});
   }
 
+  async function handleRetryFromLibrary(videoId: number) {
+    setVideos(prev => prev.map(v => v.id === videoId ? { ...v, status: 'pending' } : v));
+    try {
+      await retryVideoManim(videoId, token ?? undefined);
+      router.push(`/videos?id=${videoId}`);
+    } catch {
+      refreshList();
+    }
+  }
+
   async function handleGenerate() {
     const topic = genTopic.trim();
     if (!topic || generating) return;
@@ -732,6 +788,7 @@ function VideosContent() {
                 loading={videosLoading}
                 onTranscript={openTranscript}
                 onGoToConversation={handleGoToConversation}
+                onRetry={handleRetryFromLibrary}
                 embedded
                 emptyEmbeddedTitle={t.video.noCompletedYet}
                 emptyEmbeddedDesc={t.video.generatePlaceholder}

@@ -213,16 +213,21 @@ async def get_video_status(video_id: int):
 
 @router.get("/user/{user_id}")
 async def get_user_videos(user_id: str):
-    """Returns only completed videos for the library view."""
+    """Returns all videos created by the user — any status, any source."""
     async with get_db() as db:
         rows = await db.fetch("""
-            SELECT id, status, video_url, thumbnail_url, prompt, subject,
-                   duration_secs, created_at, transcript_markdown,
-                   conversation_id, message_id
-            FROM videos
-            WHERE user_id = $1::uuid
-              AND status IN ('complete', 'completed')
-            ORDER BY created_at DESC LIMIT 200
+            SELECT v.id, v.status, v.video_url, v.thumbnail_url, v.prompt, v.subject,
+                   v.duration_secs, v.created_at, v.transcript_markdown,
+                   v.conversation_id, v.message_id, v.error_message
+            FROM videos v
+            WHERE v.user_id = $1::uuid
+               OR (v.concept_id IS NOT NULL AND v.concept_id IN (
+                       SELECT cc.id FROM course_concepts cc
+                       JOIN course_units cu ON cu.id = cc.unit_id
+                       JOIN courses c ON c.id = cu.course_id
+                       WHERE c.created_by = $1::uuid
+                   ))
+            ORDER BY v.created_at DESC LIMIT 200
         """, user_id)
     return [dict(r) for r in rows]
 
