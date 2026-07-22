@@ -667,5 +667,16 @@ export const en: Translation = {
     removeFromTextbook: 'Remove from Textbook',
     viewInTextbook: 'View in Textbook',
     addToTextbook: 'Add to Textbook',
+    studioPrompts: [
+      { label: 'Write an explanation',     text: 'Write a clear, student-friendly explanation of this concept with 2 worked examples.' },
+      { label: 'Draft audio script',       text: 'Write a natural-sounding narration script for audio. Keep it conversational, around 150 words.' },
+      { label: 'Step-by-step walkthrough', text: 'Break this concept down into clear numbered steps a student can follow.' },
+      { label: 'Short introduction',       text: 'Write a short introductory paragraph (3–4 sentences) that hooks the student and explains why this concept matters.' },
+      { label: 'Add examples',             text: 'Add 2 more worked examples to the last explanation.' },
+      { label: 'Simplify',                 text: 'Rewrite the last response in simpler language for a beginner.' },
+      { label: 'Add an analogy',           text: 'Add a real-world analogy that makes this concept easier to grasp.' },
+      { label: 'Make it shorter',          text: 'Make the explanation more concise without losing the key ideas.' },
+      { label: 'Add a summary',            text: 'Add a 2-sentence summary at the end.' },
+    ],
   },
 };

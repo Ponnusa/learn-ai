@@ -667,5 +667,16 @@ export const sv: Translation = {
     removeFromTextbook: 'Ta bort från läroboken',
     viewInTextbook: 'Visa i läroboken',
     addToTextbook: 'Lägg till i läroboken',
+    studioPrompts: [
+      { label: 'Skriv en förklaring',  text: 'Skriv en tydlig, elevvänlig förklaring av detta begrepp med 2 genomarbetade exempel.' },
+      { label: 'Skriv ljudmanus',      text: 'Skriv ett naturligt berättarmanus för ljud. Håll det konversationellt, ungefär 150 ord.' },
+      { label: 'Steg för steg',        text: 'Dela upp detta begrepp i tydliga numrerade steg som en elev kan följa.' },
+      { label: 'Kort introduktion',    text: 'Skriv ett kort introduktionsstycke (3–4 meningar) som fångar elevens intresse och förklarar varför begreppet är viktigt.' },
+      { label: 'Lägg till exempel',    text: 'Lägg till 2 genomarbetade exempel till den senaste förklaringen.' },
+      { label: 'Förenkla',             text: 'Skriv om det senaste svaret på ett enklare språk för nybörjare.' },
+      { label: 'Lägg till en analogi', text: 'Lägg till en verklig analogi som gör detta begrepp lättare att förstå.' },
+      { label: 'Gör det kortare',      text: 'Gör förklaringen mer kortfattad utan att förlora de viktigaste idéerna.' },
+      { label: 'Lägg till sammanfattning', text: 'Lägg till en 2-menings sammanfattning i slutet.' },
+    ],
   },
 };

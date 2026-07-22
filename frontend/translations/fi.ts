@@ -667,5 +667,16 @@ export const fi: Translation = {
     removeFromTextbook: 'Poista oppikirjasta',
     viewInTextbook: 'Näytä oppikirjassa',
     addToTextbook: 'Lisää oppikirjaan',
+    studioPrompts: [
+      { label: 'Kirjoita selitys',        text: 'Kirjoita selkeä, oppilasystävällinen selitys tästä käsitteestä kahdella harjoitusesimerkillä.' },
+      { label: 'Luonnostele ääniskripti', text: 'Kirjoita luonnolliselta kuulostava kerrontaskripti äänelle. Pidä se keskustelunomaisena, noin 150 sanaa.' },
+      { label: 'Askel askeleelta',        text: 'Jaa tämä käsite selkeisiin numeroituihin vaiheisiin, joita oppilas voi seurata.' },
+      { label: 'Lyhyt johdanto',          text: 'Kirjoita lyhyt johdantokappale (3–4 lausetta), joka herättää mielenkiinnon ja selittää miksi käsite on tärkeä.' },
+      { label: 'Lisää esimerkkejä',       text: 'Lisää 2 harjoitusesimerkkiä viimeiseen selitykseen.' },
+      { label: 'Yksinkertaista',          text: 'Kirjoita viimeisin vastaus yksinkertaisemmalla kielellä aloittelijalle.' },
+      { label: 'Lisää analogia',          text: 'Lisää tosielämän analogia, joka helpottaa tämän käsitteen ymmärtämistä.' },
+      { label: 'Tee lyhyemmäksi',         text: 'Tee selityksestä tiiviimpi menettämättä keskeisiä ideoita.' },
+      { label: 'Lisää yhteenveto',        text: 'Lisää 2 lauseen yhteenveto loppuun.' },
+    ],
   },
 };

@@ -657,5 +657,6 @@ export interface Translation {
     removeFromTextbook: string;
     viewInTextbook: string;
     addToTextbook: string;
+    studioPrompts: { label: string; text: string }[];
   };
 }
