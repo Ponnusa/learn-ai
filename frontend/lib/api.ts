@@ -25,10 +25,11 @@ async function request<T>(
   return res.json();
 }
 
-const get  = <T>(path: string, token?: string | null) => request<T>('GET',    path, undefined, token);
-const post = <T>(path: string, body: unknown, token?: string | null) => request<T>('POST',   path, body, token);
-const put  = <T>(path: string, body: unknown, token?: string | null) => request<T>('PUT',    path, body, token);
-const del  = <T>(path: string, token?: string | null) => request<T>('DELETE', path, undefined, token);
+const get   = <T>(path: string, token?: string | null) => request<T>('GET',    path, undefined, token);
+const post  = <T>(path: string, body: unknown, token?: string | null) => request<T>('POST',   path, body, token);
+const put   = <T>(path: string, body: unknown, token?: string | null) => request<T>('PUT',    path, body, token);
+const patch = <T>(path: string, body: unknown, token?: string | null) => request<T>('PATCH',  path, body, token);
+const del   = <T>(path: string, token?: string | null) => request<T>('DELETE', path, undefined, token);
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export const sendMagicLink = (email: string, sessionId?: string, knowledgeLevel?: string) =>
@@ -509,6 +510,60 @@ export async function fetchMaterialPdf(
   const blob = await res.blob();
   return new File([blob], filename, { type: 'application/pdf' });
 }
+
+// ── Concept content blocks ────────────────────────────────────────────────────
+
+export interface ContentBlock {
+  id:           string;
+  type:         'text' | 'video';
+  position:     number;
+  title:        string | null;
+  body:         string | null;
+  video_id:     number | null;
+  video_url:    string | null;
+  video_status: string | null;
+  created_at:   string;
+}
+
+export const listContentBlocks = (conceptId: string, token: string) =>
+  get<ContentBlock[]>(`/api/courses/concepts/${conceptId}/content-blocks`, token);
+
+export const addContentBlock = (
+  conceptId: string,
+  block: { type: string; title?: string; body?: string; video_id?: number; position?: number },
+  token: string,
+) => post<ContentBlock>(`/api/courses/concepts/${conceptId}/content-blocks`, block, token);
+
+export const updateContentBlock = (
+  conceptId: string,
+  blockId: string,
+  update: { title?: string; body?: string; position?: number },
+  token: string,
+) => patch<{ ok: boolean }>(
+  `/api/courses/concepts/${conceptId}/content-blocks/${blockId}`, update, token
+);
+
+export const deleteContentBlock = (conceptId: string, blockId: string, token: string) =>
+  del<{ ok: boolean }>(`/api/courses/concepts/${conceptId}/content-blocks/${blockId}`, token);
+
+export const generateBlockVideo = (
+  conceptId: string,
+  body: { title: string; transcript: string },
+  token: string,
+) => post<ContentBlock>(`/api/courses/concepts/${conceptId}/content-blocks/generate-video`, body, token);
+
+// ── Teacher Studio chat ───────────────────────────────────────────────────────
+
+export interface StudioMessage {
+  role:    'user' | 'assistant';
+  content: string;
+}
+
+export const sendStudioChatMessage = (
+  chapterId: string,
+  body: { message: string; history?: StudioMessage[]; image_data_url?: string | null },
+  token: string,
+) => post<StudioMessage>(`/api/courses/chapters/${chapterId}/studio-chat`, body, token);
 
 // ── File upload (multipart) ───────────────────────────────────────────────────
 export async function uploadFile(file: File, sessionId?: string, userId?: string, token?: string) {

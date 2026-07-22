@@ -911,6 +911,218 @@ async def apply_concept_chat_message(
     return dict(updated)
 
 
+# ── Concept content blocks (textbook-style ordered blocks per concept) ────────
+
+class ContentBlockRequest(BaseModel):
+    type:     str       = 'text'   # 'text' | 'video'
+    title:    str | None = None
+    body:     str | None = None
+    video_id: int | None = None
+    position: int | None = None
+
+
+@router.get("/concepts/{concept_id}/content-blocks")
+async def list_content_blocks(concept_id: str, authorization: str = Header(...)):
+    """List content blocks ordered by position — readable by students and teachers."""
+    await _get_student(authorization)
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT cb.id, cb.type, cb.position, cb.title, cb.body,
+                   cb.video_id, v.url AS video_url, v.status AS video_status,
+                   cb.created_at
+            FROM concept_content_blocks cb
+            LEFT JOIN videos v ON v.id = cb.video_id
+            WHERE cb.concept_id = $1::uuid
+            ORDER BY cb.position, cb.created_at
+        """, concept_id)
+    return [
+        {
+            "id":           str(r["id"]),
+            "type":         r["type"],
+            "position":     r["position"],
+            "title":        r["title"],
+            "body":         r["body"],
+            "video_id":     r["video_id"],
+            "video_url":    r["video_url"],
+            "video_status": r["video_status"],
+            "created_at":   r["created_at"].isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@router.post("/concepts/{concept_id}/content-blocks")
+async def add_content_block(
+    concept_id:    str,
+    req:           ContentBlockRequest,
+    authorization: str = Header(...),
+):
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        if req.position is None:
+            max_pos = await db.fetchval(
+                "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+                concept_id,
+            )
+            req.position = int(max_pos) + 1
+        row = await db.fetchrow("""
+            INSERT INTO concept_content_blocks
+              (concept_id, type, position, title, body, video_id, created_by)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid)
+            RETURNING id, type, position, title, body, video_id, created_at
+        """, concept_id, req.type, req.position, req.title, req.body,
+            req.video_id, teacher_id)
+    return {
+        "id":       str(row["id"]),
+        "type":     row["type"],
+        "position": row["position"],
+        "title":    row["title"],
+        "body":     row["body"],
+        "video_id": row["video_id"],
+        "created_at": row["created_at"].isoformat(),
+    }
+
+
+class UpdateBlockRequest(BaseModel):
+    title:    str | None = None
+    body:     str | None = None
+    position: int | None = None
+
+
+@router.patch("/concepts/{concept_id}/content-blocks/{block_id}")
+async def update_content_block(
+    concept_id:    str,
+    block_id:      str,
+    req:           UpdateBlockRequest,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    sets, params = [], [block_id, concept_id]
+    for field, val in req.model_dump(exclude_none=True).items():
+        params.append(val)
+        sets.append(f"{field} = ${len(params)}")
+    if not sets:
+        raise HTTPException(400, "Nothing to update")
+    async with get_db() as db:
+        await db.execute(
+            f"UPDATE concept_content_blocks SET {', '.join(sets)} WHERE id = $1::uuid AND concept_id = $2::uuid",
+            *params,
+        )
+    return {"ok": True}
+
+
+@router.delete("/concepts/{concept_id}/content-blocks/{block_id}")
+async def delete_content_block(
+    concept_id:    str,
+    block_id:      str,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
+            block_id, concept_id,
+        )
+    return {"ok": True}
+
+
+# ── Teacher Studio: chapter-level authoring chat ──────────────────────────────
+
+class StudioChatRequest(BaseModel):
+    message:        str
+    history:        list[dict] | None = None  # [{role, content}]
+    image_data_url: str | None        = None  # PNG/JPEG clip base64-encoded
+
+
+@router.post("/chapters/{chapter_id}/studio-chat")
+async def studio_chat(
+    chapter_id:    str,
+    req:           StudioChatRequest,
+    authorization: str = Header(...),
+):
+    """
+    Teacher authoring chat grounded in the full chapter text.
+    Accepts an optional image clip (base64 PNG) so the teacher can ask about
+    a specific region of the PDF. Returns an AI response that may contain
+    ### EXPLANATION and ### VIDEO SCRIPT sections for saving as content blocks.
+    """
+    teacher_id = await _require_teacher(authorization)
+    if not req.message.strip():
+        raise HTTPException(400, "Message cannot be empty")
+
+    async with get_db() as db:
+        chapter = await db.fetchrow("""
+            SELECT ch.id, ch.pdf_data, ch.filename, c.name, c.subject
+            FROM course_chapters ch
+            JOIN courses c ON c.id = ch.course_id
+            WHERE ch.id = $1::uuid
+        """, chapter_id)
+        teacher_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
+
+    if not chapter:
+        raise HTTPException(404, "Chapter not found")
+
+    material_text = ""
+    if chapter["pdf_data"]:
+        from services.studyset_processor import extract_text_from_pdf
+        material_text, _ = extract_text_from_pdf(bytes(chapter["pdf_data"]))
+
+    teacher_language = teacher_lang or 'en'
+    lang_note = ""
+    if teacher_language in _LANGUAGE_NAMES:
+        lang_note = f"\n\nWrite all content in {_LANGUAGE_NAMES[teacher_language]}."
+
+    system_prompt = f"""You are helping a teacher create educational content for their course. You have access to the full chapter text, and optionally a cropped region from the PDF that the teacher has highlighted.
+
+Course: {chapter['name']}
+Subject: {chapter['subject'] or 'General'}
+Chapter: {chapter['filename']}
+
+Chapter text:
+---
+{material_text[:40_000]}
+---
+
+Help the teacher draft explanations and video scripts for their students. When giving a full draft, use these section headers exactly:
+
+### EXPLANATION
+<3-4 paragraph student-facing written explanation>
+
+### VIDEO SCRIPT
+<short spoken narration script, 60-90 seconds when read aloud>
+
+For conversational questions or partial feedback, just respond naturally — only use the headers when giving a full draft the teacher can save.{lang_note}"""
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    for h in (req.history or []):
+        if h.get("role") in ("user", "assistant") and h.get("content"):
+            messages.append({"role": h["role"], "content": h["content"]})
+
+    user_content: object = req.message
+    if req.image_data_url:
+        try:
+            header, b64data = req.image_data_url.split(",", 1)
+            mime = "image/png" if "image/png" in header else "image/jpeg"
+            user_content = [
+                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64data}"}},
+                {"type": "text", "text": req.message},
+            ]
+        except Exception:
+            pass
+    messages.append({"role": "user", "content": user_content})
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=messages,
+        max_tokens=2000,
+        temperature=0.5,
+    )
+    reply = response.choices[0].message.content
+    return {"role": "assistant", "content": reply}
+
+
 # ── Syllabus import ───────────────────────────────────────────────────────────
 
 @router.post("/{course_id}/import-syllabus")
@@ -3250,6 +3462,146 @@ async def generate_concept_video(
         )
     bg.add_task(_generate_concept_video_bg, concept_id, str(concept["course_id"]))
     return {"ok": True, "video_status": "generating"}
+
+
+class GenerateBlockVideoRequest(BaseModel):
+    title:      str
+    transcript: str
+
+
+async def _generate_block_video_bg(
+    block_id:   str,
+    concept_id: str,
+    title:      str,
+    transcript: str,
+    subject:    str | None,
+):
+    """
+    Background: generate a Manim video from a teacher-written transcript.
+    Phase 1 (GPT-4o) creates the animation structure; the teacher's transcript
+    replaces the auto-generated narration. Sets video_id on the content block
+    and concept_id on the video row once the pipeline completes Phase 2.
+    """
+    from services.manim import (
+        generate_solution_only, generate_manim_from_solution,
+        fix_manim_colors, ensure_numpy_import, strip_invalid_tex_weight, _trigger_video_generation,
+    )
+
+    video_id = None
+    try:
+        manim_subject = _map_manim_subject(subject)
+        duration = max(45, min(180, len(transcript) // 12))
+        prompt   = f"Concept: {title}\n\nScript:\n{transcript}"
+
+        async with get_db() as db:
+            video = await db.fetchrow("""
+                INSERT INTO videos (prompt, subject, language, aspect_ratio, max_duration, status, concept_id)
+                VALUES ($1, $2, 'en', '16:9', $3, 'pending', $4::uuid)
+                RETURNING id
+            """, prompt, manim_subject, duration, concept_id)
+            video_id = video["id"]
+            await db.execute(
+                "UPDATE concept_content_blocks SET video_id = $1 WHERE id = $2::uuid",
+                video_id, block_id,
+            )
+
+        logger.info("[block-video] block %s: Phase 1 starting (video %s)", block_id, video_id)
+        solution_data = await generate_solution_only(prompt, "en", duration)
+        solution_data["transcript_markdown"] = transcript  # use teacher's exact words
+
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos
+                SET transcript_markdown = $1, verified_solution = $2, status = 'transcript_ready', updated_at = NOW()
+                WHERE id = $3
+            """, transcript, solution_data["verified_solution"], video_id)
+
+        logger.info("[block-video] block %s: Phase 2 starting (video %s)", block_id, video_id)
+        code_data = await asyncio.wait_for(
+            generate_manim_from_solution(solution_data, "en", duration, "16:9"),
+            timeout=900,
+        )
+        code     = fix_manim_colors(code_data["code"])
+        code     = ensure_numpy_import(code)
+        code     = strip_invalid_tex_weight(code)
+        svg_urls = code_data.get("svg_urls") or {}
+
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos
+                SET generated_code = $1, scene_name = $2, svg_urls = $3::jsonb, status = 'queued', updated_at = NOW()
+                WHERE id = $4
+            """, code, code_data.get("scene_name", "MainScene"), json.dumps(svg_urls), video_id)
+
+        _trigger_video_generation(video_id, svg_urls)
+        logger.info("[block-video] block %s: queued for Cloud Run render (video %s)", block_id, video_id)
+
+    except BaseException as exc:
+        logger.error("[block-video] block %s failed: %s", block_id, exc, exc_info=True)
+        try:
+            async with get_db() as db:
+                if video_id:
+                    await db.execute(
+                        "UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW() WHERE id = $2",
+                        f"{type(exc).__name__}: {exc}"[:2000], video_id,
+                    )
+        except Exception as _db_err:
+            logger.error("[block-video] DB update on failure failed: %s", _db_err)
+        if isinstance(exc, asyncio.CancelledError):
+            raise
+
+
+@router.post("/concepts/{concept_id}/content-blocks/generate-video")
+async def generate_block_video(
+    concept_id:    str,
+    req:           GenerateBlockVideoRequest,
+    bg:            BackgroundTasks,
+    authorization: str = Header(...),
+):
+    """
+    Generate a Manim video from a teacher-written transcript and link it as a
+    new content block on this concept. The block is created immediately (so the
+    frontend can show a 'generating' state); the video pipeline runs in the background.
+    """
+    teacher_id = await _require_teacher(authorization)
+    if not req.transcript.strip():
+        raise HTTPException(400, "Transcript cannot be empty")
+
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cu.course_id, c.subject FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id  = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+
+    async with get_db() as db:
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+            concept_id,
+        )
+        block = await db.fetchrow("""
+            INSERT INTO concept_content_blocks
+              (concept_id, type, position, title, body, created_by)
+            VALUES ($1::uuid, 'video', $2, $3, $4, $5::uuid)
+            RETURNING id, position, title, created_at
+        """, concept_id, int(max_pos) + 1, req.title, req.transcript, teacher_id)
+
+    bg.add_task(
+        _generate_block_video_bg,
+        str(block["id"]), concept_id, req.title, req.transcript, concept["subject"],
+    )
+    return {
+        "id":           str(block["id"]),
+        "type":         "video",
+        "position":     block["position"],
+        "title":        block["title"],
+        "video_id":     None,
+        "video_status": "pending",
+        "created_at":   block["created_at"].isoformat(),
+    }
 
 
 @router.get("/concepts/{concept_id}/audio")

@@ -12,6 +12,7 @@ import {
   HelpCircle, Layers, Volume2, Video, ChevronLeft, ChevronRight,
   CheckCircle2, XCircle, Send, FileText,
 } from 'lucide-react';
+import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -50,7 +51,8 @@ export default function StudentConceptDetailPage() {
   const [concept,    setConcept]    = useState<ConceptDetail | null>(null);
   const [assets,     setAssets]     = useState<Assets | null>(null);
   const [loading,    setLoading]    = useState(true);
-  const [activating, setActivating] = useState(false);
+  const [activating,     setActivating]     = useState(false);
+  const [hasBlocks,      setHasBlocks]      = useState(false);
 
   // Chat Q&A state
   type ChatMsg = { role: 'user' | 'assistant'; content: string };
@@ -248,8 +250,16 @@ export default function StudentConceptDetailPage() {
       <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{concept.title}</h1>
       {concept.description && <p className="text-[var(--tx6)] text-sm mb-6">{concept.description}</p>}
 
+      {/* Textbook content blocks (teacher-authored, shown first) */}
+      <ConceptTextbook
+        conceptId={conceptId}
+        token={token!}
+        onHasBlocks={setHasBlocks}
+      />
+
+      {/* Legacy single-asset view (shown only when no textbook blocks exist) */}
       {/* Video player (preferred over audio-only) */}
-      {showVideo && (
+      {!hasBlocks && showVideo && (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mb-6">
           <video controls src={`${API_BASE}${assets!.video_url}`} className="w-full aspect-video" />
           <p className="px-4 py-2 text-[var(--tx8)] text-xs flex items-center gap-1.5">
@@ -259,7 +269,7 @@ export default function StudentConceptDetailPage() {
       )}
 
       {/* Audio-only fallback when no video */}
-      {showAudio && (
+      {!hasBlocks && showAudio && (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4 mb-6">
           <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <Volume2 size={12} /> Listen
@@ -269,7 +279,7 @@ export default function StudentConceptDetailPage() {
       )}
 
       {/* Explanation */}
-      {explanation && (
+      {!hasBlocks && explanation && (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-6 mb-6">
           <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <BookOpen size={12} />
@@ -280,7 +290,7 @@ export default function StudentConceptDetailPage() {
       )}
 
       {/* Images */}
-      {concept.images.length > 0 && (
+      {!hasBlocks && concept.images.length > 0 && (
         <div className="mb-6">
           <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
             <ImageIcon size={12} /> Illustrations

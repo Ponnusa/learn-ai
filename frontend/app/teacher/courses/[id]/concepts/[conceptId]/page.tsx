@@ -10,15 +10,16 @@ import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, Plus, FileText, Mic2,
   CheckCircle, Circle, AlertCircle, Zap, HelpCircle, Layers,
-  RefreshCw, Volume2, Video, Send, Sparkles,
+  RefreshCw, Volume2, Video, Send, Sparkles, LayoutList,
 } from 'lucide-react';
+import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab            = 'summary' | 'transcript' | 'resources' | 'assets';
+type Tab            = 'summary' | 'transcript' | 'resources' | 'assets' | 'textbook';
 type ResourceType   = 'image' | 'pdf' | 'video';
 interface Resource  { id: string; type: ResourceType; title: string; mime_type?: string; video_url?: string; file_url?: string; position: number; text_extracted?: boolean; }
 type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
@@ -513,6 +514,7 @@ export default function ConceptEditorPage() {
               ['transcript', t.teacher.tabTranscript, Mic2],
               ['resources',  t.teacher.tabResources,  ImageIcon],
               ['assets',     t.teacher.tabAssets,     Zap],
+              ['textbook',   'Textbook',              LayoutList],
             ] as [Tab, string, React.ComponentType<{ size: number }>][]).map(([tabId, label, Icon]) => (
               <button key={tabId} onClick={() => setActiveTab(tabId)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -901,6 +903,20 @@ export default function ConceptEditorPage() {
                   </AssetSection>
                 </>
               ) : null}
+            </div>
+          )}
+
+          {/* ── Textbook blocks ── */}
+          {activeTab === 'textbook' && (
+            <div>
+              <p className="text-[var(--tx6)] text-xs mb-4">
+                Content blocks are shown to students as an ordered textbook page. Use Studio chat to generate them, or save explanations directly.
+              </p>
+              <ConceptTextbook
+                conceptId={conceptId}
+                token={token!}
+                editable
+              />
             </div>
           )}
 

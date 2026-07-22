@@ -443,6 +443,26 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE study_materials ADD COLUMN IF NOT EXISTS file_data BYTEA",
             # ── Per-study-concept chat conversations ──────────────────────────────
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS study_concept_id UUID REFERENCES study_concepts(id) ON DELETE CASCADE",
+            # ── Teacher Studio: chapter-level authoring chat ──────────────────
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS chapter_id UUID REFERENCES course_chapters(id) ON DELETE CASCADE",
+            # ── Videos: link to concept (1-to-many) ──────────────────────────
+            "ALTER TABLE videos ADD COLUMN IF NOT EXISTS concept_id UUID REFERENCES course_concepts(id) ON DELETE SET NULL",
+            "CREATE INDEX IF NOT EXISTS idx_videos_concept ON videos(concept_id)",
+            # ── Concept textbook content blocks (ordered, typed) ──────────────
+            """
+            CREATE TABLE IF NOT EXISTS concept_content_blocks (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                concept_id  UUID    NOT NULL REFERENCES course_concepts(id) ON DELETE CASCADE,
+                type        TEXT    NOT NULL DEFAULT 'text',
+                position    INTEGER NOT NULL DEFAULT 0,
+                title       TEXT,
+                body        TEXT,
+                video_id    INTEGER REFERENCES videos(id) ON DELETE SET NULL,
+                created_by  UUID    REFERENCES users(id) ON DELETE SET NULL,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_content_blocks_concept ON concept_content_blocks(concept_id, position)",
         ]:
             try:
                 await db.execute(sql)

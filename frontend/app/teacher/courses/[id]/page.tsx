@@ -4,7 +4,7 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
   Upload, Loader2, Check, BookOpen, Users,
-  CheckCircle, Globe, Zap, Circle, Crop, Sparkles, ListChecks,
+  CheckCircle, Globe, Zap, Circle, Crop, Sparkles, ListChecks, Wand2,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { PDFViewerModal } from '@/components/chat/PDFViewerModal';
@@ -516,6 +516,11 @@ export default function CourseDetailPage() {
                                text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
                     {coverageBusy === unit.chapter_ref ? <Loader2 size={12} className="animate-spin" /> : <ListChecks size={12} />}
                     {t.teacher.checkCoverage}
+                  </button>
+                  <button onClick={() => router.push(`/teacher/courses/${courseId}/chapters/${unit.chapter_ref}/studio`)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-purple-500/30
+                               text-purple-400 hover:bg-purple-500/10 transition-all">
+                    <Wand2 size={12} /> Studio
                   </button>
                 </div>
               )}
