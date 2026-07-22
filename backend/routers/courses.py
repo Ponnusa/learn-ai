@@ -928,7 +928,7 @@ async def list_content_blocks(concept_id: str, authorization: str = Header(...))
     async with get_db() as db:
         rows = await db.fetch("""
             SELECT cb.id, cb.type, cb.position, cb.title, cb.body,
-                   cb.video_id, v.url AS video_url, v.status AS video_status,
+                   cb.video_id, v.video_url, v.status AS video_status,
                    cb.created_at
             FROM concept_content_blocks cb
             LEFT JOIN videos v ON v.id = cb.video_id

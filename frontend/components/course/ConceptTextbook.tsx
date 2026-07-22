@@ -146,18 +146,22 @@ interface ConceptTextbookProps {
 export function ConceptTextbook({ conceptId, token, editable = false, onHasBlocks }: ConceptTextbookProps) {
   const [blocks,  setBlocks]  = useState<ContentBlock[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
 
-  useEffect(() => {
+  function load() {
     if (!conceptId) return;
     setLoading(true);
+    setError(null);
     listContentBlocks(conceptId, token)
       .then(data => {
         setBlocks(data);
         onHasBlocks?.(data.length > 0);
       })
-      .catch(console.error)
+      .catch(e => setError(e.message ?? 'Failed to load'))
       .finally(() => setLoading(false));
-  }, [conceptId, token]);
+  }
+
+  useEffect(() => { load(); }, [conceptId, token]);
 
   async function handleDelete(blockId: string) {
     try {
@@ -176,7 +180,24 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
     );
   }
 
-  if (blocks.length === 0) return null;
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 py-4 text-red-400 text-sm">
+        <span>Failed to load blocks: {error}</span>
+        <button onClick={load} className="underline text-xs">Retry</button>
+      </div>
+    );
+  }
+
+  if (blocks.length === 0) {
+    if (!editable) return null;
+    return (
+      <p className="text-[var(--tx7)] text-sm py-4">
+        No content blocks yet. Use the Assets tab to add an approved video or audio,
+        or use Studio chat to generate explanations and video scripts.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-6">
