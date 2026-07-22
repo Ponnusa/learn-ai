@@ -53,6 +53,8 @@ type VideoItem = {
   conversation_id?: string;
   message_id?: string;
   error_message?: string;
+  concept_title?: string;
+  course_name?: string;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,7 +197,8 @@ function VideoLibraryCard({
   const { gradient, badge } = subjectStyle(v.subject);
   const duration  = formatDuration(v.duration_secs);
   const date      = formatDate(v.created_at, t.sidebar.today, t.sidebar.yesterday, t.studySets.daysAgo);
-  const title     = v.prompt || 'Untitled Video';
+  const title     = v.concept_title || v.prompt || 'Untitled Video';
+  const context   = v.course_name || null;
   const inProgress = LOADING_STATUSES.has(v.status);
   const isFailed   = v.status === 'failed';
   const isDone     = DONE_STATUSES.has(v.status);
@@ -268,9 +271,14 @@ function VideoLibraryCard({
 
       {/* ── Card body ── */}
       <div className="p-3 flex flex-col gap-2 flex-1">
-        <p className="text-[var(--tx1)] text-sm font-medium line-clamp-2 leading-snug min-h-[2.5rem]">
-          {title}
-        </p>
+        <div className="min-h-[2.5rem]">
+          <p className="text-[var(--tx1)] text-sm font-medium line-clamp-2 leading-snug">
+            {title}
+          </p>
+          {context && (
+            <p className="text-[var(--tx7)] text-[10px] mt-0.5 truncate">{context}</p>
+          )}
+        </div>
 
         <div className="flex items-center justify-between gap-1 mt-auto">
           <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
@@ -340,7 +348,7 @@ function VideoSidebarCard({
 }: { v: VideoItem; active: boolean; onClick: () => void }) {
   const { t }        = useTranslation();
   const { gradient } = subjectStyle(v.subject);
-  const title = v.prompt || 'Untitled Video';
+  const title = v.concept_title || v.prompt || 'Untitled Video';
   return (
     <button
       onClick={onClick}

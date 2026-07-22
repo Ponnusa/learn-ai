@@ -221,6 +221,8 @@ export const getUserVideos = (userId: string, token?: string) =>
     conversation_id?: string;
     message_id?: string;
     error_message?: string;
+    concept_title?: string;
+    course_name?: string;
   }[]>(`/api/videos/user/${userId}`, token);
 
 export const getConversationVideos = (conversationId: string, token?: string) =>

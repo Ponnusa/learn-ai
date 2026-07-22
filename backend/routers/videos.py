@@ -218,15 +218,15 @@ async def get_user_videos(user_id: str):
         rows = await db.fetch("""
             SELECT v.id, v.status, v.video_url, v.thumbnail_url, v.prompt, v.subject,
                    v.duration_secs, v.created_at, v.transcript_markdown,
-                   v.conversation_id, v.message_id, v.error_message
+                   v.conversation_id, v.message_id, v.error_message,
+                   cc.title  AS concept_title,
+                   c.name    AS course_name
             FROM videos v
+            LEFT JOIN course_concepts cc ON cc.id = v.concept_id
+            LEFT JOIN course_units    cu ON cu.id = cc.unit_id
+            LEFT JOIN courses          c ON c.id  = cu.course_id
             WHERE v.user_id = $1::uuid
-               OR (v.concept_id IS NOT NULL AND v.concept_id IN (
-                       SELECT cc.id FROM course_concepts cc
-                       JOIN course_units cu ON cu.id = cc.unit_id
-                       JOIN courses c ON c.id = cu.course_id
-                       WHERE c.created_by = $1::uuid
-                   ))
+               OR (v.concept_id IS NOT NULL AND c.teacher_id = $1::uuid)
             ORDER BY v.created_at DESC LIMIT 200
         """, user_id)
     return [dict(r) for r in rows]
