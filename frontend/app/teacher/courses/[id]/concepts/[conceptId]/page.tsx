@@ -38,6 +38,7 @@ interface ChatMsg {
   videoStatus?: string;
   videoUrl?: string;
   videoError?: string;
+  videoId?: number;         // integer videos.id — needed to re-add to textbook after removal
 }
 
 interface ConceptDetail {
@@ -126,6 +127,7 @@ export default function ConceptEditorPage() {
   const [addedMsgBlocks,    setAddedMsgBlocks]    = useState<Set<string>>(new Set());
   const [generatingVideoMsg, setGeneratingVideoMsg] = useState<string | null>(null);
   const videoPollingRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  const [removedVideoBlocks, setRemovedVideoBlocks] = useState<Set<string>>(new Set());
 
   const [assetPolling,    setAssetPolling]    = useState(false);
 
@@ -334,6 +336,7 @@ export default function ConceptEditorPage() {
           videoStatus: d.video_status,
           videoUrl:    d.video_url   || undefined,
           videoError:  d.video_error || undefined,
+          videoId:     d.video_id    ?? m.videoId,
         } : m));
         if (done) {
           clearInterval(videoPollingRef.current.get(blockId));
@@ -375,6 +378,34 @@ export default function ConceptEditorPage() {
     } catch (err: any) {
       setChatMsgs(prev => prev.map(m => m.id === msgId
         ? { ...m, videoStatus: 'failed', videoError: err.message } : m));
+    }
+  }
+
+  async function removeVideoFromTextbook(blockId: string) {
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${blockId}`,
+        { method: 'DELETE', headers: authH },
+      );
+      if (!res.ok) throw new Error('Could not remove from textbook');
+      setRemovedVideoBlocks(prev => new Set([...prev, blockId]));
+    } catch (err: any) {
+      alert(err.message);
+    }
+  }
+
+  async function addVideoBackToTextbook(msgId: string, videoId: number, oldBlockId: string) {
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`,
+        { method: 'POST', headers: jsonH, body: JSON.stringify({ type: 'video', video_id: videoId }) },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not add to textbook');
+      setChatMsgs(prev => prev.map(m => m.id === msgId ? { ...m, videoBlockId: data.id } : m));
+      setRemovedVideoBlocks(prev => { const s = new Set(prev); s.delete(oldBlockId); return s; });
+    } catch (err: any) {
+      alert(err.message);
     }
   }
 
@@ -706,11 +737,24 @@ export default function ConceptEditorPage() {
                               {vidReady && (
                                 <div>
                                   <video src={m.videoUrl} controls className="w-full aspect-video bg-black" preload="metadata" />
-                                  <div className="px-3 py-2 border-t border-[var(--bd)]">
-                                    <button onClick={() => setActiveTab('textbook')}
-                                      className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors">
-                                      <LayoutList size={11} /> View in Textbook
-                                    </button>
+                                  <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
+                                    {m.videoBlockId && !removedVideoBlocks.has(m.videoBlockId) ? (
+                                      <>
+                                        <button onClick={() => removeVideoFromTextbook(m.videoBlockId!)}
+                                          className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-red-400 transition-colors">
+                                          <X size={11} /> Remove from Textbook
+                                        </button>
+                                        <button onClick={() => setActiveTab('textbook')}
+                                          className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors">
+                                          <LayoutList size={11} /> View in Textbook
+                                        </button>
+                                      </>
+                                    ) : m.videoBlockId && m.videoId ? (
+                                      <button onClick={() => addVideoBackToTextbook(m.id, m.videoId!, m.videoBlockId!)}
+                                        className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-green-400 transition-colors">
+                                        <Plus size={11} /> Add to Textbook
+                                      </button>
+                                    ) : null}
                                   </div>
                                 </div>
                               )}

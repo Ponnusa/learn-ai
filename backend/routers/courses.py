@@ -744,12 +744,32 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
             WHERE conversation_id = $1::uuid ORDER BY created_at
         """, conv["id"])
     import json as _json
+    # Batch-fetch video_id for any video-card messages
+    video_block_ids = []
+    for r in rows:
+        if r["metadata"]:
+            try:
+                meta = r["metadata"] if isinstance(r["metadata"], dict) else _json.loads(r["metadata"])
+                if meta.get("content_type") == "video" and meta.get("block_id"):
+                    video_block_ids.append(meta["block_id"])
+            except Exception:
+                pass
+    block_video_map: dict = {}
+    if video_block_ids:
+        async with get_db() as db2:
+            brows = await db2.fetch(
+                "SELECT id::text, video_id FROM concept_content_blocks WHERE id = ANY($1::uuid[])",
+                video_block_ids,
+            )
+        block_video_map = {r["id"]: r["video_id"] for r in brows}
+
     result = []
     for r in rows:
         suggestions    = []
         image_pages:   list[int] = []
         video_block_id = ""
         video_source_id = ""
+        video_int_id: int | None = None
         if r["metadata"]:
             try:
                 meta = r["metadata"] if isinstance(r["metadata"], dict) else _json.loads(r["metadata"])
@@ -758,6 +778,7 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
                 if meta.get("content_type") == "video":
                     video_block_id    = meta.get("block_id", "")
                     video_source_id   = meta.get("source_msg_id", "")
+                    video_int_id      = block_video_map.get(video_block_id)
             except Exception:
                 pass
         entry: dict = {
@@ -773,6 +794,8 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
             entry["videoBlockId"] = video_block_id
         if video_source_id:
             entry["videoSourceMsgId"] = video_source_id
+        if video_int_id is not None:
+            entry["videoId"] = video_int_id
         result.append(entry)
     return result
 
@@ -981,10 +1004,31 @@ async def apply_concept_chat_message(
         transcript_match = _CHAT_TRANSCRIPT_RE.search(content)
 
         if summary_match and transcript_match:
-            # Two distinct sections → two blocks so they're visually separate in the textbook
+            # Two distinct sections — derive a heading from the preceding user question
             summary_body    = content[summary_match.end():transcript_match.start()].strip()
             transcript_body = content[transcript_match.end():].strip()
-            blocks_to_insert: list[tuple[str | None, str]] = [
+
+            async with get_db() as db:
+                prev_q = await db.fetchrow("""
+                    SELECT m.content FROM messages m
+                    JOIN conversations c ON c.id = m.conversation_id
+                    WHERE c.concept_id = $1::uuid
+                      AND m.role = 'user'
+                      AND m.created_at < (SELECT created_at FROM messages WHERE id = $2::uuid)
+                    ORDER BY m.created_at DESC LIMIT 1
+                """, concept_id, req.message_id)
+            if prev_q and prev_q["content"]:
+                q = prev_q["content"].strip().rstrip("?").strip()
+                if len(q) > 120:
+                    q = q[:120].rsplit(" ", 1)[0] + "…"
+                heading_body = f"## {q}"
+            else:
+                heading_body = None
+
+            blocks_to_insert: list[tuple[str | None, str]] = []
+            if heading_body:
+                blocks_to_insert.append((None, heading_body))
+            blocks_to_insert += [
                 ("Summary",    summary_body),
                 ("Transcript", transcript_body),
             ]
