@@ -115,6 +115,8 @@ export default function ConceptEditorPage() {
   const [approvingA,        setApprovingA]        = useState<Record<string, boolean>>({});
   const [addingToTextbook,  setAddingToTextbook]  = useState<'video' | 'audio' | null>(null);
   const [addedToTextbook,   setAddedToTextbook]   = useState<Set<string>>(new Set());
+  const [addingTrBlock,     setAddingTrBlock]     = useState(false);
+  const [addedTrBlock,      setAddedTrBlock]      = useState(false);
 
   const [pipelinePolling, setPipelinePolling] = useState(false);
   const [assetPolling,    setAssetPolling]    = useState(false);
@@ -347,20 +349,46 @@ export default function ConceptEditorPage() {
 
   async function saveSummary() {
     setSavingSum(true); setSavedSum(false);
-    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, {
-      method: 'PATCH', headers: jsonH, body: JSON.stringify({ ai_summary: summary }),
-    });
-    setSavedSum(true); setSavingSum(false);
-    setTimeout(() => setSavedSum(false), 2000);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, {
+        method: 'PATCH', headers: jsonH, body: JSON.stringify({ ai_summary: summary }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Save failed'); }
+      setSavedSum(true);
+      setTimeout(() => setSavedSum(false), 2000);
+    } catch (e: any) { alert('Failed to save: ' + e.message); }
+    finally { setSavingSum(false); }
   }
 
   async function saveTranscript() {
     setSavingTr(true); setSavedTr(false);
-    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, {
-      method: 'PATCH', headers: jsonH, body: JSON.stringify({ ai_transcript: transcript }),
-    });
-    setSavedTr(true); setSavingTr(false);
-    setTimeout(() => setSavedTr(false), 2000);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, {
+        method: 'PATCH', headers: jsonH, body: JSON.stringify({ ai_transcript: transcript }),
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Save failed'); }
+      setSavedTr(true);
+      setTimeout(() => setSavedTr(false), 2000);
+    } catch (e: any) { alert('Failed to save transcript: ' + e.message); }
+    finally { setSavingTr(false); }
+  }
+
+  async function addTranscriptToTextbook() {
+    if (!transcript.trim()) return;
+    setAddingTrBlock(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`, {
+        method: 'POST', headers: jsonH,
+        body: JSON.stringify({
+          type:  'text',
+          title: (concept?.title ?? 'Concept') + ' — Transcript',
+          body:  transcript,
+        }),
+      });
+      if (res.ok) setAddedTrBlock(true);
+      else { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Failed'); }
+    } catch (e: any) { alert('Could not add to textbook: ' + e.message); }
+    finally { setAddingTrBlock(false); }
   }
 
   async function approveConcept() {
@@ -716,11 +744,25 @@ export default function ConceptEditorPage() {
                                text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 resize-y transition-colors leading-relaxed font-mono" />
                   <div className="flex items-center justify-between mt-2">
                     <p className="text-[var(--tx8)] text-xs">{tF(t.teacher.wordCount, { n: wordCount, min: Math.round(wordCount / 130) })}</p>
-                    <button onClick={saveTranscript} disabled={savingTr}
-                      className="flex items-center gap-2 px-4 py-2 bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx2)] text-sm rounded-xl transition-all disabled:opacity-40">
-                      {savingTr ? <Loader2 size={13} className="animate-spin" /> : savedTr ? <Check size={13} className="text-green-400" /> : null}
-                      {savingTr ? t.saving : savedTr ? t.saved : t.save}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={addTranscriptToTextbook}
+                        disabled={addingTrBlock || addedTrBlock || !transcript.trim()}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
+                                   text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all
+                                   disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {addingTrBlock ? <Loader2 size={11} className="animate-spin" /> :
+                         addedTrBlock  ? <Check size={11} className="text-green-400" /> :
+                         <LayoutList size={11} />}
+                        {addedTrBlock ? 'Added to Textbook' : '→ Add to Textbook'}
+                      </button>
+                      <button onClick={saveTranscript} disabled={savingTr}
+                        className="flex items-center gap-2 px-4 py-2 bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx2)] text-sm rounded-xl transition-all disabled:opacity-40">
+                        {savingTr ? <Loader2 size={13} className="animate-spin" /> : savedTr ? <Check size={13} className="text-green-400" /> : null}
+                        {savingTr ? t.saving : savedTr ? t.saved : t.save}
+                      </button>
+                    </div>
                   </div>
                 </>
               )}
