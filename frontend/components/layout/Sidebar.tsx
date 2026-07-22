@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Video, BookOpen, BarChart2, Settings,
   Search, Menu, X, PenSquare, User, Sparkles, Users, LayoutDashboard, GraduationCap, ClipboardList, Mail,
+  ChevronRight,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { listConversations } from '@/lib/api';
@@ -55,9 +56,11 @@ const SUBJECT_ICONS: Record<string, string> = {
 let pendingOpenChats = false;
 
 export function Sidebar({ selectedConversationId, onNewChat, onConversationSelect }: SidebarProps) {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [chatsOpen,  setChatsOpen]  = useState(false);
-  const [search,     setSearch]     = useState('');
+  const [mobileOpen,       setMobileOpen]       = useState(false);
+  const [chatsOpen,        setChatsOpen]        = useState(false);
+  const [search,           setSearch]           = useState('');
+  // study-set groups default collapsed; keyed by study_set_id
+  const [expandedGroups,   setExpandedGroups]   = useState<Set<string>>(new Set());
   const searchRef = useRef<HTMLInputElement>(null);
   const pathname  = usePathname();
   const router    = useRouter();
@@ -127,6 +130,16 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
       setMobileOpen(false);
     }
   }, [pathname]);
+
+  // ── Auto-expand whichever study-set group contains the active conversation ─
+  const activeId = selectedConversationId ?? activeConversationId ?? undefined;
+  useEffect(() => {
+    if (!activeId) return;
+    const activeConv = conversations.find(c => c.id === activeId);
+    if (activeConv?.study_set_id) {
+      setExpandedGroups(prev => new Set([...prev, activeConv.study_set_id!]));
+    }
+  }, [activeId, conversations]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   function handleChatsClick() {
@@ -210,8 +223,6 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     if (diff < 7)  return tF(t.studySets.daysAgo, { n: diff });
     return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
-
-  const activeId = selectedConversationId ?? activeConversationId ?? undefined;
 
   const isTeacher  = ['teacher', 'institution_admin'].includes(user?.account_type ?? '');
   const isSuperAdmin = user?.account_type === 'super_admin';
@@ -437,37 +448,83 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
             {/* Conversation list */}
             <div className="flex-1 chat-scroll px-2 pb-4 space-y-3 text-xs">
 
-              {/* ── Study Sets group ──────────────────────────────────────── */}
+              {/* ── Study Sets — collapsible accordion ───────────────────── */}
               {studyGroups.length > 0 && (
                 <div>
                   <p className="px-3 py-1.5 text-[var(--tx8)] text-[10px] uppercase tracking-widest font-medium">
                     {t.sidebar.studySets}
                   </p>
-                  {studyGroups.map(g => (
-                    <button
-                      key={g.study_set_id}
-                      onClick={() => { router.push(`/study/${g.study_set_id}?tab=chat`); setChatsOpen(false); if (typeof window !== 'undefined' && window.innerWidth < 768) setMobileOpen(false); }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl
-                                 hover:bg-[var(--ov3)] transition-colors text-left group"
-                    >
-                      <div className="w-6 h-6 rounded-lg bg-indigo-500/15 border border-indigo-500/20
-                                      flex items-center justify-center shrink-0">
-                        <BookOpen size={11} className="text-indigo-400" />
+                  {studyGroups.map(g => {
+                    const isExpanded = expandedGroups.has(g.study_set_id) || (!!search && studySetConvs.some(c => c.study_set_id === g.study_set_id && (c.title?.toLowerCase().includes(search.toLowerCase()) || c.study_set_title?.toLowerCase().includes(search.toLowerCase()))));
+                    const groupConvs = studySetConvs.filter(c => c.study_set_id === g.study_set_id);
+                    return (
+                      <div key={g.study_set_id}>
+                        {/* Group header row */}
+                        <div className="flex items-center gap-0 rounded-xl hover:bg-[var(--ov3)] transition-colors group">
+                          {/* Chevron toggle */}
+                          <button
+                            onClick={() => setExpandedGroups(prev => {
+                              const next = new Set(prev);
+                              next.has(g.study_set_id) ? next.delete(g.study_set_id) : next.add(g.study_set_id);
+                              return next;
+                            })}
+                            className="flex items-center justify-center w-7 h-8 shrink-0 text-[var(--tx7)] hover:text-[var(--tx2)]"
+                            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                          >
+                            <ChevronRight size={12} className={`transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}`} />
+                          </button>
+                          {/* Title — clicks navigate to study set */}
+                          <button
+                            onClick={() => { router.push(`/study/${g.study_set_id}?tab=chat`); setChatsOpen(false); if (typeof window !== 'undefined' && window.innerWidth < 768) setMobileOpen(false); }}
+                            className="flex items-center gap-2 flex-1 min-w-0 py-2 pr-2 text-left"
+                          >
+                            <div className="w-5 h-5 rounded-md bg-indigo-500/15 border border-indigo-500/20
+                                            flex items-center justify-center shrink-0">
+                              <BookOpen size={10} className="text-indigo-400" />
+                            </div>
+                            <p className="text-[var(--tx2)] truncate text-xs font-medium flex-1">{g.title}</p>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/10
+                                             text-indigo-400 border border-indigo-500/20 shrink-0 tabular-nums">
+                              {g.count}
+                            </span>
+                          </button>
+                        </div>
+
+                        {/* Expanded conversations */}
+                        {isExpanded && (
+                          <div className="ml-4 pl-3 border-l border-[var(--bd)] mb-1">
+                            {groupConvs.map(c => (
+                              <button
+                                key={c.id}
+                                onClick={() => handleConvClick(c.id)}
+                                className={`w-full flex items-start gap-2 px-2 py-2 rounded-lg
+                                            hover:bg-[var(--ov3)] transition-colors text-left ${
+                                  activeId === c.id ? 'bg-[var(--ov4)]' : ''
+                                }`}
+                              >
+                                <MessageSquare size={11} className="text-[var(--tx7)] mt-0.5 shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[var(--tx3)] truncate text-[11px] leading-snug">
+                                    {c.title || 'New chat'}
+                                  </p>
+                                  <p className="text-[var(--tx8)] text-[10px] mt-0.5">{fmtDate(c.updated_at)}</p>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[var(--tx2)] truncate text-xs leading-snug font-medium">
-                          {g.title}
-                        </p>
-                        <p className="text-[var(--tx7)] text-[10px] mt-0.5">
-                          {g.count} chat{g.count !== 1 ? 's' : ''} · {fmtDate(g.updated_at)}
-                        </p>
-                      </div>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/10
-                                       text-indigo-400 border border-indigo-500/20 shrink-0 tabular-nums">
-                        {g.count}
-                      </span>
-                    </button>
-                  ))}
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* ── Separator ─────────────────────────────────────────────── */}
+              {studyGroups.length > 0 && regularConvs.length > 0 && (
+                <div className="flex items-center gap-2 px-3 py-1">
+                  <div className="flex-1 border-t border-[var(--bd)]" />
+                  <span className="text-[9px] text-[var(--tx8)] uppercase tracking-widest shrink-0">Chats</span>
+                  <div className="flex-1 border-t border-[var(--bd)]" />
                 </div>
               )}
 
