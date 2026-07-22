@@ -977,20 +977,38 @@ async def apply_concept_chat_message(
     content = row["content"]
 
     if req.action == 'block':
-        # Strip any SUMMARY / TRANSCRIPT section headers, keep body text
-        body = _CHAT_SUMMARY_RE.sub('', content)
-        body = _CHAT_TRANSCRIPT_RE.sub('', body).strip()
+        summary_match    = _CHAT_SUMMARY_RE.search(content)
+        transcript_match = _CHAT_TRANSCRIPT_RE.search(content)
+
+        if summary_match and transcript_match:
+            # Two distinct sections → two blocks so they're visually separate in the textbook
+            summary_body    = content[summary_match.end():transcript_match.start()].strip()
+            transcript_body = content[transcript_match.end():].strip()
+            blocks_to_insert: list[tuple[str | None, str]] = [
+                ("Summary",    summary_body),
+                ("Transcript", transcript_body),
+            ]
+        else:
+            # Single-section message → one block, strip any stray header
+            body = _CHAT_SUMMARY_RE.sub('', content)
+            body = _CHAT_TRANSCRIPT_RE.sub('', body).strip()
+            blocks_to_insert = [(None, body)]
+
         async with get_db() as db:
             max_pos = await db.fetchval(
                 "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
                 concept_id,
             )
-            block = await db.fetchrow("""
-                INSERT INTO concept_content_blocks
-                  (concept_id, type, position, body, created_by)
-                VALUES ($1::uuid, 'text', $2, $3, $4::uuid)
-                RETURNING id, type, position, title, body, audio_status, created_at
-            """, concept_id, int(max_pos) + 1, body, teacher_id)
+            first_block = None
+            for i, (blk_title, blk_body) in enumerate(blocks_to_insert):
+                block = await db.fetchrow("""
+                    INSERT INTO concept_content_blocks
+                      (concept_id, type, position, title, body, created_by)
+                    VALUES ($1::uuid, 'text', $2, $3, $4, $5::uuid)
+                    RETURNING id, type, position, title, body, audio_status, created_at
+                """, concept_id, int(max_pos) + 1 + i, blk_title, blk_body, teacher_id)
+                if first_block is None:
+                    first_block = block
             # Silently set ai_summary if not yet populated — powers quiz/flashcard generation
             existing_summary = await db.fetchval(
                 "SELECT ai_summary FROM course_concepts WHERE id = $1::uuid", concept_id
@@ -998,8 +1016,9 @@ async def apply_concept_chat_message(
             if not existing_summary or not existing_summary.strip():
                 await db.execute(
                     "UPDATE course_concepts SET ai_summary = $1, pipeline_status = 'ready' WHERE id = $2::uuid",
-                    body, concept_id,
+                    blocks_to_insert[0][1], concept_id,
                 )
+        block = first_block
         return {
             "action":       "block",
             "id":           str(block["id"]),
@@ -1009,6 +1028,7 @@ async def apply_concept_chat_message(
             "body":         block["body"],
             "audio_status": block["audio_status"],
             "created_at":   block["created_at"].isoformat(),
+            "blocks_added": len(blocks_to_insert),
         }
 
     # 'summary' or 'transcript' — extract the relevant section from the message
