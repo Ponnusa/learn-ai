@@ -59,7 +59,8 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
   const [mobileOpen,       setMobileOpen]       = useState(false);
   const [chatsOpen,        setChatsOpen]        = useState(false);
   const [search,           setSearch]           = useState('');
-  // study-set groups default collapsed; keyed by study_set_id
+  // study-set section collapsed by default; individual groups also collapsible
+  const [studySectionOpen, setStudySectionOpen] = useState(false);
   const [expandedGroups,   setExpandedGroups]   = useState<Set<string>>(new Set());
   const searchRef = useRef<HTMLInputElement>(null);
   const pathname  = usePathname();
@@ -140,6 +141,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     if (!selectedConversationId) return;
     const activeConv = conversations.find(c => c.id === selectedConversationId);
     if (activeConv?.study_set_id) {
+      setStudySectionOpen(true);
       setExpandedGroups(prev => new Set([...prev, activeConv.study_set_id!]));
     }
   }, [selectedConversationId, conversations]);
@@ -451,13 +453,23 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
             {/* Conversation list */}
             <div className="flex-1 chat-scroll px-2 pb-4 space-y-3 text-xs">
 
-              {/* ── Study Sets — collapsible accordion ───────────────────── */}
+              {/* ── Study Sets — section toggle + per-group accordion ────── */}
               {studyGroups.length > 0 && (
                 <div>
-                  <p className="px-3 py-1.5 text-[var(--tx8)] text-[10px] uppercase tracking-widest font-medium">
-                    {t.sidebar.studySets}
-                  </p>
-                  {studyGroups.map(g => {
+                  {/* Section header — clicking toggles the whole section */}
+                  <button
+                    onClick={() => setStudySectionOpen(o => !o)}
+                    className="w-full flex items-center gap-1.5 px-3 py-1.5 text-left
+                               hover:bg-[var(--ov2)] rounded-lg transition-colors group"
+                  >
+                    <ChevronRight size={11} className={`text-[var(--tx7)] transition-transform duration-150 ${studySectionOpen ? 'rotate-90' : ''}`} />
+                    <span className="text-[var(--tx8)] text-[10px] uppercase tracking-widest font-medium flex-1">
+                      {t.sidebar.studySets}
+                    </span>
+                    <span className="text-[9px] text-[var(--tx8)] tabular-nums">{studyGroups.length}</span>
+                  </button>
+
+                  {studySectionOpen && studyGroups.map(g => {
                     const isExpanded = expandedGroups.has(g.study_set_id) || (!!search && studySetConvs.some(c => c.study_set_id === g.study_set_id && (c.title?.toLowerCase().includes(search.toLowerCase()) || c.study_set_title?.toLowerCase().includes(search.toLowerCase()))));
                     const groupConvs = studySetConvs.filter(c => c.study_set_id === g.study_set_id);
                     return (
