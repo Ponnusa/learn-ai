@@ -10,7 +10,7 @@ import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, Plus, FileText, Mic2,
   CheckCircle, Circle, AlertCircle, Zap, HelpCircle, Layers,
-  RefreshCw, Volume2, Video, Send, Sparkles, LayoutList,
+  RefreshCw, Volume2, Video, Send, Sparkles, LayoutList, Wand2,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { useSessionStore } from '@/store/sessionStore';
@@ -19,7 +19,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab            = 'summary' | 'transcript' | 'resources' | 'assets' | 'textbook';
+type Tab            = 'studio' | 'summary' | 'transcript' | 'resources' | 'assets' | 'textbook';
 type ResourceType   = 'image' | 'pdf' | 'video';
 interface Resource  { id: string; type: ResourceType; title: string; mime_type?: string; video_url?: string; file_url?: string; position: number; text_extracted?: boolean; }
 type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
@@ -78,7 +78,7 @@ export default function ConceptEditorPage() {
 
   const [concept,    setConcept]    = useState<ConceptDetail | null>(null);
   const [loading,    setLoading]    = useState(true);
-  const [activeTab,  setActiveTab]  = useState<Tab>('summary');
+  const [activeTab,  setActiveTab]  = useState<Tab>('studio');
   const [showLeft,   setShowLeft]   = useState(true);
 
   const [summary,    setSummary]    = useState('');
@@ -294,9 +294,9 @@ export default function ConceptEditorPage() {
     if (activeTab === 'resources' && !resourcesLoaded) loadResources();
   }, [activeTab, resourcesLoaded]);
 
-  // Load the authoring chat when Summary tab first opens
+  // Load the authoring chat when Studio tab first opens
   useEffect(() => {
-    if (activeTab === 'summary' && !chatLoaded) loadChat();
+    if (activeTab === 'studio' && !chatLoaded) loadChat();
   }, [activeTab, chatLoaded]);
 
   useEffect(() => {
@@ -549,15 +549,6 @@ export default function ConceptEditorPage() {
               <ArrowLeft size={15} /> {t.teacher.backToCourse}
             </button>
             <div className="flex items-center gap-2">
-              {concept.chapter_ref && (
-                <button
-                  onClick={() => router.push(`/teacher/courses/${courseId}/chapters/${concept.chapter_ref}/studio`)}
-                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-purple-500/30
-                             text-purple-400 hover:bg-purple-500/10 transition-all"
-                >
-                  <Sparkles size={12} /> Studio
-                </button>
-              )}
               <button onClick={() => setShowLeft(p => !p)}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] transition-colors">
                 <BookOpen size={13} />{showLeft ? t.teacher.hidePanel : t.teacher.showPanel}
@@ -587,6 +578,7 @@ export default function ConceptEditorPage() {
           {/* Tab bar */}
           <div className="flex gap-1 border-b border-[var(--bd)] mb-6 overflow-x-auto">
             {([
+              ['studio',     'Studio',                Wand2],
               ['summary',    t.teacher.tabSummary,    BookOpen],
               ['transcript', t.teacher.tabTranscript, Mic2],
               ['resources',  t.teacher.tabResources,  ImageIcon],
@@ -601,6 +593,85 @@ export default function ConceptEditorPage() {
               </button>
             ))}
           </div>
+
+          {/* ── Studio ── */}
+          {activeTab === 'studio' && (
+            <div>
+              <p className="text-[var(--tx6)] text-xs mb-4">
+                Ask AI to draft or revise this concept's summary and transcript. It can see the concept's source text{concept.images.length > 0 ? ' and attached image' : ''}. When you're happy, click "Use as draft" to apply it to the Summary and Transcript tabs.
+              </p>
+
+              <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
+                <div className="max-h-[60vh] overflow-y-auto px-4 py-3 space-y-3">
+                  {!chatLoaded ? (
+                    <div className="flex justify-center py-10"><Loader2 size={16} className="animate-spin text-[var(--tx7)]" /></div>
+                  ) : chatMsgs.length === 0 ? (
+                    <div className="flex flex-col items-center gap-3 py-12 text-center">
+                      <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                        <Wand2 size={18} className="text-purple-400" />
+                      </div>
+                      <div>
+                        <p className="text-[var(--tx3)] text-sm font-medium mb-1">Start drafting</p>
+                        <p className="text-[var(--tx7)] text-xs max-w-xs">
+                          Try "Write a summary and transcript" or "Add 2 worked examples to the explanation"
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    chatMsgs.map(m => (
+                      <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                        <div className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm ${
+                          m.role === 'user'
+                            ? 'bg-purple-600 text-white whitespace-pre-wrap'
+                            : 'bg-[var(--ov1)] text-[var(--tx2)] border border-[var(--bd)]'
+                        }`}>
+                          {m.role === 'assistant' ? (
+                            <div className="ai-content leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
+                              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                                {preprocessMath(m.content)}
+                              </ReactMarkdown>
+                            </div>
+                          ) : m.content}
+                          {m.role === 'assistant' && /SUMMARY/i.test(m.content) && (
+                            <div className="mt-2 pt-2 border-t border-[var(--bd)]">
+                              <button onClick={() => { applyChatMessage(m.id); setActiveTab('summary'); }} disabled={applyingId === m.id}
+                                className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-purple-600/15 hover:bg-purple-600/25
+                                           text-purple-400 transition-all disabled:opacity-50">
+                                {applyingId === m.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                                {t.teacher.useAsDraft}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  {chatSending && (
+                    <div className="flex justify-start">
+                      <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3.5 py-2.5">
+                        <Loader2 size={13} className="animate-spin text-[var(--tx7)]" />
+                      </div>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
+                  className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">
+                  <input value={chatInput} onChange={e => setChatInput(e.target.value)}
+                    placeholder={t.teacher.chatPlaceholder}
+                    disabled={chatSending}
+                    className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-3 py-1.5
+                               text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors" />
+                  <button type="submit" disabled={chatSending || !chatInput.trim()}
+                    className="flex items-center justify-center w-8 h-8 rounded-lg bg-purple-600 hover:bg-purple-500
+                               text-white transition-all disabled:opacity-40 shrink-0">
+                    <Send size={13} />
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
 
           {/* ── Summary ── */}
           {activeTab === 'summary' && (
@@ -619,87 +690,23 @@ export default function ConceptEditorPage() {
                     </div>
                   )}
 
-                  {/* ── Authoring chat (teacher-only) ── */}
-                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl mb-5 overflow-hidden">
-                    <div className="px-4 py-2.5 border-b border-[var(--bd)] flex items-center gap-1.5">
-                      <Sparkles size={12} className="text-purple-400" />
-                      <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">{t.teacher.draftWithAI}</p>
-                      <span className="text-[var(--tx8)] text-[10px]">{t.teacher.teacherOnlyNote}</span>
-                    </div>
-
-                    <div className="max-h-80 overflow-y-auto px-4 py-3 space-y-3">
-                      {!chatLoaded ? (
-                        <div className="flex justify-center py-6"><Loader2 size={16} className="animate-spin text-[var(--tx7)]" /></div>
-                      ) : chatMsgs.length === 0 ? (
-                        <p className="text-[var(--tx7)] text-xs py-2">
-                          Ask AI to draft a summary and transcript, request changes ("add 2 more examples"),
-                          or give it style instructions — it can see the concept's source text{concept.images.length > 0 ? ' and image' : ''}.
-                        </p>
-                      ) : (
-                        chatMsgs.map(m => (
-                          <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-                            <div className={`max-w-[85%] rounded-xl px-3.5 py-2.5 text-sm ${
-                              m.role === 'user'
-                                ? 'bg-purple-600 text-white whitespace-pre-wrap'
-                                : 'bg-[var(--ov1)] text-[var(--tx2)] border border-[var(--bd)]'
-                            }`}>
-                              {m.role === 'assistant' ? (
-                                <div className="ai-content leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
-                                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                                    {preprocessMath(m.content)}
-                                  </ReactMarkdown>
-                                </div>
-                              ) : m.content}
-                              {m.role === 'assistant' && /SUMMARY/i.test(m.content) && (
-                                <div className="mt-2 pt-2 border-t border-[var(--bd)]">
-                                  <button onClick={() => applyChatMessage(m.id)} disabled={applyingId === m.id}
-                                    className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-purple-600/15 hover:bg-purple-600/25
-                                               text-purple-400 transition-all disabled:opacity-50">
-                                    {applyingId === m.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
-                                    {t.teacher.useAsDraft}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))
-                      )}
-                      {chatSending && (
-                        <div className="flex justify-start">
-                          <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3.5 py-2.5">
-                            <Loader2 size={13} className="animate-spin text-[var(--tx7)]" />
-                          </div>
-                        </div>
-                      )}
-                      <div ref={chatEndRef} />
-                    </div>
-
-                    <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
-                      className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">
-                      <input value={chatInput} onChange={e => setChatInput(e.target.value)}
-                        placeholder={t.teacher.chatPlaceholder}
-                        disabled={chatSending}
-                        className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-3 py-1.5
-                                   text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors" />
-                      <button type="submit" disabled={chatSending || !chatInput.trim()}
-                        className="flex items-center justify-center w-8 h-8 rounded-lg bg-purple-600 hover:bg-purple-500
-                                   text-white transition-all disabled:opacity-40 shrink-0">
-                        <Send size={13} />
-                      </button>
-                    </form>
-                  </div>
-
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">
                       {hasPipeline ? t.teacher.summaryLabel : t.teacher.summaryForStudents}
                     </label>
-                    {!hasPipeline && concept.source_text && (
-                      <button onClick={generateExplanation}
-                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
-                                   text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
-                        <Zap size={11} /> {t.teacher.generateExplanation}
+                    <div className="flex items-center gap-2">
+                      {!hasPipeline && concept.source_text && (
+                        <button onClick={generateExplanation}
+                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
+                                     text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
+                          <Zap size={11} /> {t.teacher.generateExplanation}
+                        </button>
+                      )}
+                      <button onClick={() => setActiveTab('studio')}
+                        className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 transition-colors">
+                        <Wand2 size={11} /> Studio
                       </button>
-                    )}
+                    </div>
                   </div>
                   <textarea value={summary} onChange={e => setSummary(e.target.value)}
                     placeholder={t.teacher.explanationPlaceholder} rows={12}
