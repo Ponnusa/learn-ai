@@ -712,13 +712,27 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
         if not conv:
             return []
         rows = await db.fetch("""
-            SELECT id, role, content, created_at FROM messages
+            SELECT id, role, content, metadata, created_at FROM messages
             WHERE conversation_id = $1::uuid ORDER BY created_at
         """, conv["id"])
-    return [
-        {"id": str(r["id"]), "role": r["role"], "content": r["content"], "created_at": r["created_at"].isoformat()}
-        for r in rows
-    ]
+    import json as _json
+    result = []
+    for r in rows:
+        suggestions = []
+        if r["metadata"]:
+            try:
+                meta = r["metadata"] if isinstance(r["metadata"], dict) else _json.loads(r["metadata"])
+                suggestions = meta.get("suggestions", [])
+            except Exception:
+                pass
+        result.append({
+            "id":          str(r["id"]),
+            "role":        r["role"],
+            "content":     r["content"],
+            "suggestions": suggestions,
+            "created_at":  r["created_at"].isoformat(),
+        })
+    return result
 
 
 @router.post("/concepts/{concept_id}/concept-chat")
@@ -806,8 +820,7 @@ Source material (the textbook content this concept is based on):
 {material_text[:40_000]}
 ---
 
-Help the teacher draft, revise, and improve the concept's SUMMARY (a student-facing written
-explanation) and TRANSCRIPT (a short spoken-style video narration script). Ground everything in
+Help the teacher draft, revise, and improve content for this concept. Ground everything in
 the source material above — and in the attached image, if one is provided, which may show a
 diagram or worked example that plain text can't fully capture.
 
@@ -820,7 +833,12 @@ Whenever the teacher asks for a draft or a full revision, respond with exactly t
 <a short spoken-style narration script>
 
 For anything else (questions, brainstorming, partial feedback), just respond conversationally —
-only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can apply.{concept_lang_note}"""
+only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can apply.
+
+IMPORTANT: At the very end of EVERY response, append this block on its own line with no surrounding text:
+<suggestions>["short follow-up 1", "short follow-up 2", "short follow-up 3"]</suggestions>
+Make the suggestions specific to what you just said — they should feel like natural next steps.
+Keep each suggestion under 8 words. Do not mention this block in your visible response.{concept_lang_note}"""
 
     ai_messages = [{"role": "system", "content": system_prompt}]
     for h in history:
@@ -836,6 +854,8 @@ only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can 
     ai_messages.append({"role": "user", "content": user_content})
 
     from openai import AsyncOpenAI
+    import json as _json
+    import re as _re
     client = AsyncOpenAI()
     response = await client.chat.completions.create(
         model="gpt-4o",
@@ -843,15 +863,35 @@ only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can 
         max_tokens=2000,
         temperature=0.5,
     )
-    reply = response.choices[0].message.content
+    raw_reply = response.choices[0].message.content or ""
+
+    # Extract <suggestions>[...]</suggestions> — strip from visible content, store in metadata
+    suggestions: list[str] = []
+    _sugg_match = _re.search(r'<suggestions>\s*(\[.*?\])\s*</suggestions>', raw_reply, _re.DOTALL)
+    if _sugg_match:
+        try:
+            suggestions = _json.loads(_sugg_match.group(1))
+            suggestions = [s for s in suggestions if isinstance(s, str)][:4]
+        except Exception:
+            suggestions = []
+    reply = _re.sub(r'\s*<suggestions>.*?</suggestions>', '', raw_reply, flags=_re.DOTALL).rstrip()
+
+    metadata = _json.dumps({"suggestions": suggestions}) if suggestions else None
 
     async with get_db() as db:
         row = await db.fetchrow("""
-            INSERT INTO messages (conversation_id, role, content) VALUES ($1::uuid, 'assistant', $2)
+            INSERT INTO messages (conversation_id, role, content, metadata)
+            VALUES ($1::uuid, 'assistant', $2, $3::jsonb)
             RETURNING id, created_at
-        """, conv_id, reply)
+        """, conv_id, reply, metadata)
 
-    return {"id": str(row["id"]), "role": "assistant", "content": reply, "created_at": row["created_at"].isoformat()}
+    return {
+        "id":          str(row["id"]),
+        "role":        "assistant",
+        "content":     reply,
+        "suggestions": suggestions,
+        "created_at":  row["created_at"].isoformat(),
+    }
 
 
 class ApplyChatRequest(BaseModel):
