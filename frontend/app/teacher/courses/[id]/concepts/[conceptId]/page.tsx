@@ -10,10 +10,10 @@ import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, Plus, FileText,
   CheckCircle, Zap, HelpCircle, Layers,
-  RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X, FileImage,
+  RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X, FileImage, Scissors,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
-import { PDFThumbnailStrip, PDFThumbnailStripRef } from '@/components/course/PDFThumbnailStrip';
+import { PDFContextPicker } from '@/components/course/PDFContextPicker';
 import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -87,8 +87,8 @@ export default function ConceptEditorPage() {
   const [pdfFile,       setPdfFile]       = useState<File | null>(null);
   const [pdfReady,      setPdfReady]      = useState(false);
   const [selectedPages, setSelectedPages] = useState<number[]>([]);
-  const pdfRef      = useRef<string | null>(null);
-  const thumbStrip  = useRef<PDFThumbnailStripRef>(null);
+  const [pickerOpen,    setPickerOpen]    = useState(false);
+  const pdfRef = useRef<string | null>(null);
 
   const [uploading,  setUploading]  = useState(false);
   const fileInputRef    = useRef<HTMLInputElement>(null);
@@ -224,6 +224,24 @@ export default function ConceptEditorPage() {
     setResources(prev => prev.filter(r => r.id !== id));
   }
 
+  async function renderSelectedPageUrls(pageNums: number[]): Promise<string[]> {
+    if (!pdfFile || pageNums.length === 0 || !(window as any).pdfjsLib) return [];
+    try {
+      const doc = await (window as any).pdfjsLib.getDocument({ data: await pdfFile.arrayBuffer() }).promise;
+      const urls: string[] = [];
+      for (const n of pageNums) {
+        const page = await doc.getPage(n);
+        const dpr  = window.devicePixelRatio || 1;
+        const vp   = page.getViewport({ scale: 1.8 * dpr });
+        const c    = document.createElement('canvas');
+        c.width = vp.width; c.height = vp.height;
+        await page.render({ canvasContext: c.getContext('2d')!, viewport: vp }).promise;
+        urls.push(c.toDataURL('image/jpeg', 0.88));
+      }
+      return urls;
+    } catch { return []; }
+  }
+
   async function sendChatMessage(override?: string) {
     const message = (override ?? chatInput).trim();
     if (!message || chatSending) return;
@@ -233,13 +251,7 @@ export default function ConceptEditorPage() {
     setChatMsgs(prev => [...prev, { id: `local-${Date.now()}`, role: 'user', content: message, created_at: new Date().toISOString() }]);
     setChatSending(true);
     try {
-      // Render selected pages to images (reuses the already-loaded PDF.js doc in the strip)
-      const imageDataUrls: string[] = [];
-      if (pages.length > 0 && thumbStrip.current) {
-        for (const pg of pages) {
-          try { imageDataUrls.push(await thumbStrip.current.renderPage(pg)); } catch { /* skip */ }
-        }
-      }
+      const imageDataUrls = await renderSelectedPageUrls(pages);
       const body: Record<string, unknown> = { message };
       if (imageDataUrls.length > 0) body.image_data_urls = imageDataUrls;
       const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat`, {
@@ -468,31 +480,11 @@ export default function ConceptEditorPage() {
   return (
     <div className="h-full flex overflow-hidden">
 
-      {/* ── Left panel: thumbnail strip + PDF iframe ── */}
-      <div className={`border-r border-[var(--bd)] flex overflow-hidden transition-all duration-200 ${showLeft ? 'w-2/5' : 'w-0'}`}>
+      {/* ── Left panel: native PDF iframe (full features) ── */}
+      <div className={`border-r border-[var(--bd)] flex flex-col overflow-hidden transition-all duration-200 ${showLeft ? 'w-2/5' : 'w-0'}`}>
         {showLeft && (
-          pdfUrl && pdfFile
-            ? <>
-                {/* Thumbnail strip — click pages to select as context */}
-                <div className="w-[100px] shrink-0 overflow-y-auto bg-[var(--bg2)] border-r border-[var(--bd)]">
-                  <div className="sticky top-0 z-10 px-2 py-1.5 bg-[var(--bg2)] border-b border-[var(--bd)]">
-                    <p className="text-[9px] text-[var(--tx8)] text-center leading-tight">
-                      Click pages<br />to add context
-                    </p>
-                  </div>
-                  <PDFThumbnailStrip
-                    ref={thumbStrip}
-                    file={pdfFile}
-                    selectedPages={selectedPages}
-                    onTogglePage={n => setSelectedPages(prev =>
-                      prev.includes(n) ? prev.filter(p => p !== n) : [...prev, n]
-                    )}
-                    maxSelect={3}
-                  />
-                </div>
-                {/* PDF continuous scroll */}
-                <iframe src={pdfUrl} className="flex-1 h-full" title="Chapter PDF" />
-              </>
+          pdfUrl
+            ? <iframe src={pdfUrl} className="flex-1 w-full" title="Chapter PDF" />
             : <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)]">
                 {!pdfReady
                   ? <Loader2 size={20} className="animate-spin text-purple-400" />
@@ -685,6 +677,18 @@ export default function ConceptEditorPage() {
 
                 <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
                   className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">
+                  {pdfFile && (
+                    <button type="button" onClick={() => setPickerOpen(true)}
+                      title="Select PDF pages as context"
+                      className={[
+                        'flex items-center justify-center w-8 h-8 rounded-lg transition-colors shrink-0',
+                        selectedPages.length > 0
+                          ? 'bg-violet-500/20 text-violet-400 hover:bg-violet-500/30'
+                          : 'bg-[var(--ov1)] text-[var(--tx7)] hover:bg-violet-500/15 hover:text-violet-400',
+                      ].join(' ')}>
+                      <Scissors size={13} />
+                    </button>
+                  )}
                   <input value={chatInput} onChange={e => setChatInput(e.target.value)}
                     placeholder={t.teacher.chatPlaceholder}
                     disabled={chatSending}
@@ -696,6 +700,16 @@ export default function ConceptEditorPage() {
                     <Send size={13} />
                   </button>
                 </form>
+
+                {/* PDF page picker modal */}
+                {pickerOpen && pdfFile && (
+                  <PDFContextPicker
+                    file={pdfFile}
+                    initial={selectedPages}
+                    onClose={() => setPickerOpen(false)}
+                    onAttach={pages => { setSelectedPages(pages); setPickerOpen(false); }}
+                  />
+                )}
               </div>
             </div>
           )}
