@@ -1,24 +1,18 @@
 'use client';
-/**
- * ConceptTextbook — renders a concept's content blocks in reading order.
- * Text blocks display as markdown. Video blocks show a player (or a
- * "generating" spinner when the video pipeline is still running).
- */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Loader2, Video, Volume2, Trash2 } from 'lucide-react';
-import { ContentBlock, listContentBlocks, deleteContentBlock } from '@/lib/api';
+import { Loader2, Video, Volume2, Trash2, Mic2 } from 'lucide-react';
+import { ContentBlock, listContentBlocks, deleteContentBlock, generateBlockAudio } from '@/lib/api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// Video block polls the videos table until the URL arrives
 function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: string; onDelete?: () => void }) {
-  const [videoUrl, setVideoUrl]     = useState(block.video_url);
-  const [status,   setStatus]       = useState(block.video_status);
-  const [polling,  setPolling]      = useState(!block.video_url && !!block.video_id);
+  const [videoUrl, setVideoUrl] = useState(block.video_url);
+  const [status,   setStatus]   = useState(block.video_status);
+  const [polling,  setPolling]  = useState(!block.video_url && !!block.video_id);
 
   useEffect(() => {
     if (!polling || !block.video_id) return;
@@ -32,10 +26,7 @@ function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: s
         const data = await res.json();
         if (!active) return;
         setStatus(data.status);
-        if (data.url) {
-          setVideoUrl(data.url);
-          setPolling(false);
-        }
+        if (data.url) { setVideoUrl(data.url); setPolling(false); }
         if (data.status === 'failed') setPolling(false);
       } catch { /* ignore */ }
     }, 5000);
@@ -57,12 +48,7 @@ function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: s
         </div>
       )}
       {videoUrl ? (
-        <video
-          src={videoUrl}
-          controls
-          className="w-full aspect-video bg-black"
-          preload="metadata"
-        />
+        <video src={videoUrl} controls className="w-full aspect-video bg-black" preload="metadata" />
       ) : (
         <div className="flex flex-col items-center justify-center gap-2 py-10 text-[var(--tx7)]">
           {status === 'failed' ? (
@@ -106,7 +92,54 @@ function AudioBlock({ block, onDelete }: { block: ContentBlock; onDelete?: () =>
   );
 }
 
-function TextBlock({ block, onDelete }: { block: ContentBlock; onDelete?: () => void }) {
+interface TextBlockProps {
+  block:             ContentBlock;
+  conceptId:         string;
+  token?:            string;
+  editable?:         boolean;
+  onDelete?:         () => void;
+  onAudioGenerated?: (blockId: string) => void;
+}
+
+function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerated }: TextBlockProps) {
+  const [audioStatus,     setAudioStatus]     = useState(block.audio_status ?? 'none');
+  const [generatingAudio, setGeneratingAudio] = useState(false);
+  const audioUrl = `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${block.id}/audio`;
+
+  // Poll while generating
+  useEffect(() => {
+    if (audioStatus !== 'generating') return;
+    let active = true;
+    const iv = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        );
+        if (!res.ok || !active) return;
+        const blocks: ContentBlock[] = await res.json();
+        const updated = blocks.find(b => b.id === block.id);
+        if (updated && updated.audio_status !== 'generating') {
+          setAudioStatus(updated.audio_status);
+          if (updated.audio_status === 'ready') onAudioGenerated?.(block.id);
+          clearInterval(iv);
+        }
+      } catch { /* ignore */ }
+    }, 3000);
+    return () => { active = false; clearInterval(iv); };
+  }, [audioStatus]);
+
+  async function handleGenerateAudio() {
+    if (!token) return;
+    setGeneratingAudio(true);
+    try {
+      await generateBlockAudio(conceptId, block.id, token);
+      setAudioStatus('generating');
+    } catch { /* ignore */ } finally {
+      setGeneratingAudio(false);
+    }
+  }
+
   return (
     <div className="relative group">
       {block.title && (
@@ -125,13 +158,43 @@ function TextBlock({ block, onDelete }: { block: ContentBlock; onDelete?: () => 
                       [&_h1]:text-[var(--tx2)] [&_h2]:text-[var(--tx2)] [&_h3]:text-[var(--tx3)]
                       [&_strong]:text-[var(--tx2)] [&_li]:text-[var(--tx4)]
                       [&_code]:bg-[var(--bg3)] [&_code]:text-purple-300 [&_code]:px-1 [&_code]:rounded">
-        <ReactMarkdown
-          remarkPlugins={[remarkMath]}
-          rehypePlugins={[rehypeKatex]}
-        >
+        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
           {block.body || ''}
         </ReactMarkdown>
       </div>
+
+      {/* Audio strip */}
+      <div className="mt-3 pt-3 border-t border-[var(--bd)]">
+        {audioStatus === 'ready' ? (
+          <div className="flex items-center gap-2">
+            <audio controls src={audioUrl} className="flex-1 h-8" />
+            {editable && (
+              <button onClick={handleGenerateAudio} disabled={generatingAudio}
+                title="Regenerate audio"
+                className="text-xs text-[var(--tx8)] hover:text-purple-400 transition-colors shrink-0">
+                <Mic2 size={13} />
+              </button>
+            )}
+          </div>
+        ) : audioStatus === 'generating' ? (
+          <div className="flex items-center gap-2 text-xs text-[var(--tx7)]">
+            <Loader2 size={12} className="animate-spin text-purple-400" /> Generating audio…
+          </div>
+        ) : editable ? (
+          <button onClick={handleGenerateAudio} disabled={generatingAudio}
+            className="flex items-center gap-1.5 text-xs text-[var(--tx8)] hover:text-purple-400 transition-colors">
+            {generatingAudio
+              ? <Loader2 size={12} className="animate-spin" />
+              : <Mic2 size={12} />}
+            {audioStatus === 'failed' ? 'Retry audio' : 'Generate audio'}
+          </button>
+        ) : null}
+      </div>
+
+      {!editable && onDelete === undefined && (
+        /* Delete button for teacher when no title (title row already has it) */
+        null
+      )}
     </div>
   );
 }
@@ -139,7 +202,7 @@ function TextBlock({ block, onDelete }: { block: ContentBlock; onDelete?: () => 
 interface ConceptTextbookProps {
   conceptId:    string;
   token:        string;
-  editable?:    boolean;              // show delete buttons (teacher view)
+  editable?:    boolean;
   onHasBlocks?: (has: boolean) => void;
 }
 
@@ -148,7 +211,7 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
-  function load() {
+  const load = useCallback(() => {
     if (!conceptId) return;
     setLoading(true);
     setError(null);
@@ -159,9 +222,9 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
       })
       .catch(e => setError(e.message ?? 'Failed to load'))
       .finally(() => setLoading(false));
-  }
+  }, [conceptId, token]);
 
-  useEffect(() => { load(); }, [conceptId, token]);
+  useEffect(() => { load(); }, [load]);
 
   async function handleDelete(blockId: string) {
     try {
@@ -172,29 +235,20 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-8">
-        <Loader2 size={18} className="animate-spin text-purple-400" />
-      </div>
-    );
-  }
+  if (loading) return <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin text-purple-400" /></div>;
 
-  if (error) {
-    return (
-      <div className="flex items-center gap-2 py-4 text-red-400 text-sm">
-        <span>Failed to load blocks: {error}</span>
-        <button onClick={load} className="underline text-xs">Retry</button>
-      </div>
-    );
-  }
+  if (error) return (
+    <div className="flex items-center gap-2 py-4 text-red-400 text-sm">
+      <span>Failed to load blocks: {error}</span>
+      <button onClick={load} className="underline text-xs">Retry</button>
+    </div>
+  );
 
   if (blocks.length === 0) {
     if (!editable) return null;
     return (
       <p className="text-[var(--tx7)] text-sm py-4">
-        No content blocks yet. Use the Assets tab to add an approved video or audio,
-        or use Studio chat to generate explanations and video scripts.
+        No content blocks yet. Use Studio to draft content and add it here.
       </p>
     );
   }
@@ -205,8 +259,7 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
         <div key={block.id}>
           {block.type === 'video' ? (
             <VideoBlock
-              block={block}
-              token={token}
+              block={block} token={token}
               onDelete={editable ? () => handleDelete(block.id) : undefined}
             />
           ) : block.type === 'audio' ? (
@@ -217,7 +270,11 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
           ) : (
             <TextBlock
               block={block}
+              conceptId={conceptId}
+              token={token}
+              editable={editable}
               onDelete={editable ? () => handleDelete(block.id) : undefined}
+              onAudioGenerated={() => {/* status already updated inside TextBlock */}}
             />
           )}
         </div>

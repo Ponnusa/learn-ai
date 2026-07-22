@@ -522,6 +522,8 @@ export interface ContentBlock {
   video_id:     number | null;
   video_url:    string | null;
   video_status: string | null;
+  audio_status: string;
+  has_audio:    boolean;
   created_at:   string;
 }
 
@@ -545,6 +547,11 @@ export const updateContentBlock = (
 
 export const deleteContentBlock = (conceptId: string, blockId: string, token: string) =>
   del<{ ok: boolean }>(`/api/courses/concepts/${conceptId}/content-blocks/${blockId}`, token);
+
+export const generateBlockAudio = (conceptId: string, blockId: string, token: string) =>
+  post<{ audio_status: string }>(
+    `/api/courses/concepts/${conceptId}/content-blocks/${blockId}/generate-audio`, {}, token
+  );
 
 export const generateBlockVideo = (
   conceptId: string,

@@ -9,8 +9,8 @@ import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, Upload, Trash2, ImageIcon,
   Loader2, Check, Plus, FileText, Mic2,
-  CheckCircle, Circle, AlertCircle, Zap, HelpCircle, Layers,
-  RefreshCw, Volume2, Video, Send, Sparkles, LayoutList, Wand2,
+  CheckCircle, Zap, HelpCircle, Layers,
+  RefreshCw, Volume2, Video, Send, LayoutList, Wand2,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { useSessionStore } from '@/store/sessionStore';
@@ -19,7 +19,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab            = 'studio' | 'summary' | 'transcript' | 'resources' | 'assets' | 'textbook';
+type Tab            = 'studio' | 'textbook' | 'resources' | 'assets';
 type ResourceType   = 'image' | 'pdf' | 'video';
 interface Resource  { id: string; type: ResourceType; title: string; mime_type?: string; video_url?: string; file_url?: string; position: number; text_extracted?: boolean; }
 type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
@@ -81,13 +81,6 @@ export default function ConceptEditorPage() {
   const [activeTab,  setActiveTab]  = useState<Tab>('studio');
   const [showLeft,   setShowLeft]   = useState(true);
 
-  const [summary,    setSummary]    = useState('');
-  const [transcript, setTranscript] = useState('');
-  const [savingSum,  setSavingSum]  = useState(false);
-  const [savedSum,   setSavedSum]   = useState(false);
-  const [savingTr,   setSavingTr]   = useState(false);
-  const [savedTr,    setSavedTr]    = useState(false);
-  const [approving,  setApproving]  = useState(false);
 
   const [pdfUrl,   setPdfUrl]   = useState<string | null>(null);
   const [pdfReady, setPdfReady] = useState(false);
@@ -115,10 +108,9 @@ export default function ConceptEditorPage() {
   const [approvingA,        setApprovingA]        = useState<Record<string, boolean>>({});
   const [addingToTextbook,  setAddingToTextbook]  = useState<'video' | 'audio' | null>(null);
   const [addedToTextbook,   setAddedToTextbook]   = useState<Set<string>>(new Set());
-  const [addingTrBlock,     setAddingTrBlock]     = useState(false);
-  const [addedTrBlock,      setAddedTrBlock]      = useState(false);
+  const [addingMsgBlock,    setAddingMsgBlock]    = useState<string | null>(null);
+  const [addedMsgBlocks,    setAddedMsgBlocks]    = useState<Set<string>>(new Set());
 
-  const [pipelinePolling, setPipelinePolling] = useState(false);
   const [assetPolling,    setAssetPolling]    = useState(false);
 
   // Authoring chat — teacher-only, never shown to students
@@ -246,21 +238,39 @@ export default function ConceptEditorPage() {
     }
   }
 
-  async function applyChatMessage(messageId: string) {
+  async function applyChatMessage(messageId: string, action: 'summary' | 'transcript') {
     setApplyingId(messageId);
     try {
       const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat/apply`, {
-        method: 'POST', headers: jsonH, body: JSON.stringify({ message_id: messageId }),
+        method: 'POST', headers: jsonH, body: JSON.stringify({ message_id: messageId, action }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Could not apply this draft');
-      setSummary(data.ai_summary || '');
-      if (data.ai_transcript) setTranscript(data.ai_transcript);
-      setConcept(prev => prev ? { ...prev, pipeline_status: data.pipeline_status, ai_summary: data.ai_summary, ai_transcript: data.ai_transcript } : prev);
+      if (!res.ok) throw new Error(data.detail || 'Could not apply');
+      setConcept(prev => prev ? {
+        ...prev,
+        ...(action === 'summary'    ? { ai_summary:    data.ai_summary }    : {}),
+        ...(action === 'transcript' ? { ai_transcript: data.ai_transcript } : {}),
+      } : prev);
     } catch (err: any) {
       alert(err.message);
     } finally {
       setApplyingId(null);
+    }
+  }
+
+  async function addMsgToTextbook(messageId: string) {
+    setAddingMsgBlock(messageId);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat/apply`, {
+        method: 'POST', headers: jsonH, body: JSON.stringify({ message_id: messageId, action: 'block' }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Could not add block');
+      setAddedMsgBlocks(prev => new Set([...prev, messageId]));
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setAddingMsgBlock(null);
     }
   }
 
@@ -273,9 +283,6 @@ export default function ConceptEditorPage() {
       if (res.ok) {
         const d: ConceptDetail = await res.json();
         setConcept(d);
-        setSummary(d.ai_summary || d.content_text || '');
-        setTranscript(d.ai_transcript || '');
-        if (d.pipeline_status === 'summarizing') setPipelinePolling(true);
         loadPdf(d.chapter_ref);
       }
       setLoading(false);
@@ -303,21 +310,6 @@ export default function ConceptEditorPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMsgs]);
 
-  // Poll while pipeline summary is generating
-  useEffect(() => {
-    if (!pipelinePolling) return;
-    const iv = setInterval(async () => {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, { headers: authH });
-      if (!res.ok) return;
-      const d: ConceptDetail = await res.json();
-      if (d.pipeline_status !== 'summarizing') {
-        setConcept(d); setSummary(d.ai_summary || ''); setTranscript(d.ai_transcript || '');
-        setPipelinePolling(false);
-      }
-    }, 3000);
-    return () => clearInterval(iv);
-  }, [pipelinePolling, conceptId, token]);
-
   // Poll while any asset is generating
   useEffect(() => {
     if (!assetPolling) return;
@@ -336,70 +328,6 @@ export default function ConceptEditorPage() {
     }, 3000);
     return () => clearInterval(iv);
   }, [assetPolling, conceptId, token]);
-
-  async function generateExplanation() {
-    const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/summarize`, {
-      method: 'POST', headers: authH,
-    });
-    const data = await res.json();
-    if (!res.ok) { alert(data.detail || 'Could not generate an explanation'); return; }
-    setConcept(prev => prev ? { ...prev, pipeline_status: 'summarizing' } : prev);
-    setPipelinePolling(true);
-  }
-
-  async function saveSummary() {
-    setSavingSum(true); setSavedSum(false);
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, {
-        method: 'PATCH', headers: jsonH, body: JSON.stringify({ ai_summary: summary }),
-      });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Save failed'); }
-      setSavedSum(true);
-      setTimeout(() => setSavedSum(false), 2000);
-    } catch (e: any) { alert('Failed to save: ' + e.message); }
-    finally { setSavingSum(false); }
-  }
-
-  async function saveTranscript() {
-    setSavingTr(true); setSavedTr(false);
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, {
-        method: 'PATCH', headers: jsonH, body: JSON.stringify({ ai_transcript: transcript }),
-      });
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Save failed'); }
-      setSavedTr(true);
-      setTimeout(() => setSavedTr(false), 2000);
-    } catch (e: any) { alert('Failed to save transcript: ' + e.message); }
-    finally { setSavingTr(false); }
-  }
-
-  async function addTranscriptToTextbook() {
-    if (!transcript.trim()) return;
-    setAddingTrBlock(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`, {
-        method: 'POST', headers: jsonH,
-        body: JSON.stringify({
-          type:  'text',
-          title: (concept?.title ?? 'Concept') + ' — Transcript',
-          body:  transcript,
-        }),
-      });
-      if (res.ok) setAddedTrBlock(true);
-      else { const e = await res.json().catch(() => ({})); throw new Error(e.detail || 'Failed'); }
-    } catch (e: any) { alert('Could not add to textbook: ' + e.message); }
-    finally { setAddingTrBlock(false); }
-  }
-
-  async function approveConcept() {
-    setApproving(true);
-    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, {
-      method: 'PATCH', headers: jsonH,
-      body: JSON.stringify({ ai_summary: summary, ai_transcript: transcript, approve: true }),
-    });
-    setConcept(prev => prev ? { ...prev, pipeline_status: 'approved' } : prev);
-    setApproving(false);
-  }
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;
@@ -509,12 +437,7 @@ export default function ConceptEditorPage() {
   );
   if (!concept) return null;
 
-  const status      = concept.pipeline_status;
-  const isGenerating = status === 'summarizing';
-  const isApproved   = status === 'approved';
-  const hasPipeline  = status !== 'draft';
-  const wordCount    = transcript.trim().split(/\s+/).filter(Boolean).length;
-  const hasAISrc     = !!(concept.ai_summary || concept.source_text);
+  const hasAISrc = !!(concept.ai_summary || concept.source_text);
 
   return (
     <div className="h-full flex overflow-hidden">
@@ -556,34 +479,19 @@ export default function ConceptEditorPage() {
             </div>
           </div>
 
-          {/* Title + pipeline badge */}
+          {/* Title */}
           <div className="mb-5">
             <h1 className="text-[var(--tx1)] text-xl font-bold">{concept.title}</h1>
             {concept.description && <p className="text-[var(--tx6)] text-sm mt-0.5">{concept.description}</p>}
-            {hasPipeline && (
-              <span className={`inline-flex items-center gap-1.5 mt-2 text-xs px-2.5 py-1 rounded-full font-medium ${
-                isApproved   ? 'bg-green-500/15 text-green-400' :
-                isGenerating ? 'bg-amber-500/15 text-amber-400' :
-                status === 'failed' ? 'bg-red-500/15 text-red-400' :
-                'bg-blue-500/15 text-blue-400'
-              }`}>
-                {isGenerating && <Loader2 size={10} className="animate-spin" />}
-                {isApproved   && <CheckCircle size={10} />}
-                {status === 'ready' && <Circle size={10} className="fill-blue-400" />}
-                {PIPELINE_LABEL[status]}
-              </span>
-            )}
           </div>
 
           {/* Tab bar */}
           <div className="flex gap-1 border-b border-[var(--bd)] mb-6 overflow-x-auto">
             {([
-              ['studio',     'Studio',                Wand2],
-              ['summary',    t.teacher.tabSummary,    BookOpen],
-              ['transcript', t.teacher.tabTranscript, Mic2],
-              ['resources',  t.teacher.tabResources,  ImageIcon],
-              ['assets',     t.teacher.tabAssets,     Zap],
-              ['textbook',   'Textbook',              LayoutList],
+              ['studio',    'Studio',                 Wand2],
+              ['textbook',  'Textbook',               LayoutList],
+              ['resources', t.teacher.tabResources,   ImageIcon],
+              ['assets',    t.teacher.tabAssets,      Zap],
             ] as [Tab, string, React.ComponentType<{ size: number }>][]).map(([tabId, label, Icon]) => (
               <button key={tabId} onClick={() => setActiveTab(tabId)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -598,7 +506,8 @@ export default function ConceptEditorPage() {
           {activeTab === 'studio' && (
             <div>
               <p className="text-[var(--tx6)] text-xs mb-4">
-                Ask AI to draft or revise this concept's summary and transcript. It can see the concept's source text{concept.images.length > 0 ? ' and attached image' : ''}. When you're happy, click "Use as draft" to apply it to the Summary and Transcript tabs.
+                Chat with AI to draft content for this concept. It sees the source text{concept.images.length > 0 ? ' and attached image' : ''}.
+                Add AI responses directly to the Textbook, or silently set the summary / transcript for quiz and audio generation.
               </p>
 
               <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
@@ -613,7 +522,7 @@ export default function ConceptEditorPage() {
                       <div>
                         <p className="text-[var(--tx3)] text-sm font-medium mb-1">Start drafting</p>
                         <p className="text-[var(--tx7)] text-xs max-w-xs">
-                          Try "Write a summary and transcript" or "Add 2 worked examples to the explanation"
+                          Try "Write an explanation with 2 examples" or "Draft a short transcript for audio narration"
                         </p>
                       </div>
                     </div>
@@ -632,13 +541,43 @@ export default function ConceptEditorPage() {
                               </ReactMarkdown>
                             </div>
                           ) : m.content}
-                          {m.role === 'assistant' && /SUMMARY/i.test(m.content) && (
-                            <div className="mt-2 pt-2 border-t border-[var(--bd)]">
-                              <button onClick={() => { applyChatMessage(m.id); setActiveTab('summary'); }} disabled={applyingId === m.id}
-                                className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg bg-purple-600/15 hover:bg-purple-600/25
-                                           text-purple-400 transition-all disabled:opacity-50">
-                                {applyingId === m.id ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
-                                {t.teacher.useAsDraft}
+                          {m.role === 'assistant' && (
+                            <div className="mt-2 pt-2 border-t border-[var(--bd)] flex flex-wrap gap-1.5">
+                              {/* Primary: add to textbook */}
+                              <button
+                                onClick={() => addMsgToTextbook(m.id)}
+                                disabled={addingMsgBlock === m.id || addedMsgBlocks.has(m.id)}
+                                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
+                                           bg-purple-600/15 hover:bg-purple-600/25 text-purple-400
+                                           transition-all disabled:opacity-50">
+                                {addingMsgBlock === m.id
+                                  ? <Loader2 size={11} className="animate-spin" />
+                                  : addedMsgBlocks.has(m.id)
+                                    ? <Check size={11} />
+                                    : <LayoutList size={11} />}
+                                {addedMsgBlocks.has(m.id) ? 'Added' : '+ Textbook'}
+                              </button>
+                              {/* Secondary: set as summary (silent) */}
+                              <button
+                                onClick={() => applyChatMessage(m.id, 'summary')}
+                                disabled={applyingId === m.id}
+                                title="Set as concept summary (used for quiz/flashcard generation)"
+                                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
+                                           bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx6)]
+                                           transition-all disabled:opacity-50">
+                                {applyingId === m.id ? <Loader2 size={11} className="animate-spin" /> : <BookOpen size={11} />}
+                                Set Summary
+                              </button>
+                              {/* Secondary: set as transcript (silent, powers audio) */}
+                              <button
+                                onClick={() => applyChatMessage(m.id, 'transcript')}
+                                disabled={applyingId === m.id}
+                                title="Set as audio transcript (used for concept-level audio generation)"
+                                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
+                                           bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx6)]
+                                           transition-all disabled:opacity-50">
+                                {applyingId === m.id ? <Loader2 size={11} className="animate-spin" /> : <Mic2 size={11} />}
+                                Set Transcript
                               </button>
                             </div>
                           )}
@@ -670,109 +609,6 @@ export default function ConceptEditorPage() {
                   </button>
                 </form>
               </div>
-            </div>
-          )}
-
-          {/* ── Summary ── */}
-          {activeTab === 'summary' && (
-            <div>
-              {isGenerating ? (
-                <div className="flex flex-col items-center gap-3 py-16 text-[var(--tx7)]">
-                  <Loader2 size={28} className="text-purple-400 animate-spin" />
-                  <p className="text-sm">{t.teacher.aiWritingSummary}</p>
-                  <p className="text-xs text-[var(--tx8)]">{t.teacher.generatingEstimate}</p>
-                </div>
-              ) : (
-                <>
-                  {status === 'failed' && (
-                    <div className="flex items-center gap-2 text-red-400 text-sm mb-4">
-                      <AlertCircle size={14} /> {t.teacher.conceptGenFailed}
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider">
-                      {hasPipeline ? t.teacher.summaryLabel : t.teacher.summaryForStudents}
-                    </label>
-                    <div className="flex items-center gap-2">
-                      {!hasPipeline && concept.source_text && (
-                        <button onClick={generateExplanation}
-                          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
-                                     text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
-                          <Zap size={11} /> {t.teacher.generateExplanation}
-                        </button>
-                      )}
-                      <button onClick={() => setActiveTab('studio')}
-                        className="flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 transition-colors">
-                        <Wand2 size={11} /> Studio
-                      </button>
-                    </div>
-                  </div>
-                  <textarea value={summary} onChange={e => setSummary(e.target.value)}
-                    placeholder={t.teacher.explanationPlaceholder} rows={12}
-                    className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-4 py-3
-                               text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 resize-y transition-colors leading-relaxed" />
-                  <div className="flex items-center gap-3 mt-3">
-                    <button onClick={saveSummary} disabled={savingSum}
-                      className="flex items-center gap-2 px-4 py-2 bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx2)] text-sm rounded-xl transition-all disabled:opacity-40">
-                      {savingSum ? <Loader2 size={13} className="animate-spin" /> : savedSum ? <Check size={13} className="text-green-400" /> : null}
-                      {savingSum ? t.saving : savedSum ? t.saved : t.save}
-                    </button>
-                    {!isApproved && (
-                      <button onClick={approveConcept} disabled={approving}
-                        className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-500 text-white text-sm font-medium rounded-xl transition-all disabled:opacity-40">
-                        {approving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle size={13} />}
-                        {approving ? t.teacher.approving : t.teacher.approveConcept}
-                      </button>
-                    )}
-                    {isApproved && <span className="flex items-center gap-1.5 text-green-400 text-sm"><CheckCircle size={14} /> {t.teacher.approvedBadge}</span>}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* ── Transcript ── */}
-          {activeTab === 'transcript' && (
-            <div>
-              {isGenerating ? (
-                <div className="flex flex-col items-center gap-3 py-16 text-[var(--tx7)]">
-                  <Loader2 size={28} className="text-purple-400 animate-spin" />
-                  <p className="text-sm">{t.teacher.aiWritingTranscript}</p>
-                </div>
-              ) : (
-                <>
-                  <label className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider block mb-2">
-                    {t.teacher.transcriptLabel}
-                  </label>
-                  <textarea value={transcript} onChange={e => setTranscript(e.target.value)}
-                    placeholder={t.teacher.transcriptPlaceholder} rows={14}
-                    className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-4 py-3
-                               text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 resize-y transition-colors leading-relaxed font-mono" />
-                  <div className="flex items-center justify-between mt-2">
-                    <p className="text-[var(--tx8)] text-xs">{tF(t.teacher.wordCount, { n: wordCount, min: Math.round(wordCount / 130) })}</p>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={addTranscriptToTextbook}
-                        disabled={addingTrBlock || addedTrBlock || !transcript.trim()}
-                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
-                                   text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all
-                                   disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {addingTrBlock ? <Loader2 size={11} className="animate-spin" /> :
-                         addedTrBlock  ? <Check size={11} className="text-green-400" /> :
-                         <LayoutList size={11} />}
-                        {addedTrBlock ? 'Added to Textbook' : '→ Add to Textbook'}
-                      </button>
-                      <button onClick={saveTranscript} disabled={savingTr}
-                        className="flex items-center gap-2 px-4 py-2 bg-[var(--ov2)] hover:bg-[var(--ov3)] text-[var(--tx2)] text-sm rounded-xl transition-all disabled:opacity-40">
-                        {savingTr ? <Loader2 size={13} className="animate-spin" /> : savedTr ? <Check size={13} className="text-green-400" /> : null}
-                        {savingTr ? t.saving : savedTr ? t.saved : t.save}
-                      </button>
-                    </div>
-                  </div>
-                </>
-              )}
             </div>
           )}
 
@@ -1028,11 +864,11 @@ export default function ConceptEditorPage() {
             </div>
           )}
 
-          {/* ── Textbook blocks ── */}
+          {/* ── Textbook ── */}
           {activeTab === 'textbook' && (
             <div>
               <p className="text-[var(--tx6)] text-xs mb-4">
-                Content blocks are shown to students as an ordered textbook page. Use Studio chat to generate them, or save explanations directly.
+                Ordered content shown to students. Use Studio to draft and add blocks. Each text block can generate its own audio narration.
               </p>
               <ConceptTextbook
                 conceptId={conceptId}

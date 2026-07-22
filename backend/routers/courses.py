@@ -758,8 +758,8 @@ async def send_concept_chat_message(
         )
         if not conv:
             conv = await db.fetchrow("""
-                INSERT INTO conversations (user_id, title, subject, concept_id)
-                VALUES ($1::uuid, $2, $3, $4::uuid) RETURNING id
+                INSERT INTO conversations (user_id, title, subject, concept_id, conversation_type)
+                VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
             """, teacher_id, f"{concept['title']} — Authoring chat", concept["subject"], concept_id)
         conv_id = conv["id"]
 
@@ -856,6 +856,7 @@ only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can 
 
 class ApplyChatRequest(BaseModel):
     message_id: str
+    action:     str = 'block'  # 'block' | 'summary' | 'transcript'
 
 
 _CHAT_SUMMARY_RE    = re.compile(r'^\s*#{0,6}\s*\*{0,2}SUMMARY\*{0,2}\s*:?\s*$',    re.IGNORECASE | re.MULTILINE)
@@ -868,8 +869,8 @@ async def apply_concept_chat_message(
     req:           ApplyChatRequest,
     authorization: str = Header(...),
 ):
-    """Commit an assistant message's drafted SUMMARY/TRANSCRIPT into the concept."""
-    await _require_teacher(authorization)
+    """Apply a Studio message: add to Textbook ('block'), set as summary, or set as transcript."""
+    teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         row = await db.fetchrow("""
             SELECT m.content, m.role
@@ -880,35 +881,67 @@ async def apply_concept_chat_message(
     if not row or row["role"] != "assistant":
         raise HTTPException(404, "Message not found")
 
-    content           = row["content"]
-    summary_match     = _CHAT_SUMMARY_RE.search(content)
-    transcript_match  = _CHAT_TRANSCRIPT_RE.search(content)
+    content = row["content"]
 
-    if summary_match and transcript_match:
-        summary    = content[summary_match.end():transcript_match.start()].strip()
-        transcript = content[transcript_match.end():].strip()
-    elif summary_match:
-        summary    = content[summary_match.end():].strip()
-        transcript = None
-    else:
-        summary    = content.strip()
-        transcript = None
+    if req.action == 'block':
+        # Strip any SUMMARY / TRANSCRIPT section headers, keep body text
+        body = _CHAT_SUMMARY_RE.sub('', content)
+        body = _CHAT_TRANSCRIPT_RE.sub('', body).strip()
+        async with get_db() as db:
+            max_pos = await db.fetchval(
+                "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+                concept_id,
+            )
+            block = await db.fetchrow("""
+                INSERT INTO concept_content_blocks
+                  (concept_id, type, position, body, created_by)
+                VALUES ($1::uuid, 'text', $2, $3, $4::uuid)
+                RETURNING id, type, position, title, body, audio_status, created_at
+            """, concept_id, int(max_pos) + 1, body, teacher_id)
+        return {
+            "action":       "block",
+            "id":           str(block["id"]),
+            "type":         block["type"],
+            "position":     block["position"],
+            "title":        block["title"],
+            "body":         block["body"],
+            "audio_status": block["audio_status"],
+            "created_at":   block["created_at"].isoformat(),
+        }
 
-    async with get_db() as db:
-        if transcript is not None:
-            await db.execute("""
-                UPDATE course_concepts SET ai_summary = $1, ai_transcript = $2, pipeline_status = 'ready'
-                WHERE id = $3::uuid
-            """, summary, transcript, concept_id)
+    # 'summary' or 'transcript' — extract the relevant section from the message
+    summary_match    = _CHAT_SUMMARY_RE.search(content)
+    transcript_match = _CHAT_TRANSCRIPT_RE.search(content)
+
+    if req.action == 'summary':
+        if summary_match and transcript_match:
+            text = content[summary_match.end():transcript_match.start()].strip()
+        elif summary_match:
+            text = content[summary_match.end():].strip()
         else:
-            await db.execute("""
-                UPDATE course_concepts SET ai_summary = $1, pipeline_status = 'ready' WHERE id = $2::uuid
-            """, summary, concept_id)
-        updated = await db.fetchrow(
-            "SELECT ai_summary, ai_transcript, pipeline_status FROM course_concepts WHERE id = $1::uuid",
-            concept_id,
-        )
-    return dict(updated)
+            text = content.strip()
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET ai_summary = $1, pipeline_status = 'ready' WHERE id = $2::uuid",
+                text, concept_id,
+            )
+        return {"action": "summary", "ai_summary": text}
+
+    if req.action == 'transcript':
+        if transcript_match:
+            text = content[transcript_match.end():].strip()
+        elif summary_match:
+            text = content[summary_match.end():].strip()
+        else:
+            text = content.strip()
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET ai_transcript = $1 WHERE id = $2::uuid",
+                text, concept_id,
+            )
+        return {"action": "transcript", "ai_transcript": text}
+
+    raise HTTPException(400, "action must be 'block', 'summary', or 'transcript'")
 
 
 # ── Concept content blocks (textbook-style ordered blocks per concept) ────────
@@ -929,6 +962,7 @@ async def list_content_blocks(concept_id: str, authorization: str = Header(...))
         rows = await db.fetch("""
             SELECT cb.id, cb.type, cb.position, cb.title, cb.body,
                    cb.video_id, v.video_url, v.status AS video_status,
+                   cb.audio_status, (cb.audio_data IS NOT NULL) AS has_audio,
                    cb.created_at
             FROM concept_content_blocks cb
             LEFT JOIN videos v ON v.id = cb.video_id
@@ -945,6 +979,8 @@ async def list_content_blocks(concept_id: str, authorization: str = Header(...))
             "video_id":     r["video_id"],
             "video_url":    r["video_url"],
             "video_status": r["video_status"],
+            "audio_status": r["audio_status"],
+            "has_audio":    r["has_audio"],
             "created_at":   r["created_at"].isoformat(),
         }
         for r in rows
@@ -1024,6 +1060,82 @@ async def delete_content_block(
             block_id, concept_id,
         )
     return {"ok": True}
+
+
+async def _generate_block_audio_bg(concept_id: str, block_id: str):
+    """Background: TTS via OpenAI — converts a content block's body to MP3 and stores as bytea."""
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+    try:
+        async with get_db() as db:
+            block = await db.fetchrow(
+                "SELECT body, title FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
+                block_id, concept_id,
+            )
+        if not block:
+            return
+        script = block["body"] or block["title"] or ""
+        if not script.strip():
+            async with get_db() as db:
+                await db.execute(
+                    "UPDATE concept_content_blocks SET audio_status = 'failed' WHERE id = $1::uuid", block_id
+                )
+            return
+        response = await client.audio.speech.create(
+            model="tts-1", voice="nova", input=script[:4096],
+        )
+        audio_bytes = response.content
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE concept_content_blocks SET audio_data = $1, audio_status = 'ready' WHERE id = $2::uuid",
+                audio_bytes, block_id,
+            )
+    except Exception as exc:
+        logger.error("[block-audio] block %s failed: %s", block_id, exc)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE concept_content_blocks SET audio_status = 'failed' WHERE id = $1::uuid", block_id
+            )
+
+
+@router.post("/concepts/{concept_id}/content-blocks/{block_id}/generate-audio")
+async def generate_block_audio(
+    concept_id:    str,
+    block_id:      str,
+    bg:            BackgroundTasks,
+    authorization: str = Header(...),
+):
+    """Teacher: generate TTS audio for a text content block."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        exists = await db.fetchval(
+            "SELECT 1 FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
+            block_id, concept_id,
+        )
+    if not exists:
+        raise HTTPException(404, "Block not found")
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE concept_content_blocks SET audio_status = 'generating', audio_data = NULL WHERE id = $1::uuid",
+            block_id,
+        )
+    bg.add_task(_generate_block_audio_bg, concept_id, block_id)
+    return {"audio_status": "generating"}
+
+
+@router.get("/concepts/{concept_id}/content-blocks/{block_id}/audio")
+async def serve_block_audio(concept_id: str, block_id: str, authorization: str = Header(...)):
+    """Serve the generated audio bytes for a content block."""
+    await _get_student(authorization)
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT audio_data FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
+            block_id, concept_id,
+        )
+    if not row or not row["audio_data"]:
+        raise HTTPException(404, "Audio not available")
+    from fastapi.responses import Response
+    return Response(content=bytes(row["audio_data"]), media_type="audio/mpeg")
 
 
 # ── Teacher Studio: chapter-level authoring chat ──────────────────────────────

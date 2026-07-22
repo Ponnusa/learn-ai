@@ -463,6 +463,12 @@ async def lifespan(app: FastAPI):
             )
             """,
             "CREATE INDEX IF NOT EXISTS idx_content_blocks_concept ON concept_content_blocks(concept_id, position)",
+            # ── Per-block audio (TTS generated per textbook card) ─────────────
+            "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS audio_data BYTEA",
+            "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS audio_status TEXT NOT NULL DEFAULT 'none'",
+            # ── Tag studio/authoring conversations so sidebar can exclude them ──
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS conversation_type TEXT NOT NULL DEFAULT 'chat'",
+            "UPDATE conversations SET conversation_type = 'studio' WHERE concept_id IS NOT NULL AND conversation_type = 'chat'",
         ]:
             try:
                 await db.execute(sql)

@@ -59,6 +59,7 @@ async def list_conversations(user_id: str | None = None, session_id: str | None 
                 FROM conversations c
                 LEFT JOIN study_sets ss ON ss.id = c.study_set_id
                 WHERE c.user_id = $1
+                  AND (c.conversation_type = 'chat' OR c.conversation_type IS NULL)
                 ORDER BY c.updated_at DESC LIMIT 50
             """, user_id)
         elif session_id:
@@ -69,6 +70,7 @@ async def list_conversations(user_id: str | None = None, session_id: str | None 
                 FROM conversations c
                 LEFT JOIN study_sets ss ON ss.id = c.study_set_id
                 WHERE c.session_id = $1
+                  AND (c.conversation_type = 'chat' OR c.conversation_type IS NULL)
                 ORDER BY c.updated_at DESC LIMIT 20
             """, session_id)
         else:
