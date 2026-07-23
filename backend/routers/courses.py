@@ -2588,6 +2588,15 @@ async def bulk_split_chapters(
     results = []
     all_concept_ids: list[str] = []
     for spec in chapter_specs:
+        if spec.start_page > page_count:
+            logger.warning(
+                "[bulk-split] skipping '%s': start_page %d > PDF page_count %d — "
+                "teacher likely uploaded a partial textbook",
+                spec.title, spec.start_page, page_count,
+            )
+            results.append({"title": spec.title, "skipped": True, "reason": "start_page beyond PDF length"})
+            continue
+
         start = max(1, min(spec.start_page, page_count))
         end   = max(start, min(spec.end_page, page_count))
 

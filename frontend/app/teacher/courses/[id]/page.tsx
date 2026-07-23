@@ -58,17 +58,18 @@ function assetBadge(status: string | null | undefined, label: string) {
 
 type DetectedChapter = { id: string; title: string; start_page: number; end_page: number; low_confidence?: boolean };
 
-function SortableChapterRow({ c, i, onUpdate, onRemove, lowConfidenceLabel }: {
+function SortableChapterRow({ c, i, onUpdate, onRemove, lowConfidenceLabel, outOfRange }: {
   c: DetectedChapter;
   i: number;
   onUpdate: (i: number, field: 'start_page' | 'end_page' | 'title', value: string) => void;
   onRemove: (i: number) => void;
   lowConfidenceLabel: string;
+  outOfRange?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: c.id });
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center gap-2">
+    <div ref={setNodeRef} style={style} className={`flex items-center gap-2 ${outOfRange ? 'opacity-60' : ''}`}>
       <div {...attributes} {...listeners}
         className="cursor-grab active:cursor-grabbing text-[var(--tx7)] hover:text-[var(--tx3)] p-1 touch-none shrink-0">
         <GripVertical size={14} />
@@ -124,6 +125,7 @@ export default function CourseDetailPage() {
   const [detectedChapters, setDetectedChapters] = useState<
     { id: string; title: string; start_page: number; end_page: number; low_confidence?: boolean }[] | null
   >(null);
+  const [detectedPageCount, setDetectedPageCount] = useState<number>(0);
   const chapterDndSensors = useSensors(useSensor(PointerSensor));
   const [splitting, setSplitting] = useState(false);
 
@@ -283,6 +285,7 @@ export default function CourseDetailPage() {
       const data = await res.json();
       if (res.ok && data.detected) {
         setPendingFile(file);
+        setDetectedPageCount(data.page_count ?? 0);
         setDetectedChapters(data.chapters.map((c: Omit<typeof data.chapters[0], 'id'>) => ({ ...c, id: crypto.randomUUID() })));
       } else {
         await handleChapterUpload(file);
@@ -541,6 +544,16 @@ export default function CourseDetailPage() {
           <p className="text-[var(--tx7)] text-xs mb-4">
             {t.teacher.reviewRanges}
           </p>
+          {detectedPageCount > 0 && detectedChapters.some(c => c.start_page > detectedPageCount) && (
+            <div className="mb-4 flex gap-2 items-start bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2.5 text-amber-400 text-xs">
+              <span className="shrink-0 mt-0.5">⚠️</span>
+              <span>
+                This PDF only has <strong>{detectedPageCount} pages</strong>, but some chapters reference pages beyond that.
+                You may have uploaded only part of the textbook — chapters with a start page above {detectedPageCount} will produce empty results.
+                Upload the full textbook PDF to get all chapters.
+              </span>
+            </div>
+          )}
           <DndContext sensors={chapterDndSensors} collisionDetection={closestCenter} onDragEnd={handleChapterDragEnd}>
             <SortableContext items={detectedChapters.map(c => c.id)} strategy={verticalListSortingStrategy}>
               <div className="space-y-2 mb-4">
@@ -548,7 +561,8 @@ export default function CourseDetailPage() {
                   <SortableChapterRow key={c.id} c={c} i={i}
                     onUpdate={updateDetectedChapter}
                     onRemove={removeDetectedChapter}
-                    lowConfidenceLabel={t.teacher.checkEndPage} />
+                    lowConfidenceLabel={t.teacher.checkEndPage}
+                    outOfRange={detectedPageCount > 0 && c.start_page > detectedPageCount} />
                 ))}
               </div>
             </SortableContext>
