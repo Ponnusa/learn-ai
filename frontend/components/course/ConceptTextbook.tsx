@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Loader2, Video, Volume2, Trash2, Mic2, GripVertical, Save, Check } from 'lucide-react';
+import { Loader2, Video, Volume2, Trash2, Mic2, GripVertical, Save, Check, Pencil, X } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -20,13 +20,20 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ContentBlock, listContentBlocks, deleteContentBlock, generateBlockAudio, reorderContentBlocks } from '@/lib/api';
+import {
+  ContentBlock,
+  listContentBlocks,
+  deleteContentBlock,
+  generateBlockAudio,
+  reorderContentBlocks,
+  updateContentBlock,
+} from '@/lib/api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// ── Sub-block renderers ───────────────────────────────────────────────────────
+// ── Video block ───────────────────────────────────────────────────────────────
 
-function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: string; onDelete?: () => void }) {
+function VideoBlock({ block, token }: { block: ContentBlock; token?: string }) {
   const [videoUrl, setVideoUrl] = useState(block.video_url);
   const [status,   setStatus]   = useState(block.video_status);
   const [polling,  setPolling]  = useState(!block.video_url && !!block.video_id);
@@ -34,7 +41,7 @@ function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: s
   useEffect(() => {
     if (!polling || !block.video_id) return;
     let active = true;
-    const interval = setInterval(async () => {
+    const iv = setInterval(async () => {
       try {
         const res = await fetch(`${API_BASE}/api/videos/${block.video_id}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -47,21 +54,14 @@ function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: s
         if (data.status === 'failed') setPolling(false);
       } catch { /* ignore */ }
     }, 5000);
-    return () => { active = false; clearInterval(interval); };
+    return () => { active = false; clearInterval(iv); };
   }, [polling, block.video_id, token]);
 
   return (
-    <div className="rounded-xl border border-[var(--bd)] overflow-hidden group">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
-        <span className="text-sm font-medium text-[var(--tx2)] flex items-center gap-2">
-          <Video size={14} className="text-purple-400" /> {block.title || 'Video'}
-        </span>
-        {onDelete && (
-          <button onClick={onDelete}
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--tx8)] hover:text-red-400 p-0.5">
-            <Trash2 size={13} />
-          </button>
-        )}
+    <div className="rounded-xl border border-[var(--bd)] overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
+        <Video size={14} className="text-purple-400" />
+        <span className="text-sm font-medium text-[var(--tx2)]">{block.title || 'Video'}</span>
       </div>
       {videoUrl ? (
         <video src={videoUrl} controls className="w-full aspect-video bg-black" preload="metadata" />
@@ -86,19 +86,14 @@ function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: s
   );
 }
 
-function AudioBlock({ block, onDelete }: { block: ContentBlock; onDelete?: () => void }) {
+// ── Audio block ───────────────────────────────────────────────────────────────
+
+function AudioBlock({ block }: { block: ContentBlock }) {
   return (
-    <div className="rounded-xl border border-[var(--bd)] overflow-hidden group">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
-        <span className="text-sm font-medium text-[var(--tx2)] flex items-center gap-2">
-          <Volume2 size={14} className="text-blue-400" /> {block.title || 'Audio'}
-        </span>
-        {onDelete && (
-          <button onClick={onDelete}
-            className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--tx8)] hover:text-red-400 p-0.5">
-            <Trash2 size={13} />
-          </button>
-        )}
+    <div className="rounded-xl border border-[var(--bd)] overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
+        <Volume2 size={14} className="text-blue-400" />
+        <span className="text-sm font-medium text-[var(--tx2)]">{block.title || 'Audio'}</span>
       </div>
       <div className="px-4 py-3">
         <audio controls src={block.body || ''} className="w-full" />
@@ -107,18 +102,21 @@ function AudioBlock({ block, onDelete }: { block: ContentBlock; onDelete?: () =>
   );
 }
 
+// ── Text block ────────────────────────────────────────────────────────────────
+
 interface TextBlockProps {
-  block:             ContentBlock;
-  conceptId:         string;
-  token?:            string;
-  editable?:         boolean;
-  onDelete?:         () => void;
-  onAudioGenerated?: (blockId: string) => void;
+  block:      ContentBlock;
+  conceptId:  string;
+  token?:     string;
+  editable?:  boolean;
 }
 
-function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerated }: TextBlockProps) {
+function TextBlock({ block, conceptId, token, editable }: TextBlockProps) {
   const [audioStatus,     setAudioStatus]     = useState(block.audio_status ?? 'none');
   const [generatingAudio, setGeneratingAudio] = useState(false);
+  const [editing,         setEditing]         = useState(false);
+  const [draft,           setDraft]           = useState(block.body || '');
+  const [saving,          setSaving]          = useState(false);
   const audioUrl = `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${block.id}/audio`;
 
   useEffect(() => {
@@ -135,7 +133,6 @@ function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerat
         const updated = blocks.find(b => b.id === block.id);
         if (updated && updated.audio_status !== 'generating') {
           setAudioStatus(updated.audio_status);
-          if (updated.audio_status === 'ready') onAudioGenerated?.(block.id);
           clearInterval(iv);
         }
       } catch { /* ignore */ }
@@ -156,31 +153,72 @@ function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerat
     }
   }
 
+  async function handleSaveEdit() {
+    if (!token) return;
+    setSaving(true);
+    try {
+      await updateContentBlock(conceptId, block.id, { body: draft }, token);
+      block.body = draft;
+      setEditing(false);
+    } catch { /* ignore */ } finally {
+      setSaving(false);
+    }
+  }
+
   return (
-    <div className="relative group">
-      {(block.title || onDelete) && (
-        <div className="flex items-center justify-between mb-2">
-          {block.title
-            ? <h3 className="text-base font-semibold text-[var(--tx2)]">{block.title}</h3>
-            : <span />}
-          {onDelete && (
-            <button onClick={onDelete}
-              className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--tx8)] hover:text-red-400">
-              <Trash2 size={13} />
+    <div>
+      {block.title && (
+        <h3 className="text-base font-semibold text-[var(--tx2)] mb-2">{block.title}</h3>
+      )}
+
+      {editing ? (
+        <div className="space-y-2">
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            rows={Math.max(6, draft.split('\n').length + 2)}
+            className="w-full text-sm bg-[var(--ov1)] border border-purple-500/40 rounded-xl px-3 py-2.5
+                       text-[var(--tx2)] leading-relaxed resize-y focus:outline-none focus:ring-1 focus:ring-purple-500/50
+                       font-mono"
+            autoFocus
+          />
+          <div className="flex gap-2">
+            <button onClick={handleSaveEdit} disabled={saving}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-purple-600
+                         hover:bg-purple-500 text-white font-medium transition-colors disabled:opacity-50">
+              {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button onClick={() => { setEditing(false); setDraft(block.body || ''); }}
+              className="text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)] text-[var(--tx6)]
+                         hover:text-[var(--tx2)] transition-colors">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="relative">
+          {editable && (
+            <button onClick={() => setEditing(true)}
+              className="absolute top-0 right-0 p-1 text-[var(--tx8)] hover:text-purple-400
+                         transition-colors" title="Edit text">
+              <Pencil size={12} />
             </button>
           )}
+          <div className="prose prose-sm max-w-none text-[var(--tx3)]
+                          [&_p]:text-[var(--tx4)] [&_p]:leading-relaxed
+                          [&_h1]:text-[var(--tx2)] [&_h2]:text-[var(--tx2)] [&_h3]:text-[var(--tx3)]
+                          [&_strong]:text-[var(--tx2)] [&_li]:text-[var(--tx4)]
+                          [&_code]:bg-[var(--bg3)] [&_code]:text-purple-300 [&_code]:px-1 [&_code]:rounded
+                          pr-6">
+            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+              {block.body || ''}
+            </ReactMarkdown>
+          </div>
         </div>
       )}
-      <div className="prose prose-sm max-w-none text-[var(--tx3)]
-                      [&_p]:text-[var(--tx4)] [&_p]:leading-relaxed
-                      [&_h1]:text-[var(--tx2)] [&_h2]:text-[var(--tx2)] [&_h3]:text-[var(--tx3)]
-                      [&_strong]:text-[var(--tx2)] [&_li]:text-[var(--tx4)]
-                      [&_code]:bg-[var(--bg3)] [&_code]:text-purple-300 [&_code]:px-1 [&_code]:rounded">
-        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-          {block.body || ''}
-        </ReactMarkdown>
-      </div>
 
+      {/* Audio strip */}
       <div className="mt-3 pt-3 border-t border-[var(--bd)]">
         {audioStatus === 'ready' ? (
           <div className="flex items-center gap-2">
@@ -200,9 +238,7 @@ function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerat
         ) : editable ? (
           <button onClick={handleGenerateAudio} disabled={generatingAudio}
             className="flex items-center gap-1.5 text-xs text-[var(--tx8)] hover:text-purple-400 transition-colors">
-            {generatingAudio
-              ? <Loader2 size={12} className="animate-spin" />
-              : <Mic2 size={12} />}
+            {generatingAudio ? <Loader2 size={12} className="animate-spin" /> : <Mic2 size={12} />}
             {audioStatus === 'failed' ? 'Retry audio' : 'Generate audio'}
           </button>
         ) : null}
@@ -211,7 +247,7 @@ function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerat
   );
 }
 
-// ── Sortable wrapper ──────────────────────────────────────────────────────────
+// ── Sortable row wrapper ──────────────────────────────────────────────────────
 
 interface SortableBlockProps {
   block:     ContentBlock;
@@ -235,42 +271,48 @@ function SortableBlock({ block, conceptId, token, editable, onDelete }: Sortable
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.4 : 1,
-    zIndex:  isDragging ? 50 : 'auto',
+    zIndex:  isDragging ? 50 : 'auto' as const,
   };
 
+  const isMedia = block.type === 'video' || block.type === 'audio';
+
   return (
-    <div ref={setNodeRef} style={style} className="relative">
+    <div ref={setNodeRef} style={style} className="flex items-start gap-2">
+
+      {/* Grip + delete column — always visible in edit mode */}
       {editable && (
-        <div
-          {...attributes}
-          {...listeners}
-          className="absolute -left-6 top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing
-                     text-[var(--tx8)] hover:text-[var(--tx4)] opacity-0 group-hover/row:opacity-100
-                     transition-opacity p-1 touch-none"
-          title="Drag to reorder"
-        >
-          <GripVertical size={15} />
+        <div className="flex flex-col items-center gap-1 pt-2 shrink-0">
+          <div
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing text-[var(--tx7)] hover:text-[var(--tx3)]
+                       transition-colors p-1 touch-none"
+            title="Drag to reorder"
+          >
+            <GripVertical size={15} />
+          </div>
+          <button
+            onClick={() => onDelete(block.id)}
+            className="text-[var(--tx8)] hover:text-red-400 transition-colors p-1"
+            title="Delete block"
+          >
+            <Trash2 size={13} />
+          </button>
         </div>
       )}
-      <div className="group/row">
+
+      {/* Block content */}
+      <div className="flex-1 min-w-0">
         {block.type === 'video' ? (
-          <VideoBlock
-            block={block} token={token}
-            onDelete={editable ? () => onDelete(block.id) : undefined}
-          />
+          <VideoBlock block={block} token={token} />
         ) : block.type === 'audio' ? (
-          <AudioBlock
-            block={block}
-            onDelete={editable ? () => onDelete(block.id) : undefined}
-          />
+          <AudioBlock block={block} />
         ) : (
           <TextBlock
             block={block}
             conceptId={conceptId}
             token={token}
             editable={editable}
-            onDelete={editable ? () => onDelete(block.id) : undefined}
-            onAudioGenerated={() => {}}
           />
         )}
       </div>
@@ -288,12 +330,12 @@ interface ConceptTextbookProps {
 }
 
 export function ConceptTextbook({ conceptId, token, editable = false, onHasBlocks }: ConceptTextbookProps) {
-  const [blocks,   setBlocks]   = useState<ContentBlock[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState<string | null>(null);
-  const [dirty,    setDirty]    = useState(false);
-  const [saving,   setSaving]   = useState(false);
-  const [saved,    setSaved]    = useState(false);
+  const [blocks,  setBlocks]  = useState<ContentBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState<string | null>(null);
+  const [dirty,   setDirty]   = useState(false);
+  const [saving,  setSaving]  = useState(false);
+  const [saved,   setSaved]   = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -338,11 +380,8 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
       setDirty(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {
-      /* leave dirty so teacher can retry */
-    } finally {
-      setSaving(false);
-    }
+    } catch { /* leave dirty so teacher can retry */ }
+    finally { setSaving(false); }
   }
 
   async function handleDelete(blockId: string) {
@@ -382,33 +421,29 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
 
   return (
     <div>
-      {/* Save order bar — only shown when teacher has reordered */}
+      {/* Save-order bar */}
       {editable && (dirty || saved) && (
         <div className="flex items-center justify-between mb-4 px-3 py-2 rounded-xl
                         border border-[var(--bd)] bg-[var(--ov1)]">
           <span className="text-xs text-[var(--tx6)]">
-            {saved ? 'Order saved' : 'Drag blocks to reorder'}
+            {saved ? 'Order saved' : 'Unsaved order — save when done'}
           </span>
-          <button
-            onClick={saveOrder}
-            disabled={saving || !dirty}
+          <button onClick={saveOrder} disabled={saving || !dirty}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg
                        bg-purple-600 hover:bg-purple-500 text-white font-medium
-                       transition-colors disabled:opacity-50"
-          >
-            {saving  ? <Loader2 size={11} className="animate-spin" /> :
-             saved   ? <Check   size={11} /> :
-             <Save   size={11} />}
+                       transition-colors disabled:opacity-50">
+            {saving ? <Loader2 size={11} className="animate-spin" /> :
+             saved  ? <Check   size={11} /> :
+             <Save  size={11} />}
             {saving ? 'Saving…' : saved ? 'Saved!' : 'Save order'}
           </button>
         </div>
       )}
 
-      {/* Drag context — only active in editable mode */}
       {editable ? (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
-            <div className="space-y-6 pl-6">
+            <div className="space-y-6">
               {blocks.map(block => (
                 <SortableBlock
                   key={block.id}
