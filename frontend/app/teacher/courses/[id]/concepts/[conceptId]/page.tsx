@@ -1349,6 +1349,7 @@ export default function ConceptEditorPage() {
                   <PDFContextPicker
                     file={pdfFile}
                     initial={selectedPages}
+                    initialPage={concept?.page_start}
                     onClose={() => setPickerOpen(false)}
                     onAttach={pages => { setSelectedPages(pages); setPickerOpen(false); }}
                   />

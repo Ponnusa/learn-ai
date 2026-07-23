@@ -4,6 +4,10 @@
  * AI context. Left: thumbnail strip (click to select). Right: continuous
  * canvas view (hover to reveal per-page add/remove button). Both panels stay
  * in sync via shared `selected` state.
+ *
+ * When `initialPage` is supplied the right panel opens at that page and the
+ * thumbnail strip scrolls to match. As the user scrolls the right panel the
+ * thumbnail strip follows automatically.
  */
 import { useState, useRef, useEffect } from 'react';
 import { X, Loader2, Scissors, Check, FileImage } from 'lucide-react';
@@ -16,26 +20,31 @@ const PAGE_SCALE  = 1.3;
 declare global { interface Window { pdfjsLib: any } }
 
 export interface PDFContextPickerProps {
-  file:      File;
-  initial?:  number[];
-  maxPages?: number;
-  onClose:   () => void;
-  onAttach:  (pageNums: number[]) => void;
+  file:         File;
+  initial?:     number[];
+  initialPage?: number;   // scroll to this page on open
+  maxPages?:    number;
+  onClose:      () => void;
+  onAttach:     (pageNums: number[]) => void;
 }
 
 export function PDFContextPicker({
-  file, initial = [], maxPages = 3, onClose, onAttach,
+  file, initial = [], initialPage, maxPages = 3, onClose, onAttach,
 }: PDFContextPickerProps) {
   const [numPages,  setNumPages]  = useState(0);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [loadError, setLoadError] = useState('');
   const [selected,  setSelected]  = useState<number[]>(initial);
   const [hovered,   setHovered]   = useState<number | null>(null);
+  const [activePage, setActivePage] = useState<number>(initialPage || 1);
 
-  const pdfDocRef    = useRef<any>(null);
-  const thumbRefs    = useRef<(HTMLCanvasElement | null)[]>([]);
-  const pageCanvases = useRef<(HTMLCanvasElement | null)[]>([]);
-  const pageContainers = useRef<(HTMLDivElement | null)[]>([]);
+  const pdfDocRef       = useRef<any>(null);
+  const thumbRefs       = useRef<(HTMLCanvasElement | null)[]>([]);
+  const thumbItemRefs   = useRef<(HTMLButtonElement | null)[]>([]);
+  const pageCanvases    = useRef<(HTMLCanvasElement | null)[]>([]);
+  const pageContainers  = useRef<(HTMLDivElement | null)[]>([]);
+  const activePageRef   = useRef(initialPage || 1);
+  const hasScrolledRef  = useRef(false);
 
   // ── Load PDF.js + document ──────────────────────────────────────────────────
   useEffect(() => {
@@ -95,11 +104,25 @@ export function PDFContextPicker({
             canvas.style.width = `${pvBase.width}px`; canvas.style.height = `${pvBase.height}px`;
             await page.render({ canvasContext: canvas.getContext('2d')!, viewport: pvHi }).promise;
           }
+
+          // Once this page is rendered, scroll to it if it's the initial page
+          if (
+            initialPage && initialPage > 1 &&
+            i + 1 === initialPage &&
+            !hasScrolledRef.current
+          ) {
+            hasScrolledRef.current = true;
+            const idx = i;
+            requestAnimationFrame(() => {
+              pageContainers.current[idx]?.scrollIntoView({ behavior: 'auto', block: 'start' });
+              thumbItemRefs.current[idx]?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+            });
+          }
         } catch { /* ignore cancelled renders */ }
       }
     })();
     return () => { cancelled = true; };
-  }, [numPages]);
+  }, [numPages, initialPage]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
   function toggle(n: number) {
@@ -112,6 +135,29 @@ export function PDFContextPicker({
 
   function scrollToPage(n: number) {
     pageContainers.current[n - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ── Right-panel scroll → sync thumbnail strip ────────────────────────────
+  function handleRightScroll(e: React.UIEvent<HTMLDivElement>) {
+    const containerRect = e.currentTarget.getBoundingClientRect();
+    const viewMid = containerRect.top + containerRect.height / 2;
+
+    let closestIdx = 0;
+    let closestDist = Infinity;
+    pageContainers.current.forEach((el, i) => {
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const elMid = rect.top + rect.height / 2;
+      const dist = Math.abs(elMid - viewMid);
+      if (dist < closestDist) { closestDist = dist; closestIdx = i; }
+    });
+
+    const newPage = closestIdx + 1;
+    if (newPage !== activePageRef.current) {
+      activePageRef.current = newPage;
+      setActivePage(newPage);
+      thumbItemRefs.current[closestIdx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
   }
 
   const sorted = selected.slice().sort((a, b) => a - b);
@@ -170,19 +216,22 @@ export function PDFContextPicker({
             </div>
             <div className="flex flex-col items-center gap-2 py-3 px-2">
               {Array.from({ length: numPages }, (_, i) => {
-                const n   = i + 1;
-                const sel = selected.includes(n);
-                const maxed = !sel && selected.length >= maxPages;
+                const n      = i + 1;
+                const sel    = selected.includes(n);
+                const active = activePage === n;
+                const maxed  = !sel && selected.length >= maxPages;
                 return (
                   <button
                     key={i}
+                    ref={el => { thumbItemRefs.current[i] = el; }}
                     onClick={() => { toggle(n); scrollToPage(n); }}
                     title={sel ? `Deselect p.${n}` : maxed ? `Max ${maxPages} pages` : `Select p.${n}`}
                     className={[
                       'relative w-full rounded overflow-hidden border-2 transition-all shrink-0',
-                      sel   ? 'border-violet-400 shadow-[0_0_0_2px_rgba(139,92,246,0.22)]'
-                      : maxed ? 'border-white/5 opacity-25 cursor-not-allowed'
-                      :         'border-white/10 hover:border-violet-400/50 cursor-pointer',
+                      sel    ? 'border-violet-400 shadow-[0_0_0_2px_rgba(139,92,246,0.22)]'
+                      : active ? 'border-sky-400/70'
+                      : maxed  ? 'border-white/5 opacity-25 cursor-not-allowed'
+                      :          'border-white/10 hover:border-violet-400/50 cursor-pointer',
                     ].join(' ')}
                   >
                     <canvas
@@ -195,8 +244,13 @@ export function PDFContextPicker({
                         <Check size={8} className="text-white" strokeWidth={3} />
                       </div>
                     )}
-                    <div className="absolute bottom-0 inset-x-0 text-[9px] text-center
-                                    text-white/45 bg-black/55 py-0.5 leading-none">
+                    {active && !sel && (
+                      <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-sky-400/90" />
+                    )}
+                    <div className={[
+                      'absolute bottom-0 inset-x-0 text-[9px] text-center py-0.5 leading-none',
+                      active ? 'text-sky-300 bg-black/70' : 'text-white/45 bg-black/55',
+                    ].join(' ')}>
                       {n}
                     </div>
                   </button>
@@ -206,7 +260,7 @@ export function PDFContextPicker({
           </div>
 
           {/* Right: continuous full-page view */}
-          <div className="flex-1 overflow-y-auto bg-[#1c1c1c] py-5">
+          <div className="flex-1 overflow-y-auto bg-[#1c1c1c] py-5" onScroll={handleRightScroll}>
             <div className="flex flex-col items-center gap-5">
               {Array.from({ length: numPages }, (_, i) => {
                 const n     = i + 1;
