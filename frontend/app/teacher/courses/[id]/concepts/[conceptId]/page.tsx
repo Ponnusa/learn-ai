@@ -1507,9 +1507,11 @@ export default function ConceptEditorPage() {
                     title={t.teacher.assetQuiz} icon={<HelpCircle size={14} />}
                     status={assets.quiz_status}
                     isGenerating={generatingQuiz || assets.quiz_status === 'generating'}
-                    canGenerate={hasAISrc} canApprove={false}
-                    approving={false}
+                    canGenerate={hasAISrc}
+                    canApprove={assets.quiz_status === 'ready' && assets.quiz.some(q => q.status === 'approved')}
+                    approving={!!approvingA['quiz']}
                     onGenerate={() => triggerGenerate('quiz')}
+                    onApprove={() => approveAsset('quiz')}
                     onClear={() => clearAsset('quiz')}
                   >
                     {assets.quiz.length > 0 && assets.quiz_status !== 'generating' && (
@@ -1647,9 +1649,11 @@ export default function ConceptEditorPage() {
                     title={t.teacher.assetFlashcards} icon={<Layers size={14} />}
                     status={assets.flashcard_status}
                     isGenerating={generatingCards || assets.flashcard_status === 'generating'}
-                    canGenerate={hasAISrc} canApprove={false}
-                    approving={false}
+                    canGenerate={hasAISrc}
+                    canApprove={assets.flashcard_status === 'ready' && assets.flashcards.some(c => c.status === 'approved')}
+                    approving={!!approvingA['flashcards']}
                     onGenerate={() => triggerGenerate('flashcards')}
+                    onApprove={() => approveAsset('flashcards')}
                     onClear={() => clearAsset('flashcards')}
                   >
                     {assets.flashcards.length > 0 && assets.flashcard_status !== 'generating' && (
