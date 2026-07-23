@@ -417,10 +417,16 @@ CHEMISTRY SPECIFIC RULES (apply only when subject = chemistry):
 - Always show chemical equations with proper phases (s, l, g, aq)
 - Use smallest whole number coefficients in balanced equations
 
+CHEMISTRY FORMULA NOTATION (MANDATORY — affects Manim rendering):
+- In structured_solution and all formula strings: write chemical formulas with LaTeX subscript notation so they render correctly in MathTex.
+  CORRECT: CH_3CH_2OH, C_5H_{12}O_5, H_2SO_4, CO_2, ZnCl_2, C_8H_{10}N_4O_2
+  WRONG:   CH₃CH₂OH, C₅H₁₂O₅, H₂SO₄, CO₂, ZnCl₂, C₈H₁₀N₄O₂
+- Unicode subscripts (₀₁₂₃₄₅₆₇₈₉) and superscripts CANNOT be compiled by LaTeX and will crash the video render.
+- Molar mass formula: M = \\sum (n_i \\times M_i), units as \\text{g/mol}
+
 CHEMISTRY NAMING RULE (apply only when subject = chemistry, MANDATORY):
 - NEVER read chemical formulas letter-by-letter in voiceover
 - ALWAYS convert formulas to proper chemical names in spoken text
-- Visual formulas (e.g., ZnCl₂, H₂SO₄) are allowed on screen
 - Spoken language must use:
   - English: zinc chloride, sulfuric acid, carbon dioxide
   - Finnish: sinkkikloridi, rikkihappo, hiilidioksidi
@@ -790,6 +796,13 @@ CHEMISTRY VIDEO RULES
 - Center molecule at ORIGIN, then shift to MIDDLE zone
 - For reactions: show reactants LEFT → Arrow (center) → products RIGHT
 - Color-code by element: O=RED, H=WHITE, C=GRAY, N=BLUE
+
+CHEMISTRY FORMULA RULE — MANDATORY, RENDER-CRITICAL:
+- NEVER put Unicode subscripts (₀₁₂₃₄₅₆₇₈₉) or superscripts inside MathTex or Tex strings. LaTeX CANNOT compile them; the render will crash with a LaTeX error.
+  CORRECT in MathTex: r"CH_3CH_2OH", r"C_5H_{12}O_5", r"H_2SO_4", r"M = \sum n_i \cdot M_i"
+  WRONG   in MathTex: "CH₃CH₂OH", "C₅H₁₂O₅", "H₂SO₄"
+- In Text() mobjects, Unicode IS fine: Text("CH₃CH₂OH") renders correctly via Pango.
+- If formula variables are passed to MathTex, make sure those variables contain LaTeX notation, not Unicode subscripts.
 
 CHEMISTRY NAMING RULE (MANDATORY):
 - NEVER read chemical formulas letter-by-letter in voiceover
@@ -1834,6 +1847,83 @@ def strip_invalid_tex_weight(code: str) -> str:
             j += 1
         call_args = _WEIGHT_KWARG_RE.sub('', code[m.end():j - 1])
         out.append(call_args)
+        out.append(')')
+        i = j
+    return ''.join(out)
+
+
+_SUBSCRIPT_TO_LATEX = str.maketrans(
+    '₀₁₂₃₄₅₆₇₈₉',
+    # mapped to ASCII placeholder; we expand to _{N} with a second pass
+    '0123456789',
+)
+_SUPERSCRIPT_TO_LATEX = str.maketrans(
+    '⁰¹²³⁴⁵⁶⁷⁸⁹',
+    '0123456789',
+)
+
+_SUBSCRIPT_CHARS    = set('₀₁₂₃₄₅₆₇₈₉')
+_SUPERSCRIPT_CHARS  = set('⁰¹²³⁴⁵⁶⁷⁸⁹')
+_SUB_MAP  = dict(zip('₀₁₂₃₄₅₆₇₈₉', [f'_{{{d}}}' for d in '0123456789']))
+_SUP_MAP  = dict(zip('⁰¹²³⁴⁵⁶⁷⁸⁹', [f'^{{{d}}}' for d in '0123456789']))
+
+
+def _unicode_to_latex_subscripts(s: str) -> str:
+    """Replace Unicode sub/superscripts with LaTeX equivalents, grouping consecutive digits."""
+    # e.g. CH₃CH₂OH → CH_{3}CH_{2}OH, CO₂ → CO_{2}, x² → x^{2}
+    result = []
+    i = 0
+    while i < len(s):
+        c = s[i]
+        if c in _SUBSCRIPT_CHARS:
+            digits = []
+            while i < len(s) and s[i] in _SUBSCRIPT_CHARS:
+                digits.append(_SUB_MAP[s[i]][2:-1])  # extract the digit
+                i += 1
+            result.append(f"_{{{''.join(digits)}}}")
+        elif c in _SUPERSCRIPT_CHARS:
+            digits = []
+            while i < len(s) and s[i] in _SUPERSCRIPT_CHARS:
+                digits.append(_SUP_MAP[s[i]][2:-1])
+                i += 1
+            result.append(f"^{{{''.join(digits)}}}")
+        else:
+            result.append(c)
+            i += 1
+    return ''.join(result)
+
+
+def fix_unicode_in_mathtex(code: str) -> str:
+    """
+    Replace Unicode subscripts (₀₁₂₃₄₅₆₇₈₉) and superscripts (⁰¹²³⁴⁵⁶⁷⁸⁹)
+    with LaTeX equivalents (_{N} / ^{N}) inside MathTex() and Tex() call
+    boundaries. LaTeX cannot compile Unicode sub/superscripts and crashes with
+    a 'latex error converting to dvi' — seen on video 51 (chemistry molar mass).
+    Uses the same paren-depth walker as strip_invalid_tex_weight.
+    """
+    any_uni = _SUBSCRIPT_CHARS | _SUPERSCRIPT_CHARS
+    if not any(c in code for c in any_uni):
+        return code  # fast path — nothing to do
+
+    out, i, n = [], 0, len(code)
+    while True:
+        m = _LATEX_MOBJECT_RE.search(code, i)
+        if not m:
+            out.append(code[i:])
+            break
+        out.append(code[i:m.end()])
+        depth, j = 1, m.end()
+        while j < n and depth > 0:
+            if code[j] == '(':
+                depth += 1
+            elif code[j] == ')':
+                depth -= 1
+            j += 1
+        call_body = code[m.end():j - 1]
+        if any(c in call_body for c in any_uni):
+            call_body = _unicode_to_latex_subscripts(call_body)
+            logger.info("fix_unicode_in_mathtex: sanitised Unicode sub/superscripts in %s() call", m.group(0).strip('('))
+        out.append(call_body)
         out.append(')')
         i = j
     return ''.join(out)
