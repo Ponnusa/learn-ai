@@ -4,8 +4,12 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
   Upload, Loader2, Check, BookOpen, Users,
-  CheckCircle, Globe, Zap, Circle, Crop, Sparkles, ListChecks, Wand2,
+  CheckCircle, Globe, Zap, Circle, Crop, Sparkles, ListChecks, Wand2, GripVertical,
 } from 'lucide-react';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useSessionStore } from '@/store/sessionStore';
 import { PDFViewerModal } from '@/components/chat/PDFViewerModal';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -52,6 +56,45 @@ function assetBadge(status: string | null | undefined, label: string) {
   return <span className={`text-[10px] ${cls}`}>{label} {sym}</span>;
 }
 
+type DetectedChapter = { id: string; title: string; start_page: number; end_page: number; low_confidence?: boolean };
+
+function SortableChapterRow({ c, i, onUpdate, onRemove, lowConfidenceLabel }: {
+  c: DetectedChapter;
+  i: number;
+  onUpdate: (i: number, field: 'start_page' | 'end_page' | 'title', value: string) => void;
+  onRemove: (i: number) => void;
+  lowConfidenceLabel: string;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: c.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-2">
+      <div {...attributes} {...listeners}
+        className="cursor-grab active:cursor-grabbing text-[var(--tx7)] hover:text-[var(--tx3)] p-1 touch-none shrink-0">
+        <GripVertical size={14} />
+      </div>
+      <input value={c.title} onChange={e => onUpdate(i, 'title', e.target.value)}
+        className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2.5 py-1.5 text-sm text-[var(--tx1)]" />
+      <span className="text-[var(--tx7)] text-xs">p.</span>
+      <input type="number" value={c.start_page} onChange={e => onUpdate(i, 'start_page', e.target.value)}
+        className="w-16 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1.5 text-sm text-[var(--tx1)]" />
+      <span className="text-[var(--tx7)] text-xs">–</span>
+      <input type="number" value={c.end_page} onChange={e => onUpdate(i, 'end_page', e.target.value)}
+        className="w-16 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1.5 text-sm text-[var(--tx1)]" />
+      {c.low_confidence && (
+        <span className="text-amber-400 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 shrink-0">
+          {lowConfidenceLabel}
+        </span>
+      )}
+      <button onClick={() => onRemove(i)}
+        className="p-1.5 text-[var(--tx7)] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors shrink-0"
+        title="Remove">
+        <Trash2 size={14} />
+      </button>
+    </div>
+  );
+}
+
 export default function CourseDetailPage() {
   const router  = useRouter();
   const params  = useParams();
@@ -79,8 +122,9 @@ export default function CourseDetailPage() {
   // Multi-chapter textbook detection — review/edit panel before splitting
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [detectedChapters, setDetectedChapters] = useState<
-    { title: string; start_page: number; end_page: number; low_confidence?: boolean }[] | null
+    { id: string; title: string; start_page: number; end_page: number; low_confidence?: boolean }[] | null
   >(null);
+  const chapterDndSensors = useSensors(useSensor(PointerSensor));
   const [splitting, setSplitting] = useState(false);
 
   // Assign to classroom
@@ -236,7 +280,7 @@ export default function CourseDetailPage() {
       const data = await res.json();
       if (res.ok && data.detected) {
         setPendingFile(file);
-        setDetectedChapters(data.chapters);
+        setDetectedChapters(data.chapters.map((c: Omit<typeof data.chapters[0], 'id'>) => ({ ...c, id: crypto.randomUUID() })));
       } else {
         await handleChapterUpload(file);
       }
@@ -258,11 +302,22 @@ export default function CourseDetailPage() {
     setDetectedChapters(prev => prev?.filter((_, idx) => idx !== i) ?? null);
   }
 
+  function handleChapterDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setDetectedChapters(prev => {
+      if (!prev) return prev;
+      const oldIdx = prev.findIndex(c => c.id === active.id);
+      const newIdx = prev.findIndex(c => c.id === over.id);
+      return arrayMove(prev, oldIdx, newIdx);
+    });
+  }
+
   function addDetectedChapter() {
     setDetectedChapters(prev => {
       const list = prev ?? [];
       const lastEnd = list.length > 0 ? list[list.length - 1].end_page : 0;
-      return [...list, { title: '', start_page: lastEnd + 1, end_page: lastEnd + 1 }];
+      return [...list, { id: crypto.randomUUID(), title: '', start_page: lastEnd + 1, end_page: lastEnd + 1 }];
     });
   }
 
@@ -482,28 +537,18 @@ export default function CourseDetailPage() {
           <p className="text-[var(--tx7)] text-xs mb-4">
             {t.teacher.reviewRanges}
           </p>
-          <div className="space-y-2 mb-4">
-            {detectedChapters.map((c, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input value={c.title} onChange={e => updateDetectedChapter(i, 'title', e.target.value)}
-                  className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2.5 py-1.5 text-sm text-[var(--tx1)]" />
-                <span className="text-[var(--tx7)] text-xs">p.</span>
-                <input type="number" value={c.start_page} onChange={e => updateDetectedChapter(i, 'start_page', e.target.value)}
-                  className="w-16 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1.5 text-sm text-[var(--tx1)]" />
-                <span className="text-[var(--tx7)] text-xs">–</span>
-                <input type="number" value={c.end_page} onChange={e => updateDetectedChapter(i, 'end_page', e.target.value)}
-                  className="w-16 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1.5 text-sm text-[var(--tx1)]" />
-                {c.low_confidence && (
-                  <span className="text-amber-400 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 shrink-0">{t.teacher.checkEndPage}</span>
-                )}
-                <button onClick={() => removeDetectedChapter(i)}
-                  className="p-1.5 text-[var(--tx7)] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors shrink-0"
-                  title="Remove">
-                  <Trash2 size={14} />
-                </button>
+          <DndContext sensors={chapterDndSensors} collisionDetection={closestCenter} onDragEnd={handleChapterDragEnd}>
+            <SortableContext items={detectedChapters.map(c => c.id)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2 mb-4">
+                {detectedChapters.map((c, i) => (
+                  <SortableChapterRow key={c.id} c={c} i={i}
+                    onUpdate={updateDetectedChapter}
+                    onRemove={removeDetectedChapter}
+                    lowConfidenceLabel={t.teacher.checkEndPage} />
+                ))}
               </div>
-            ))}
-          </div>
+            </SortableContext>
+          </DndContext>
           <button onClick={addDetectedChapter} disabled={splitting}
             className="flex items-center gap-1.5 text-[var(--tx6)] hover:text-[var(--tx2)] text-xs mb-4 transition-colors disabled:opacity-40">
             <Plus size={13} />
