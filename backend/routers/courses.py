@@ -89,6 +89,7 @@ If type A (worked example / calculation):
 
   Rules: copy every number exactly from the source — do NOT round early, do NOT skip the intermediate result, do NOT paraphrase the values.
   Preserve all domain-specific notation verbatim: reaction arrows (→ ⇌), state symbols (aq) (s) (l) (g), unit symbols (mol, J, N, m³, kpl/mol), and mathematical operators exactly as they appear in the source.
+  Math formatting: use $...$ for inline math (e.g. $N_A = 6{{,}}022 \\times 10^{{23}}$) and $$...$$ for display equations (e.g. $$N = n \\times N_A$$). Never use \\[...\\] or bare brackets.
 
   TRANSCRIPT (teacher talking through the solution step by step):
   - Open: "In this example we want to find..."
@@ -929,10 +930,12 @@ diagram or worked example that plain text can't fully capture.
 Whenever the teacher asks for a draft or a full revision, respond with exactly these two sections:
 
 ### SUMMARY
-<3-4 paragraphs, plain-language, student-friendly>
+<3-4 paragraphs, plain-language, student-friendly. If the concept involves calculations or worked examples, use the structured format: state the problem, list given values, show the formula, show each substitution step with actual numbers including the unrounded intermediate result, then the final answer with units.>
 
 ### TRANSCRIPT
-<a short spoken-style narration script>
+<a short spoken-style narration script that reads out formulas and calculation steps aloud>
+
+Math formatting: use $...$ for inline math and $$...$$ for display equations. Never use \\[...\\] or bare brackets. Preserve all domain-specific notation verbatim (→ ⇌ (aq) (s) mol J N m³).
 
 For anything else (questions, brainstorming, partial feedback), just respond conversationally —
 only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can apply.
