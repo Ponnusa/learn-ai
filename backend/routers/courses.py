@@ -2397,14 +2397,27 @@ async def detect_chapter_toc(
     else:
         pages = extract_pages_from_pdf(file_bytes)
         contents_page_text = None
-        _TOC_HEADER_RE = re.compile(
-            r"CONTENTS?|SISÄLLYS(LUETTELO)?|INNEHÅLL(SFÖRTECKNING)?|INHALTS?VERZEICHNIS|SOMMAIRE|INDICE",
-            re.IGNORECASE,
-        )
-        for p in pages[:12]:
-            if _TOC_HEADER_RE.search(p):
-                contents_page_text = p
-                break
+        # Scan up to the first 15 pages using a two-signal strategy:
+        #   1. Keyword anchor — any multilingual "table of contents" heading
+        #   2. Structural score — count lines that look like "N.N  title … page"
+        # Once a candidate TOC page is found, keep appending the next pages while
+        # they still look structurally like a TOC continuation (handles 2+ page TOCs).
+        toc_chunks: list[str] = []
+        found_toc_start = False
+        for p in pages[:15]:
+            has_keyword = bool(_TOC_HEADER_RE.search(p))
+            score = _toc_page_score(p)
+            if not found_toc_start:
+                if has_keyword or score >= 3:
+                    found_toc_start = True
+                    toc_chunks.append(p)
+            else:
+                if score >= 2:
+                    toc_chunks.append(p)
+                else:
+                    break
+        if toc_chunks:
+            contents_page_text = "\n\n".join(toc_chunks)
         if contents_page_text:
             from openai import AsyncOpenAI
             client = AsyncOpenAI()
@@ -2413,9 +2426,9 @@ async def detect_chapter_toc(
                     model="gpt-4o-mini",
                     messages=[{"role": "user", "content": (
                         "Extract the chapter list from this textbook Contents page as JSON. "
-                        "Ignore section labels like 'Let's do problems' or 'ICT possibilities' — only real chapters.\n\n"
+                        "Ignore sub-sections (e.g. '1.1', '1.2') and exercise labels — only top-level chapters.\n\n"
                         "Return ONLY valid JSON: {\"chapters\": [{\"title\": \"...\", \"start_page\": <int>}]}\n\n"
-                        f"--- CONTENTS PAGE ---\n{contents_page_text[:4000]}"
+                        f"--- CONTENTS ---\n{contents_page_text[:6000]}"
                     )}],
                     response_format={"type": "json_object"},
                     max_tokens=1000,
@@ -2465,6 +2478,23 @@ async def detect_chapter_toc(
 _FRONT_MATTER_RE = re.compile(
     r"front\s*page|cover|preface|title\s*page|^toc$|table of contents|acknowledg", re.IGNORECASE
 )
+
+_TOC_HEADER_RE = re.compile(
+    r"CONTENTS?|SISÄLLYS(LUETTELO)?|INNEHÅLL(SFÖRTECKNING)?|INHALTS?VERZEICHNIS|SOMMAIRE|INDICE",
+    re.IGNORECASE,
+)
+
+
+def _toc_page_score(text: str) -> int:
+    """Count lines that have the structural signature of a TOC entry: starts with a
+    number (chapter/section), has some text, and ends with a page number.
+    Language-agnostic — works for any textbook regardless of the heading word used."""
+    count = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if re.match(r'^\d+[\d.]*\s+\S', line) and re.search(r'\b\d{1,3}\s*$', line):
+            count += 1
+    return count
 
 
 async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages: list[str], language: str = 'en') -> None:
