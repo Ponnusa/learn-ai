@@ -19,6 +19,7 @@ import {
   ContentBlock, listContentBlocks, deleteContentBlock,
   generateBlockAudio, reorderContentBlocks, updateContentBlock,
 } from '@/lib/api';
+import { preprocessMath } from '@/lib/preprocessMath';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -251,7 +252,7 @@ function TextBlock({ block, conceptId, token, editable }: TextBlockProps) {
                           [&_strong]:text-[var(--tx2)] [&_li]:text-[var(--tx4)]
                           [&_code]:bg-[var(--bg3)] [&_code]:text-purple-300 [&_code]:px-1 [&_code]:rounded">
             <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-              {block.body || ''}
+              {preprocessMath(block.body || '')}
             </ReactMarkdown>
           </div>
         </div>

@@ -21,5 +21,19 @@ export function preprocessMath(content: string): string {
     (_m, math: string) => `$${math.trim()}$`,
   );
 
+  // Bare [ ... ] used by GPT-4o as display math delimiters.
+  // Only convert when the content contains a LaTeX command (\word) so we don't
+  // accidentally convert Markdown links ([text](...)) or plain bracketed text.
+  // The (?!\() negative lookahead skips [text]( which is a Markdown link.
+  content = content.replace(
+    /\[([^\[\]]+?)\](?!\()/g,
+    (match, inner) => {
+      if (/\\[a-zA-Z]/.test(inner)) {
+        return `\n$$\n${inner.trim()}\n$$\n`;
+      }
+      return match;
+    },
+  );
+
   return content;
 }
