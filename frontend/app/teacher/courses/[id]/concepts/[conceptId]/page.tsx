@@ -745,11 +745,14 @@ export default function ConceptEditorPage() {
 
   async function approveAllQuiz() {
     setApprovingAllQ(true);
-    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz/approve-all`, {
-      method: 'POST', headers: authH,
-    });
-    setAssets(prev => prev ? { ...prev, quiz: prev.quiz.map(q => ({ ...q, status: 'approved' as const })) } : prev);
-    setApprovingAllQ(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz/approve-all`, {
+        method: 'POST', headers: authH,
+      });
+      if (res.ok) await loadAssets();
+    } finally {
+      setApprovingAllQ(false);
+    }
   }
 
   async function patchFlashcard(cId: string, patch: Record<string, unknown>) {
@@ -772,11 +775,14 @@ export default function ConceptEditorPage() {
 
   async function approveAllFlashcards() {
     setApprovingAllC(true);
-    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/flashcards/approve-all`, {
-      method: 'POST', headers: authH,
-    });
-    setAssets(prev => prev ? { ...prev, flashcards: prev.flashcards.map(c => ({ ...c, status: 'approved' as const })) } : prev);
-    setApprovingAllC(false);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/flashcards/approve-all`, {
+        method: 'POST', headers: authH,
+      });
+      if (res.ok) await loadAssets();
+    } finally {
+      setApprovingAllC(false);
+    }
   }
 
   async function setQuizModeRemote(mode: 'ordered' | 'difficulty' | 'shuffle') {

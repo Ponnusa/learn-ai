@@ -3659,7 +3659,7 @@ async def approve_all_quiz(concept_id: str, authorization: str = Header(...)):
     await _require_teacher(authorization)
     async with get_db() as db:
         await db.execute(
-            "UPDATE concept_quiz_questions SET status = 'approved' WHERE concept_id = $1::uuid AND status = 'draft'",
+            "UPDATE concept_quiz_questions SET status = 'approved' WHERE concept_id = $1::uuid AND status != 'rejected'",
             concept_id,
         )
     return {"ok": True}
@@ -3708,7 +3708,7 @@ async def approve_all_flashcards(concept_id: str, authorization: str = Header(..
     await _require_teacher(authorization)
     async with get_db() as db:
         await db.execute(
-            "UPDATE concept_flashcards SET status = 'approved' WHERE concept_id = $1::uuid AND status = 'draft'",
+            "UPDATE concept_flashcards SET status = 'approved' WHERE concept_id = $1::uuid AND status != 'rejected'",
             concept_id,
         )
     return {"ok": True}
