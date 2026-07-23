@@ -2057,6 +2057,12 @@ async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: d
 Course: {course['name']}
 Subject: {course['subject'] or 'General'}
 
+STEP 1 — Check for numbered sub-sections.
+If the chapter contains numbered headings like "1.1 Title", "1.2 Title", "2.3 Title" etc., create EXACTLY ONE concept per sub-section. Use the sub-section title verbatim as the concept title. Do NOT merge or skip sub-sections.
+
+STEP 2 — Fallback (no numbered structure).
+If there are no numbered sub-sections, identify 4–8 distinct learnable ideas in reading order.
+
 For EACH concept, include the EXACT verbatim paragraph(s) from the text it is based on.
 
 Return ONLY valid JSON:
@@ -2072,7 +2078,7 @@ Return ONLY valid JSON:
 }}
 
 Rules:
-- 4–12 concepts, in the order they appear in the text
+- Follow numbered sub-section structure when present (this takes priority over the 4–12 range)
 - source_text must be a direct quote from the document
 - Each concept = one distinct learnable idea{concept_lang_note}
 
@@ -2391,8 +2397,12 @@ async def detect_chapter_toc(
     else:
         pages = extract_pages_from_pdf(file_bytes)
         contents_page_text = None
+        _TOC_HEADER_RE = re.compile(
+            r"CONTENTS?|SISÄLLYS(LUETTELO)?|INNEHÅLL(SFÖRTECKNING)?|INHALTS?VERZEICHNIS|SOMMAIRE|INDICE",
+            re.IGNORECASE,
+        )
         for p in pages[:12]:
-            if re.search(r"\bCONTENTS?\b", p, re.IGNORECASE):
+            if _TOC_HEADER_RE.search(p):
                 contents_page_text = p
                 break
         if contents_page_text:
