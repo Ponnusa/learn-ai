@@ -126,6 +126,7 @@ export default function CourseDetailPage() {
     { id: string; title: string; start_page: number; end_page: number; low_confidence?: boolean }[] | null
   >(null);
   const [detectedPageCount, setDetectedPageCount] = useState<number>(0);
+  const [pendingNoTocFile, setPendingNoTocFile] = useState<File | null>(null);
   const chapterDndSensors = useSensors(useSensor(PointerSensor));
   const [splitting, setSplitting] = useState(false);
 
@@ -210,6 +211,47 @@ export default function CourseDetailPage() {
     }
   }
 
+  async function uploadAndSuggestConcepts(file: File) {
+    setPendingNoTocFile(null);
+    setUploading(true);
+    setPipelineMsg('No chapters found — uploading and scanning content for concepts…');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API_BASE}/api/courses/${courseId}/chapters`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Upload failed');
+      setUploading(false);
+      await load();
+
+      const chapterId = data.chapter_id;
+      setSuggestingFor(chapterId);
+      setPipelineMsg('Reading content page by page to find concepts…');
+      const sRes = await fetch(`${API_BASE}/api/courses/chapters/${chapterId}/suggest-concepts`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      });
+      const sData = await sRes.json();
+      if (sRes.ok && sData.concept_count > 0) {
+        setTotalCount(sData.concept_count);
+        setProcessedCount(0);
+        setIsProcessing(true);
+        setPipelineMsg(`Found ${sData.concept_count} concept${sData.concept_count !== 1 ? 's' : ''} — generating content…`);
+        await load();
+      } else {
+        setPipelineMsg('');
+        await load();
+      }
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setUploading(false);
+      setSuggestingFor(null);
+      if (chapterRef.current) chapterRef.current.value = '';
+    }
+  }
+
   async function suggestConcepts(chapterRefId: string) {
     setSuggestingFor(chapterRefId); setPipelineMsg('');
     try {
@@ -288,11 +330,11 @@ export default function CourseDetailPage() {
         setDetectedPageCount(data.page_count ?? 0);
         setDetectedChapters(data.chapters.map((c: Omit<typeof data.chapters[0], 'id'>) => ({ ...c, id: crypto.randomUUID() })));
       } else {
-        await handleChapterUpload(file);
+        setPendingNoTocFile(file);
       }
     } catch {
       // Detection failing shouldn't block the upload — fall back to today's flow.
-      await handleChapterUpload(file);
+      setPendingNoTocFile(file);
     } finally {
       setDetecting(false);
     }
@@ -534,6 +576,37 @@ export default function CourseDetailPage() {
             onChange={e => e.target.files?.[0] && handleFileSelected(e.target.files[0])} />
         </div>
       </div>
+
+      {/* No TOC found — offer to scan content for concepts */}
+      {pendingNoTocFile && (
+        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-6">
+          <div className="flex items-start gap-3 mb-4">
+            <span className="text-2xl shrink-0">📄</span>
+            <div>
+              <p className="text-[var(--tx1)] text-sm font-semibold mb-1">No chapter structure detected</p>
+              <p className="text-[var(--tx6)] text-xs leading-relaxed">
+                This PDF doesn&apos;t have a table of contents or numbered chapters. The AI can still read through the content
+                page by page and find key concepts automatically — this may take a minute.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => uploadAndSuggestConcepts(pendingNoTocFile)}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500
+                         text-white text-sm font-medium rounded-xl transition-all">
+              <Sparkles size={14} /> Upload &amp; find concepts
+            </button>
+            <button onClick={() => { setPendingNoTocFile(null); handleChapterUpload(pendingNoTocFile); }}
+              className="px-4 py-2 text-[var(--tx6)] hover:text-[var(--tx2)] text-sm transition-colors">
+              Upload without concepts
+            </button>
+            <button onClick={() => { setPendingNoTocFile(null); if (chapterRef.current) chapterRef.current.value = ''; }}
+              className="px-4 py-2 text-[var(--tx7)] hover:text-[var(--tx3)] text-sm transition-colors">
+              {t.cancel}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Detected multi-chapter textbook — review/edit before splitting */}
       {detectedChapters && (
