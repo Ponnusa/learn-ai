@@ -88,6 +88,7 @@ If type A (worked example / calculation):
   [Final answer with symbol, value, and unit, e.g. "N(N₂) = 4,02 · 10²⁶ kpl"]
 
   Rules: copy every number exactly from the source — do NOT round early, do NOT skip the intermediate result, do NOT paraphrase the values.
+  Preserve all domain-specific notation verbatim: reaction arrows (→ ⇌), state symbols (aq) (s) (l) (g), unit symbols (mol, J, N, m³, kpl/mol), and mathematical operators exactly as they appear in the source.
 
   TRANSCRIPT (teacher talking through the solution step by step):
   - Open: "In this example we want to find..."
