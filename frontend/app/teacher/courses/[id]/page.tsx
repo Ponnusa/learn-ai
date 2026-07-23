@@ -254,6 +254,10 @@ export default function CourseDetailPage() {
       : c) ?? null);
   }
 
+  function removeDetectedChapter(i: number) {
+    setDetectedChapters(prev => prev?.filter((_, idx) => idx !== i) ?? null);
+  }
+
   function cancelDetectedSplit() {
     setPendingFile(null);
     setDetectedChapters(null);
@@ -484,6 +488,11 @@ export default function CourseDetailPage() {
                 {c.low_confidence && (
                   <span className="text-amber-400 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 shrink-0">{t.teacher.checkEndPage}</span>
                 )}
+                <button onClick={() => removeDetectedChapter(i)}
+                  className="p-1.5 text-[var(--tx7)] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors shrink-0"
+                  title="Remove">
+                  <Trash2 size={14} />
+                </button>
               </div>
             ))}
           </div>
