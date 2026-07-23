@@ -119,9 +119,8 @@ export default function ConceptEditorPage() {
   const [generatingQuiz,  setGeneratingQuiz]  = useState(false);
   const [generatingCards, setGeneratingCards] = useState(false);
   const [generatingAudio, setGeneratingAudio] = useState(false);
-  const [generatingVideo,   setGeneratingVideo]   = useState(false);
   const [approvingA,        setApprovingA]        = useState<Record<string, boolean>>({});
-  const [addingToTextbook,  setAddingToTextbook]  = useState<'video' | 'audio' | null>(null);
+  const [addingToTextbook,  setAddingToTextbook]  = useState<'audio' | null>(null);
   const [addedToTextbook,   setAddedToTextbook]   = useState<Set<string>>(new Set());
   const [addingMsgBlock,    setAddingMsgBlock]    = useState<string | null>(null);
   const [addedMsgBlocks,    setAddedMsgBlocks]    = useState<Set<string>>(new Set());
@@ -503,7 +502,7 @@ export default function ConceptEditorPage() {
       if (!anyGen) {
         setAssetPolling(false);
         setGeneratingQuiz(false); setGeneratingCards(false);
-        setGeneratingAudio(false); setGeneratingVideo(false);
+        setGeneratingAudio(false);
       }
     }, 3000);
     return () => clearInterval(iv);
@@ -539,11 +538,10 @@ export default function ConceptEditorPage() {
     setConcept(prev => prev ? { ...prev, images: prev.images.filter(i => i.id !== imgId) } : prev);
   }
 
-  async function triggerGenerate(type: 'quiz' | 'flashcards' | 'audio' | 'video') {
+  async function triggerGenerate(type: 'quiz' | 'flashcards' | 'audio') {
     if (type === 'quiz')       setGeneratingQuiz(true);
     if (type === 'flashcards') setGeneratingCards(true);
     if (type === 'audio')      setGeneratingAudio(true);
-    if (type === 'video')      setGeneratingVideo(true);
     const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/generate/${type}`, {
       method: 'POST', headers: authH,
     });
@@ -553,7 +551,6 @@ export default function ConceptEditorPage() {
       if (type === 'quiz')       setGeneratingQuiz(false);
       if (type === 'flashcards') setGeneratingCards(false);
       if (type === 'audio')      setGeneratingAudio(false);
-      if (type === 'video')      setGeneratingVideo(false);
       return;
     }
     setAssetPolling(true);
@@ -563,24 +560,6 @@ export default function ConceptEditorPage() {
   async function clearAsset(type: 'quiz' | 'flashcards') {
     await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/${type}`, { method: 'DELETE', headers: authH });
     await loadAssets();
-  }
-
-  async function addVideoToTextbook() {
-    if (!assets?.video_job_id) return;
-    setAddingToTextbook('video');
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`, {
-        method: 'POST', headers: jsonH,
-        body: JSON.stringify({
-          type:     'video',
-          title:    (concept?.title ?? 'Concept') + ' — Video',
-          video_id: assets.video_job_id,
-        }),
-      });
-      if (res.ok) setAddedToTextbook(prev => new Set([...prev, 'video']));
-    } catch { /* ignore */ } finally {
-      setAddingToTextbook(null);
-    }
   }
 
   async function addAudioToTextbook() {
@@ -1210,55 +1189,20 @@ export default function ConceptEditorPage() {
                     )}
                   </AssetSection>
 
-                  <AssetSection
-                    title={t.teacher.assetVideo} icon={<Video size={14} />}
-                    status={assets.video_status}
-                    isGenerating={generatingVideo || assets.video_status === 'generating'}
-                    canGenerate={!!(concept.ai_transcript || concept.ai_summary)}
-                    canApprove={assets.video_status === 'ready'}
-                    approving={!!approvingA['video']}
-                    onGenerate={() => triggerGenerate('video')}
-                    onApprove={() => approveAsset('video')}
-                    noReset
-                    hint={!(concept.ai_transcript || concept.ai_summary) ? t.teacher.generateNeedsSummary : undefined}
-                  >
-                    {assets.video_status === 'generating' && (
-                      <div className="px-4 pb-4 mt-3">
-                        <p className="text-[var(--tx7)] text-xs">
-                          {(assets.video_stage && VIDEO_STAGE_LABEL[assets.video_stage]) || t.teacher.videoGenerating}
-                        </p>
-                      </div>
-                    )}
-                    {assets.video_url && assets.video_status !== 'generating' && (
-                      <div className="px-4 pb-4 mt-3">
-                        <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl overflow-hidden">
-                          <video controls src={`${API_BASE}${assets.video_url}`} className="w-full aspect-video" />
-                        </div>
-                        <div className="flex items-center gap-3 mt-2">
-                          <p className="text-[var(--tx8)] text-xs flex-1">{t.teacher.animatedWithManim}</p>
-                          <button
-                            onClick={addVideoToTextbook}
-                            disabled={!!addingToTextbook || addedToTextbook.has('video')}
-                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
-                                       text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all
-                                       disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                          >
-                            {addingToTextbook === 'video' ? <Loader2 size={11} className="animate-spin" /> :
-                             addedToTextbook.has('video') ? <Check size={11} className="text-green-400" /> :
-                             <LayoutList size={11} />}
-                            {addedToTextbook.has('video') ? 'Added to Textbook' : '→ Add to Textbook'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                    {assets.video_status === 'failed' && assets.video_error && (
-                      <div className="px-4 pb-4 mt-3">
-                        <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
-                          <p className="text-red-400 text-xs font-mono break-words">{assets.video_error}</p>
-                        </div>
-                      </div>
-                    )}
-                  </AssetSection>
+                  <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-[var(--bd)] bg-[var(--ov1)]">
+                    <Video size={14} className="text-[var(--tx7)] mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-[var(--tx3)] text-sm font-medium mb-0.5">{t.teacher.assetVideo}</p>
+                      <p className="text-[var(--tx7)] text-xs">
+                        Generate animated videos in the{' '}
+                        <button onClick={() => setActiveTab('studio')}
+                          className="text-purple-400 hover:text-purple-300 underline underline-offset-2 transition-colors">
+                          Studio
+                        </button>
+                        {' '}tab — chat with AI, then click "+ Video" on any response.
+                      </p>
+                    </div>
+                  </div>
                 </>
               ) : null}
             </div>
