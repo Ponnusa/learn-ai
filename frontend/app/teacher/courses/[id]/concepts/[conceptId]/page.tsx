@@ -11,7 +11,7 @@ import {
   Loader2, Check, Plus, FileText,
   CheckCircle, Zap, HelpCircle, Layers,
   RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X, FileImage, Scissors,
-  ChevronUp, ChevronDown, Shuffle, AlignJustify, Star,
+  ChevronUp, ChevronDown, Shuffle, AlignJustify, Star, Paperclip,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { PDFContextPicker } from '@/components/course/PDFContextPicker';
@@ -133,6 +133,18 @@ export default function ConceptEditorPage() {
   const [addingToTextbook,  setAddingToTextbook]  = useState<'audio' | null>(null);
   const [addedToTextbook,   setAddedToTextbook]   = useState<Set<string>>(new Set());
   const [addingMsgBlock,    setAddingMsgBlock]    = useState<string | null>(null);
+
+  // Resources → Textbook
+  const [resAddedToTextbook,  setResAddedToTextbook]  = useState<Set<string>>(new Set());
+  const [addingResToTextbook, setAddingResToTextbook] = useState<string | null>(null);
+
+  // Studio chat attachment (Option A)
+  const [pendingAttach,   setPendingAttach]   = useState<{ file: File; dataUrl: string; name: string } | null>(null);
+  const chatAttachRef = useRef<HTMLInputElement>(null);
+  // In-memory map: userMessageId → attachment so "Add to Resources" button can upload it
+  const msgAttachMap  = useRef<Map<string, { dataUrl: string; file: File; name: string; mimeType: string }>>(new Map());
+  const [attachAddedToRes, setAttachAddedToRes] = useState<Set<string>>(new Set());
+  const [addingAttachToRes, setAddingAttachToRes] = useState<string | null>(null);
   const [addedMsgBlocks,    setAddedMsgBlocks]    = useState<Set<string>>(new Set());
   const [generatingVideoMsg, setGeneratingVideoMsg] = useState<string | null>(null);
   const videoPollingRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
@@ -284,33 +296,53 @@ export default function ConceptEditorPage() {
   async function sendChatMessage(override?: string) {
     const message = (override ?? chatInput).trim();
     if (!message || chatSending) return;
-    const pages = selectedPages.slice();
+    const pages  = selectedPages.slice();
+    const attach = pendingAttach;
     setChatInput('');
     setSelectedPages([]);
+    setPendingAttach(null);
     setChatSending(true);
+    const localId = `local-${Date.now()}`;
     try {
-      // Render selected pages to full-res images before adding to chat so they
-      // appear inline in the conversation alongside the message.
       const imageDataUrls = await renderSelectedPageUrls(pages);
+      // Include image attachment in vision call (images only; PDFs skipped for vision)
+      const allImageUrls = attach?.file.type.startsWith('image/')
+        ? [...imageDataUrls, attach.dataUrl]
+        : imageDataUrls;
+
       setChatMsgs(prev => [...prev, {
-        id: `local-${Date.now()}`,
+        id: localId,
         role: 'user',
         content: message,
-        images:     imageDataUrls.length > 0 ? imageDataUrls : undefined,
+        images:     allImageUrls.length > 0 ? allImageUrls : undefined,
         imagePages: imageDataUrls.length > 0 ? pages : undefined,
         created_at: new Date().toISOString(),
       }]);
-      const body: Record<string, unknown> = { message };
-      if (imageDataUrls.length > 0) {
-        body.image_data_urls  = imageDataUrls;
-        body.image_page_nums  = pages;  // persisted in DB for display on reload
+
+      // Store attachment data so "Add to Resources" can re-upload it
+      if (attach) {
+        msgAttachMap.current.set(localId, {
+          dataUrl: attach.dataUrl, file: attach.file,
+          name: attach.name, mimeType: attach.file.type,
+        });
       }
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat`, {
+
+      const body: Record<string, unknown> = { message };
+      if (allImageUrls.length > 0) {
+        body.image_data_urls = allImageUrls;
+        body.image_page_nums = pages;
+      }
+      const res  = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat`, {
         method: 'POST', headers: jsonH, body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Could not send message');
-      setChatMsgs(prev => [...prev, data]);
+      // Re-key the attachment from localId to the real message ID
+      if (attach && msgAttachMap.current.has(localId)) {
+        msgAttachMap.current.set(data.id ?? localId, msgAttachMap.current.get(localId)!);
+        msgAttachMap.current.delete(localId);
+      }
+      setChatMsgs(prev => prev.map(m => m.id === localId ? { ...m, id: data.id ?? m.id } : m).concat(data));
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -654,6 +686,43 @@ export default function ConceptEditorPage() {
     setApprovingA(prev => ({ ...prev, [type]: false }));
   }
 
+  // ── Resource → Textbook ──────────────────────────────────────────────────
+
+  async function addResourceToTextbook(r: Resource) {
+    if (addingResToTextbook) return;
+    setAddingResToTextbook(r.id);
+    try {
+      const type = r.type === 'video' ? 'embed_video' : r.type === 'image' ? 'embed_image' : 'embed_pdf';
+      const body = r.type === 'video' ? (r.video_url ?? '') : r.id;
+      await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`, {
+        method: 'POST', headers: jsonH,
+        body: JSON.stringify({ type, body, title: r.title || '' }),
+      });
+      setResAddedToTextbook(prev => new Set([...prev, r.id]));
+    } catch { /* ignore */ } finally { setAddingResToTextbook(null); }
+  }
+
+  // ── Studio chat attachment → Resources ────────────────────────────────────
+
+  async function addAttachmentToResources(msgId: string) {
+    const attach = msgAttachMap.current.get(msgId);
+    if (!attach || addingAttachToRes) return;
+    setAddingAttachToRes(msgId);
+    try {
+      const fd = new FormData();
+      fd.append('file', attach.file, attach.name);
+      fd.append('type', attach.mimeType.startsWith('image/') ? 'image' : 'pdf');
+      fd.append('title', attach.name);
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/resources`, {
+        method: 'POST', headers: authH, body: fd,
+      });
+      if (res.ok) {
+        setAttachAddedToRes(prev => new Set([...prev, msgId]));
+        setResourcesLoaded(false); // refresh next time Resources tab opens
+      }
+    } catch { /* ignore */ } finally { setAddingAttachToRes(null); }
+  }
+
   // ── Per-question / per-card CRUD ─────────────────────────────────────────
 
   async function patchQuizQuestion(qId: string, patch: Record<string, unknown>) {
@@ -963,6 +1032,33 @@ export default function ConceptEditorPage() {
                               })}
                             </div>
                           )}
+                          {/* File attachment card (image/PDF attached to this message) */}
+                          {m.role === 'user' && msgAttachMap.current.has(m.id) && (() => {
+                            const att = msgAttachMap.current.get(m.id)!;
+                            const addedToRes = attachAddedToRes.has(m.id);
+                            return (
+                              <div className="flex items-center gap-2 px-3 py-2 border-t border-white/15">
+                                {att.mimeType.startsWith('image/')
+                                  ? <img src={att.dataUrl} alt={att.name}
+                                      className="w-10 h-7 object-cover rounded border border-white/20 shrink-0" />
+                                  : <FileText size={14} className="text-purple-300 shrink-0" />}
+                                <span className="text-xs text-white/70 truncate flex-1">{att.name}</span>
+                                <button
+                                  onClick={() => addAttachmentToResources(m.id)}
+                                  disabled={addedToRes || addingAttachToRes === m.id}
+                                  className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full
+                                             border border-white/25 text-white/70 hover:border-white/50
+                                             hover:text-white transition-colors disabled:opacity-50 shrink-0">
+                                  {addingAttachToRes === m.id
+                                    ? <Loader2 size={9} className="animate-spin" />
+                                    : addedToRes ? <Check size={9} className="text-green-300" />
+                                    : <ImageIcon size={9} />}
+                                  {addedToRes ? 'In Resources' : '+ Resources'}
+                                </button>
+                              </div>
+                            );
+                          })()}
+
                           <div className="px-3.5 py-2.5 whitespace-pre-wrap">
                           {m.role === 'assistant' ? (
                             <div className="ai-content leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
@@ -1164,6 +1260,21 @@ export default function ConceptEditorPage() {
                   </div>
                 )}
 
+                {/* Pending file attachment preview */}
+                {pendingAttach && (
+                  <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--bd)] bg-[var(--ov1)]">
+                    {pendingAttach.file.type.startsWith('image/')
+                      ? <img src={pendingAttach.dataUrl} alt="attach"
+                          className="w-10 h-7 object-cover rounded border border-[var(--bd)]" />
+                      : <FileText size={16} className="text-purple-400 shrink-0" />}
+                    <span className="text-xs text-[var(--tx6)] truncate flex-1">{pendingAttach.name}</span>
+                    <button type="button" onClick={() => setPendingAttach(null)}
+                      className="text-[var(--tx8)] hover:text-red-400 transition-colors p-0.5 shrink-0">
+                      <X size={12} />
+                    </button>
+                  </div>
+                )}
+
                 {/* Selected pages context badge */}
                 {selectedPages.length > 0 && (
                   <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--bd)] bg-violet-500/5">
@@ -1179,8 +1290,29 @@ export default function ConceptEditorPage() {
                   </div>
                 )}
 
+                {/* Hidden file input for chat attachments */}
+                <input ref={chatAttachRef} type="file" accept="image/*,application/pdf" className="hidden"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = ev => setPendingAttach({ file, dataUrl: ev.target?.result as string, name: file.name });
+                    reader.readAsDataURL(file);
+                    e.target.value = '';
+                  }} />
+
                 <form onSubmit={e => { e.preventDefault(); sendChatMessage(); }}
                   className="flex gap-2 px-3 py-2.5 border-t border-[var(--bd)]">
+                  {/* Attach image/PDF */}
+                  <button type="button" onClick={() => chatAttachRef.current?.click()}
+                    title="Attach image or PDF"
+                    className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors shrink-0 ${
+                      pendingAttach
+                        ? 'bg-purple-500/20 text-purple-400'
+                        : 'bg-[var(--ov1)] text-[var(--tx7)] hover:bg-[var(--ov2)] hover:text-[var(--tx3)]'
+                    }`}>
+                    <Paperclip size={13} />
+                  </button>
                   {pdfFile && (
                     <button type="button" onClick={() => setPickerOpen(true)}
                       title="Select PDF pages as context"
@@ -1329,11 +1461,25 @@ export default function ConceptEditorPage() {
                         </div>
                       )}
                       <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--bd)]">
-                        <p className="text-xs text-[var(--tx6)] truncate">{r.title}</p>
-                        <button onClick={() => deleteResource(r.id)}
-                          className="p-1 text-[var(--tx8)] hover:text-red-400 transition-colors shrink-0">
-                          <Trash2 size={13} />
-                        </button>
+                        <p className="text-xs text-[var(--tx6)] truncate flex-1 mr-2">{r.title}</p>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={() => addResourceToTextbook(r)}
+                            disabled={!!addingResToTextbook || resAddedToTextbook.has(r.id)}
+                            className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400
+                                       transition-colors disabled:opacity-50">
+                            {addingResToTextbook === r.id
+                              ? <Loader2 size={11} className="animate-spin" />
+                              : resAddedToTextbook.has(r.id)
+                              ? <Check size={11} className="text-green-400" />
+                              : <LayoutList size={11} />}
+                            {resAddedToTextbook.has(r.id) ? 'Added' : '+ Textbook'}
+                          </button>
+                          <button onClick={() => deleteResource(r.id)}
+                            className="p-1 text-[var(--tx8)] hover:text-red-400 transition-colors">
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
