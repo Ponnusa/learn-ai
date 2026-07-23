@@ -258,6 +258,14 @@ export default function CourseDetailPage() {
     setDetectedChapters(prev => prev?.filter((_, idx) => idx !== i) ?? null);
   }
 
+  function addDetectedChapter() {
+    setDetectedChapters(prev => {
+      const list = prev ?? [];
+      const lastEnd = list.length > 0 ? list[list.length - 1].end_page : 0;
+      return [...list, { title: '', start_page: lastEnd + 1, end_page: lastEnd + 1 }];
+    });
+  }
+
   function cancelDetectedSplit() {
     setPendingFile(null);
     setDetectedChapters(null);
@@ -496,6 +504,11 @@ export default function CourseDetailPage() {
               </div>
             ))}
           </div>
+          <button onClick={addDetectedChapter} disabled={splitting}
+            className="flex items-center gap-1.5 text-[var(--tx6)] hover:text-[var(--tx2)] text-xs mb-4 transition-colors disabled:opacity-40">
+            <Plus size={13} />
+            Add chapter manually
+          </button>
           <div className="flex gap-2">
             <button onClick={confirmSplit} disabled={splitting}
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500
