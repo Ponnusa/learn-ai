@@ -63,18 +63,38 @@ Source material (from the chapter):
 {source}
 ---
 
-Create two things grounded strictly in the source above:
+STEP 1 — Classify the source:
+A) WORKED EXAMPLE / CALCULATION — source contains formulas, numbered steps, given values, a solution procedure, or a numerical answer.
+B) CONCEPTUAL — source explains ideas, definitions, or principles without a specific problem to solve.
 
-1. SUMMARY — 3-4 clear paragraphs for a student:
-   • Start with a plain-language definition
-   • Explain the key ideas with a concrete example
-   • Keep it engaging and jargon-free
+STEP 2 — Create a SUMMARY and TRANSCRIPT based on the type:
 
-2. TRANSCRIPT — a 2-minute video narration script:
-   • Conversational spoken-word style
-   • Open with "In this lesson, we'll explore [concept]..."
-   • Mirror the summary content but as natural speech
-   • End with a brief recap sentence
+If type A (worked example / calculation):
+  SUMMARY:
+  - State what the problem is asking
+  - List all given values exactly as in the source (e.g. n(N₂) = 667 mol)
+  - Write the relevant formula(s) exactly
+  - Show every calculation step with the actual numbers — do NOT skip steps or round early
+  - State the final answer clearly with units
+  - Do NOT simplify, paraphrase, or omit any steps — students must be able to follow the full solution
+
+  TRANSCRIPT (teacher talking through the solution on a whiteboard):
+  - "In this example we want to find..." then walk through each step aloud
+  - Say formulas out loud ("N equals n times N-A")
+  - Read out each substitution with real numbers
+  - End: "So the answer is..."
+
+If type B (conceptual):
+  SUMMARY:
+  - Plain-language definition first
+  - Explain key ideas with examples from the source
+  - 3–4 paragraphs, accurate to the source, do not invent examples not present
+
+  TRANSCRIPT:
+  - Conversational spoken-word style
+  - Open with "In this lesson, we'll explore [concept]..."
+  - Mirror the summary but as natural speech
+  - End with a brief recap
 
 Return ONLY valid JSON:
 {{"summary": "...", "transcript": "..."}}{lang_instruction}"""
@@ -83,8 +103,8 @@ Return ONLY valid JSON:
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
-            max_tokens=2000,
-            temperature=0.4,
+            max_tokens=3000,
+            temperature=0.2,
         )
         result = json.loads(response.choices[0].message.content)
 
