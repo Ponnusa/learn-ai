@@ -682,7 +682,8 @@ export default function ConceptEditorPage() {
     await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/assets/approve`, {
       method: 'POST', headers: jsonH, body: JSON.stringify({ [type]: true }),
     });
-    setAssets(prev => prev ? { ...prev, [`${type}_status`]: 'approved' as AssetStatus } : prev);
+    const statusKey = type === 'flashcards' ? 'flashcard_status' : `${type}_status`;
+    setAssets(prev => prev ? { ...prev, [statusKey]: 'approved' as AssetStatus } : prev);
     setApprovingA(prev => ({ ...prev, [type]: false }));
   }
 
