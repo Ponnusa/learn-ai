@@ -175,13 +175,23 @@ export default function ConceptEditorPage() {
   const [chatInput,   setChatInput]   = useState('');
   const [chatSending, setChatSending] = useState(false);
   const chatEndRef      = useRef<HTMLDivElement>(null);
+  const rightPanelRef   = useRef<HTMLDivElement>(null);
   const renderedIdsRef  = useRef<Set<string>>(new Set());
   const autoStartedRef  = useRef(false);
+  const [chatAtTop,    setChatAtTop]    = useState(true);
+  const [chatAtBottom, setChatAtBottom] = useState(false);
 
   const authH = { Authorization: `Bearer ${token}` };
   const jsonH = { ...authH, 'Content-Type': 'application/json' };
 
   // Load PDF using chapter_ref if available, else fall back to course syllabus
+  function handlePanelScroll() {
+    const el = rightPanelRef.current;
+    if (!el) return;
+    setChatAtTop(el.scrollTop < 60);
+    setChatAtBottom(el.scrollTop + el.clientHeight >= el.scrollHeight - 60);
+  }
+
   async function loadPdf(chapterRef?: string) {
     try {
       let blob: Blob | null = null;
@@ -826,7 +836,34 @@ export default function ConceptEditorPage() {
       </div>
 
       {/* ── Right panel ── */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={rightPanelRef} onScroll={handlePanelScroll} className="flex-1 overflow-y-auto">
+
+        {/* Floating scroll jump buttons — studio tab, when chat has messages */}
+        {activeTab === 'studio' && chatMsgs.length > 2 && (
+          <div className="fixed right-4 top-1/2 -translate-y-1/2 z-30 flex flex-col gap-2">
+            <button
+              onClick={() => rightPanelRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+              title="Jump to top"
+              className={`w-8 h-8 rounded-full flex items-center justify-center border border-[var(--bd)]
+                          bg-[var(--surface)] shadow-md transition-all
+                          ${chatAtTop
+                            ? 'opacity-20 cursor-default pointer-events-none'
+                            : 'text-[var(--tx6)] hover:border-purple-500/50 hover:text-purple-400'}`}>
+              <ChevronUp size={14} />
+            </button>
+            <button
+              onClick={() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })}
+              title="Jump to bottom"
+              className={`w-8 h-8 rounded-full flex items-center justify-center border border-[var(--bd)]
+                          bg-[var(--surface)] shadow-md transition-all
+                          ${chatAtBottom
+                            ? 'opacity-20 cursor-default pointer-events-none'
+                            : 'text-[var(--tx6)] hover:border-purple-500/50 hover:text-purple-400'}`}>
+              <ChevronDown size={14} />
+            </button>
+          </div>
+        )}
+
         <div className="p-6 max-w-2xl mx-auto">
 
           {/* Nav */}
