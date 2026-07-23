@@ -70,18 +70,30 @@ B) CONCEPTUAL — source explains ideas, definitions, or principles without a sp
 STEP 2 — Create a SUMMARY and TRANSCRIPT based on the type:
 
 If type A (worked example / calculation):
-  SUMMARY:
-  - State what the problem is asking
-  - List all given values exactly as in the source (e.g. n(N₂) = 667 mol)
-  - Write the relevant formula(s) exactly
-  - Show every calculation step with the actual numbers — do NOT skip steps or round early
-  - State the final answer clearly with units
-  - Do NOT simplify, paraphrase, or omit any steps — students must be able to follow the full solution
+  SUMMARY — use this exact structure, each section on its own line:
+  [One sentence stating what the problem asks for]
 
-  TRANSCRIPT (teacher talking through the solution on a whiteboard):
-  - "In this example we want to find..." then walk through each step aloud
-  - Say formulas out loud ("N equals n times N-A")
-  - Read out each substitution with real numbers
+  Tunnetut suureet / Given:
+  [Each known value on its own line, exactly as written in source, e.g. "NA = 6,022 · 10²³ kpl/mol"]
+
+  Kaava / Formula:
+  [The relevant formula(s), e.g. "N = n · NA"]
+
+  Ratkaisu / Solution:
+  [Full substitution with real numbers from the source, e.g. "N = 667 mol · 6,022 · 10²³ kpl/mol"]
+  [Show the unrounded intermediate result on its own line, e.g. "= 4,0167 · 10²⁶ kpl"]
+  [Then the rounded result, e.g. "≈ 4,02 · 10²⁶ kpl"]
+
+  Vastaus / Answer:
+  [Final answer with symbol, value, and unit, e.g. "N(N₂) = 4,02 · 10²⁶ kpl"]
+
+  Rules: copy every number exactly from the source — do NOT round early, do NOT skip the intermediate result, do NOT paraphrase the values.
+
+  TRANSCRIPT (teacher talking through the solution step by step):
+  - Open: "In this example we want to find..."
+  - Read out each given value: "We know that n equals 667 mol, and Avogadro's number is..."
+  - Say the formula, then the substitution with real numbers
+  - Say the intermediate result, then the rounded answer
   - End: "So the answer is..."
 
 If type B (conceptual):
