@@ -131,6 +131,9 @@ export default function CourseDetailPage() {
   const [myClassrooms, setMyClassrooms] = useState<Classroom[]>([]);
   const [assigning,    setAssigning]    = useState(false);
 
+  // Delete confirmation
+  const [deleteConfirm, setDeleteConfirm] = useState<{ unitId: string; conceptId: string; title: string } | null>(null);
+
   // Manual concept creation — crop a region of the chapter PDF as an image
   const [cropTarget, setCropTarget] = useState<{ unitId: string; chapterRefId: string; file: File } | null>(null);
   const [suggestingFor, setSuggestingFor] = useState<string | null>(null);
@@ -407,6 +410,7 @@ export default function CourseDetailPage() {
         ? { ...u, concepts: u.concepts.filter(c => c.id !== conceptId) }
         : u),
     } : prev);
+    setDeleteConfirm(null);
   }
 
   // ── Assign to classroom ────────────────────────────────────────────────────
@@ -611,11 +615,6 @@ export default function CourseDetailPage() {
                     {coverageBusy === unit.chapter_ref ? <Loader2 size={12} className="animate-spin" /> : <ListChecks size={12} />}
                     {t.teacher.checkCoverage}
                   </button>
-                  <button onClick={() => router.push(`/teacher/courses/${courseId}/chapters/${unit.chapter_ref}/studio`)}
-                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-purple-500/30
-                               text-purple-400 hover:bg-purple-500/10 transition-all">
-                    <Wand2 size={12} /> Studio
-                  </button>
                 </div>
               )}
               <button onClick={() => deleteUnit(unit.id)}
@@ -682,17 +681,7 @@ export default function CourseDetailPage() {
                         </div>
                       )}
                     </button>
-                    {unit.chapter_ref && (
-                      <button
-                        onClick={() => router.push(`/teacher/courses/${courseId}/chapters/${unit.chapter_ref}/studio`)}
-                        title="Open Studio"
-                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 text-[10px]
-                                   rounded-lg border border-purple-500/30 text-purple-400 hover:bg-purple-500/10
-                                   transition-all shrink-0">
-                        <Wand2 size={11} /> Studio
-                      </button>
-                    )}
-                    <button onClick={() => deleteConcept(unit.id, c.id)}
+                    <button onClick={() => setDeleteConfirm({ unitId: unit.id, conceptId: c.id, title: c.title })}
                       className="opacity-0 group-hover:opacity-100 text-[var(--tx8)] hover:text-red-400
                                  transition-all p-1 shrink-0">
                       <Trash2 size={12} />
@@ -772,6 +761,29 @@ export default function CourseDetailPage() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setDeleteConfirm(null)}>
+          <div className="bg-[var(--bg2)] border border-[var(--bd)] rounded-2xl p-6 w-80 shadow-2xl"
+            onClick={e => e.stopPropagation()}>
+            <p className="text-[var(--tx1)] font-semibold mb-1">Delete concept?</p>
+            <p className="text-[var(--tx6)] text-sm mb-5 break-words">
+              &ldquo;{deleteConfirm.title}&rdquo; and all its content will be permanently removed.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 text-sm text-[var(--tx6)] hover:text-[var(--tx2)] transition-colors">
+                Cancel
+              </button>
+              <button onClick={() => deleteConcept(deleteConfirm.unitId, deleteConfirm.conceptId)}
+                className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-500 text-white rounded-xl transition-colors">
+                Delete
+              </button>
+            </div>
           </div>
         </div>
       )}
