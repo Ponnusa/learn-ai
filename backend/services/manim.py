@@ -739,8 +739,11 @@ TEXT SIZE LIMITS:
 - Labels:    font_size <= 20
 
 ELEMENT LIMITS:
-- Maximum 5 elements visible on screen at once
-- Use FadeOut before adding new content if screen is full
+- Maximum 5 elements visible in FOCUSED scenes (single molecule explanation, single formula derivation)
+- PANEL LAYOUTS are exempt: a persistent left panel + divider + item list + right calculation zone
+  counts as ONE layout context — the list rows, panel background, and divider stay on screen the whole time.
+  Only the CALCULATION AREA refreshes between items (FadeOut old calc group, FadeIn new one).
+- Use FadeOut before adding new FOCUSED content if screen is full
 
 POSITIONING RULES:
 - Always use explicit positioning (never leave at ORIGIN by default)
@@ -803,10 +806,81 @@ CHEMISTRY FORMULA RULE — MANDATORY, RENDER-CRITICAL:
   WRONG   in MathTex: "CH₃CH₂OH", "C₅H₁₂O₅", "H₂SO₄"
 - In Text() mobjects, Unicode IS fine: Text("CH₃CH₂OH") renders correctly via Pango.
 - If formula variables are passed to MathTex, make sure those variables contain LaTeX notation, not Unicode subscripts.
+- NEVER put $ signs inside MathTex strings — MathTex wraps everything in $…$ automatically.
+  CORRECT: MathTex(r"C_{2}H_{5}OH")   WRONG: MathTex(r"C$_2$H$_5$OH")
 
 CHEMISTRY NAMING RULE (MANDATORY):
 - NEVER read chemical formulas letter-by-letter in voiceover
 - ALWAYS convert formulas to proper chemical names in spoken text
+
+══════════════════════════════════════════════════════════════════
+CHEMISTRY OVERVIEW VIDEO PATTERN (multi-compound / multi-step)
+══════════════════════════════════════════════════════════════════
+
+USE THIS PATTERN when the video covers MULTIPLE COMPOUNDS or MULTIPLE ITEMS
+with the SAME calculation/analysis framework (e.g. molar mass, Ka, solubility, enthalpy).
+
+LAYOUT — TWO-PANEL (16:9):
+  LEFT PANEL  (centered at LEFT*3.2):  persistent item list — stays on screen the whole time
+  DIVIDER LINE at x = -1.0
+  RIGHT ZONE  (calc_base = RIGHT*2.5 + UP*0.8): sequential calculation steps per item
+
+SETUP CODE SKELETON:
+  # Dark card panel — professional depth
+  left_panel = Rectangle(width=4.5, height=7.5,
+      fill_color=ManimColor("#161B22"), fill_opacity=0.9,
+      stroke_color=ManimColor("#30363D"), stroke_width=1.5).move_to(LEFT*3.2)
+  divider = Line(LEFT*1.0+UP*3.5, LEFT*1.0+DOWN*3.5,
+      stroke_color=ManimColor("#30363D"), stroke_width=1.5)
+
+  # Item list — stacked rows inside left panel
+  items = [("Name1", r"Formula_1"), ("Name2", r"Formula_2"), ...]  # LaTeX, NO $ signs
+  rows = VGroup()
+  for idx, (name, formula) in enumerate(items):
+      name_t    = Text(name, font_size=18, color=WHITE)
+      formula_t = MathTex(formula, font_size=18, color=YELLOW)
+      row = VGroup(name_t, formula_t).arrange(RIGHT, buff=0.3)
+      row.move_to(LEFT*3.2 + UP*(1.8 - idx*0.72))
+      rows.add(row)
+
+  # Optional: formula/title in right panel — must be ABOVE UP*1.5 to clear calc area
+  right_title = Text("Calculation", font_size=20, color=WHITE).move_to(RIGHT*2.5 + UP*2.8)
+
+  # Calc lines — base at UP*0.8, stacked DOWN in 0.55-unit steps
+  calc_base = RIGHT*2.5 + UP*0.8
+  # calc_line1 at calc_base+DOWN*0.0, calc_line2 at DOWN*0.55, calc_line3 at DOWN*1.10
+  # result_value at DOWN*1.75 in GREEN BOLD
+
+  # Pre-create one SurroundingRectangle per item (or reuse one with Transform)
+  rects = [SurroundingRectangle(rows[i], color=YELLOW, buff=0.12, stroke_width=2) for i in range(len(items))]
+
+ANIMATION PATTERN per item:
+  # Reveal panel once at start
+  self.play(FadeIn(left_panel), FadeIn(divider))
+  self.play(AnimationGroup(*[FadeIn(row) for row in rows], lag_ratio=0.2))
+
+  for i, (calc_group, rect) in enumerate(zip(calc_groups, rects)):
+      # Highlight active row
+      self.play(Create(rect))
+      self.play(Indicate(rows[i], scale_factor=1.1, color=YELLOW))
+      # Show calc lines one at a time
+      self.play(Write(calc_line1[i]))
+      self.play(Write(calc_line2[i]))
+      self.play(Write(calc_line3[i]))
+      self.play(FadeIn(result_value[i]), FadeIn(result_unit[i]))
+      self.play(Flash(result_value[i], color=GREEN, flash_radius=0.5, num_lines=10))
+      # Clean up calc area before next item
+      self.play(FadeOut(calc_group), FadeOut(rect))
+
+HOOK BEFORE PANEL:
+  Always open with a question-mark or intriguing hook beat (1-2 beats) BEFORE revealing
+  the panel. Show a relevant molecule or concept visual, then transition to the panel layout.
+
+CLOSING SUMMARY SCREEN:
+  After all items: FadeOut the panel layout, then show a clean summary card
+  (RoundedRectangle with GOLD stroke, centered at ORIGIN) listing all items + results.
+  summary_bg = RoundedRectangle(width=9.0, height=6.5, corner_radius=0.3,
+      fill_color=ManimColor("#161B22"), fill_opacity=0.95, stroke_color=GOLD, stroke_width=2)
 
 ══════════════════════════════════════════════════════════════════
 GENERAL ANIMATION RULES
@@ -881,8 +955,11 @@ CORRECT — define everything first, then animate:
     with self.voiceover(...):
         self.play(FadeIn(cup))           # ← safe: cup already exists
 
-6. Colors (STRICT)
-Use ONLY: RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK, WHITE, BLACK, GRAY, GREY
+6. Colors
+STANDARD PALETTE: WHITE, YELLOW, RED, BLUE, GREEN, ORANGE, PURPLE, PINK, GRAY, GREY, BLACK
+EXTENDED CONSTANTS (all valid in Manim): DARK_BLUE, TEAL, GOLD, LIGHT_GRAY, RED_E, GREEN_E, BLUE_E, TEAL_E, GOLD_E, MAROON
+DARK PANEL FILLS: use ManimColor("#0D1117") for scene background, ManimColor("#161B22") for card/panel fills,
+  ManimColor("#30363D") for panel stroke — these dark tones create professional depth; avoid flat BLACK for backgrounds
 
 ══════════════════════════════════════════════════════════════════
 MOLECULAR VISUALIZATION (CHEMISTRY)
@@ -908,11 +985,15 @@ Import at the top: from helpers import *
 - create_molecule_from_smiles(smiles, position, scale) — molecular structures
 
 ══════════════════════════════════════════════════════════════════
-CRITICAL: SEQUENTIAL DISPLAY ONLY (MANDATORY)
+CRITICAL: SCREEN MANAGEMENT (MANDATORY)
 ══════════════════════════════════════════════════════════════════
 
-ALWAYS show elements sequentially — never molecule + text simultaneously.
-FadeOut old content before showing new content at the same position.
+FOCUSED SCENES: FadeOut old content before showing new content at the same position.
+Do not stack two competing elements at the same screen zone.
+
+PANEL LAYOUTS (multi-item overview videos): The persistent panel, divider, and item list
+STAY on screen throughout. Only the calculation/detail zone on the right refreshes between items.
+This is intentional — the list gives viewers navigation context.
 
 ══════════════════════════════════════════════════════════════════
 ASPECT RATIO LAYOUT STRATEGY (MANDATORY)

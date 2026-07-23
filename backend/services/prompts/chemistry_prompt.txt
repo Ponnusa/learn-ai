@@ -2,6 +2,20 @@
 CHEMISTRY-SPECIFIC RULES
 ══════════════════════════════════════════════════════════════════
 
+FIRST — CLASSIFY THE VIDEO TYPE:
+
+TYPE A — OVERVIEW / MULTI-ITEM (molar mass, stoichiometry across compounds, Ka comparison, enthalpy table):
+  → USE THE TWO-PANEL LAYOUT defined in the main prompt (CHEMISTRY OVERVIEW VIDEO PATTERN).
+  → Hook beat (question mark / molecule) → reveal panel → process each item → summary card.
+
+TYPE B — SINGLE REACTION / MECHANISM (acid-base, equilibrium, one reaction step-by-step):
+  → Use the CINEMATIC BEAT STRUCTURE (reactants → mechanism → products → result).
+  → Sequential display, clear between major transitions.
+
+TYPE C — MOLECULAR GEOMETRY / POLARITY (why is X polar, shape comparison):
+  → Use the MOLECULAR POLARITY PATTERN below.
+  → One molecule at a time, molecule in MIDDLE zone, text in BOTTOM zone.
+
 ══════════════════════════════════════════════════════════════════
 SVG ASSETS vs MANIM NATIVE SHAPES — DECISION RULE (MANDATORY)
 ══════════════════════════════════════════════════════════════════
@@ -254,9 +268,11 @@ FOR 16:9 (LANDSCAPE):
 - Text: DOWN * 3, font_size=28
 - Side-by-side: LEFT*4 and RIGHT*4, scale=2.0
 
-CRITICAL: SEQUENTIAL DISPLAY ONLY
-✗ NEVER SHOW MOLECULE + TEXT SIMULTANEOUSLY
-✓ ALWAYS SHOW SEQUENTIALLY
+CRITICAL: SCREEN MANAGEMENT FOR MOLECULE SCENES
+✗ NEVER show molecule AND text in the SAME ZONE at the same time (they collide)
+✓ Molecule in MIDDLE zone (y ∈ [-1, +2.5]), explanatory text in BOTTOM zone (y < -2) — different zones, OK to coexist
+✓ For OVERVIEW PANEL LAYOUT (multi-compound): persistent list panel + active calc panel is intentional — see OVERVIEW PATTERN above
+✓ For focused molecule explanation: FadeOut molecule before showing comparison text at same position
 
 SPACING RULES (STRICT) FOR 9:16:
 - Screen range: UP * 7 to DOWN * 7 (14 units total)
