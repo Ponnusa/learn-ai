@@ -16,6 +16,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useLanguageStore } from '@/store/languageStore';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { preprocessMath } from '@/lib/preprocessMath';
+import { KATEX_OPTIONS } from '@/lib/mathConfig';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -157,7 +158,7 @@ function TranscriptModal({
         {/* Body */}
         <div className="flex-1 chat-scroll px-6 py-5">
           <div className="ai-content text-sm leading-relaxed">
-            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
               {preprocessMath(markdown)}
             </ReactMarkdown>
           </div>

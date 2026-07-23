@@ -6,6 +6,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { preprocessMath } from '@/lib/preprocessMath';
+import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, MessageSquare, Loader2, ImageIcon,
@@ -583,7 +584,7 @@ export default function StudentConceptDetailPage() {
                     </div>
                   ) : (
                     <div className="max-w-[85%] bg-[var(--ov1)] border border-[var(--bd)] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-[var(--tx2)] prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
                         {preprocessMath(msg.content)}
                       </ReactMarkdown>
                     </div>

@@ -4,6 +4,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { preprocessMath } from '@/lib/preprocessMath';
+import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import type { ComponentPropsWithoutRef } from 'react';
 
 const INLINE_COMPONENTS = {
@@ -26,7 +27,7 @@ export function MathText({
   return (
     <ReactMarkdown
       remarkPlugins={[remarkMath]}
-      rehypePlugins={[rehypeKatex]}
+      rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
       components={inline ? INLINE_COMPONENTS : undefined}
     >
       {preprocessMath(children)}

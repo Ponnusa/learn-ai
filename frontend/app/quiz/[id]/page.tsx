@@ -10,6 +10,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { preprocessMath } from '@/lib/preprocessMath';
+import { KATEX_OPTIONS } from '@/lib/mathConfig';
 
 interface Question {
   q: string;
@@ -39,7 +40,7 @@ function MathText({ children }: { children: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkMath]}
-      rehypePlugins={[rehypeKatex]}
+      rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
       components={{ p: ({ children }) => <span>{children}</span> }}
     >
       {preprocessMath(children ?? '')}

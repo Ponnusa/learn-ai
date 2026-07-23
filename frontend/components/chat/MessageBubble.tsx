@@ -10,6 +10,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
+import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import { getQuiz, getVideoStatus, retryVideoManim, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage } from '@/lib/api';
 
 interface Message {
@@ -165,7 +166,7 @@ function TranscriptModal({
         {/* Body */}
         <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-4">
           <div className="ai-content text-sm leading-relaxed">
-            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
               {preprocessMath(content)}
             </ReactMarkdown>
           </div>
@@ -590,7 +591,7 @@ export function ImageStatusCard({
         {description && (
           <div className="rounded-xl border border-[var(--bd)] bg-[var(--surface)] px-4 py-3 mt-2">
             <div className="ai-content text-sm leading-relaxed text-[var(--tx2)]">
-              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
                 {preprocessMath(description)}
               </ReactMarkdown>
             </div>
@@ -800,7 +801,7 @@ export function MessageBubble({
             />
           ) : (
             <div className="ai-content">
-              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
                 {preprocessMath(message.content)}
               </ReactMarkdown>
             </div>
