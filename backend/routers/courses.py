@@ -1317,6 +1317,26 @@ async def delete_content_block(
     return {"ok": True}
 
 
+class BlockReorderItem(BaseModel):
+    id:       str
+    position: int
+
+@router.post("/concepts/{concept_id}/content-blocks/reorder")
+async def reorder_content_blocks(
+    concept_id:    str,
+    items:         list[BlockReorderItem],
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        for item in items:
+            await db.execute(
+                "UPDATE concept_content_blocks SET position = $1 WHERE id = $2::uuid AND concept_id = $3::uuid",
+                item.position, item.id, concept_id,
+            )
+    return {"ok": True}
+
+
 @router.get("/concepts/{concept_id}/content-blocks/{block_id}/status")
 async def get_block_video_status(
     concept_id:    str,

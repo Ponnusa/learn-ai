@@ -4,10 +4,27 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Loader2, Video, Volume2, Trash2, Mic2 } from 'lucide-react';
-import { ContentBlock, listContentBlocks, deleteContentBlock, generateBlockAudio } from '@/lib/api';
+import { Loader2, Video, Volume2, Trash2, Mic2, GripVertical, Save, Check } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { ContentBlock, listContentBlocks, deleteContentBlock, generateBlockAudio, reorderContentBlocks } from '@/lib/api';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// ── Sub-block renderers ───────────────────────────────────────────────────────
 
 function VideoBlock({ block, token, onDelete }: { block: ContentBlock; token?: string; onDelete?: () => void }) {
   const [videoUrl, setVideoUrl] = useState(block.video_url);
@@ -104,7 +121,6 @@ function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerat
   const [generatingAudio, setGeneratingAudio] = useState(false);
   const audioUrl = `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${block.id}/audio`;
 
-  // Poll while generating
   useEffect(() => {
     if (audioStatus !== 'generating') return;
     let active = true;
@@ -165,7 +181,6 @@ function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerat
         </ReactMarkdown>
       </div>
 
-      {/* Audio strip */}
       <div className="mt-3 pt-3 border-t border-[var(--bd)]">
         {audioStatus === 'ready' ? (
           <div className="flex items-center gap-2">
@@ -192,10 +207,78 @@ function TextBlock({ block, conceptId, token, editable, onDelete, onAudioGenerat
           </button>
         ) : null}
       </div>
-
     </div>
   );
 }
+
+// ── Sortable wrapper ──────────────────────────────────────────────────────────
+
+interface SortableBlockProps {
+  block:     ContentBlock;
+  conceptId: string;
+  token?:    string;
+  editable?: boolean;
+  onDelete:  (id: string) => void;
+}
+
+function SortableBlock({ block, conceptId, token, editable, onDelete }: SortableBlockProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: block.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex:  isDragging ? 50 : 'auto',
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="relative">
+      {editable && (
+        <div
+          {...attributes}
+          {...listeners}
+          className="absolute -left-6 top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing
+                     text-[var(--tx8)] hover:text-[var(--tx4)] opacity-0 group-hover/row:opacity-100
+                     transition-opacity p-1 touch-none"
+          title="Drag to reorder"
+        >
+          <GripVertical size={15} />
+        </div>
+      )}
+      <div className="group/row">
+        {block.type === 'video' ? (
+          <VideoBlock
+            block={block} token={token}
+            onDelete={editable ? () => onDelete(block.id) : undefined}
+          />
+        ) : block.type === 'audio' ? (
+          <AudioBlock
+            block={block}
+            onDelete={editable ? () => onDelete(block.id) : undefined}
+          />
+        ) : (
+          <TextBlock
+            block={block}
+            conceptId={conceptId}
+            token={token}
+            editable={editable}
+            onDelete={editable ? () => onDelete(block.id) : undefined}
+            onAudioGenerated={() => {}}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
 
 interface ConceptTextbookProps {
   conceptId:    string;
@@ -205,9 +288,16 @@ interface ConceptTextbookProps {
 }
 
 export function ConceptTextbook({ conceptId, token, editable = false, onHasBlocks }: ConceptTextbookProps) {
-  const [blocks,  setBlocks]  = useState<ContentBlock[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState<string | null>(null);
+  const [blocks,   setBlocks]   = useState<ContentBlock[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState<string | null>(null);
+  const [dirty,    setDirty]    = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [saved,    setSaved]    = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
 
   const load = useCallback(() => {
     if (!conceptId) return;
@@ -217,6 +307,7 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
       .then(data => {
         setBlocks(data);
         onHasBlocks?.(data.length > 0);
+        setDirty(false);
       })
       .catch(e => setError(e.message ?? 'Failed to load'))
       .finally(() => setLoading(false));
@@ -224,16 +315,54 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
 
   useEffect(() => { load(); }, [load]);
 
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setBlocks(prev => {
+      const oldIdx = prev.findIndex(b => b.id === active.id);
+      const newIdx = prev.findIndex(b => b.id === over.id);
+      return arrayMove(prev, oldIdx, newIdx);
+    });
+    setDirty(true);
+    setSaved(false);
+  }
+
+  async function saveOrder() {
+    setSaving(true);
+    try {
+      await reorderContentBlocks(
+        conceptId,
+        blocks.map((b, i) => ({ id: b.id, position: i })),
+        token,
+      );
+      setDirty(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      /* leave dirty so teacher can retry */
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleDelete(blockId: string) {
     try {
       await deleteContentBlock(conceptId, blockId, token);
-      setBlocks(prev => prev.filter(b => b.id !== blockId));
+      setBlocks(prev => {
+        const next = prev.filter(b => b.id !== blockId);
+        onHasBlocks?.(next.length > 0);
+        return next;
+      });
     } catch (e: any) {
       alert('Delete failed: ' + e.message);
     }
   }
 
-  if (loading) return <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin text-purple-400" /></div>;
+  if (loading) return (
+    <div className="flex justify-center py-8">
+      <Loader2 size={18} className="animate-spin text-purple-400" />
+    </div>
+  );
 
   if (error) return (
     <div className="flex items-center gap-2 py-4 text-red-400 text-sm">
@@ -252,31 +381,62 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
   }
 
   return (
-    <div className="space-y-6">
-      {blocks.map(block => (
-        <div key={block.id}>
-          {block.type === 'video' ? (
-            <VideoBlock
-              block={block} token={token}
-              onDelete={editable ? () => handleDelete(block.id) : undefined}
-            />
-          ) : block.type === 'audio' ? (
-            <AudioBlock
-              block={block}
-              onDelete={editable ? () => handleDelete(block.id) : undefined}
-            />
-          ) : (
-            <TextBlock
-              block={block}
-              conceptId={conceptId}
-              token={token}
-              editable={editable}
-              onDelete={editable ? () => handleDelete(block.id) : undefined}
-              onAudioGenerated={() => {/* status already updated inside TextBlock */}}
-            />
-          )}
+    <div>
+      {/* Save order bar — only shown when teacher has reordered */}
+      {editable && (dirty || saved) && (
+        <div className="flex items-center justify-between mb-4 px-3 py-2 rounded-xl
+                        border border-[var(--bd)] bg-[var(--ov1)]">
+          <span className="text-xs text-[var(--tx6)]">
+            {saved ? 'Order saved' : 'Drag blocks to reorder'}
+          </span>
+          <button
+            onClick={saveOrder}
+            disabled={saving || !dirty}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg
+                       bg-purple-600 hover:bg-purple-500 text-white font-medium
+                       transition-colors disabled:opacity-50"
+          >
+            {saving  ? <Loader2 size={11} className="animate-spin" /> :
+             saved   ? <Check   size={11} /> :
+             <Save   size={11} />}
+            {saving ? 'Saving…' : saved ? 'Saved!' : 'Save order'}
+          </button>
         </div>
-      ))}
+      )}
+
+      {/* Drag context — only active in editable mode */}
+      {editable ? (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-6 pl-6">
+              {blocks.map(block => (
+                <SortableBlock
+                  key={block.id}
+                  block={block}
+                  conceptId={conceptId}
+                  token={token}
+                  editable
+                  onDelete={handleDelete}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      ) : (
+        <div className="space-y-6">
+          {blocks.map(block => (
+            <div key={block.id}>
+              {block.type === 'video' ? (
+                <VideoBlock block={block} token={token} />
+              ) : block.type === 'audio' ? (
+                <AudioBlock block={block} />
+              ) : (
+                <TextBlock block={block} conceptId={conceptId} token={token} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
