@@ -10,7 +10,7 @@ import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, MessageSquare, Loader2, ImageIcon,
   HelpCircle, Layers, Volume2, Video, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, Send, FileText,
+  CheckCircle2, XCircle, Send, FileText, Dumbbell,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { useSessionStore } from '@/store/sessionStore';
@@ -53,6 +53,7 @@ export default function StudentConceptDetailPage() {
   const [loading,    setLoading]    = useState(true);
   const [activating,     setActivating]     = useState(false);
   const [hasBlocks,      setHasBlocks]      = useState(false);
+  const [activeTab,      setActiveTab]      = useState<'learn' | 'materials' | 'practice'>('learn');
 
   // Chat Q&A state
   type ChatMsg = { role: 'user' | 'assistant'; content: string };
@@ -237,85 +238,120 @@ export default function StudentConceptDetailPage() {
   const quiz           = assets?.quiz ?? [];
   const currentCard    = flashcards[cardIndex];
 
+  const hasResources = (concept.resources?.length ?? 0) > 0;
+  const hasPractice  = showFlashcards || showQuiz;
+
+  const tabs = [
+    { key: 'learn',     label: 'Learn',     icon: <BookOpen size={13} /> },
+    ...(hasResources ? [{ key: 'materials', label: 'Materials', icon: <FileText size={13} /> }] : []),
+    ...(hasPractice  ? [{ key: 'practice',  label: 'Practice',  icon: <Dumbbell size={13} /> }] : []),
+  ] as const;
+
   return (
     <div className="p-6 max-w-2xl mx-auto pb-16">
 
       {/* Back */}
       <button onClick={() => router.push(`/classrooms/${classroomId}/courses/${courseId}`)}
-        className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
+        className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-4 transition-colors">
         <ArrowLeft size={15} /> Back to course
       </button>
 
       {/* Title */}
       <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{concept.title}</h1>
-      {concept.description && <p className="text-[var(--tx6)] text-sm mb-6">{concept.description}</p>}
+      {concept.description && <p className="text-[var(--tx6)] text-sm mb-4">{concept.description}</p>}
 
-      {/* Textbook content blocks (teacher-authored, shown first) */}
-      <ConceptTextbook
-        conceptId={conceptId}
-        token={token!}
-        onHasBlocks={setHasBlocks}
-      />
-
-      {/* Legacy single-asset view (shown only when no textbook blocks exist) */}
-      {/* Video player (preferred over audio-only) */}
-      {!hasBlocks && showVideo && (
-        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mb-6">
-          <video controls src={`${API_BASE}${assets!.video_url}`} className="w-full aspect-video" />
-          <p className="px-4 py-2 text-[var(--tx8)] text-xs flex items-center gap-1.5">
-            <Video size={11} /> Video lesson
-          </p>
+      {/* Tab bar */}
+      {tabs.length > 1 && (
+        <div className="flex gap-1 mb-6 border-b border-[var(--bd)]">
+          {tabs.map(tab => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key as typeof activeTab)}
+              className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === tab.key
+                  ? 'border-purple-500 text-purple-400'
+                  : 'border-transparent text-[var(--tx6)] hover:text-[var(--tx2)]'
+              }`}>
+              {tab.icon}{tab.label}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Audio-only fallback when no video */}
-      {!hasBlocks && showAudio && (
-        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4 mb-6">
-          <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <Volume2 size={12} /> Listen
-          </p>
-          <audio controls src={`${API_BASE}${assets!.audio_url}`} className="w-full" />
-        </div>
+      {/* ── Learn tab ── */}
+      {activeTab === 'learn' && (
+        <>
+          {/* Textbook content blocks */}
+          <ConceptTextbook conceptId={conceptId} token={token!} onHasBlocks={setHasBlocks} />
+
+          {/* Legacy single-asset view (only when no textbook blocks) */}
+          {!hasBlocks && showVideo && (
+            <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mb-6">
+              <video controls src={`${API_BASE}${assets!.video_url}`} className="w-full aspect-video" />
+              <p className="px-4 py-2 text-[var(--tx8)] text-xs flex items-center gap-1.5">
+                <Video size={11} /> Video lesson
+              </p>
+            </div>
+          )}
+          {!hasBlocks && showAudio && (
+            <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4 mb-6">
+              <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <Volume2 size={12} /> Listen
+              </p>
+              <audio controls src={`${API_BASE}${assets!.audio_url}`} className="w-full" />
+            </div>
+          )}
+          {!hasBlocks && explanation && (
+            <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-6 mb-6">
+              <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <BookOpen size={12} />
+                {concept.pipeline_status === 'approved' ? 'Summary' : 'Explanation'}
+              </h2>
+              <div className="text-[var(--tx2)] text-sm leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0">
+                <MathText>{explanation}</MathText>
+              </div>
+            </div>
+          )}
+          {!hasBlocks && concept.images.length > 0 && (
+            <div className="mb-6">
+              <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <ImageIcon size={12} /> Illustrations
+              </h2>
+              <div className="grid grid-cols-2 gap-3">
+                {concept.images.map(img => (
+                  <figure key={img.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
+                    <img src={`${API_BASE}${img.url}`} alt={img.caption || concept.title}
+                      className="w-full aspect-video object-contain bg-[var(--ov2)]" />
+                    {img.caption && <figcaption className="px-3 py-2 text-xs text-[var(--tx6)]">{img.caption}</figcaption>}
+                  </figure>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Prompt to explore other tabs */}
+          {(hasResources || hasPractice) && (
+            <div className="flex gap-2 flex-wrap mt-2 mb-6">
+              {hasResources && (
+                <button onClick={() => setActiveTab('materials')}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
+                             text-[var(--tx6)] hover:text-[var(--tx2)] hover:border-purple-500/40 transition-colors">
+                  <FileText size={11} /> View learning materials →
+                </button>
+              )}
+              {hasPractice && (
+                <button onClick={() => setActiveTab('practice')}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
+                             text-[var(--tx6)] hover:text-[var(--tx2)] hover:border-purple-500/40 transition-colors">
+                  <Dumbbell size={11} /> Practice with flashcards & quiz →
+                </button>
+              )}
+            </div>
+          )}
+        </>
       )}
 
-      {/* Explanation */}
-      {!hasBlocks && explanation && (
-        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-6 mb-6">
-          <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <BookOpen size={12} />
-            {concept.pipeline_status === 'approved' ? 'Summary' : 'Explanation'}
-          </h2>
-          <div className="text-[var(--tx2)] text-sm leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0"><MathText>{explanation}</MathText></div>
-        </div>
-      )}
-
-      {/* Images */}
-      {!hasBlocks && concept.images.length > 0 && (
-        <div className="mb-6">
-          <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <ImageIcon size={12} /> Illustrations
-          </h2>
-          <div className="grid grid-cols-2 gap-3">
-            {concept.images.map(img => (
-              <figure key={img.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
-                <img src={`${API_BASE}${img.url}`} alt={img.caption || concept.title}
-                  className="w-full aspect-video object-contain bg-[var(--ov2)]" />
-                {img.caption && (
-                  <figcaption className="px-3 py-2 text-xs text-[var(--tx6)]">{img.caption}</figcaption>
-                )}
-              </figure>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Resources (teacher-uploaded images, PDFs, videos) */}
-      {concept.resources?.length > 0 && (
-        <div className="mb-6 space-y-3">
-          <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
-            <FileText size={12} /> Learning Materials
-          </h2>
-
+      {/* ── Materials tab ── */}
+      {activeTab === 'materials' && hasResources && (
+        <div className="space-y-4">
           {/* Resource images */}
           {concept.resources.filter(r => r.type === 'image').length > 0 && (
             <div className="grid grid-cols-2 gap-3">
@@ -350,8 +386,7 @@ export default function StudentConceptDetailPage() {
                 </a>
               </div>
               <div className="px-4 pb-3">
-                <button
-                  onClick={() => openChat({ id: r.id, title: r.title, type: r.type })}
+                <button onClick={() => openChat({ id: r.id, title: r.title, type: r.type })}
                   className="text-xs text-purple-400 hover:text-purple-300 transition-colors">
                   Ask AI about this →
                 </button>
@@ -366,7 +401,8 @@ export default function StudentConceptDetailPage() {
               <div key={r.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
                 {embedUrl ? (
                   <div className="aspect-video">
-                    <iframe src={embedUrl} title={r.title} allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
+                    <iframe src={embedUrl} title={r.title}
+                      allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
                       allowFullScreen className="w-full h-full" />
                   </div>
                 ) : (
@@ -383,162 +419,145 @@ export default function StudentConceptDetailPage() {
         </div>
       )}
 
-      {/* Flashcards */}
-      {showFlashcards && (
-        <div className="mb-6">
-          <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <Layers size={12} /> Flashcards · {Math.min(cardIndex + 1, flashcards.length)} of {flashcards.length}
-            {flashcards.filter(c => c.is_due).length > 0 && ` · ${flashcards.filter(c => c.is_due).length} due for review`}
-          </h2>
+      {/* ── Practice tab ── */}
+      {activeTab === 'practice' && hasPractice && (
+        <div className="space-y-8">
+          {/* Flashcards */}
+          {showFlashcards && (
+            <div>
+              <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <Layers size={12} /> Flashcards · {Math.min(cardIndex + 1, flashcards.length)} of {flashcards.length}
+                {flashcards.filter(c => c.is_due).length > 0 && ` · ${flashcards.filter(c => c.is_due).length} due`}
+              </h2>
 
-          {deckFinished ? (
-            <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 flex flex-col items-center text-center gap-3">
-              <CheckCircle2 size={28} className="text-green-400" />
-              <p className="text-[var(--tx1)] font-semibold">Deck complete</p>
-              <p className="text-[var(--tx7)] text-sm">{cardsDone.size} got it · {cardsAgain.length} to review again</p>
-              <button onClick={restartDeck}
-                className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all">
-                Study again
-              </button>
-            </div>
-          ) : currentCard && (
-            <>
-              {/* Card */}
-              <div
-                onClick={() => setFlipped(f => !f)}
-                className="relative cursor-pointer select-none"
-                style={{ perspective: '1000px' }}
-              >
-                <div className={`relative w-full transition-transform duration-300`}
-                  style={{ transformStyle: 'preserve-3d', transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}>
-
-                  {/* Front */}
-                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 min-h-[140px] flex flex-col items-center justify-center text-center"
-                    style={{ backfaceVisibility: 'hidden' }}>
-                    <p className="text-[var(--tx1)] text-base font-semibold"><MathText inline>{currentCard.front}</MathText></p>
-                    <p className="text-[var(--tx8)] text-xs mt-3">Tap to reveal</p>
-                  </div>
-
-                  {/* Back */}
-                  <div className="absolute inset-0 bg-purple-600/10 border border-purple-500/30 rounded-2xl p-8 flex flex-col items-center justify-center text-center"
-                    style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
-                    <p className="text-[var(--tx1)] text-sm leading-relaxed"><MathText inline>{currentCard.back}</MathText></p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Again / Got it */}
-              {flipped ? (
-                <div className="flex gap-3 mt-3">
-                  <button onClick={handleCardAgain} disabled={reviewing}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
-                               bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20
-                               text-amber-400 text-sm font-medium transition-colors disabled:opacity-50">
-                    Again
-                  </button>
-                  <button onClick={handleCardGotIt} disabled={reviewing}
-                    className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl
-                               bg-green-500/10 hover:bg-green-500/20 border border-green-500/20
-                               text-green-400 text-sm font-medium transition-colors disabled:opacity-50">
-                    <CheckCircle2 size={14} /> Got it
+              {deckFinished ? (
+                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 flex flex-col items-center text-center gap-3">
+                  <CheckCircle2 size={28} className="text-green-400" />
+                  <p className="text-[var(--tx1)] font-semibold">Deck complete</p>
+                  <p className="text-[var(--tx7)] text-sm">{cardsDone.size} got it · {cardsAgain.length} to review again</p>
+                  <button onClick={restartDeck}
+                    className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all">
+                    Study again
                   </button>
                 </div>
-              ) : (
-                <button onClick={() => setFlipped(true)}
-                  className="w-full mt-3 px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all">
-                  Reveal answer
-                </button>
+              ) : currentCard && (
+                <>
+                  <div onClick={() => setFlipped(f => !f)} className="relative cursor-pointer select-none" style={{ perspective: '1000px' }}>
+                    <div className="relative w-full transition-transform duration-300"
+                      style={{ transformStyle: 'preserve-3d', transform: flipped ? 'rotateY(180deg)' : 'rotateY(0deg)' }}>
+                      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 min-h-[140px] flex flex-col items-center justify-center text-center"
+                        style={{ backfaceVisibility: 'hidden' }}>
+                        <p className="text-[var(--tx1)] text-base font-semibold"><MathText inline>{currentCard.front}</MathText></p>
+                        <p className="text-[var(--tx8)] text-xs mt-3">Tap to reveal</p>
+                      </div>
+                      <div className="absolute inset-0 bg-purple-600/10 border border-purple-500/30 rounded-2xl p-8 flex flex-col items-center justify-center text-center"
+                        style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
+                        <p className="text-[var(--tx1)] text-sm leading-relaxed"><MathText inline>{currentCard.back}</MathText></p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {flipped ? (
+                    <div className="flex gap-3 mt-3">
+                      <button onClick={handleCardAgain} disabled={reviewing}
+                        className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-sm font-medium transition-colors disabled:opacity-50">
+                        Again
+                      </button>
+                      <button onClick={handleCardGotIt} disabled={reviewing}
+                        className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 text-sm font-medium transition-colors disabled:opacity-50">
+                        <CheckCircle2 size={14} /> Got it
+                      </button>
+                    </div>
+                  ) : (
+                    <button onClick={() => setFlipped(true)}
+                      className="w-full mt-3 px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all">
+                      Reveal answer
+                    </button>
+                  )}
+
+                  <div className="flex items-center justify-center gap-4 mt-3">
+                    <button onClick={prevCard} disabled={cardIndex === 0}
+                      className="p-2 rounded-xl bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] disabled:opacity-30 transition-all">
+                      <ChevronLeft size={18} />
+                    </button>
+                    <div className="flex gap-1">
+                      {flashcards.map((_, i) => (
+                        <button key={i} onClick={() => { setFlipped(false); setCardIndex(i); }}
+                          className={`w-1.5 h-1.5 rounded-full transition-all ${i === cardIndex ? 'bg-purple-400 w-4' : 'bg-[var(--tx8)]'}`} />
+                      ))}
+                    </div>
+                    <button onClick={nextCard} disabled={cardIndex === flashcards.length - 1}
+                      className="p-2 rounded-xl bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] disabled:opacity-30 transition-all">
+                      <ChevronRight size={18} />
+                    </button>
+                  </div>
+                </>
               )}
+            </div>
+          )}
 
-              {/* Manual navigation */}
-              <div className="flex items-center justify-center gap-4 mt-3">
-                <button onClick={prevCard} disabled={cardIndex === 0}
-                  className="p-2 rounded-xl bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] disabled:opacity-30 transition-all">
-                  <ChevronLeft size={18} />
-                </button>
-                <div className="flex gap-1">
-                  {flashcards.map((_, i) => (
-                    <button key={i} onClick={() => { setFlipped(false); setCardIndex(i); }}
-                      className={`w-1.5 h-1.5 rounded-full transition-all ${i === cardIndex ? 'bg-purple-400 w-4' : 'bg-[var(--tx8)]'}`} />
-                  ))}
-                </div>
-                <button onClick={nextCard} disabled={cardIndex === flashcards.length - 1}
-                  className="p-2 rounded-xl bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] disabled:opacity-30 transition-all">
-                  <ChevronRight size={18} />
-                </button>
+          {/* Quiz */}
+          {showQuiz && (
+            <div>
+              <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                <HelpCircle size={12} /> Quiz · {quiz.length} questions
+              </h2>
+              <div className="space-y-4">
+                {quiz.map((q, qi) => {
+                  const chosen   = quizAnswers[qi];
+                  const answered = chosen !== undefined;
+                  const correct  = chosen === q.correct_idx;
+                  return (
+                    <div key={q.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                      <p className="text-[var(--tx1)] text-sm font-medium mb-3">{qi + 1}. <MathText inline>{q.question}</MathText></p>
+                      <div className="space-y-2">
+                        {q.options.map((opt, oi) => {
+                          let cls = 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx2)] hover:border-purple-500/50 hover:bg-[var(--ov2)]';
+                          if (answered) {
+                            if (oi === q.correct_idx) cls = 'bg-green-500/15 border-green-500/40 text-green-400';
+                            else if (oi === chosen)   cls = 'bg-red-500/15 border-red-500/40 text-red-400';
+                            else                      cls = 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx7)] opacity-60';
+                          }
+                          return (
+                            <button key={oi} onClick={() => selectAnswer(qi, oi)} disabled={answered}
+                              className={`w-full text-left flex items-center gap-3 px-4 py-3 border rounded-xl text-sm transition-all ${cls}`}>
+                              <span className="font-mono text-xs opacity-70">{String.fromCharCode(65 + oi)}</span>
+                              <span className="flex-1"><MathText inline>{opt}</MathText></span>
+                              {answered && oi === q.correct_idx && <CheckCircle2 size={14} className="text-green-400 shrink-0" />}
+                              {answered && oi === chosen && oi !== q.correct_idx && <XCircle size={14} className="text-red-400 shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {answered && q.explanation && (
+                        <div className={`mt-3 text-xs p-3 rounded-xl border ${correct ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx6)]'}`}>
+                          <span>💡 </span><MathText inline>{q.explanation}</MathText>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                {Object.keys(quizAnswers).length === quiz.length && quiz.length > 0 && (
+                  <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl p-4 text-center">
+                    <p className="text-purple-300 font-semibold text-lg">
+                      {Object.entries(quizAnswers).filter(([qi, oi]) => oi === quiz[Number(qi)].correct_idx).length}/{quiz.length} correct
+                    </p>
+                    <p className="text-[var(--tx7)] text-xs mt-1">
+                      {Object.entries(quizAnswers).filter(([qi, oi]) => oi === quiz[Number(qi)].correct_idx).length === quiz.length
+                        ? 'Perfect score! 🎉' : 'Review the explanations above and try again soon'}
+                    </p>
+                  </div>
+                )}
               </div>
-            </>
+            </div>
           )}
         </div>
       )}
 
-      {/* Quiz */}
-      {showQuiz && (
-        <div className="mb-6">
-          <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-            <HelpCircle size={12} /> Quiz · {quiz.length} questions
-          </h2>
-          <div className="space-y-4">
-            {quiz.map((q, qi) => {
-              const chosen = quizAnswers[qi];
-              const answered = chosen !== undefined;
-              const correct  = chosen === q.correct_idx;
-
-              return (
-                <div key={q.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
-                  <p className="text-[var(--tx1)] text-sm font-medium mb-3">{qi + 1}. <MathText inline>{q.question}</MathText></p>
-                  <div className="space-y-2">
-                    {q.options.map((opt, oi) => {
-                      let cls = 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx2)] hover:border-purple-500/50 hover:bg-[var(--ov2)]';
-                      if (answered) {
-                        if (oi === q.correct_idx) cls = 'bg-green-500/15 border-green-500/40 text-green-400';
-                        else if (oi === chosen)   cls = 'bg-red-500/15 border-red-500/40 text-red-400';
-                        else                       cls = 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx7)] opacity-60';
-                      }
-                      return (
-                        <button key={oi} onClick={() => selectAnswer(qi, oi)} disabled={answered}
-                          className={`w-full text-left flex items-center gap-3 px-4 py-3 border rounded-xl text-sm transition-all ${cls}`}>
-                          <span className="font-mono text-xs opacity-70">{String.fromCharCode(65 + oi)}</span>
-                          <span className="flex-1"><MathText inline>{opt}</MathText></span>
-                          {answered && oi === q.correct_idx && <CheckCircle2 size={14} className="text-green-400 shrink-0" />}
-                          {answered && oi === chosen && oi !== q.correct_idx && <XCircle size={14} className="text-red-400 shrink-0" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {answered && q.explanation && (
-                    <div className={`mt-3 text-xs p-3 rounded-xl border ${correct ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx6)]'}`}>
-                      <span>💡 </span><MathText inline>{q.explanation}</MathText>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Score */}
-            {Object.keys(quizAnswers).length === quiz.length && (
-              <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl p-4 text-center">
-                <p className="text-purple-300 font-semibold text-lg">
-                  {Object.entries(quizAnswers).filter(([qi, oi]) => oi === quiz[Number(qi)].correct_idx).length}
-                  /{quiz.length} correct
-                </p>
-                <p className="text-[var(--tx7)] text-xs mt-1">
-                  {Object.entries(quizAnswers).filter(([qi, oi]) => oi === quiz[Number(qi)].correct_idx).length === quiz.length
-                    ? 'Perfect score! 🎉' : 'Review the explanations above and try again soon'}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Chat Q&A */}
-      <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden">
-        <button
-          onClick={() => openChat()}
-          disabled={activating}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors disabled:opacity-50"
-        >
+      {/* Chat Q&A — always visible regardless of tab */}
+      <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden mt-6">
+        <button onClick={() => openChat()} disabled={activating}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors disabled:opacity-50">
           <span className="flex items-center gap-2 text-[var(--tx1)] font-semibold text-sm">
             {activating
               ? <Loader2 size={16} className="animate-spin text-purple-400" />
@@ -550,7 +569,6 @@ export default function StudentConceptDetailPage() {
 
         {chatOpen && (
           <div className="border-t border-[var(--bd)]">
-            {/* Message list */}
             <div className="px-4 py-3 space-y-3 max-h-80 overflow-y-auto">
               {chatMsgs.length === 0 && (
                 <p className="text-[var(--tx7)] text-sm text-center py-4">
@@ -582,7 +600,6 @@ export default function StudentConceptDetailPage() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Resource context badge */}
             {chatResource && (
               <div className="flex items-center gap-2 px-4 py-2 border-t border-[var(--bd)] bg-purple-500/5">
                 <span className="text-xs text-purple-400">
@@ -592,21 +609,14 @@ export default function StudentConceptDetailPage() {
               </div>
             )}
 
-            {/* Input */}
-            <form onSubmit={sendChatMessage}
-              className="flex gap-2 px-4 py-3 border-t border-[var(--bd)]">
-              <input
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
+            <form onSubmit={sendChatMessage} className="flex gap-2 px-4 py-3 border-t border-[var(--bd)]">
+              <input value={chatInput} onChange={e => setChatInput(e.target.value)}
                 placeholder={chatResource ? `Ask about ${chatResource.title}…` : 'Ask a question…'}
                 disabled={chatSending}
                 className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
-                           text-[var(--tx1)] placeholder-[var(--tx8)] focus:outline-none focus:border-purple-500
-                           disabled:opacity-50"
-              />
+                           text-[var(--tx1)] placeholder-[var(--tx8)] focus:outline-none focus:border-purple-500 disabled:opacity-50" />
               <button type="submit" disabled={chatSending || !chatInput.trim()}
-                className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-colors
-                           disabled:opacity-40 disabled:cursor-not-allowed">
+                className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 <Send size={15} />
               </button>
             </form>
