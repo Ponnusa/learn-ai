@@ -11,6 +11,7 @@ import {
   Loader2, Check, Plus, FileText,
   CheckCircle, Zap, HelpCircle, Layers,
   RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X, FileImage, Scissors,
+  ChevronUp, ChevronDown, Shuffle, AlignJustify, Star,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { PDFContextPicker } from '@/components/course/PDFContextPicker';
@@ -27,8 +28,12 @@ type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
 type AssetStatus    = 'none' | 'generating' | 'ready' | 'approved' | 'failed';
 
 interface ConceptImage { id: string; url: string; caption: string; }
-interface QuizQuestion { id: string; question: string; options: string[]; correct_idx: number; explanation: string; }
-interface Flashcard    { id: string; front: string; back: string; }
+interface QuizQuestion {
+  id: string; question: string; options: string[]; correct_idx: number;
+  explanation: string; position: number;
+  status: 'draft' | 'approved'; difficulty: 'easy' | 'medium' | 'hard';
+}
+interface Flashcard    { id: string; front: string; back: string; position: number; status: 'draft' | 'approved'; }
 interface ChatMsg {
   id: string; role: 'user' | 'assistant'; content: string;
   suggestions?: string[]; created_at: string;
@@ -38,7 +43,11 @@ interface ChatMsg {
   videoStatus?: string;
   videoUrl?: string;
   videoError?: string;
-  videoId?: number;         // integer videos.id — needed to re-add to textbook after removal
+  videoId?: number;
+  quizDraft?: boolean;
+  quizCount?: number;
+  flashcardDraft?: boolean;
+  flashcardCount?: number;
 }
 
 interface ConceptDetail {
@@ -61,6 +70,7 @@ interface Assets {
   has_audio: boolean;
   audio_url?: string; video_url?: string; video_job_id?: number;
   audio_duration_sec?: number;
+  quiz_mode: 'ordered' | 'difficulty' | 'shuffle';
   quiz: QuizQuestion[]; flashcards: Flashcard[];
 }
 
@@ -129,7 +139,22 @@ export default function ConceptEditorPage() {
   const [removedVideoBlocks, setRemovedVideoBlocks] = useState<Set<string>>(new Set());
   const [showDraftPrompt,   setShowDraftPrompt]   = useState(false);
 
+  // Studio quiz/flashcard generation config
+  const [quizConfigOpen,       setQuizConfigOpen]       = useState(false);
+  const [flashcardConfigOpen,  setFlashcardConfigOpen]  = useState(false);
+  const [quizDifficulty,       setQuizDifficulty]       = useState<'easy'|'medium'|'hard'|'mixed'>('mixed');
+  const [quizStyle,            setQuizStyle]            = useState<'multiple_choice'|'true_false'|'mixed'>('multiple_choice');
+  const [quizCount,            setQuizCount]            = useState(5);
+  const [flashcardCount,       setFlashcardCount]       = useState(10);
+  const [flashcardFocus,       setFlashcardFocus]       = useState<'definitions'|'examples'|'mixed'>('mixed');
+  const [generatingStudioQuiz, setGeneratingStudioQuiz] = useState(false);
+  const [generatingStudioCards,setGeneratingStudioCards]= useState(false);
+
   const [assetPolling,    setAssetPolling]    = useState(false);
+  const [quizItemBusy,   setQuizItemBusy]   = useState<Set<string>>(new Set());
+  const [cardItemBusy,   setCardItemBusy]   = useState<Set<string>>(new Set());
+  const [approvingAllQ,  setApprovingAllQ]  = useState(false);
+  const [approvingAllC,  setApprovingAllC]  = useState(false);
 
   // Authoring chat — teacher-only, never shown to students
   const [chatMsgs,    setChatMsgs]    = useState<ChatMsg[]>([]);
@@ -372,6 +397,46 @@ export default function ConceptEditorPage() {
     }
   }
 
+  async function generateQuizFromStudio() {
+    setQuizConfigOpen(false);
+    setGeneratingStudioQuiz(true);
+    try {
+      const body: Record<string, unknown> = { difficulty: quizDifficulty, style: quizStyle, count: quizCount };
+      if (selectedPages.length > 0) {
+        body.image_data_urls = await renderSelectedPageUrls(selectedPages);
+        setSelectedPages([]);
+      }
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat/generate-quiz`, {
+        method: 'POST', headers: jsonH, body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Generation failed');
+      setChatMsgs(prev => [...prev, data]);
+      setAssetsLoaded(false); // force Assets tab refresh
+    } catch (err: any) { alert(err.message); }
+    finally { setGeneratingStudioQuiz(false); }
+  }
+
+  async function generateFlashcardsFromStudio() {
+    setFlashcardConfigOpen(false);
+    setGeneratingStudioCards(true);
+    try {
+      const body: Record<string, unknown> = { count: flashcardCount, focus: flashcardFocus };
+      if (selectedPages.length > 0) {
+        body.image_data_urls = await renderSelectedPageUrls(selectedPages);
+        setSelectedPages([]);
+      }
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat/generate-flashcards`, {
+        method: 'POST', headers: jsonH, body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Generation failed');
+      setChatMsgs(prev => [...prev, data]);
+      setAssetsLoaded(false);
+    } catch (err: any) { alert(err.message); }
+    finally { setGeneratingStudioCards(false); }
+  }
+
   async function removeVideoFromTextbook(blockId: string) {
     try {
       const res = await fetch(
@@ -589,6 +654,69 @@ export default function ConceptEditorPage() {
     setApprovingA(prev => ({ ...prev, [type]: false }));
   }
 
+  // ── Per-question / per-card CRUD ─────────────────────────────────────────
+
+  async function patchQuizQuestion(qId: string, patch: Record<string, unknown>) {
+    setQuizItemBusy(s => new Set([...s, qId]));
+    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz/${qId}`, {
+      method: 'PATCH', headers: jsonH, body: JSON.stringify(patch),
+    });
+    await loadAssets();
+    setQuizItemBusy(s => { const n = new Set(s); n.delete(qId); return n; });
+  }
+
+  async function deleteQuizQuestion(qId: string) {
+    setQuizItemBusy(s => new Set([...s, qId]));
+    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz/${qId}`, {
+      method: 'DELETE', headers: authH,
+    });
+    setAssets(prev => prev ? { ...prev, quiz: prev.quiz.filter(q => q.id !== qId) } : prev);
+    setQuizItemBusy(s => { const n = new Set(s); n.delete(qId); return n; });
+  }
+
+  async function approveAllQuiz() {
+    setApprovingAllQ(true);
+    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz/approve-all`, {
+      method: 'POST', headers: authH,
+    });
+    setAssets(prev => prev ? { ...prev, quiz: prev.quiz.map(q => ({ ...q, status: 'approved' as const })) } : prev);
+    setApprovingAllQ(false);
+  }
+
+  async function patchFlashcard(cId: string, patch: Record<string, unknown>) {
+    setCardItemBusy(s => new Set([...s, cId]));
+    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/flashcards/${cId}`, {
+      method: 'PATCH', headers: jsonH, body: JSON.stringify(patch),
+    });
+    await loadAssets();
+    setCardItemBusy(s => { const n = new Set(s); n.delete(cId); return n; });
+  }
+
+  async function deleteFlashcard(cId: string) {
+    setCardItemBusy(s => new Set([...s, cId]));
+    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/flashcards/${cId}`, {
+      method: 'DELETE', headers: authH,
+    });
+    setAssets(prev => prev ? { ...prev, flashcards: prev.flashcards.filter(c => c.id !== cId) } : prev);
+    setCardItemBusy(s => { const n = new Set(s); n.delete(cId); return n; });
+  }
+
+  async function approveAllFlashcards() {
+    setApprovingAllC(true);
+    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/flashcards/approve-all`, {
+      method: 'POST', headers: authH,
+    });
+    setAssets(prev => prev ? { ...prev, flashcards: prev.flashcards.map(c => ({ ...c, status: 'approved' as const })) } : prev);
+    setApprovingAllC(false);
+  }
+
+  async function setQuizModeRemote(mode: 'ordered' | 'difficulty' | 'shuffle') {
+    setAssets(prev => prev ? { ...prev, quiz_mode: mode } : prev);
+    await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz-mode`, {
+      method: 'PATCH', headers: jsonH, body: JSON.stringify({ mode }),
+    });
+  }
+
   if (loading) return (
     <div className="h-full flex items-center justify-center">
       <Loader2 size={28} className="text-purple-400 animate-spin" />
@@ -707,6 +835,30 @@ export default function ConceptEditorPage() {
                     </div>
                   ) : (
                     chatMsgs.map(m => {
+                      // ── Quiz/flashcard draft confirmation card ───────────────
+                      if (m.quizDraft || m.flashcardDraft) {
+                        const icon  = m.quizDraft ? <HelpCircle size={12} className="text-green-400 shrink-0" /> : <Layers size={12} className="text-green-400 shrink-0" />;
+                        const label = m.quizDraft ? t.teacher.assetQuiz : t.teacher.assetFlashcards;
+                        return (
+                          <div key={m.id} className="flex justify-start">
+                            <div className="max-w-[85%] rounded-xl text-sm overflow-hidden bg-[var(--ov1)] border border-[var(--bd)]">
+                              <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--bd)]">
+                                {icon}
+                                <span className="text-[var(--tx2)] text-xs font-medium">{label}</span>
+                                <span className="ml-auto text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">{t.teacher.draftBadge}</span>
+                              </div>
+                              <div className="px-3.5 py-2.5 text-[var(--tx6)] text-xs">{m.content}</div>
+                              <div className="px-3 py-2 border-t border-[var(--bd)]">
+                                <button onClick={() => setActiveTab('assets')}
+                                  className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors">
+                                  <CheckCircle size={11} /> {t.teacher.reviewInAssets}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       // ── Video card message ──────────────────────────────────
                       if (m.videoBlockId !== undefined) {
                         const vidReady  = !!m.videoUrl;
@@ -910,6 +1062,108 @@ export default function ConceptEditorPage() {
                   ))}
                 </div>
 
+                {/* Studio generate quiz/flashcard buttons + config strip */}
+                <div className="border-t border-[var(--bd)] px-3 py-2 flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => { setQuizConfigOpen(p => !p); setFlashcardConfigOpen(false); }}
+                    disabled={generatingStudioQuiz}
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-[var(--bd)]
+                               bg-[var(--ov1)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400
+                               transition-colors disabled:opacity-50">
+                    {generatingStudioQuiz ? <Loader2 size={11} className="animate-spin" /> : <HelpCircle size={11} />}
+                    {t.teacher.assetQuiz}
+                  </button>
+                  <button
+                    onClick={() => { setFlashcardConfigOpen(p => !p); setQuizConfigOpen(false); }}
+                    disabled={generatingStudioCards}
+                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-[var(--bd)]
+                               bg-[var(--ov1)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400
+                               transition-colors disabled:opacity-50">
+                    {generatingStudioCards ? <Loader2 size={11} className="animate-spin" /> : <Layers size={11} />}
+                    {t.teacher.assetFlashcards}
+                  </button>
+                </div>
+
+                {quizConfigOpen && (
+                  <div className="border-t border-[var(--bd)] px-3 py-3 space-y-2.5 bg-[var(--ov1)]">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[var(--tx7)] text-xs w-16">{t.teacher.quizDifficulty}</span>
+                      {(['easy','medium','hard','mixed'] as const).map(d => (
+                        <button key={d} onClick={() => setQuizDifficulty(d)}
+                          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                            quizDifficulty === d
+                              ? 'bg-purple-600 border-purple-500 text-white'
+                              : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40'}`}>
+                          {t.teacher[`quizDiff_${d}` as keyof typeof t.teacher] as string}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[var(--tx7)] text-xs w-16">{t.teacher.quizStyle}</span>
+                      {(['multiple_choice','true_false','mixed'] as const).map(s => (
+                        <button key={s} onClick={() => setQuizStyle(s)}
+                          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                            quizStyle === s
+                              ? 'bg-purple-600 border-purple-500 text-white'
+                              : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40'}`}>
+                          {t.teacher[`quizStyle_${s}` as keyof typeof t.teacher] as string}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[var(--tx7)] text-xs w-16">{t.teacher.quizCount}</span>
+                      {[3,5,10].map(n => (
+                        <button key={n} onClick={() => setQuizCount(n)}
+                          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                            quizCount === n
+                              ? 'bg-purple-600 border-purple-500 text-white'
+                              : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40'}`}>
+                          {n}
+                        </button>
+                      ))}
+                      <button onClick={generateQuizFromStudio}
+                        className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg
+                                   bg-purple-600 hover:bg-purple-500 text-white font-medium transition-colors">
+                        <Zap size={11} /> {t.teacher.generateBtn}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {flashcardConfigOpen && (
+                  <div className="border-t border-[var(--bd)] px-3 py-3 space-y-2.5 bg-[var(--ov1)]">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[var(--tx7)] text-xs w-16">{t.teacher.flashcardFocus}</span>
+                      {(['definitions','examples','mixed'] as const).map(f => (
+                        <button key={f} onClick={() => setFlashcardFocus(f)}
+                          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                            flashcardFocus === f
+                              ? 'bg-purple-600 border-purple-500 text-white'
+                              : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40'}`}>
+                          {t.teacher[`flashcardFocus_${f}` as keyof typeof t.teacher] as string}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[var(--tx7)] text-xs w-16">{t.teacher.quizCount}</span>
+                      {[5,10,15].map(n => (
+                        <button key={n} onClick={() => setFlashcardCount(n)}
+                          className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                            flashcardCount === n
+                              ? 'bg-purple-600 border-purple-500 text-white'
+                              : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40'}`}>
+                          {n}
+                        </button>
+                      ))}
+                      <button onClick={generateFlashcardsFromStudio}
+                        className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg
+                                   bg-purple-600 hover:bg-purple-500 text-white font-medium transition-colors">
+                        <Zap size={11} /> {t.teacher.generateBtn}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Selected pages context badge */}
                 {selectedPages.length > 0 && (
                   <div className="flex items-center gap-2 px-3 py-2 border-t border-[var(--bd)] bg-violet-500/5">
@@ -1101,33 +1355,138 @@ export default function ConceptEditorPage() {
                     title={t.teacher.assetQuiz} icon={<HelpCircle size={14} />}
                     status={assets.quiz_status}
                     isGenerating={generatingQuiz || assets.quiz_status === 'generating'}
-                    canGenerate={hasAISrc} canApprove={assets.quiz_status === 'ready'}
-                    approving={!!approvingA['quiz']}
+                    canGenerate={hasAISrc} canApprove={false}
+                    approving={false}
                     onGenerate={() => triggerGenerate('quiz')}
-                    onApprove={() => approveAsset('quiz')}
                     onClear={() => clearAsset('quiz')}
                   >
                     {assets.quiz.length > 0 && assets.quiz_status !== 'generating' && (
-                      <div className="space-y-3 mt-3 px-4 pb-4">
-                        {assets.quiz.map((q, qi) => (
-                          <div key={q.id} className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-4">
-                            <p className="text-[var(--tx1)] text-sm font-medium mb-2">{qi + 1}. <MathText inline>{q.question}</MathText></p>
-                            <ul className="space-y-1">
-                              {q.options.map((opt, oi) => (
-                                <li key={oi} className={`text-xs px-3 py-1.5 rounded-lg ${
-                                  oi === q.correct_idx ? 'bg-green-500/15 text-green-400 font-medium' : 'text-[var(--tx6)]'
+                      <div className="mt-3 pb-4">
+                        {/* toolbar */}
+                        <div className="flex items-center gap-2 flex-wrap px-4 mb-3">
+                          {assets.quiz.some(q => q.status === 'draft') && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">
+                              {tF(t.teacher.draftCount, { n: assets.quiz.filter(q => q.status === 'draft').length })}
+                            </span>
+                          )}
+                          <button onClick={approveAllQuiz} disabled={approvingAllQ}
+                            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-green-500/30
+                                       text-green-400 hover:bg-green-500/10 transition-colors disabled:opacity-50">
+                            {approvingAllQ ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle size={10} />}
+                            {t.teacher.approveAll}
+                          </button>
+                          <button onClick={() => {
+                            const sorted = [...assets.quiz].sort((a, b) => {
+                              const ord: Record<string, number> = { easy: 0, medium: 1, hard: 2 };
+                              return ord[a.difficulty] - ord[b.difficulty];
+                            });
+                            setAssets(prev => prev ? { ...prev, quiz: sorted } : prev);
+                          }}
+                            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-[var(--bd)]
+                                       text-[var(--tx6)] hover:text-[var(--tx2)] transition-colors">
+                            <Star size={10} /> {t.teacher.sortByDifficulty}
+                          </button>
+                          <div className="flex items-center gap-1 ml-auto">
+                            <span className="text-[var(--tx7)] text-[10px]">{t.teacher.quizMode}:</span>
+                            {(['ordered','difficulty','shuffle'] as const).map(mode => (
+                              <button key={mode} onClick={() => setQuizModeRemote(mode)}
+                                className={`text-[10px] px-2 py-0.5 rounded-full transition-colors ${
+                                  assets.quiz_mode === mode
+                                    ? 'bg-purple-600 text-white'
+                                    : 'border border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40'
                                 }`}>
-                                  {String.fromCharCode(65 + oi)}. <MathText inline>{opt}</MathText>
-                                </li>
-                              ))}
-                            </ul>
-                            {q.explanation && (
-                              <p className="text-[var(--tx7)] text-xs mt-2 pt-2 border-t border-[var(--bd)]">
-                                <span>💡 </span><MathText inline>{q.explanation}</MathText>
-                              </p>
-                            )}
+                                {mode === 'ordered' ? t.teacher.quizMode_ordered
+                                  : mode === 'difficulty' ? t.teacher.quizMode_difficulty
+                                  : t.teacher.quizMode_shuffle}
+                              </button>
+                            ))}
                           </div>
-                        ))}
+                        </div>
+                        {/* question cards */}
+                        <div className="space-y-2 px-4">
+                          {assets.quiz.map((q, qi) => (
+                            <div key={q.id} className={`border rounded-xl p-3.5 transition-colors ${
+                              q.status === 'draft'
+                                ? 'border-amber-500/30 bg-amber-500/5'
+                                : 'border-green-500/20 bg-green-500/5'
+                            }`}>
+                              <div className="flex items-start gap-2">
+                                <span className="text-[var(--tx7)] text-xs font-mono mt-0.5 shrink-0">{qi + 1}.</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1.5">
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                                      q.difficulty === 'easy'   ? 'bg-green-500/15 text-green-400'
+                                      : q.difficulty === 'hard' ? 'bg-red-500/15 text-red-400'
+                                      : 'bg-blue-500/15 text-blue-400'
+                                    }`}>
+                                      {q.difficulty === 'easy' ? t.teacher.quizDiff_easy
+                                        : q.difficulty === 'hard' ? t.teacher.quizDiff_hard
+                                        : t.teacher.quizDiff_medium}
+                                    </span>
+                                    {q.status === 'draft' && (
+                                      <span className="text-[10px] text-amber-400">{t.teacher.draftBadge}</span>
+                                    )}
+                                  </div>
+                                  <p className="text-[var(--tx1)] text-sm font-medium mb-2">
+                                    <MathText inline>{q.question}</MathText>
+                                  </p>
+                                  <ul className="space-y-1">
+                                    {q.options.map((opt, oi) => (
+                                      <li key={oi} className={`text-xs px-2.5 py-1 rounded-lg ${
+                                        oi === q.correct_idx ? 'bg-green-500/15 text-green-400 font-medium' : 'text-[var(--tx6)]'
+                                      }`}>
+                                        {String.fromCharCode(65 + oi)}. <MathText inline>{opt}</MathText>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                  {q.explanation && (
+                                    <p className="text-[var(--tx7)] text-[11px] mt-2 pt-2 border-t border-[var(--bd)]">
+                                      💡 <MathText inline>{q.explanation}</MathText>
+                                    </p>
+                                  )}
+                                </div>
+                                {/* actions */}
+                                <div className="flex flex-col gap-1 shrink-0">
+                                  <div className="flex gap-1">
+                                    {q.status === 'draft' ? (
+                                      <button onClick={() => patchQuizQuestion(q.id, { status: 'approved' })}
+                                        disabled={quizItemBusy.has(q.id)}
+                                        title={t.teacher.approveItem}
+                                        className="p-1 rounded-lg text-green-400 hover:bg-green-500/15 transition-colors disabled:opacity-40">
+                                        {quizItemBusy.has(q.id) ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                                      </button>
+                                    ) : (
+                                      <button onClick={() => patchQuizQuestion(q.id, { status: 'draft' })}
+                                        disabled={quizItemBusy.has(q.id)}
+                                        title={t.teacher.rejectItem}
+                                        className="p-1 rounded-lg text-amber-400 hover:bg-amber-500/15 transition-colors disabled:opacity-40">
+                                        {quizItemBusy.has(q.id) ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                                      </button>
+                                    )}
+                                    <button onClick={() => deleteQuizQuestion(q.id)}
+                                      disabled={quizItemBusy.has(q.id)}
+                                      title={t.delete}
+                                      className="p-1 rounded-lg text-[var(--tx7)] hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-40">
+                                      <X size={13} />
+                                    </button>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    <button onClick={() => patchQuizQuestion(q.id, { position: q.position - 1 })}
+                                      disabled={quizItemBusy.has(q.id) || qi === 0}
+                                      className="p-1 rounded-lg text-[var(--tx7)] hover:text-[var(--tx2)] transition-colors disabled:opacity-30">
+                                      <ChevronUp size={13} />
+                                    </button>
+                                    <button onClick={() => patchQuizQuestion(q.id, { position: q.position + 1 })}
+                                      disabled={quizItemBusy.has(q.id) || qi === assets.quiz.length - 1}
+                                      className="p-1 rounded-lg text-[var(--tx7)] hover:text-[var(--tx2)] transition-colors disabled:opacity-30">
+                                      <ChevronDown size={13} />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </AssetSection>
@@ -1136,20 +1495,65 @@ export default function ConceptEditorPage() {
                     title={t.teacher.assetFlashcards} icon={<Layers size={14} />}
                     status={assets.flashcard_status}
                     isGenerating={generatingCards || assets.flashcard_status === 'generating'}
-                    canGenerate={hasAISrc} canApprove={assets.flashcard_status === 'ready'}
-                    approving={!!approvingA['flashcards']}
+                    canGenerate={hasAISrc} canApprove={false}
+                    approving={false}
                     onGenerate={() => triggerGenerate('flashcards')}
-                    onApprove={() => approveAsset('flashcards')}
                     onClear={() => clearAsset('flashcards')}
                   >
                     {assets.flashcards.length > 0 && assets.flashcard_status !== 'generating' && (
-                      <div className="grid grid-cols-2 gap-2 mt-3 px-4 pb-4">
-                        {assets.flashcards.map(card => (
-                          <div key={card.id} className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-3">
-                            <p className="text-[var(--tx1)] text-xs font-semibold mb-1"><MathText inline>{card.front}</MathText></p>
-                            <p className="text-[var(--tx6)] text-xs leading-relaxed"><MathText inline>{card.back}</MathText></p>
-                          </div>
-                        ))}
+                      <div className="mt-3 pb-4">
+                        {/* toolbar */}
+                        <div className="flex items-center gap-2 px-4 mb-3">
+                          {assets.flashcards.some(c => c.status === 'draft') && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-medium">
+                              {tF(t.teacher.draftCount, { n: assets.flashcards.filter(c => c.status === 'draft').length })}
+                            </span>
+                          )}
+                          <button onClick={approveAllFlashcards} disabled={approvingAllC}
+                            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border border-green-500/30
+                                       text-green-400 hover:bg-green-500/10 transition-colors disabled:opacity-50">
+                            {approvingAllC ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle size={10} />}
+                            {t.teacher.approveAll}
+                          </button>
+                        </div>
+                        {/* card grid */}
+                        <div className="grid grid-cols-2 gap-2 px-4">
+                          {assets.flashcards.map(card => (
+                            <div key={card.id} className={`relative border rounded-xl p-3 ${
+                              card.status === 'draft'
+                                ? 'border-amber-500/30 bg-amber-500/5'
+                                : 'border-green-500/20 bg-green-500/5'
+                            }`}>
+                              {card.status === 'draft' && (
+                                <span className="absolute top-2 right-2 text-[9px] text-amber-400 font-medium">{t.teacher.draftBadge}</span>
+                              )}
+                              <p className="text-[var(--tx1)] text-xs font-semibold mb-1 pr-8"><MathText inline>{card.front}</MathText></p>
+                              <p className="text-[var(--tx6)] text-xs leading-relaxed mb-2"><MathText inline>{card.back}</MathText></p>
+                              <div className="flex gap-1 mt-1">
+                                {card.status === 'draft' ? (
+                                  <button onClick={() => patchFlashcard(card.id, { status: 'approved' })}
+                                    disabled={cardItemBusy.has(card.id)}
+                                    className="flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full border border-green-500/30 text-green-400 hover:bg-green-500/10 transition-colors disabled:opacity-40">
+                                    {cardItemBusy.has(card.id) ? <Loader2 size={9} className="animate-spin" /> : <Check size={9} />}
+                                    {t.teacher.approveItem}
+                                  </button>
+                                ) : (
+                                  <button onClick={() => patchFlashcard(card.id, { status: 'draft' })}
+                                    disabled={cardItemBusy.has(card.id)}
+                                    className="flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-40">
+                                    {cardItemBusy.has(card.id) ? <Loader2 size={9} className="animate-spin" /> : <RefreshCw size={9} />}
+                                    {t.teacher.rejectItem}
+                                  </button>
+                                )}
+                                <button onClick={() => deleteFlashcard(card.id)}
+                                  disabled={cardItemBusy.has(card.id)}
+                                  className="ml-auto flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded-full border border-[var(--bd)] text-[var(--tx7)] hover:text-red-400 hover:border-red-500/30 transition-colors disabled:opacity-40">
+                                  <X size={9} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </AssetSection>
@@ -1233,12 +1637,12 @@ export default function ConceptEditorPage() {
 
 function AssetSection({
   title, icon, status, isGenerating, canGenerate, canApprove, approving, noReset, hint,
-  onGenerate, onApprove, onClear, children,
+  onGenerate, onApprove = () => {}, onClear, children,
 }: {
   title: string; icon: React.ReactNode;
   status: AssetStatus; isGenerating: boolean; canGenerate: boolean;
   canApprove: boolean; approving: boolean; noReset?: boolean; hint?: string;
-  onGenerate: () => void; onApprove: () => void; onClear?: () => void;
+  onGenerate: () => void; onApprove?: () => void; onClear?: () => void;
   children?: React.ReactNode;
 }) {
   const { t, tF } = useTranslation();

@@ -469,6 +469,11 @@ async def lifespan(app: FastAPI):
             # ── Tag studio/authoring conversations so sidebar can exclude them ──
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS conversation_type TEXT NOT NULL DEFAULT 'chat'",
             "UPDATE conversations SET conversation_type = 'studio' WHERE concept_id IS NOT NULL AND conversation_type = 'chat'",
+            # ── Quiz/flashcard per-item draft review ──────────────────────────
+            "ALTER TABLE concept_quiz_questions ADD COLUMN IF NOT EXISTS status     TEXT NOT NULL DEFAULT 'approved'",
+            "ALTER TABLE concept_quiz_questions ADD COLUMN IF NOT EXISTS difficulty TEXT NOT NULL DEFAULT 'medium'",
+            "ALTER TABLE concept_flashcards     ADD COLUMN IF NOT EXISTS status     TEXT NOT NULL DEFAULT 'approved'",
+            "ALTER TABLE course_concepts        ADD COLUMN IF NOT EXISTS quiz_mode  TEXT NOT NULL DEFAULT 'ordered'",
         ]:
             try:
                 await db.execute(sql)

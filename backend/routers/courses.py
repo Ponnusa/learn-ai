@@ -3344,6 +3344,373 @@ Return ONLY valid JSON:
 {{"flashcards": [{{"front": "...", "back": "..."}}]}}"""
 
 
+def build_quiz_prompt_studio(
+    title: str, subject: str, source: str,
+    difficulty: str = 'mixed', style: str = 'multiple_choice', count: int = 5,
+    language: str = 'en',
+) -> str:
+    difficulty_instruction = {
+        'easy':  'All questions should be straightforward recall or simple comprehension.',
+        'medium':'Mix recall and comprehension questions.',
+        'hard':  'Questions should require analysis, application, or synthesis — no simple recall.',
+        'mixed': 'Vary difficulty: ~1/3 easy recall, ~1/3 comprehension, ~1/3 application. Add a "difficulty" field ("easy"|"medium"|"hard") to each question.',
+    }.get(difficulty, 'Vary difficulty.')
+    style_instruction = {
+        'multiple_choice': f'Create {count} multiple-choice questions with 4 options each.',
+        'true_false':      f'Create {count} true/false questions (2 options: True, False).',
+        'mixed':           f'Create {count} questions mixing multiple-choice and true/false.',
+    }.get(style, f'Create {count} multiple-choice questions.')
+    lang_note = ''
+    if language in _LANGUAGE_NAMES:
+        lang_note = f'\nIMPORTANT: Generate ALL content in {_LANGUAGE_NAMES[language]}. Do not use English.'
+    diff_field = ', "difficulty": "easy|medium|hard"' if difficulty == 'mixed' else ''
+    return f"""You are an expert educator. {style_instruction}
+
+Concept: {title}
+Subject: {subject}
+{difficulty_instruction}
+
+Source material:
+---
+{source[:8000]}
+---
+
+Rules:
+- Questions must be answerable from the source material
+- All options must be plausible (no obviously wrong distractors)
+- Include a 1–2 sentence explanation for the correct answer{lang_note}
+
+Return ONLY valid JSON:
+{{"questions": [{{"question": "...", "options": ["A","B","C","D"], "correct_idx": 0, "explanation": "..."{diff_field}}}]}}"""
+
+
+def build_flashcard_prompt_studio(
+    title: str, source: str, count: int = 10, focus: str = 'mixed', language: str = 'en',
+) -> str:
+    focus_instruction = {
+        'definitions': 'Focus on key terms and their definitions.',
+        'examples':    'Focus on worked examples and how concepts apply in practice.',
+        'mixed':       'Cover key terms, definitions, worked examples, and cause-effect relationships.',
+    }.get(focus, 'Cover key vocabulary and key facts.')
+    lang_note = ''
+    if language in _LANGUAGE_NAMES:
+        lang_note = f'\nIMPORTANT: Generate ALL content in {_LANGUAGE_NAMES[language]}.'
+    return f"""You are an expert educator. Create exactly {count} flashcards.
+
+Concept: {title}
+{focus_instruction}
+
+Source material:
+---
+{source[:8000]}
+---
+
+Rules:
+- Front: term, definition prompt, or short question (max 12 words)
+- Back: precise answer or definition (1–2 sentences){lang_note}
+
+Return ONLY valid JSON:
+{{"flashcards": [{{"front": "...", "back": "..."}}]}}"""
+
+
+class StudioQuizRequest(BaseModel):
+    difficulty: str = 'mixed'
+    style:      str = 'multiple_choice'
+    count:      int = 5
+    image_data_urls: list[str] | None = None
+
+
+class StudioFlashcardRequest(BaseModel):
+    count: int  = 10
+    focus: str  = 'mixed'
+    image_data_urls: list[str] | None = None
+
+
+@router.post("/concepts/{concept_id}/concept-chat/generate-quiz")
+async def generate_quiz_from_chat(
+    concept_id:    str,
+    req:           StudioQuizRequest,
+    authorization: str = Header(...),
+):
+    """Studio-driven quiz generation — inserts as drafts, stores a chat confirmation."""
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.title, cc.source_text, cc.ai_summary, cc.chapter_ref, c.subject
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id  = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+        teacher_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+
+    language = teacher_lang or 'en'
+    source   = concept["source_text"] or concept["ai_summary"] or concept["title"]
+    prompt   = build_quiz_prompt_studio(
+        concept["title"], concept["subject"] or "General", source,
+        difficulty=req.difficulty, style=req.style, count=req.count, language=language,
+    )
+
+    from openai import AsyncOpenAI
+    import json as _json
+    client = AsyncOpenAI()
+    user_content: object = prompt
+    if req.image_data_urls:
+        user_content = [
+            *[{"type": "image_url", "image_url": {"url": u}} for u in req.image_data_urls],
+            {"type": "text", "text": prompt},
+        ]
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": user_content}],
+        response_format={"type": "json_object"},
+        max_tokens=3000,
+        temperature=0.3,
+    )
+    questions = _json.loads(response.choices[0].message.content).get("questions", [])
+
+    async with get_db() as db:
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM concept_quiz_questions WHERE concept_id = $1::uuid",
+            concept_id,
+        )
+        for i, q in enumerate(questions):
+            diff = q.get("difficulty") or (req.difficulty if req.difficulty != "mixed" else "medium")
+            await db.execute("""
+                INSERT INTO concept_quiz_questions
+                  (concept_id, question, options, correct_idx, explanation, position, status, difficulty)
+                VALUES ($1::uuid, $2, $3::jsonb, $4, $5, $6, 'draft', $7)
+            """, concept_id, q["question"], _json.dumps(q["options"]),
+                q["correct_idx"], q.get("explanation", ""), int(max_pos) + 1 + i, diff)
+        await db.execute(
+            "UPDATE course_concepts SET quiz_status = 'ready' WHERE id = $1::uuid", concept_id
+        )
+        conv = await db.fetchrow("SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id)
+        if not conv:
+            conv = await db.fetchrow("""
+                INSERT INTO conversations (user_id, title, subject, concept_id, conversation_type)
+                VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
+            """, teacher_id, f"{concept['title']} — Authoring chat", concept["subject"], concept_id)
+        msg = await db.fetchrow("""
+            INSERT INTO messages (conversation_id, role, content, metadata)
+            VALUES ($1::uuid, 'assistant', $2, $3::jsonb)
+            RETURNING id, role, content, created_at
+        """, conv["id"],
+            f"Generated {len(questions)} quiz questions — review and approve them in the Assets tab.",
+            _json.dumps({"content_type": "quiz_draft", "count": len(questions)}))
+
+    return {
+        "id":         str(msg["id"]),
+        "role":       msg["role"],
+        "content":    msg["content"],
+        "created_at": msg["created_at"].isoformat(),
+        "quizDraft":  True,
+        "quizCount":  len(questions),
+    }
+
+
+@router.post("/concepts/{concept_id}/concept-chat/generate-flashcards")
+async def generate_flashcards_from_chat(
+    concept_id:    str,
+    req:           StudioFlashcardRequest,
+    authorization: str = Header(...),
+):
+    """Studio-driven flashcard generation — inserts as drafts, stores a chat confirmation."""
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        concept = await db.fetchrow("""
+            SELECT cc.title, cc.source_text, cc.ai_summary, c.subject
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id  = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+        teacher_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+
+    language = teacher_lang or 'en'
+    source   = concept["source_text"] or concept["ai_summary"] or concept["title"]
+    prompt   = build_flashcard_prompt_studio(
+        concept["title"], source, count=req.count, focus=req.focus, language=language,
+    )
+
+    from openai import AsyncOpenAI
+    import json as _json
+    client = AsyncOpenAI()
+    user_content: object = prompt
+    if req.image_data_urls:
+        user_content = [
+            *[{"type": "image_url", "image_url": {"url": u}} for u in req.image_data_urls],
+            {"type": "text", "text": prompt},
+        ]
+    response = await client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": user_content}],
+        response_format={"type": "json_object"},
+        max_tokens=2500,
+        temperature=0.3,
+    )
+    cards = _json.loads(response.choices[0].message.content).get("flashcards", [])
+
+    async with get_db() as db:
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM concept_flashcards WHERE concept_id = $1::uuid",
+            concept_id,
+        )
+        for i, card in enumerate(cards):
+            await db.execute("""
+                INSERT INTO concept_flashcards (concept_id, front, back, position, status)
+                VALUES ($1::uuid, $2, $3, $4, 'draft')
+            """, concept_id, card["front"], card["back"], int(max_pos) + 1 + i)
+        await db.execute(
+            "UPDATE course_concepts SET flashcard_status = 'ready' WHERE id = $1::uuid", concept_id
+        )
+        conv = await db.fetchrow("SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id)
+        if not conv:
+            conv = await db.fetchrow("""
+                INSERT INTO conversations (user_id, title, subject, concept_id, conversation_type)
+                VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
+            """, teacher_id, f"{concept['title']} — Authoring chat", concept["subject"], concept_id)
+        msg = await db.fetchrow("""
+            INSERT INTO messages (conversation_id, role, content, metadata)
+            VALUES ($1::uuid, 'assistant', $2, $3::jsonb)
+            RETURNING id, role, content, created_at
+        """, conv["id"],
+            f"Generated {len(cards)} flashcards — review and approve them in the Assets tab.",
+            _json.dumps({"content_type": "flashcard_draft", "count": len(cards)}))
+
+    return {
+        "id":              str(msg["id"]),
+        "role":            msg["role"],
+        "content":         msg["content"],
+        "created_at":      msg["created_at"].isoformat(),
+        "flashcardDraft":  True,
+        "flashcardCount":  len(cards),
+    }
+
+
+# ── Quiz/flashcard per-item management ────────────────────────────────────────
+
+class UpdateQuizQuestionRequest(BaseModel):
+    status:     str | None = None
+    difficulty: str | None = None
+    position:   int | None = None
+
+
+@router.patch("/concepts/{concept_id}/quiz/{question_id}")
+async def update_quiz_question(
+    concept_id: str, question_id: str,
+    req: UpdateQuizQuestionRequest,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    sets, vals = [], []
+    if req.status     is not None: sets.append(f"status = ${len(vals)+1}");     vals.append(req.status)
+    if req.difficulty is not None: sets.append(f"difficulty = ${len(vals)+1}"); vals.append(req.difficulty)
+    if req.position   is not None: sets.append(f"position = ${len(vals)+1}");   vals.append(req.position)
+    if not sets:
+        return {"ok": True}
+    async with get_db() as db:
+        await db.execute(
+            f"UPDATE concept_quiz_questions SET {', '.join(sets)} WHERE id = ${len(vals)+1}::uuid AND concept_id = ${len(vals)+2}::uuid",
+            *vals, question_id, concept_id,
+        )
+    return {"ok": True}
+
+
+@router.delete("/concepts/{concept_id}/quiz/{question_id}")
+async def delete_quiz_question(
+    concept_id: str, question_id: str, authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM concept_quiz_questions WHERE id = $1::uuid AND concept_id = $2::uuid",
+            question_id, concept_id,
+        )
+    return {"ok": True}
+
+
+@router.post("/concepts/{concept_id}/quiz/approve-all")
+async def approve_all_quiz(concept_id: str, authorization: str = Header(...)):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE concept_quiz_questions SET status = 'approved' WHERE concept_id = $1::uuid AND status = 'draft'",
+            concept_id,
+        )
+    return {"ok": True}
+
+
+class UpdateFlashcardRequest(BaseModel):
+    status:   str | None = None
+    position: int | None = None
+
+
+@router.patch("/concepts/{concept_id}/flashcards/{card_id}")
+async def update_flashcard(
+    concept_id: str, card_id: str,
+    req: UpdateFlashcardRequest,
+    authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    sets, vals = [], []
+    if req.status   is not None: sets.append(f"status = ${len(vals)+1}");   vals.append(req.status)
+    if req.position is not None: sets.append(f"position = ${len(vals)+1}"); vals.append(req.position)
+    if not sets:
+        return {"ok": True}
+    async with get_db() as db:
+        await db.execute(
+            f"UPDATE concept_flashcards SET {', '.join(sets)} WHERE id = ${len(vals)+1}::uuid AND concept_id = ${len(vals)+2}::uuid",
+            *vals, card_id, concept_id,
+        )
+    return {"ok": True}
+
+
+@router.delete("/concepts/{concept_id}/flashcards/{card_id}")
+async def delete_flashcard(
+    concept_id: str, card_id: str, authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "DELETE FROM concept_flashcards WHERE id = $1::uuid AND concept_id = $2::uuid",
+            card_id, concept_id,
+        )
+    return {"ok": True}
+
+
+@router.post("/concepts/{concept_id}/flashcards/approve-all")
+async def approve_all_flashcards(concept_id: str, authorization: str = Header(...)):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE concept_flashcards SET status = 'approved' WHERE concept_id = $1::uuid AND status = 'draft'",
+            concept_id,
+        )
+    return {"ok": True}
+
+
+class QuizModeRequest(BaseModel):
+    quiz_mode: str  # 'ordered' | 'difficulty' | 'shuffle'
+
+
+@router.patch("/concepts/{concept_id}/quiz-mode")
+async def update_quiz_mode(
+    concept_id: str, req: QuizModeRequest, authorization: str = Header(...),
+):
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE course_concepts SET quiz_mode = $1 WHERE id = $2::uuid",
+            req.quiz_mode, concept_id,
+        )
+    return {"ok": True}
+
+
 async def _generate_quiz_bg(concept_id: str, course_id: str):
     """Background: generate quiz questions via GPT-4o, store in concept_quiz_questions."""
     from openai import AsyncOpenAI
@@ -3383,10 +3750,11 @@ async def _generate_quiz_bg(concept_id: str, course_id: str):
             for pos, q in enumerate(questions):
                 await db.execute("""
                     INSERT INTO concept_quiz_questions
-                      (concept_id, question, options, correct_idx, explanation, position)
-                    VALUES ($1::uuid, $2, $3::jsonb, $4, $5, $6)
+                      (concept_id, question, options, correct_idx, explanation, position, status, difficulty)
+                    VALUES ($1::uuid, $2, $3::jsonb, $4, $5, $6, 'draft', $7)
                 """, concept_id, q["question"], json.dumps(q["options"]),
-                    q["correct_idx"], q.get("explanation", ""), pos)
+                    q["correct_idx"], q.get("explanation", ""), pos,
+                    q.get("difficulty", "medium"))
             await db.execute(
                 "UPDATE course_concepts SET quiz_status = 'ready' WHERE id = $1::uuid", concept_id
             )
@@ -3436,8 +3804,8 @@ async def _generate_flashcards_bg(concept_id: str, course_id: str):
             )
             for pos, card in enumerate(cards):
                 await db.execute("""
-                    INSERT INTO concept_flashcards (concept_id, front, back, position)
-                    VALUES ($1::uuid, $2, $3, $4)
+                    INSERT INTO concept_flashcards (concept_id, front, back, position, status)
+                    VALUES ($1::uuid, $2, $3, $4, 'draft')
                 """, concept_id, card["front"], card["back"], pos)
             await db.execute(
                 "UPDATE course_concepts SET flashcard_status = 'ready' WHERE id = $1::uuid", concept_id
@@ -3634,7 +4002,7 @@ async def _generate_audio_bg(concept_id: str):
 @router.get("/concepts/{concept_id}/assets")
 async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
     """Return asset statuses + content (quiz questions, flashcards)."""
-    viewer_id = decode_jwt(authorization.removeprefix("Bearer ").strip())
+    viewer_id  = decode_jwt(authorization.removeprefix("Bearer ").strip())
 
     async with get_db() as db:
         concept = await db.fetchrow("""
@@ -3675,21 +4043,44 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
                 else:
                     video_stage = video_job["status"]  # pending|transcript_ready|queued|rendering
 
-        questions = await db.fetch("""
-            SELECT id, question, options, correct_idx, explanation, position
-            FROM concept_quiz_questions
-            WHERE concept_id = $1::uuid
-            ORDER BY position
-        """, concept_id)
+        is_teacher = await db.fetchval(
+            "SELECT account_type = 'teacher' FROM users WHERE id = $1::uuid", viewer_id
+        ) or False
 
-        flashcards = await db.fetch("""
-            SELECT cf.id, cf.front, cf.back, cf.position, cfs.due_at
-            FROM concept_flashcards cf
-            LEFT JOIN concept_flashcard_state cfs
-                   ON cfs.flashcard_id = cf.id AND cfs.student_id = $2::uuid
-            WHERE cf.concept_id = $1::uuid
-            ORDER BY COALESCE(cfs.due_at, TIMESTAMP '1970-01-01') ASC, cf.position
-        """, concept_id, viewer_id)
+        if is_teacher:
+            questions = await db.fetch("""
+                SELECT id, question, options, correct_idx, explanation, position, status, difficulty
+                FROM concept_quiz_questions
+                WHERE concept_id = $1::uuid
+                ORDER BY position
+            """, concept_id)
+            flashcards = await db.fetch("""
+                SELECT id, front, back, position, status
+                FROM concept_flashcards
+                WHERE concept_id = $1::uuid
+                ORDER BY position
+            """, concept_id)
+            quiz_mode = await db.fetchval(
+                "SELECT quiz_mode FROM course_concepts WHERE id = $1::uuid", concept_id
+            ) or 'ordered'
+        else:
+            questions = await db.fetch("""
+                SELECT id, question, options, correct_idx, explanation, position, status, difficulty
+                FROM concept_quiz_questions
+                WHERE concept_id = $1::uuid AND status = 'approved'
+                ORDER BY position
+            """, concept_id)
+            flashcards = await db.fetch("""
+                SELECT cf.id, cf.front, cf.back, cf.position, cf.status, cfs.due_at
+                FROM concept_flashcards cf
+                LEFT JOIN concept_flashcard_state cfs
+                       ON cfs.flashcard_id = cf.id AND cfs.student_id = $2::uuid
+                WHERE cf.concept_id = $1::uuid AND cf.status = 'approved'
+                ORDER BY COALESCE(cfs.due_at, TIMESTAMP '1970-01-01') ASC, cf.position
+            """, concept_id, viewer_id)
+            quiz_mode = await db.fetchval(
+                "SELECT quiz_mode FROM course_concepts WHERE id = $1::uuid", concept_id
+            ) or 'ordered'
 
     now = datetime.now(tz=timezone.utc)
     return {
@@ -3704,6 +4095,7 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
         "video_stage":        video_stage,
         "video_url":          f"/api/courses/concepts/{concept_id}/video" if video_status in ("ready", "approved") else None,
         "video_job_id":       concept["video_job_id"],
+        "quiz_mode":          quiz_mode,
         "quiz": [
             {
                 "id":          str(q["id"]),
@@ -3712,6 +4104,8 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
                 "correct_idx": q["correct_idx"],
                 "explanation": q["explanation"] or "",
                 "position":    q["position"],
+                "status":      q["status"],
+                "difficulty":  q["difficulty"],
             }
             for q in questions
         ],
@@ -3721,7 +4115,8 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
                 "front":    f["front"],
                 "back":     f["back"],
                 "position": f["position"],
-                "is_due":   f["due_at"] is None or f["due_at"] <= now,
+                "status":   f["status"],
+                **({"is_due": f["due_at"] is None or f["due_at"] <= now} if "due_at" in f.keys() else {}),
             }
             for f in flashcards
         ],
