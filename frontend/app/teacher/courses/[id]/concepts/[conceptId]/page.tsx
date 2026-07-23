@@ -55,7 +55,7 @@ interface ConceptDetail {
   content_text?: string; study_set_id?: string; course_id: string;
   source_text?: string; ai_summary?: string; ai_transcript?: string;
   pipeline_status: PipelineStatus; approved_at?: string;
-  chapter_ref?: string;
+  chapter_ref?: string; page_start?: number;
   quiz_status: AssetStatus; flashcard_status: AssetStatus;
   audio_status: AssetStatus; video_status: AssetStatus;
   has_audio: boolean; has_video: boolean;
@@ -809,7 +809,7 @@ export default function ConceptEditorPage() {
       <div className={`border-r border-[var(--bd)] flex flex-col overflow-hidden transition-all duration-200 ${showLeft ? 'w-2/5' : 'w-0'}`}>
         {showLeft && (
           pdfUrl
-            ? <iframe src={pdfUrl} className="flex-1 w-full" title="Chapter PDF" />
+            ? <iframe src={pdfUrl + (concept?.page_start ? `#page=${concept.page_start}` : '')} className="flex-1 w-full" title="Chapter PDF" />
             : <div className="flex-1 flex flex-col items-center justify-center gap-2 text-[var(--tx7)]">
                 {!pdfReady
                   ? <Loader2 size={20} className="animate-spin text-purple-400" />

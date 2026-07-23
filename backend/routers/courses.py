@@ -2037,19 +2037,26 @@ async def _create_chapter_only(course_id: str, course: dict, file_bytes: bytes, 
 async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: dict, file_bytes: bytes, language: str = 'en') -> list[str]:
     """
     AI-extracts concepts with verbatim source chunks from a chapter's full text and
-    appends them to an existing unit (after whatever concepts — manual or AI — are
-    already there). Sets source='ai' on each. Does NOT kick off the background
-    summarizer — callers do that themselves.
+    appends them to an existing unit. Injects per-page markers so the AI can report
+    which page each concept starts on (page_start). Falls back to text-search if the
+    AI omits page_number. Sets source='ai' on each concept.
     """
-    from services.studyset_processor import extract_text_from_pdf
+    from services.studyset_processor import extract_pages_from_pdf
     from openai import AsyncOpenAI
 
-    text, _ = extract_text_from_pdf(file_bytes)
-    truncated = text[:80_000]
+    pages = extract_pages_from_pdf(file_bytes)
+
+    # Build paged text with markers so AI can report page numbers
+    paged_parts = []
+    for i, p in enumerate(pages):
+        if p.strip():
+            paged_parts.append(f"--- Page {i + 1} ---\n{p.strip()}")
+    paged_text = "\n\n".join(paged_parts)
+    truncated  = paged_text[:80_000]
 
     concept_lang_note = ""
     if language in _LANGUAGE_NAMES:
-        concept_lang_note = f"\nIMPORTANT: Write ALL titles and descriptions in {_LANGUAGE_NAMES[language]}. The source_text must remain verbatim from the document."
+        concept_lang_note = f"\nIMPORTANT: Write ALL titles and descriptions in {_LANGUAGE_NAMES[language]}. The source_text must remain verbatim from the document (strip any '--- Page N ---' markers from it)."
 
     client = AsyncOpenAI()
     extract_prompt = f"""You are an expert educator. Analyze this chapter and extract the key concepts students must learn.
@@ -2057,13 +2064,15 @@ async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: d
 Course: {course['name']}
 Subject: {course['subject'] or 'General'}
 
+The text below is divided by page markers like "--- Page 3 ---". Use these markers to record which page each concept starts on.
+
 STEP 1 — Check for numbered sub-sections.
 If the chapter contains numbered headings like "1.1 Title", "1.2 Title", "2.3 Title" etc., create EXACTLY ONE concept per sub-section. Use the sub-section title verbatim as the concept title. Do NOT merge or skip sub-sections.
 
 STEP 2 — Fallback (no numbered structure).
 If there are no numbered sub-sections, identify 4–8 distinct learnable ideas in reading order.
 
-For EACH concept, include the EXACT verbatim paragraph(s) from the text it is based on.
+For EACH concept, include the EXACT verbatim paragraph(s) from the text it is based on (do NOT include the "--- Page N ---" marker in source_text).
 
 Return ONLY valid JSON:
 {{
@@ -2072,14 +2081,16 @@ Return ONLY valid JSON:
     {{
       "title": "Concise concept name",
       "description": "One sentence: what the student will understand",
-      "source_text": "The exact verbatim sentences/paragraphs from the text that cover this concept"
+      "source_text": "The exact verbatim sentences/paragraphs from the text that cover this concept",
+      "page_number": 3
     }}
   ]
 }}
 
 Rules:
 - Follow numbered sub-section structure when present (this takes priority over the 4–12 range)
-- source_text must be a direct quote from the document
+- source_text must be a direct quote from the document, without page markers
+- page_number is the integer from the nearest "--- Page N ---" marker above this concept's content
 - Each concept = one distinct learnable idea{concept_lang_note}
 
 --- CHAPTER ---
@@ -2095,6 +2106,9 @@ Rules:
     result       = json.loads(response.choices[0].message.content)
     concepts_raw = result.get("concepts", [])
 
+    # Strip any stray page markers the AI may have left in source_text
+    _page_marker_re = re.compile(r'---\s*Page\s+\d+\s*---\n?', re.IGNORECASE)
+
     async with get_db() as db:
         max_pos = await db.fetchval(
             "SELECT COALESCE(MAX(position), -1) FROM course_concepts WHERE unit_id = $1::uuid", unit_id
@@ -2108,14 +2122,27 @@ Rules:
 
         concept_ids = []
         for i, c in enumerate(concepts_raw):
+            raw_source = c.get("source_text", "")
+            clean_source = _page_marker_re.sub("", raw_source).strip()
+
+            # Option A: AI returned page_number
+            page_start: int | None = None
+            ai_page = c.get("page_number")
+            if isinstance(ai_page, int) and 1 <= ai_page <= len(pages):
+                page_start = ai_page
+
+            # Option B fallback: search for the text in the pages list
+            if page_start is None and clean_source:
+                page_start = _find_page_in_pages(pages, clean_source)
+
             row = await db.fetchrow("""
                 INSERT INTO course_concepts
-                  (unit_id, title, description, source_text, pipeline_status, position, chapter_ref, source)
-                VALUES ($1::uuid, $2, $3, $4, 'summarizing', $5, $6, 'ai')
+                  (unit_id, title, description, source_text, pipeline_status, position, chapter_ref, source, page_start)
+                VALUES ($1::uuid, $2, $3, $4, 'summarizing', $5, $6, 'ai', $7)
                 RETURNING id
             """, unit_id,
                 c.get("title", ""), c.get("description", ""),
-                c.get("source_text", ""), base_pos + i, chapter_id)
+                clean_source, base_pos + i, chapter_id, page_start)
             concept_ids.append(str(row["id"]))
 
     return concept_ids
@@ -2485,6 +2512,23 @@ _TOC_HEADER_RE = re.compile(
 )
 
 
+def _find_page_in_pages(pages: list[str], snippet: str) -> int | None:
+    """Option-B fallback: scan the per-page text list for the first page that contains
+    the leading snippet of source_text. Returns 1-indexed page number, or None."""
+    query = snippet[:80].strip().lower()
+    if not query:
+        return None
+    for i, p in enumerate(pages):
+        if query in p.lower():
+            return i + 1
+    # Retry with an even shorter anchor in case of minor formatting differences
+    short = query[:40]
+    for i, p in enumerate(pages):
+        if short in p.lower():
+            return i + 1
+    return None
+
+
 def _toc_page_score(text: str) -> int:
     """Count lines that have the structural signature of a TOC entry: starts with a
     number (chapter/section), has some text, and ends with a page number.
@@ -2720,7 +2764,7 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
                    cc.study_set_id, cc.source_text, cc.ai_summary,
                    cc.ai_transcript, cc.pipeline_status, cc.approved_at,
                    cc.quiz_status, cc.flashcard_status, cc.audio_status, cc.video_status,
-                   cc.chapter_ref,
+                   cc.chapter_ref, cc.page_start,
                    (cc.audio_data IS NOT NULL) AS has_audio,
                    (cc.video_url IS NOT NULL) AS has_video,
                    cu.course_id
@@ -2758,6 +2802,7 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
         "pipeline_status": concept["pipeline_status"],
         "approved_at":      concept["approved_at"].isoformat() if concept["approved_at"] else None,
         "chapter_ref":      concept["chapter_ref"],
+        "page_start":       concept["page_start"],
         "quiz_status":      concept["quiz_status"],
         "flashcard_status": concept["flashcard_status"],
         "audio_status":     concept["audio_status"],

@@ -474,6 +474,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE concept_quiz_questions ADD COLUMN IF NOT EXISTS difficulty TEXT NOT NULL DEFAULT 'medium'",
             "ALTER TABLE concept_flashcards     ADD COLUMN IF NOT EXISTS status     TEXT NOT NULL DEFAULT 'approved'",
             "ALTER TABLE course_concepts        ADD COLUMN IF NOT EXISTS quiz_mode  TEXT NOT NULL DEFAULT 'ordered'",
+            # ── Concept source page within its chapter PDF ────────────────────
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS page_start INTEGER",
         ]:
             try:
                 await db.execute(sql)
