@@ -1117,7 +1117,7 @@ export default function ConceptEditorPage() {
                                 </button>
                                 {/* Group import: text + video placed adjacently in textbook */}
                                 {(() => {
-                                  const vid = chatMsgs.find(v => v.videoSourceMsgId === m.id && v.videoBlockId !== undefined && v.videoStatus !== 'failed');
+                                  const vid = chatMsgs.find(v => v.videoSourceMsgId === m.id && !!v.videoBlockId && v.videoStatus !== 'failed');
                                   if (!vid || addedMsgBlocks.has(m.id)) return null;
                                   return (
                                     <button
@@ -1203,8 +1203,8 @@ export default function ConceptEditorPage() {
                                             <LayoutList size={11} /> {t.teacher.viewInTextbook}
                                           </button>
                                         </>
-                                      ) : vid.videoBlockId && vid.videoId ? (
-                                        <button onClick={() => addVideoBackToTextbook(vid.id, vid.videoId!, vid.videoBlockId!)}
+                                      ) : vid.videoId ? (
+                                        <button onClick={() => addVideoBackToTextbook(vid.id, vid.videoId!, vid.videoBlockId ?? '')}
                                           className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-green-400 transition-colors">
                                           <Plus size={11} /> {t.teacher.addToTextbook}
                                         </button>

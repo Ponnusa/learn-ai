@@ -778,14 +778,18 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
             WHERE conversation_id = $1::uuid ORDER BY created_at
         """, conv["id"])
     import json as _json
-    # Batch-fetch video_id for any video-card messages
+    # Batch-fetch video info for any video-card messages
     video_block_ids = []
+    meta_video_ids_by_block: dict[str, int] = {}  # block_id -> video_id stored in metadata
     for r in rows:
         if r["metadata"]:
             try:
                 meta = r["metadata"] if isinstance(r["metadata"], dict) else _json.loads(r["metadata"])
                 if meta.get("content_type") == "video" and meta.get("block_id"):
-                    video_block_ids.append(meta["block_id"])
+                    bid = meta["block_id"]
+                    video_block_ids.append(bid)
+                    if meta.get("video_id"):
+                        meta_video_ids_by_block[bid] = int(meta["video_id"])
             except Exception:
                 pass
     block_video_map: dict = {}
@@ -801,6 +805,20 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
                 WHERE ccb.id = ANY($1::uuid[])
             """, video_block_ids)
         block_video_map = {r["block_id"]: dict(r) for r in brows}
+
+    # Fallback: for blocks that were deleted, recover video info via video_id stored in metadata
+    orphan_video_ids = [
+        vid_id for block_id, vid_id in meta_video_ids_by_block.items()
+        if block_id not in block_video_map
+    ]
+    fallback_video_map: dict = {}
+    if orphan_video_ids:
+        async with get_db() as db3:
+            vrows = await db3.fetch("""
+                SELECT id AS video_id, status AS video_status, video_url, error_message AS video_error
+                FROM videos WHERE id = ANY($1::int[])
+            """, orphan_video_ids)
+        fallback_video_map = {r["video_id"]: dict(r) for r in vrows}
 
     result = []
     for r in rows:
@@ -821,8 +839,18 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
                     video_block_id  = meta.get("block_id", "")
                     video_source_id = meta.get("source_msg_id", "")
                     vid_info        = block_video_map.get(video_block_id, {})
-                    video_int_id    = vid_info.get("video_id")
-                    video_status    = vid_info.get("video_status") or ""
+                    if not vid_info:
+                        # Content block deleted — recover from video_id stored in metadata
+                        fallback_vid = meta.get("video_id")
+                        if fallback_vid:
+                            vid_info = fallback_video_map.get(int(fallback_vid), {})
+                        # Signal to frontend that the content block is gone
+                        if vid_info:
+                            video_block_id = ""
+                    video_int_id    = vid_info.get("video_id") or meta.get("video_id")
+                    raw_status      = vid_info.get("video_status") or ""
+                    # Normalize: videos table uses 'completed', frontend uses 'ready'
+                    video_status    = "ready" if raw_status == "completed" else raw_status
                     video_url       = vid_info.get("video_url")   or ""
                     video_error     = vid_info.get("video_error") or ""
             except Exception:
@@ -836,9 +864,10 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
         }
         if image_pages:
             entry["imagePages"] = image_pages
-        if video_block_id:
-            entry["videoBlockId"] = video_block_id
         if video_source_id:
+            # Always include videoBlockId for video-card messages so the frontend
+            # can identify them; empty string means the content block was deleted
+            entry["videoBlockId"]     = video_block_id
             entry["videoSourceMsgId"] = video_source_id
         if video_int_id is not None:
             entry["videoId"] = video_int_id
@@ -4506,6 +4535,14 @@ async def _generate_block_video_bg(
                 "UPDATE concept_content_blocks SET video_id = $1 WHERE id = $2::uuid",
                 video_id, block_id,
             )
+            # Store video_id in the video-card message metadata so status is
+            # recoverable even if the content block is later deleted
+            await db.execute("""
+                UPDATE messages
+                SET metadata = metadata || jsonb_build_object('video_id', $1::int)
+                WHERE metadata->>'content_type' = 'video'
+                  AND metadata->>'block_id' = $2
+            """, video_id, block_id)
 
         logger.info("[block-video] block %s: Phase 1 starting (video %s)", block_id, video_id)
         solution_data = await generate_solution_only(gen_prompt, language, duration)
