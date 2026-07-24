@@ -468,6 +468,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS audio_status TEXT NOT NULL DEFAULT 'none'",
             # in_textbook: false = studio-generated block (tracking only), true = visible in textbook
             "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS in_textbook BOOLEAN NOT NULL DEFAULT true",
+            # audio_script: formula-free transcript text used as TTS source instead of block body
+            "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS audio_script TEXT",
             # ── Tag studio/authoring conversations so sidebar can exclude them ──
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS conversation_type TEXT NOT NULL DEFAULT 'chat'",
             "UPDATE conversations SET conversation_type = 'studio' WHERE concept_id IS NOT NULL AND conversation_type = 'chat'",

@@ -1071,6 +1071,7 @@ _CHAT_TRANSCRIPT_RE = re.compile(r'^\s*#{0,6}\s*\*{0,2}TRANSCRIPT\*{0,2}\s*:?\s*
 async def apply_concept_chat_message(
     concept_id:    str,
     req:           ApplyChatRequest,
+    bg:            BackgroundTasks,
     authorization: str = Header(...),
 ):
     """Apply a Studio message: add to Textbook ('block'), set as summary, or set as transcript."""
@@ -1091,10 +1092,14 @@ async def apply_concept_chat_message(
         summary_match    = _CHAT_SUMMARY_RE.search(content)
         transcript_match = _CHAT_TRANSCRIPT_RE.search(content)
 
+        # audio_script: formula-free transcript text used as TTS source on the summary block
+        auto_audio_script: str | None = None
+
         if summary_match and transcript_match:
-            # Two distinct sections — derive a heading from the preceding user question
+            # Two distinct sections — Summary → textbook block, Transcript → audio only
             summary_body    = content[summary_match.end():transcript_match.start()].strip()
             transcript_body = content[transcript_match.end():].strip()
+            auto_audio_script = transcript_body or None
 
             async with get_db() as db:
                 prev_q = await db.fetchrow("""
@@ -1113,18 +1118,16 @@ async def apply_concept_chat_message(
             else:
                 heading_body = None
 
-            blocks_to_insert: list[tuple[str | None, str]] = []
+            # blocks: (title, body, audio_script) — transcript becomes audio, NOT a separate block
+            blocks_to_insert: list[tuple[str | None, str, str | None]] = []
             if heading_body:
-                blocks_to_insert.append((None, heading_body))
-            blocks_to_insert += [
-                ("Summary",    summary_body),
-                ("Transcript", transcript_body),
-            ]
+                blocks_to_insert.append((None, heading_body, None))
+            blocks_to_insert.append(("Summary", summary_body, auto_audio_script))
         else:
             # Single-section message → one block, strip any stray header
             body = _CHAT_SUMMARY_RE.sub('', content)
             body = _CHAT_TRANSCRIPT_RE.sub('', body).strip()
-            blocks_to_insert = [(None, body)]
+            blocks_to_insert = [(None, body, None)]
 
         async with get_db() as db:
             max_pos = await db.fetchval(
@@ -1132,13 +1135,18 @@ async def apply_concept_chat_message(
                 concept_id,
             )
             first_block = None
-            for i, (blk_title, blk_body) in enumerate(blocks_to_insert):
+            audio_block_id: str | None = None
+            for i, (blk_title, blk_body, blk_audio_script) in enumerate(blocks_to_insert):
+                blk_audio_status = 'generating' if blk_audio_script else 'none'
                 block = await db.fetchrow("""
                     INSERT INTO concept_content_blocks
-                      (concept_id, type, position, title, body, created_by)
-                    VALUES ($1::uuid, 'text', $2, $3, $4, $5::uuid)
+                      (concept_id, type, position, title, body, created_by, audio_script, audio_status)
+                    VALUES ($1::uuid, 'text', $2, $3, $4, $5::uuid, $6, $7)
                     RETURNING id, type, position, title, body, audio_status, created_at
-                """, concept_id, int(max_pos) + 1 + i, blk_title, blk_body, teacher_id)
+                """, concept_id, int(max_pos) + 1 + i, blk_title, blk_body, teacher_id,
+                    blk_audio_script, blk_audio_status)
+                if blk_audio_script:
+                    audio_block_id = str(block["id"])
                 if first_block is None:
                     first_block = block
             # Silently set ai_summary if not yet populated — powers quiz/flashcard generation
@@ -1150,6 +1158,10 @@ async def apply_concept_chat_message(
                     "UPDATE course_concepts SET ai_summary = $1, pipeline_status = 'ready' WHERE id = $2::uuid",
                     blocks_to_insert[0][1], concept_id,
                 )
+
+        # Auto-generate audio from the transcript for the summary block
+        if audio_block_id:
+            bg.add_task(_generate_block_audio_bg, concept_id, audio_block_id)
         block = first_block
         return {
             "action":       "block",
@@ -1515,12 +1527,13 @@ async def _generate_block_audio_bg(concept_id: str, block_id: str):
     try:
         async with get_db() as db:
             block = await db.fetchrow(
-                "SELECT body, title FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
+                "SELECT body, title, audio_script FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
                 block_id, concept_id,
             )
         if not block:
             return
-        script = block["body"] or block["title"] or ""
+        # audio_script is the formula-free transcript; fall back to body for plain text blocks
+        script = block["audio_script"] or block["body"] or block["title"] or ""
         if not script.strip():
             async with get_db() as db:
                 await db.execute(
