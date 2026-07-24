@@ -791,28 +791,40 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
     block_video_map: dict = {}
     if video_block_ids:
         async with get_db() as db2:
-            brows = await db2.fetch(
-                "SELECT id::text, video_id FROM concept_content_blocks WHERE id = ANY($1::uuid[])",
-                video_block_ids,
-            )
-        block_video_map = {r["id"]: r["video_id"] for r in brows}
+            brows = await db2.fetch("""
+                SELECT ccb.id::text AS block_id, ccb.video_id,
+                       v.status     AS video_status,
+                       v.video_url  AS video_url,
+                       v.error_message AS video_error
+                FROM concept_content_blocks ccb
+                LEFT JOIN videos v ON v.id = ccb.video_id
+                WHERE ccb.id = ANY($1::uuid[])
+            """, video_block_ids)
+        block_video_map = {r["block_id"]: dict(r) for r in brows}
 
     result = []
     for r in rows:
         suggestions    = []
         image_pages:   list[int] = []
-        video_block_id = ""
+        video_block_id  = ""
         video_source_id = ""
-        video_int_id: int | None = None
+        video_int_id:    int | None = None
+        video_status     = ""
+        video_url        = ""
+        video_error      = ""
         if r["metadata"]:
             try:
                 meta = r["metadata"] if isinstance(r["metadata"], dict) else _json.loads(r["metadata"])
-                suggestions    = meta.get("suggestions", [])
-                image_pages    = meta.get("image_page_nums", [])
+                suggestions = meta.get("suggestions", [])
+                image_pages = meta.get("image_page_nums", [])
                 if meta.get("content_type") == "video":
-                    video_block_id    = meta.get("block_id", "")
-                    video_source_id   = meta.get("source_msg_id", "")
-                    video_int_id      = block_video_map.get(video_block_id)
+                    video_block_id  = meta.get("block_id", "")
+                    video_source_id = meta.get("source_msg_id", "")
+                    vid_info        = block_video_map.get(video_block_id, {})
+                    video_int_id    = vid_info.get("video_id")
+                    video_status    = vid_info.get("video_status") or ""
+                    video_url       = vid_info.get("video_url")   or ""
+                    video_error     = vid_info.get("video_error") or ""
             except Exception:
                 pass
         entry: dict = {
@@ -830,6 +842,12 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
             entry["videoSourceMsgId"] = video_source_id
         if video_int_id is not None:
             entry["videoId"] = video_int_id
+        if video_status:
+            entry["videoStatus"] = video_status
+        if video_url:
+            entry["videoUrl"] = video_url
+        if video_error:
+            entry["videoError"] = video_error
         result.append(entry)
     return result
 

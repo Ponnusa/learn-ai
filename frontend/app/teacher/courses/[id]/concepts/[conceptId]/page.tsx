@@ -230,7 +230,16 @@ export default function ConceptEditorPage() {
 
   const loadChat = useCallback(async () => {
     const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/concept-chat`, { headers: authH });
-    if (res.ok) setChatMsgs(await res.json());
+    if (res.ok) {
+      const msgs: ChatMsg[] = await res.json();
+      setChatMsgs(msgs);
+      // Resume polling for any video that was still generating when the page last closed
+      for (const m of msgs) {
+        if (m.videoBlockId && m.videoStatus && m.videoStatus !== 'ready' && m.videoStatus !== 'failed') {
+          startVideoPolling(m.videoBlockId, m.id);
+        }
+      }
+    }
     setChatLoaded(true);
   }, [conceptId, token]);
 
