@@ -820,6 +820,17 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
             """, orphan_video_ids)
         fallback_video_map = {r["video_id"]: dict(r) for r in vrows}
 
+    # Fetch message IDs that have already been imported into the textbook via apply
+    async with get_db() as db_imp:
+        imp_rows = await db_imp.fetch("""
+            SELECT DISTINCT source_message_id::text
+            FROM concept_content_blocks
+            WHERE concept_id = $1::uuid
+              AND source_message_id IS NOT NULL
+              AND in_textbook = true
+        """, concept_id)
+    imported_msg_ids = {r["source_message_id"] for r in imp_rows}
+
     result = []
     for r in rows:
         suggestions    = []
@@ -858,12 +869,14 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
                     video_in_textbook = vid_info.get("in_textbook") if vid_info else None
             except Exception:
                 pass
+        msg_id_str = str(r["id"])
         entry: dict = {
-            "id":          str(r["id"]),
+            "id":          msg_id_str,
             "role":        r["role"],
             "content":     r["content"],
             "suggestions": suggestions,
             "created_at":  r["created_at"].isoformat(),
+            "inTextbook":  msg_id_str in imported_msg_ids,
         }
         if image_pages:
             entry["imagePages"] = image_pages
@@ -1140,11 +1153,12 @@ async def apply_concept_chat_message(
                 blk_audio_status = 'generating' if blk_audio_script else 'none'
                 block = await db.fetchrow("""
                     INSERT INTO concept_content_blocks
-                      (concept_id, type, position, title, body, created_by, audio_script, audio_status)
-                    VALUES ($1::uuid, 'text', $2, $3, $4, $5::uuid, $6, $7)
+                      (concept_id, type, position, title, body, created_by,
+                       audio_script, audio_status, source_message_id)
+                    VALUES ($1::uuid, 'text', $2, $3, $4, $5::uuid, $6, $7, $8::uuid)
                     RETURNING id, type, position, title, body, audio_status, created_at
                 """, concept_id, int(max_pos) + 1 + i, blk_title, blk_body, teacher_id,
-                    blk_audio_script, blk_audio_status)
+                    blk_audio_script, blk_audio_status, req.message_id)
                 if blk_audio_script:
                     audio_block_id = str(block["id"])
                 if first_block is None:

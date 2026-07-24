@@ -46,6 +46,7 @@ interface ChatMsg {
   videoError?: string;
   videoId?: number;
   videoInTextbook?: boolean;
+  inTextbook?: boolean;
   quizDraft?: boolean;
   quizCount?: number;
   flashcardDraft?: boolean;
@@ -382,6 +383,7 @@ export default function ConceptEditorPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Could not add block');
       setAddedMsgBlocks(prev => new Set([...prev, messageId]));
+      setChatMsgs(prev => prev.map(m => m.id === messageId ? { ...m, inTextbook: true } : m));
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -399,6 +401,7 @@ export default function ConceptEditorPage() {
       const textBlock = await textRes.json();
       if (!textRes.ok) throw new Error(textBlock.detail || 'Could not add block');
       setAddedMsgBlocks(prev => new Set([...prev, messageId]));
+      setChatMsgs(prev => prev.map(m => m.id === messageId ? { ...m, inTextbook: true } : m));
 
       // 2. Mark the video block as in-textbook and move it to the end (after the text block(s))
       const vidRes = await fetch(
@@ -1101,21 +1104,27 @@ export default function ConceptEditorPage() {
                               {/* Action pills */}
                               <div className="flex flex-wrap gap-1.5">
                                 {/* Text-only import */}
-                                <button
-                                  onClick={() => addMsgToTextbook(m.id)}
-                                  disabled={addingMsgBlock === m.id || addedMsgBlocks.has(m.id)}
-                                  className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
-                                             bg-purple-600/15 hover:bg-purple-600/25 text-purple-400
-                                             transition-all disabled:opacity-50">
-                                  {addingMsgBlock === m.id
-                                    ? <Loader2 size={11} className="animate-spin" />
-                                    : addedMsgBlocks.has(m.id) ? <Check size={11} /> : <LayoutList size={11} />}
-                                  {addedMsgBlocks.has(m.id) ? 'Added' : '+ Textbook'}
-                                </button>
+                                {(() => {
+                                  const alreadyAdded = m.inTextbook || addedMsgBlocks.has(m.id);
+                                  return (
+                                    <button
+                                      onClick={() => addMsgToTextbook(m.id)}
+                                      disabled={addingMsgBlock === m.id || alreadyAdded}
+                                      className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
+                                                 bg-purple-600/15 hover:bg-purple-600/25 text-purple-400
+                                                 transition-all disabled:opacity-50">
+                                      {addingMsgBlock === m.id
+                                        ? <Loader2 size={11} className="animate-spin" />
+                                        : alreadyAdded ? <Check size={11} /> : <LayoutList size={11} />}
+                                      {alreadyAdded ? 'Added' : '+ Textbook'}
+                                    </button>
+                                  );
+                                })()}
                                 {/* Group import: text + video placed adjacently in textbook */}
                                 {(() => {
                                   const vid = chatMsgs.find(v => v.videoSourceMsgId === m.id && !!v.videoBlockId && v.videoStatus !== 'failed');
-                                  if (!vid || addedMsgBlocks.has(m.id)) return null;
+                                  const alreadyAdded = m.inTextbook || addedMsgBlocks.has(m.id);
+                                  if (!vid || alreadyAdded) return null;
                                   return (
                                     <button
                                       onClick={() => addMsgAndVideoToTextbook(m.id, vid.videoBlockId!)}
