@@ -177,6 +177,7 @@ export default function ConceptEditorPage() {
   const [chatInput,   setChatInput]   = useState('');
   const [chatSending, setChatSending] = useState(false);
   const chatEndRef      = useRef<HTMLDivElement>(null);
+  const chatSendingRef  = useRef(false);
   const rightPanelRef   = useRef<HTMLDivElement>(null);
   const renderedIdsRef  = useRef<Set<string>>(new Set());
   const autoStartedRef  = useRef(false);
@@ -317,13 +318,14 @@ export default function ConceptEditorPage() {
 
   async function sendChatMessage(override?: string) {
     const message = (override ?? chatInput).trim();
-    if (!message || chatSending) return;
+    if (!message || chatSendingRef.current) return;
+    chatSendingRef.current = true;
+    setChatSending(true);
     const pages  = selectedPages.slice();
     const attach = pendingAttach;
     setChatInput('');
     setSelectedPages([]);
     setPendingAttach(null);
-    setChatSending(true);
     const localId = `local-${Date.now()}`;
     try {
       const imageDataUrls = await renderSelectedPageUrls(pages);
@@ -359,15 +361,21 @@ export default function ConceptEditorPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Could not send message');
-      // Re-key the attachment from localId to the real message ID
+      // Re-key the attachment from localId to the real user message ID (backend now returns it)
+      const realUserMsgId = data.user_message_id ?? localId;
       if (attach && msgAttachMap.current.has(localId)) {
-        msgAttachMap.current.set(data.id ?? localId, msgAttachMap.current.get(localId)!);
+        msgAttachMap.current.set(realUserMsgId, msgAttachMap.current.get(localId)!);
         msgAttachMap.current.delete(localId);
       }
-      setChatMsgs(prev => prev.map(m => m.id === localId ? { ...m, id: data.id ?? m.id } : m).concat(data));
+      // Replace localId with the real user message ID; append the assistant response separately
+      const { user_message_id: _uid, ...assistantMsg } = data;
+      setChatMsgs(prev =>
+        prev.map(m => m.id === localId ? { ...m, id: realUserMsgId } : m).concat(assistantMsg)
+      );
     } catch (err: any) {
       alert(err.message);
     } finally {
+      chatSendingRef.current = false;
       setChatSending(false);
     }
   }

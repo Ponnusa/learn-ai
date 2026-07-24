@@ -954,8 +954,8 @@ async def send_concept_chat_message(
         _user_meta = {}
         if req.image_page_nums:
             _user_meta["image_page_nums"] = req.image_page_nums
-        await db.execute(
-            "INSERT INTO messages (conversation_id, role, content, metadata) VALUES ($1::uuid, 'user', $2, $3::jsonb)",
+        user_msg_row = await db.fetchrow(
+            "INSERT INTO messages (conversation_id, role, content, metadata) VALUES ($1::uuid, 'user', $2, $3::jsonb) RETURNING id",
             conv_id, req.message, _json.dumps(_user_meta) if _user_meta else None,
         )
 
@@ -1063,11 +1063,12 @@ Keep each suggestion under 8 words. Do not mention this block in your visible re
         """, conv_id, reply, metadata)
 
     return {
-        "id":          str(row["id"]),
-        "role":        "assistant",
-        "content":     reply,
-        "suggestions": suggestions,
-        "created_at":  row["created_at"].isoformat(),
+        "user_message_id": str(user_msg_row["id"]),
+        "id":              str(row["id"]),
+        "role":            "assistant",
+        "content":         reply,
+        "suggestions":     suggestions,
+        "created_at":      row["created_at"].isoformat(),
     }
 
 
