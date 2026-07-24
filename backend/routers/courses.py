@@ -796,7 +796,7 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
     if video_block_ids:
         async with get_db() as db2:
             brows = await db2.fetch("""
-                SELECT ccb.id::text AS block_id, ccb.video_id,
+                SELECT ccb.id::text AS block_id, ccb.video_id, ccb.in_textbook,
                        v.status     AS video_status,
                        v.video_url  AS video_url,
                        v.error_message AS video_error
@@ -830,6 +830,7 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
         video_status     = ""
         video_url        = ""
         video_error      = ""
+        video_in_textbook: bool | None = None
         if r["metadata"]:
             try:
                 meta = r["metadata"] if isinstance(r["metadata"], dict) else _json.loads(r["metadata"])
@@ -847,12 +848,14 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
                         # Signal to frontend that the content block is gone
                         if vid_info:
                             video_block_id = ""
-                    video_int_id    = vid_info.get("video_id") or meta.get("video_id")
-                    raw_status      = vid_info.get("video_status") or ""
+                    video_int_id      = vid_info.get("video_id") or meta.get("video_id")
+                    raw_status        = vid_info.get("video_status") or ""
                     # Normalize: videos table uses 'completed', frontend uses 'ready'
-                    video_status    = "ready" if raw_status == "completed" else raw_status
-                    video_url       = vid_info.get("video_url")   or ""
-                    video_error     = vid_info.get("video_error") or ""
+                    video_status      = "ready" if raw_status == "completed" else raw_status
+                    video_url         = vid_info.get("video_url")   or ""
+                    video_error       = vid_info.get("video_error") or ""
+                    # None = block deleted; True/False = whether block is in textbook
+                    video_in_textbook = vid_info.get("in_textbook") if vid_info else None
             except Exception:
                 pass
         entry: dict = {
@@ -877,6 +880,8 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
             entry["videoUrl"] = video_url
         if video_error:
             entry["videoError"] = video_error
+        if video_in_textbook is not None:
+            entry["videoInTextbook"] = video_in_textbook
         result.append(entry)
     return result
 
@@ -1246,8 +1251,8 @@ async def generate_chat_video_from_message(
         )
         block = await db.fetchrow("""
             INSERT INTO concept_content_blocks
-              (concept_id, type, position, title, body, created_by)
-            VALUES ($1::uuid, 'video', $2, $3, $4, $5::uuid)
+              (concept_id, type, position, title, body, created_by, in_textbook)
+            VALUES ($1::uuid, 'video', $2, $3, $4, $5::uuid, false)
             RETURNING id, position, title, created_at
         """, concept_id, int(max_pos) + 1, title, transcript, teacher_id)
 
@@ -1271,7 +1276,7 @@ async def generate_chat_video_from_message(
         """, msg["conversation_id"], card_meta)
 
     return {
-        "id":           str(card["id"]),
+        "id":               str(card["id"]),
         "role":             "assistant",
         "content":          "",
         "suggestions":      [],
@@ -1279,6 +1284,7 @@ async def generate_chat_video_from_message(
         "videoBlockId":     block_id,
         "videoStatus":      "pending",
         "videoSourceMsgId": source_msg_id,
+        "videoInTextbook":  False,
     }
 
 
@@ -1304,7 +1310,7 @@ async def list_content_blocks(concept_id: str, authorization: str = Header(...))
                    cb.created_at
             FROM concept_content_blocks cb
             LEFT JOIN videos v ON v.id = cb.video_id
-            WHERE cb.concept_id = $1::uuid
+            WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
             ORDER BY cb.position, cb.created_at
         """, concept_id)
     return [
@@ -1443,6 +1449,30 @@ async def get_block_video_status(
         "video_url":    row["video_url"],
         "video_error":  row["error_message"],
     }
+
+
+@router.post("/concepts/{concept_id}/content-blocks/{block_id}/add-to-textbook")
+async def add_block_to_textbook(
+    concept_id:    str,
+    block_id:      str,
+    authorization: str = Header(...),
+):
+    """Mark a studio-generated video block as visible in the textbook and move it to the end."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+            concept_id,
+        )
+        row = await db.fetchrow("""
+            UPDATE concept_content_blocks
+            SET in_textbook = true, position = $1
+            WHERE id = $2::uuid AND concept_id = $3::uuid
+            RETURNING id, position, in_textbook
+        """, int(max_pos) + 1, block_id, concept_id)
+    if not row:
+        raise HTTPException(404, "Block not found")
+    return {"id": str(row["id"]), "position": row["position"], "in_textbook": row["in_textbook"]}
 
 
 @router.post("/concepts/{concept_id}/content-blocks/{block_id}/retry-video")

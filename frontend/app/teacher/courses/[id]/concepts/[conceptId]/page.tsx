@@ -45,6 +45,7 @@ interface ChatMsg {
   videoUrl?: string;
   videoError?: string;
   videoId?: number;
+  videoInTextbook?: boolean;
   quizDraft?: boolean;
   quizCount?: number;
   flashcardDraft?: boolean;
@@ -399,20 +400,15 @@ export default function ConceptEditorPage() {
       if (!textRes.ok) throw new Error(textBlock.detail || 'Could not add block');
       setAddedMsgBlocks(prev => new Set([...prev, messageId]));
 
-      // 2. Move the video block to immediately after the text block(s).
-      //    Text blocks were just appended at the tail, so removing the video block
-      //    and appending it places it right after them.
-      const blocksRes = await fetch(
-        `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`,
-        { headers: authH },
+      // 2. Mark the video block as in-textbook and move it to the end (after the text block(s))
+      const vidRes = await fetch(
+        `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${videoBlockId}/add-to-textbook`,
+        { method: 'POST', headers: authH },
       );
-      if (blocksRes.ok) {
-        const all: { id: string }[] = await blocksRes.json();
-        const reordered = [...all.filter(b => b.id !== videoBlockId), { id: videoBlockId }];
-        await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/reorder`, {
-          method: 'POST', headers: jsonH,
-          body: JSON.stringify(reordered.map((b, i) => ({ id: b.id, position: i }))),
-        });
+      if (vidRes.ok) {
+        setChatMsgs(prev => prev.map(m =>
+          m.videoBlockId === videoBlockId ? { ...m, videoInTextbook: true } : m
+        ));
       }
     } catch (err: any) {
       alert(err.message);
@@ -530,6 +526,7 @@ export default function ConceptEditorPage() {
       );
       if (!res.ok) throw new Error('Could not remove from textbook');
       setRemovedVideoBlocks(prev => new Set([...prev, blockId]));
+      setChatMsgs(prev => prev.map(m => m.videoBlockId === blockId ? { ...m, videoInTextbook: false } : m));
     } catch (err: any) {
       alert(err.message);
     }
@@ -543,7 +540,7 @@ export default function ConceptEditorPage() {
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Could not add to textbook');
-      setChatMsgs(prev => prev.map(m => m.id === msgId ? { ...m, videoBlockId: data.id } : m));
+      setChatMsgs(prev => prev.map(m => m.id === msgId ? { ...m, videoBlockId: data.id, videoInTextbook: true } : m));
       setRemovedVideoBlocks(prev => { const s = new Set(prev); s.delete(oldBlockId); return s; });
     } catch (err: any) {
       alert(err.message);
@@ -1192,7 +1189,7 @@ export default function ConceptEditorPage() {
                                   <div>
                                     <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata" />
                                     <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
-                                      {vid.videoBlockId && !removedVideoBlocks.has(vid.videoBlockId) ? (
+                                      {vid.videoBlockId && vid.videoInTextbook && !removedVideoBlocks.has(vid.videoBlockId) ? (
                                         <>
                                           <button onClick={() => removeVideoFromTextbook(vid.videoBlockId!)}
                                             className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-red-400 transition-colors">
@@ -1204,7 +1201,24 @@ export default function ConceptEditorPage() {
                                           </button>
                                         </>
                                       ) : vid.videoId ? (
-                                        <button onClick={() => addVideoBackToTextbook(vid.id, vid.videoId!, vid.videoBlockId ?? '')}
+                                        <button onClick={async () => {
+                                          // Block exists but not yet in textbook: use add-to-textbook endpoint
+                                          if (vid.videoBlockId && !removedVideoBlocks.has(vid.videoBlockId)) {
+                                            try {
+                                              const r = await fetch(
+                                                `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${vid.videoBlockId}/add-to-textbook`,
+                                                { method: 'POST', headers: authH },
+                                              );
+                                              if (!r.ok) throw new Error('Could not add to textbook');
+                                              setChatMsgs(prev => prev.map(m =>
+                                                m.id === vid.id ? { ...m, videoInTextbook: true } : m
+                                              ));
+                                            } catch (err: any) { alert(err.message); }
+                                          } else {
+                                            // Block was deleted: create a new one
+                                            addVideoBackToTextbook(vid.id, vid.videoId!, vid.videoBlockId ?? '');
+                                          }
+                                        }}
                                           className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-green-400 transition-colors">
                                           <Plus size={11} /> {t.teacher.addToTextbook}
                                         </button>
