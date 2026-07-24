@@ -152,6 +152,7 @@ export default function ConceptEditorPage() {
   const [generatingVideoMsg, setGeneratingVideoMsg] = useState<string | null>(null);
   const videoPollingRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
   const [removedVideoBlocks, setRemovedVideoBlocks] = useState<Set<string>>(new Set());
+  const [retryingManimMsgs,  setRetryingManimMsgs]  = useState<Set<string>>(new Set());
   const [showDraftPrompt,   setShowDraftPrompt]   = useState(false);
 
   // Studio quiz/flashcard generation config
@@ -486,6 +487,24 @@ export default function ConceptEditorPage() {
     } catch (err: any) {
       setChatMsgs(prev => prev.map(m => m.id === msgId
         ? { ...m, videoStatus: 'failed', videoError: err.message } : m));
+    }
+  }
+
+  async function retryManimGeneration(msgId: string, videoId: number, blockId: string) {
+    setRetryingManimMsgs(prev => new Set([...prev, msgId]));
+    try {
+      const res = await fetch(`${API_BASE}/api/videos/${videoId}/retry-manim`, {
+        method: 'POST', headers: authH,
+      });
+      if (!res.ok) throw new Error('Retry failed');
+      setChatMsgs(prev => prev.map(m => m.id === msgId
+        ? { ...m, videoStatus: 'pending', videoUrl: undefined, videoError: undefined } : m));
+      // Polling may have stalled — ensure it's running so status updates are picked up
+      if (!videoPollingRef.current.has(blockId)) startVideoPolling(blockId, msgId);
+    } catch (err: any) {
+      alert(`Could not restart: ${err.message}`);
+    } finally {
+      setRetryingManimMsgs(prev => { const s = new Set(prev); s.delete(msgId); return s; });
     }
   }
 
@@ -1199,6 +1218,17 @@ export default function ConceptEditorPage() {
                                       : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering video, this may take a few minutes…'
                                       : 'Writing animation script…'}
                                     </span>
+                                    {vid.videoStatus === 'transcript_ready' && vid.videoId && vid.videoBlockId && (
+                                      <button
+                                        onClick={() => retryManimGeneration(vid.id, vid.videoId!, vid.videoBlockId!)}
+                                        disabled={retryingManimMsgs.has(vid.id)}
+                                        className="ml-auto flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full
+                                                   border border-[var(--bd)] text-[var(--tx7)]
+                                                   hover:text-orange-400 hover:border-orange-500/30 transition-colors
+                                                   disabled:opacity-40 disabled:pointer-events-none">
+                                        <RefreshCw size={9} /> Restart
+                                      </button>
+                                    )}
                                   </div>
                                 )}
                                 {/* Ready — player + actions */}
