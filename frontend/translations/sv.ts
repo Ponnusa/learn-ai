@@ -115,7 +115,6 @@ export const sv: Translation = {
       'Förklara aspirinets struktur',
       'Förklara Newtons rörelserlagar',
       'Vad är Pythagoras sats?',
-      'Förklara utbud och efterfrågan',
     ],
     animateIt: '🎬 Animera det',
     sketchIt: '🎨 Skissa det',

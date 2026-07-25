@@ -115,7 +115,6 @@ export const en: Translation = {
       'Explain the structure of aspirin',
       "Explain Newton's laws of motion",
       'What is the Pythagorean theorem?',
-      'Explain supply and demand',
     ],
     animateIt: '🎬 Animate it',
     sketchIt: '🎨 Sketch it',

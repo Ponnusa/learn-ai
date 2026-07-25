@@ -115,7 +115,6 @@ export const fi: Translation = {
       'Selitä aspiriinin rakenne',
       'Selitä Newtonin liikelait',
       'Mikä on Pythagoraan lause?',
-      'Selitä kysyntä ja tarjonta',
     ],
     animateIt: '🎬 Animoi se',
     sketchIt: '🎨 Piirrä se',
