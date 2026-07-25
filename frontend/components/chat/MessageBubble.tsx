@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
@@ -688,53 +688,46 @@ export function MessageBubble({
   videoId, imageJobId, onDeleteImage, onDeleteVideo, token,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  const [ttsLoading, setTtsLoading] = useState(false);
+  const [ttsPlaying, setTtsPlaying] = useState(false);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const { t, language } = useTranslation();
   const isUser  = message.role === 'user';
 
-  const LANG_BCP47: Record<string, string> = { en: 'en-US', fi: 'fi-FI', sv: 'sv-SE' };
-
-  const MATH_SYMBOLS: Record<string, Record<string, string>> = {
-    en: { '⋅': ' times ', '·': ' times ', '×': ' times ', '÷': ' divided by ', '=': ' equals ', '≈': ' approximately equals ', '≠': ' is not equal to ', '≤': ' is less than or equal to ', '≥': ' is greater than or equal to ', '<': ' is less than ', '>': ' is greater than ', '²': ' squared ', '³': ' cubed ', '√': ' square root of ', '∑': ' sum of ', '∫': ' integral of ', '∆': ' delta ', '∞': ' infinity ', '°': ' degrees ', 'α': ' alpha ', 'β': ' beta ', 'γ': ' gamma ', 'θ': ' theta ', 'λ': ' lambda ', 'μ': ' mu ', 'π': ' pi ', 'σ': ' sigma ', 'ω': ' omega ' },
-    fi: { '⋅': ' kertaa ', '·': ' kertaa ', '×': ' kertaa ', '÷': ' jaettuna ', '=': ' on yhtä kuin ', '≈': ' on noin ', '≠': ' ei ole yhtä kuin ', '≤': ' on pienempi tai yhtä suuri kuin ', '≥': ' on suurempi tai yhtä suuri kuin ', '<': ' on pienempi kuin ', '>': ' on suurempi kuin ', '²': ' toiseen ', '³': ' kolmanteen ', '√': ' neliöjuuri ', '∑': ' summa ', '∫': ' integraali ', '∆': ' delta ', '∞': ' ääretön ', '°': ' astetta ', 'α': ' alfa ', 'β': ' beeta ', 'γ': ' gamma ', 'θ': ' theeta ', 'λ': ' lambda ', 'μ': ' myy ', 'π': ' pii ', 'σ': ' sigma ', 'ω': ' omega ' },
-    sv: { '⋅': ' gånger ', '·': ' gånger ', '×': ' gånger ', '÷': ' delat med ', '=': ' är lika med ', '≈': ' är ungefär lika med ', '≠': ' är inte lika med ', '≤': ' är mindre än eller lika med ', '≥': ' är större än eller lika med ', '<': ' är mindre än ', '>': ' är större än ', '²': ' i kvadrat ', '³': ' i kubik ', '√': ' kvadratroten av ', '∑': ' summan av ', '∫': ' integralen av ', '∆': ' delta ', '∞': ' oändlighet ', '°': ' grader ', 'α': ' alfa ', 'β': ' beta ', 'γ': ' gamma ', 'θ': ' theta ', 'λ': ' lambda ', 'μ': ' my ', 'π': ' pi ', 'σ': ' sigma ', 'ω': ' omega ' },
-  };
-
-  function stripMarkdownForSpeech(text: string, lang: string): string {
-    const symbols = MATH_SYMBOLS[lang] ?? MATH_SYMBOLS.en;
-    let s = text
-      .replace(/!\[.*?\]\(.*?\)/g, '')
-      .replace(/\[([^\]]+)\]\(.*?\)/g, '$1')
-      .replace(/\${1,2}[^$\n]+\${1,2}/g, ' ')
-      .replace(/`{1,3}[^`]*`{1,3}/g, '')
-      .replace(/^#{1,6}\s+/gm, '')
-      .replace(/\*{1,3}([^*\n]+)\*{1,3}/g, '$1')
-      .replace(/_{1,2}([^_\n]+)_{1,2}/g, '$1')
-      .replace(/^[-*+]\s+/gm, '')
-      .replace(/^\d+\.\s+/gm, '')
-      .replace(/\n{2,}/g, '. ')
-      .replace(/\n/g, ' ');
-    for (const [sym, word] of Object.entries(symbols)) {
-      s = s.split(sym).join(word);
+  function stopTts() {
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause();
+      ttsAudioRef.current.src = '';
+      ttsAudioRef.current = null;
     }
-    return s.replace(/\s{2,}/g, ' ').trim();
+    setTtsPlaying(false);
   }
 
-  function handleSpeak() {
-    if (!('speechSynthesis' in window)) return;
-    if (speaking) {
-      window.speechSynthesis.cancel();
-      setSpeaking(false);
-      return;
+  useEffect(() => () => { stopTts(); }, []);
+
+  async function handleSpeak() {
+    if (ttsPlaying || ttsLoading) { stopTts(); setTtsLoading(false); return; }
+    setTtsLoading(true);
+    try {
+      const res = await fetch('/api/chat/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: message.content, language }),
+      });
+      if (!res.ok) throw new Error('TTS failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      ttsAudioRef.current = audio;
+      audio.onended = () => { setTtsPlaying(false); URL.revokeObjectURL(url); ttsAudioRef.current = null; };
+      audio.onerror = () => { setTtsPlaying(false); ttsAudioRef.current = null; };
+      await audio.play();
+      setTtsPlaying(true);
+    } catch {
+      setTtsPlaying(false);
+    } finally {
+      setTtsLoading(false);
     }
-    const text = stripMarkdownForSpeech(message.content, language);
-    const utter = new SpeechSynthesisUtterance(text);
-    utter.lang = LANG_BCP47[language] ?? 'en-US';
-    utter.onend = () => setSpeaking(false);
-    utter.onerror = () => setSpeaking(false);
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utter);
-    setSpeaking(true);
   }
   const subject = message.metadata?.subject;
   const aiChips = message.metadata?.chips ?? [];
@@ -852,10 +845,12 @@ export function MessageBubble({
 
                 <button
                   onClick={handleSpeak}
-                  title={speaking ? 'Stop reading' : 'Read aloud'}
+                  title={ttsLoading ? 'Generating audio…' : ttsPlaying ? 'Stop' : 'Read aloud'}
                   className="ml-auto text-[var(--txa)] hover:text-[var(--tx4)] transition-colors p-1 rounded-lg hover:bg-[var(--ov1)]"
                 >
-                  {speaking
+                  {ttsLoading
+                    ? <Loader size={13} className="animate-spin text-[var(--indigo)]" />
+                    : ttsPlaying
                     ? <Square size={13} className="text-[var(--indigo)]" />
                     : <Volume2 size={13} />}
                 </button>

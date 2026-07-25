@@ -5,7 +5,7 @@ Profile update runs in background after every 5 messages.
 """
 import asyncio
 import json
-from fastapi import APIRouter, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Response
 from pydantic import BaseModel
 from database import get_db
 from services.ai_router import openai_client, get_model
@@ -366,3 +366,55 @@ async def _generate_title(message: str, language: str) -> str:
         return resp.choices[0].message.content.strip().strip('"')
     except Exception:
         return message[:40]
+
+
+_TTS_LANG_NAMES = {'en': 'English', 'fi': 'Finnish', 'sv': 'Swedish'}
+
+
+class TTSRequest(BaseModel):
+    content: str
+    language: str = "en"
+
+
+@router.post("/tts")
+async def chat_tts(req: TTSRequest):
+    """Convert a chat message to spoken audio.
+    Step 1: GPT-4o-mini strips LaTeX/markdown → clean spoken prose.
+    Step 2: OpenAI tts-1 (nova) → audio/mpeg returned directly.
+    """
+    lang_name = _TTS_LANG_NAMES.get(req.language, 'English')
+
+    clean_resp = await openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    f"Convert this educational text to a clean spoken script in {lang_name}. "
+                    "Rules: remove all LaTeX delimiters ($, $$, \\[, \\], \\ce{{}}) and commands; "
+                    "write formulas as spoken words (e.g. C_2H_4 → 'C 2 H 4', x^2 → 'x squared', "
+                    "\\frac{{a}}{{b}} → 'a over b'); "
+                    "remove markdown symbols (**, __, #, backticks, bullet dashes); "
+                    "convert bullet lists to natural flowing sentences; "
+                    "keep all educational content intact. "
+                    "Output plain prose only — no symbols, no formatting marks."
+                ),
+            },
+            {"role": "user", "content": req.content[:3000]},
+        ],
+        max_tokens=800,
+        temperature=0.3,
+    )
+    spoken = clean_resp.choices[0].message.content.strip()
+
+    audio_resp = await openai_client.audio.speech.create(
+        model="tts-1",
+        voice="nova",
+        input=spoken[:4096],
+    )
+
+    return Response(
+        content=audio_resp.content,
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-store"},
+    )
