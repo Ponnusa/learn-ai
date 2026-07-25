@@ -11,7 +11,7 @@ const STEPS: TourStep[] = [
   },
   {
     title: 'Ask anything',
-    body: 'Type any question here — maths, physics, chemistry.\nFormulas render inline as you read:\n$E = mc^2$  ·  $\\Delta G = \\Delta H - T\\Delta S$',
+    body: 'Type any question here — maths, physics, chemistry.\nFormulas, equations, and chemical structures render beautifully inline.',
     targetSelector: '[data-tour="chat-input"]',
   },
   {
