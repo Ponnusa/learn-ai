@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MessageSquare, Loader2 } from 'lucide-react';
+import { MessageSquare, Loader2, HelpCircle } from 'lucide-react';
+import { MessagesTour } from '@/components/onboarding/MessagesTour';
 import { useSessionStore } from '@/store/sessionStore';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -48,12 +49,22 @@ export default function MessagesPage() {
             </div>
           ) : (
             <div className="p-6 max-w-2xl mx-auto">
+              {user && <MessagesTour isTeacher={['teacher','institution_admin','super_admin'].includes(user.account_type ?? '')} />}
               <div className="mb-6">
-                <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.messages.title}</h1>
-                <p className="text-[var(--tx6)] text-sm mt-1">
-                  {user?.account_type === 'teacher' || user?.account_type === 'institution_admin' || user?.account_type === 'super_admin'
-                    ? t.messages.teacherSubtitle : t.messages.studentSubtitle}
-                </p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.messages.title}</h1>
+                    <p className="text-[var(--tx6)] text-sm mt-1">
+                      {user?.account_type === 'teacher' || user?.account_type === 'institution_admin' || user?.account_type === 'super_admin'
+                        ? t.messages.teacherSubtitle : t.messages.studentSubtitle}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => window.dispatchEvent(new CustomEvent('start-messages-tour'))}
+                    className="text-[var(--tx7)] hover:text-purple-400 transition-colors p-1"
+                    title="Take a tour"
+                  ><HelpCircle size={14} /></button>
+                </div>
               </div>
 
               {threads.length === 0 ? (

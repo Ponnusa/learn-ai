@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, BookOpen, ArrowRight, Loader2, FileText, Layers, AlertTriangle } from 'lucide-react';
+import { Plus, BookOpen, ArrowRight, Loader2, FileText, Layers, AlertTriangle, HelpCircle } from 'lucide-react';
+import { TeacherCoursesTour } from '@/components/onboarding/TeacherCoursesTour';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -79,19 +80,28 @@ export default function TeacherCoursesPage() {
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
+      <TeacherCoursesTour />
 
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.teacher.coursesTitle}</h1>
           <p className="text-[var(--tx6)] text-sm mt-1">{courses.length} course{courses.length !== 1 ? 's' : ''}</p>
         </div>
-        <button
-          onClick={() => setShowForm(s => !s)}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500
-                     text-white text-sm font-medium rounded-xl transition-all"
-        >
-          <Plus size={16} /> {t.teacher.newCourse}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('start-teacher-courses-tour'))}
+            className="text-[var(--tx7)] hover:text-purple-400 transition-colors p-1"
+            title="Take a tour"
+          ><HelpCircle size={14} /></button>
+          <button
+            data-tour="new-course"
+            onClick={() => setShowForm(s => !s)}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500
+                       text-white text-sm font-medium rounded-xl transition-all"
+          >
+            <Plus size={16} /> {t.teacher.newCourse}
+          </button>
+        </div>
       </div>
 
       {/* Create form */}

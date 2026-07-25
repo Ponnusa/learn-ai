@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Users, BookOpen, ArrowRight, Loader2, LogIn, Layers } from 'lucide-react';
+import { Users, BookOpen, ArrowRight, Loader2, LogIn, Layers, HelpCircle } from 'lucide-react';
+import { StudentClassroomsTour } from '@/components/onboarding/StudentClassroomsTour';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -86,9 +87,19 @@ export default function StudentClassroomsPage() {
     <div className="min-h-screen bg-[var(--bg)] p-6">
       <div className="max-w-2xl mx-auto">
 
+        <StudentClassroomsTour />
         <div className="mb-8">
-          <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.classrooms.title}</h1>
-          <p className="text-[var(--tx6)] text-sm mt-1">{t.classrooms.subtitle}</p>
+          <div className="flex items-start justify-between">
+            <div>
+              <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.classrooms.title}</h1>
+              <p className="text-[var(--tx6)] text-sm mt-1">{t.classrooms.subtitle}</p>
+            </div>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('start-student-classrooms-tour'))}
+              className="text-[var(--tx7)] hover:text-purple-400 transition-colors p-1 mt-1"
+              title="Take a tour"
+            ><HelpCircle size={14} /></button>
+          </div>
         </div>
 
         {(() => {
@@ -109,6 +120,7 @@ export default function StudentClassroomsPage() {
           <p className="text-[var(--tx2)] text-sm font-medium mb-3">Join a classroom</p>
           <div className="flex gap-2">
             <input
+              data-tour="join-code-input"
               placeholder={t.classrooms.joinCodePlaceholder}
               value={code}
               onChange={e => setCode(e.target.value.toUpperCase())}

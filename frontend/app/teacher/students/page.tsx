@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowRight, Loader2, GraduationCap, Layers, AlertTriangle } from 'lucide-react';
+import { ArrowRight, Loader2, GraduationCap, Layers, AlertTriangle, HelpCircle } from 'lucide-react';
+import { TeacherStudentsTour } from '@/components/onboarding/TeacherStudentsTour';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -66,20 +67,29 @@ export default function TeacherStudentsPage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto pb-16">
+      <TeacherStudentsTour />
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-[var(--tx1)] text-2xl font-bold">{t.teacher.studentsTitle}</h1>
           <p className="text-[var(--tx6)] text-sm mt-1">{tF(t.teacher.studentsSubtitle, { n: students.length })}</p>
         </div>
-        <button
-          onClick={() => { setAtRiskOnly(v => !v); setSelected(new Set()); }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all shrink-0 ${
-            atRiskOnly
-              ? 'border-red-500/40 text-red-400 bg-red-500/10'
-              : 'border-[var(--bd)] text-[var(--tx6)] hover:border-red-500/30 hover:text-red-400'
-          }`}>
-          <AlertTriangle size={14} /> {t.teacher.atRiskOnly}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('start-teacher-students-tour'))}
+            className="text-[var(--tx7)] hover:text-purple-400 transition-colors p-1"
+            title="Take a tour"
+          ><HelpCircle size={14} /></button>
+          <button
+            data-tour="risk-filter"
+            onClick={() => { setAtRiskOnly(v => !v); setSelected(new Set()); }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all shrink-0 ${
+              atRiskOnly
+                ? 'border-red-500/40 text-red-400 bg-red-500/10'
+                : 'border-[var(--bd)] text-[var(--tx6)] hover:border-red-500/30 hover:text-red-400'
+            }`}>
+            <AlertTriangle size={14} /> {t.teacher.atRiskOnly}
+          </button>
+        </div>
       </div>
 
       {selected.size > 0 && (
