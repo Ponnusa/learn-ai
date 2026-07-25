@@ -716,5 +716,13 @@ export const fi: Translation = {
     quizMode_ordered:           'Järjestyksessä',
     quizMode_difficulty:        'Vaikeuden mukaan',
     quizMode_shuffle:           'Satunnaisesti',
+    quizAnalyticsTitle:         'Tentin analytiikka',
+    quizAnalyticsAttempts:      '{n} yritys{s}',
+    quizAnalyticsNoData:        'Ei vielä yrityksiä — oppilaat eivät ole lähettäneet tenttivastauksia',
+    quizAnalyticsMostWrong:     'Yleisin väärä vastaus',
+    quizHistoryAttempt:         'Yritys {n}',
+    quizHistoryNoDetail:        'Ei yksityiskohtaisia tietoja',
+    quizHistoryChose:           'valitsi {letter}',
+    quizHistoryNoAnswers:       'Ei kysymyskohtaisia tietoja tästä yrityksestä',
   },
 };

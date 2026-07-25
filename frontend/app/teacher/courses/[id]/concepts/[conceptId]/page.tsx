@@ -77,6 +77,16 @@ interface Assets {
   quiz: QuizQuestion[]; flashcards: Flashcard[];
 }
 
+interface QuizAnalyticsQuestion {
+  qi: number; question: string;
+  correct_pct: number; attempt_count: number;
+  most_wrong_option: string | null;
+}
+interface QuizAnalytics {
+  concept_id: string; total_attempts: number;
+  questions: QuizAnalyticsQuestion[];
+}
+
 export default function ConceptEditorPage() {
   const router    = useRouter();
   const params    = useParams();
@@ -168,6 +178,8 @@ export default function ConceptEditorPage() {
 
   const [assetPolling,    setAssetPolling]    = useState(false);
   const [quizItemBusy,   setQuizItemBusy]   = useState<Set<string>>(new Set());
+  const [quizAnalytics,       setQuizAnalytics]       = useState<QuizAnalytics | null>(null);
+  const [quizAnalyticsLoaded, setQuizAnalyticsLoaded] = useState(false);
   const [cardItemBusy,   setCardItemBusy]   = useState<Set<string>>(new Set());
   const [approvingAllQ,  setApprovingAllQ]  = useState(false);
   const [approvingAllC,  setApprovingAllC]  = useState(false);
@@ -598,6 +610,16 @@ export default function ConceptEditorPage() {
   useEffect(() => {
     if (activeTab === 'assets' && !assetsLoaded) loadAssets();
   }, [activeTab, assetsLoaded]);
+
+  // Load quiz analytics once assets are loaded and quiz is approved
+  useEffect(() => {
+    if (!assetsLoaded || !assets || assets.quiz_status !== 'approved' || quizAnalyticsLoaded) return;
+    setQuizAnalyticsLoaded(true);
+    fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz-analytics`, { headers: authH })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setQuizAnalytics(d); })
+      .catch(() => {});
+  }, [assetsLoaded, assets?.quiz_status, quizAnalyticsLoaded]);
 
   // Load resources when Resources tab first opens
   useEffect(() => {
@@ -1812,6 +1834,59 @@ export default function ConceptEditorPage() {
                       </div>
                     )}
                   </AssetSection>
+
+                  {/* ── Quiz Analytics ── */}
+                  {assets.quiz_status === 'approved' && (
+                    <div className="border border-[var(--bd)] rounded-2xl overflow-hidden">
+                      <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--bd)] bg-[var(--ov1)]">
+                        <HelpCircle size={14} className="text-purple-400" />
+                        <span className="text-sm font-medium text-[var(--tx2)]">{t.teacher.quizAnalyticsTitle}</span>
+                        {quizAnalytics && (
+                          <span className="ml-auto text-[10px] text-[var(--tx7)]">
+                            {tF(t.teacher.quizAnalyticsAttempts, { n: quizAnalytics.total_attempts, s: quizAnalytics.total_attempts !== 1 ? 's' : '' })}
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-4">
+                        {!quizAnalyticsLoaded ? (
+                          <div className="flex items-center justify-center py-6">
+                            <Loader2 size={18} className="text-purple-400 animate-spin" />
+                          </div>
+                        ) : !quizAnalytics || quizAnalytics.total_attempts === 0 || quizAnalytics.questions.length === 0 ? (
+                          <p className="text-[var(--tx7)] text-xs text-center py-4">{t.teacher.quizAnalyticsNoData}</p>
+                        ) : (
+                          <div className="space-y-3">
+                            {quizAnalytics.questions.map((q, qi) => (
+                              <div key={q.qi} className="space-y-1">
+                                <div className="flex items-start justify-between gap-2">
+                                  <p className="text-xs text-[var(--tx2)] flex-1">
+                                    <span className="font-mono text-[var(--tx7)] mr-1">{qi + 1}.</span>
+                                    {q.question}
+                                  </p>
+                                  <span className={`text-xs font-semibold shrink-0 ${
+                                    q.correct_pct >= 70 ? 'text-green-400' : q.correct_pct >= 40 ? 'text-amber-400' : 'text-red-400'
+                                  }`}>
+                                    {Math.round(q.correct_pct)}%
+                                  </span>
+                                </div>
+                                {/* correct % bar */}
+                                <div className="h-1.5 bg-[var(--ov3)] rounded-full overflow-hidden">
+                                  <div className={`h-full rounded-full transition-all ${
+                                    q.correct_pct >= 70 ? 'bg-green-400' : q.correct_pct >= 40 ? 'bg-amber-400' : 'bg-red-400'
+                                  }`} style={{ width: `${q.correct_pct}%` }} />
+                                </div>
+                                {q.most_wrong_option && (
+                                  <p className="text-[10px] text-[var(--tx7)]">
+                                    {t.teacher.quizAnalyticsMostWrong}: <span className="text-red-400">{q.most_wrong_option}</span>
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   <AssetSection
                     title={t.teacher.assetFlashcards} icon={<Layers size={14} />}

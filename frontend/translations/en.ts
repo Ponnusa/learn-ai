@@ -716,5 +716,13 @@ export const en: Translation = {
     quizMode_ordered:           'Ordered',
     quizMode_difficulty:        'By difficulty',
     quizMode_shuffle:           'Shuffle',
+    quizAnalyticsTitle:         'Quiz Analytics',
+    quizAnalyticsAttempts:      '{n} attempt{s}',
+    quizAnalyticsNoData:        'No attempt data yet — students haven\'t submitted quiz answers yet',
+    quizAnalyticsMostWrong:     'Most common wrong answer',
+    quizHistoryAttempt:         'Attempt {n}',
+    quizHistoryNoDetail:        'No detailed answer data',
+    quizHistoryChose:           'chose {letter}',
+    quizHistoryNoAnswers:       'No per-question data for this attempt',
   },
 };

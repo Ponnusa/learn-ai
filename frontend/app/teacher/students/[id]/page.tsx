@@ -42,6 +42,9 @@ interface ConversationSummary {
 }
 interface ChatMessage { role: string; content: string; created_at: string | null; }
 
+interface QuizAnswer { qi: number; question: string; chosen: number; correct: number; ok: boolean; }
+interface QuizAttempt { id: string; score: number; answers: QuizAnswer[] | null; taken_at: string | null; }
+
 interface Assignment {
   id: string; concept_id: string | null; kind: string;
   title: string; status: string; created_at: string | null;
@@ -158,6 +161,10 @@ export default function TeacherStudentDetailPage() {
   const [convMessages,     setConvMessages]     = useState<ChatMessage[]>([]);
   const [loadingMessages,  setLoadingMessages]  = useState(false);
 
+  const [expandedQuizConcept, setExpandedQuizConcept] = useState<string | null>(null);
+  const [quizHistories,       setQuizHistories]       = useState<Record<string, QuizAttempt[]>>({});
+  const [loadingQuizHistory,  setLoadingQuizHistory]  = useState<string | null>(null);
+
   const [assignments,     setAssignments]     = useState<Assignment[]>([]);
   const [selectedConcept, setSelectedConcept] = useState('');
   const [assigning,       setAssigning]       = useState<string | null>(null);
@@ -204,6 +211,17 @@ export default function TeacherStudentDetailPage() {
         if (r.ok) setAssignments(await r.json());
       }
     } finally { setAssigning(null); }
+  }
+
+  async function toggleQuizDrilldown(conceptId: string, hasAttempts: boolean) {
+    if (expandedQuizConcept === conceptId) { setExpandedQuizConcept(null); return; }
+    setExpandedQuizConcept(conceptId);
+    if (quizHistories[conceptId] || !hasAttempts) return;
+    setLoadingQuizHistory(conceptId);
+    try {
+      const res = await fetch(`${API_BASE}/api/students/${studentId}/concepts/${conceptId}/quiz-history`, { headers });
+      if (res.ok) { const data = await res.json(); setQuizHistories(prev => ({ ...prev, [conceptId]: data })); }
+    } finally { setLoadingQuizHistory(null); }
   }
 
   async function toggleConversation(convId: string) {
@@ -417,66 +435,129 @@ export default function TeacherStudentDetailPage() {
                 <div className="space-y-1">
                   {course.concepts.map(concept => {
                     const m = getMastery(concept);
+                    const isExpanded = expandedQuizConcept === concept.id;
+                    const history    = quizHistories[concept.id];
+                    const isLoading  = loadingQuizHistory === concept.id;
                     return (
-                      <div key={concept.id} className="flex items-center gap-3 text-sm py-1.5 px-1 rounded-lg hover:bg-[var(--ov1)]">
-                        {/* Mastery icon */}
-                        <div className="shrink-0">
-                          {m === 'mastered'   && <CheckCircle2 size={14} className="text-green-400" />}
-                          {m === 'practiced'  && <CheckCircle2 size={14} className="text-amber-400" />}
-                          {m === 'struggling' && <AlertTriangle size={14} className="text-red-400" />}
-                          {m === 'visited'    && <Circle size={14} className="text-blue-400" />}
-                          {m === 'none'       && <Circle size={14} className="text-[var(--tx8)]" />}
+                      <div key={concept.id} className="rounded-lg">
+                        <div className="flex items-center gap-3 text-sm py-1.5 px-1 rounded-lg hover:bg-[var(--ov1)]">
+                          {/* Mastery icon */}
+                          <div className="shrink-0">
+                            {m === 'mastered'   && <CheckCircle2 size={14} className="text-green-400" />}
+                            {m === 'practiced'  && <CheckCircle2 size={14} className="text-amber-400" />}
+                            {m === 'struggling' && <AlertTriangle size={14} className="text-red-400" />}
+                            {m === 'visited'    && <Circle size={14} className="text-blue-400" />}
+                            {m === 'none'       && <Circle size={14} className="text-[var(--tx8)]" />}
+                          </div>
+
+                          {/* Title */}
+                          <span className="flex-1 text-[var(--tx2)] truncate">{concept.title}</span>
+
+                          {/* AI chat count */}
+                          {concept.ai_msg_count > 0 && (
+                            <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx7)] shrink-0">
+                              <MessageSquare size={9} /> {concept.ai_msg_count}
+                            </span>
+                          )}
+
+                          {/* Flashcard mastery */}
+                          {concept.flashcard_total > 0 && (
+                            <span className={`text-[10px] shrink-0 ${
+                              concept.flashcard_pct !== null && concept.flashcard_pct >= 70 ? 'text-green-400'
+                              : concept.flashcard_pct !== null && concept.flashcard_pct >= 40 ? 'text-amber-400'
+                              : 'text-[var(--tx7)]'
+                            }`}>
+                              <Layers size={9} className="inline mr-0.5" />
+                              {concept.flashcard_mastered}/{concept.flashcard_total}
+                            </span>
+                          )}
+
+                          {/* Time spent */}
+                          {concept.time_spent_seconds > 0 && (
+                            <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx8)] shrink-0">
+                              <Clock size={9} /> {formatTime(concept.time_spent_seconds)}
+                            </span>
+                          )}
+
+                          {/* Videos watched */}
+                          {concept.video_blocks_total > 0 && (
+                            <span className={`flex items-center gap-0.5 text-[10px] shrink-0 ${
+                              concept.video_blocks_watched === concept.video_blocks_total ? 'text-green-400'
+                              : concept.video_blocks_watched > 0 ? 'text-amber-400'
+                              : 'text-[var(--tx8)]'
+                            }`}>
+                              <Video size={9} /> {concept.video_blocks_watched}/{concept.video_blocks_total}
+                            </span>
+                          )}
+
+                          {/* Last seen */}
+                          {concept.last_seen_at && (
+                            <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx8)] shrink-0">
+                              {relativeTime(concept.last_seen_at, t.teacher)}
+                            </span>
+                          )}
+
+                          {/* Quiz score trend — clickable to expand drilldown */}
+                          {concept.quiz_attempts.length > 0 ? (
+                            <button
+                              onClick={() => toggleQuizDrilldown(concept.id, concept.quiz_attempts.length > 0)}
+                              className="flex items-center gap-1 shrink-0 hover:opacity-70 transition-opacity"
+                            >
+                              <QuizTrend attempts={concept.quiz_attempts} />
+                              {isExpanded ? <ChevronUp size={10} className="text-[var(--tx7)]" /> : <ChevronDown size={10} className="text-[var(--tx7)]" />}
+                            </button>
+                          ) : (
+                            <QuizTrend attempts={concept.quiz_attempts} />
+                          )}
                         </div>
 
-                        {/* Title */}
-                        <span className="flex-1 text-[var(--tx2)] truncate">{concept.title}</span>
-
-                        {/* AI chat count */}
-                        {concept.ai_msg_count > 0 && (
-                          <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx7)] shrink-0">
-                            <MessageSquare size={9} /> {concept.ai_msg_count}
-                          </span>
+                        {/* Quiz drilldown */}
+                        {isExpanded && (
+                          <div className="ml-6 mr-1 mb-2 bg-[var(--ov1)] rounded-xl border border-[var(--bd)] overflow-hidden">
+                            {isLoading ? (
+                              <div className="flex items-center justify-center py-4">
+                                <Loader2 size={16} className="text-purple-400 animate-spin" />
+                              </div>
+                            ) : !history || history.length === 0 ? (
+                              <p className="text-[var(--tx7)] text-xs text-center py-3">{t.teacher.quizHistoryNoDetail}</p>
+                            ) : (
+                              <div className="divide-y divide-[var(--bd)]">
+                                {history.map((attempt, ai) => (
+                                  <div key={attempt.id} className="p-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      <span className="text-[10px] text-[var(--tx7)] font-mono">{tF(t.teacher.quizHistoryAttempt, { n: ai + 1 })}</span>
+                                      <span className={`text-[10px] font-semibold ${attempt.score >= 70 ? 'text-green-400' : attempt.score >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
+                                        {attempt.score}%
+                                      </span>
+                                      {attempt.taken_at && (
+                                        <span className="text-[10px] text-[var(--tx8)] ml-auto">
+                                          {new Date(attempt.taken_at).toLocaleDateString()}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {attempt.answers && attempt.answers.length > 0 ? (
+                                      <div className="space-y-1">
+                                        {attempt.answers.map(ans => (
+                                          <div key={ans.qi} className={`flex items-start gap-1.5 text-[10px] rounded px-2 py-1 ${ans.ok ? 'bg-green-500/8 text-green-400' : 'bg-red-500/8 text-red-400'}`}>
+                                            <span className="shrink-0 mt-0.5">{ans.ok ? '✓' : '✗'}</span>
+                                            <span className="text-[var(--tx6)] flex-1 line-clamp-2">{ans.question}</span>
+                                            {!ans.ok && (
+                                              <span className="shrink-0 text-[var(--tx7)]">
+                                                {tF(t.teacher.quizHistoryChose, { letter: String.fromCharCode(65 + ans.chosen) })}
+                                              </span>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <p className="text-[10px] text-[var(--tx8)]">{t.teacher.quizHistoryNoAnswers}</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         )}
-
-                        {/* Flashcard mastery */}
-                        {concept.flashcard_total > 0 && (
-                          <span className={`text-[10px] shrink-0 ${
-                            concept.flashcard_pct !== null && concept.flashcard_pct >= 70 ? 'text-green-400'
-                            : concept.flashcard_pct !== null && concept.flashcard_pct >= 40 ? 'text-amber-400'
-                            : 'text-[var(--tx7)]'
-                          }`}>
-                            <Layers size={9} className="inline mr-0.5" />
-                            {concept.flashcard_mastered}/{concept.flashcard_total}
-                          </span>
-                        )}
-
-                        {/* Time spent */}
-                        {concept.time_spent_seconds > 0 && (
-                          <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx8)] shrink-0">
-                            <Clock size={9} /> {formatTime(concept.time_spent_seconds)}
-                          </span>
-                        )}
-
-                        {/* Videos watched */}
-                        {concept.video_blocks_total > 0 && (
-                          <span className={`flex items-center gap-0.5 text-[10px] shrink-0 ${
-                            concept.video_blocks_watched === concept.video_blocks_total ? 'text-green-400'
-                            : concept.video_blocks_watched > 0 ? 'text-amber-400'
-                            : 'text-[var(--tx8)]'
-                          }`}>
-                            <Video size={9} /> {concept.video_blocks_watched}/{concept.video_blocks_total}
-                          </span>
-                        )}
-
-                        {/* Last seen */}
-                        {concept.last_seen_at && (
-                          <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx8)] shrink-0">
-                            {relativeTime(concept.last_seen_at, t.teacher)}
-                          </span>
-                        )}
-
-                        {/* Quiz score trend */}
-                        <QuizTrend attempts={concept.quiz_attempts} />
                       </div>
                     );
                   })}

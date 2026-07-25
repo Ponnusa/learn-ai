@@ -696,5 +696,13 @@ export interface Translation {
     quizMode_ordered: string;
     quizMode_difficulty: string;
     quizMode_shuffle: string;
+    quizAnalyticsTitle: string;
+    quizAnalyticsAttempts: string;
+    quizAnalyticsNoData: string;
+    quizAnalyticsMostWrong: string;
+    quizHistoryAttempt: string;
+    quizHistoryNoDetail: string;
+    quizHistoryChose: string;
+    quizHistoryNoAnswers: string;
   };
 }

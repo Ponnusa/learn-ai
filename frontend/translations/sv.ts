@@ -716,5 +716,13 @@ export const sv: Translation = {
     quizMode_ordered:           'I ordning',
     quizMode_difficulty:        'Efter svårighetsgrad',
     quizMode_shuffle:           'Blanda',
+    quizAnalyticsTitle:         'Frågesportsanalys',
+    quizAnalyticsAttempts:      '{n} försök',
+    quizAnalyticsNoData:        'Inga försöksdata ännu — elever har inte skickat in frågesportssvar',
+    quizAnalyticsMostWrong:     'Vanligaste felaktiga svar',
+    quizHistoryAttempt:         'Försök {n}',
+    quizHistoryNoDetail:        'Inga detaljerade svardata',
+    quizHistoryChose:           'valde {letter}',
+    quizHistoryNoAnswers:       'Inga frågespecifika data för detta försök',
   },
 };
