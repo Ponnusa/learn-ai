@@ -120,6 +120,9 @@ export interface Translation {
     greetAfternoon: string;
     greetEvening: string;
     greetNight: string;
+    micRecord: string;
+    micStop: string;
+    micTranscribing: string;
   };
 
   video: {

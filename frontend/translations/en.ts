@@ -129,6 +129,9 @@ export const en: Translation = {
     greetAfternoon: 'Good afternoon',
     greetEvening: 'Good evening',
     greetNight: 'Hey, night owl',
+    micRecord: 'Speak your question',
+    micStop: 'Stop recording',
+    micTranscribing: 'Transcribing…',
   },
 
   video: {

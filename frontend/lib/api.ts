@@ -160,6 +160,19 @@ export async function getChatMessageAudio(messageId: string, language = 'en'): P
   return res.blob();
 }
 
+export async function transcribeAudio(blob: Blob, language = 'en'): Promise<string> {
+  const ext = blob.type.includes('ogg') ? 'ogg' : blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const formData = new FormData();
+  formData.append('file', blob, `recording.${ext}`);
+  const res = await fetch(`${API_BASE}/api/chat/transcribe?language=${language}`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) throw new Error('Transcription failed');
+  const data = await res.json();
+  return data.text as string;
+}
+
 // ── Videos ────────────────────────────────────────────────────────────────────
 export const generateVideo = (data: {
   prompt: string;

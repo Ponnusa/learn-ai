@@ -129,6 +129,9 @@ export const sv: Translation = {
     greetAfternoon: 'God eftermiddag',
     greetEvening: 'God kväll',
     greetNight: 'Hej, nattugla',
+    micRecord: 'Tala din fråga',
+    micStop: 'Stoppa inspelning',
+    micTranscribing: 'Transkriberar…',
   },
 
   video: {

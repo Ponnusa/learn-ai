@@ -5,7 +5,7 @@ Profile update runs in background after every 5 messages.
 """
 import asyncio
 import json
-from fastapi import APIRouter, BackgroundTasks, Response
+from fastapi import APIRouter, BackgroundTasks, Response, UploadFile
 from pydantic import BaseModel
 from database import get_db
 from services.ai_router import openai_client, get_model
@@ -17,6 +17,20 @@ from services.credits import check_message_credit
 from services.chips import generate_chips
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+
+@router.post("/transcribe")
+async def transcribe_audio(file: UploadFile, language: str = "en"):
+    audio_bytes = await file.read()
+    filename = file.filename or "audio.webm"
+    lang = language if language in ("en", "fi", "sv") else "en"
+    result = await asyncio.to_thread(
+        openai_client.audio.transcriptions.create,
+        model="whisper-1",
+        file=(filename, audio_bytes, file.content_type or "audio/webm"),
+        language=lang,
+    )
+    return {"text": result.text}
 
 
 async def _noop() -> dict:

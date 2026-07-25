@@ -1,24 +1,28 @@
 'use client';
 import { useRef, useState, KeyboardEvent } from 'react';
-import { Send, Paperclip, X, Bug } from 'lucide-react';
+import { Send, Paperclip, X, Mic, Square } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { transcribeAudio } from '@/lib/api';
 
 interface InputBarProps {
   onSend: (text: string, file?: File) => void;
   onPdfOpen?: (file: File) => void;
-  onDebug?: (text: string) => void;
   loading?: boolean;
   hasFile?: boolean;
   disabled?: boolean;
 }
 
-export function InputBar({ onSend, onPdfOpen, onDebug, loading = false, hasFile = false, disabled = false }: InputBarProps) {
+export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, disabled = false }: InputBarProps) {
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
-  const { t } = useTranslation();
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const { t, language } = useTranslation();
 
   function handleSend() {
     if (!text.trim() && !file) return;
@@ -36,10 +40,7 @@ export function InputBar({ onSend, onPdfOpen, onDebug, loading = false, hasFile 
 
   function handleFile(f: File) {
     if (!f) return;
-    if (f.type === 'application/pdf') {
-      onPdfOpen?.(f);
-      return;
-    }
+    if (f.type === 'application/pdf') { onPdfOpen?.(f); return; }
     if (!f.type.startsWith('image/')) return;
     setFile(f);
   }
@@ -49,6 +50,40 @@ export function InputBar({ onSend, onPdfOpen, onDebug, loading = false, hasFile 
     setDragOver(false);
     const f = e.dataTransfer.files[0];
     if (f) handleFile(f);
+  }
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(tr => tr.stop());
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType });
+        setTranscribing(true);
+        try {
+          const result = await transcribeAudio(blob, language);
+          setText(prev => prev ? `${prev} ${result}` : result);
+          textRef.current?.focus();
+        } catch {
+          // mic permission or network issue — user can try again
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      mr.start();
+      setRecording(true);
+    } catch {
+      // getUserMedia denied or unavailable
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    mediaRecorderRef.current = null;
+    setRecording(false);
   }
 
   return (
@@ -72,7 +107,7 @@ export function InputBar({ onSend, onPdfOpen, onDebug, loading = false, hasFile 
           dragOver ? 'border-purple-500' : 'border-[var(--bd)] focus-within:border-[var(--bd2)]'
         }`}
       >
-        {/* Attach button */}
+        {/* Attach */}
         <input
           ref={fileRef}
           type="file"
@@ -93,28 +128,33 @@ export function InputBar({ onSend, onPdfOpen, onDebug, loading = false, hasFile 
         <textarea
           data-tour="chat-input"
           ref={textRef}
-          value={text}
-          onChange={e => setText(e.target.value)}
+          value={transcribing ? t.chat.micTranscribing : text}
+          onChange={e => { if (!transcribing) setText(e.target.value); }}
           onKeyDown={handleKey}
           placeholder={file ? t.chat.placeholderWithFile : t.chat.placeholder}
-          disabled={disabled || loading}
+          disabled={disabled || loading || transcribing}
           rows={1}
           className="flex-1 bg-transparent text-[var(--tx1)] t-ph outline-none resize-none text-sm leading-6 max-h-40 overflow-y-auto no-scrollbar"
           style={{ minHeight: '24px' }}
         />
 
-        {/* Debug button — only shown when onDebug is wired up */}
-        {onDebug && (
-          <button
-            onClick={() => onDebug(text)}
-            title="Debug: inspect prompt sent to AI"
-            className="shrink-0 pb-0.5 text-[var(--tx6)] hover:text-amber-400 transition-colors"
-          >
-            <Bug size={15} />
-          </button>
-        )}
+        {/* Mic */}
+        <button
+          onClick={recording ? stopRecording : startRecording}
+          disabled={disabled || loading || transcribing}
+          title={recording ? t.chat.micStop : t.chat.micRecord}
+          className={`shrink-0 pb-0.5 transition-colors ${
+            recording
+              ? 'text-red-400 hover:text-red-300'
+              : transcribing
+                ? 'text-purple-400 animate-pulse cursor-not-allowed'
+                : 'text-[var(--tx6)] hover:text-[var(--tx2)]'
+          }`}
+        >
+          {recording ? <Square size={16} /> : <Mic size={18} />}
+        </button>
 
-        {/* Send button */}
+        {/* Send */}
         <button
           onClick={handleSend}
           disabled={disabled || loading || (!text.trim() && !file)}

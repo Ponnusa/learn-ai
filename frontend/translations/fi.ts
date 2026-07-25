@@ -129,6 +129,9 @@ export const fi: Translation = {
     greetAfternoon: 'Hyvää päivää',
     greetEvening: 'Hyvää iltaa',
     greetNight: 'Hei, yökyöpeli',
+    micRecord: 'Puhu kysymyksesi',
+    micStop: 'Lopeta tallennus',
+    micTranscribing: 'Muutetaan tekstiksi…',
   },
 
   video: {

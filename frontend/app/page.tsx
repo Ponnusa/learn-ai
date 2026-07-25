@@ -17,8 +17,7 @@ import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLanguageStore } from '@/store/languageStore';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, debugChatPrompt, getStudentProfile, uploadRegionImage } from '@/lib/api';
-import { DebugPromptModal } from '@/components/chat/DebugPromptModal';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, getStudentProfile, uploadRegionImage } from '@/lib/api';
 import { ProfileNudgeCard } from '@/components/profile/ProfileNudgeCard';
 import { HomeTour } from '@/components/onboarding/HomeTour';
 
@@ -48,7 +47,6 @@ export default function HomePage() {
   const [videoByMsgId, setVideoByMsgId]     = useState<Record<string, number>>({});
   /** Maps message ID → image job ID for inline diagram cards */
   const [imageByMsgId, setImageByMsgId]     = useState<Record<string, string>>({});
-  const [debugData,    setDebugData]         = useState<any>(null);
   const [showNudge,    setShowNudge]         = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
@@ -203,19 +201,6 @@ export default function HomePage() {
       const conv = conversations.find(c => c.id === id);
       if (conv?.subject) setCurrentSubject({ subject: conv.subject, subtopic: conv.subtopic });
     } catch { /* silently ignore */ }
-  }
-
-  async function handleDebug(text: string) {
-    try {
-      const data = await debugChatPrompt({
-        message:         text || '(empty)',
-        conversation_id: conversationId ?? undefined,
-        user_id:         user?.id,
-        session_id:      sessionId ?? undefined,
-        language,
-      }, token ?? undefined);
-      setDebugData(data);
-    } catch (e) { console.error('Debug prompt error', e); }
   }
 
   async function handleSend(text: string, file?: File) {
@@ -602,7 +587,7 @@ export default function HomePage() {
             onDismiss={() => { setShowNudge(false); try { localStorage.setItem('profile_nudge_dismissed', '1'); } catch {} }}
           />
         )}
-        <InputBar onSend={handleSend} onPdfOpen={f => setPdfFile(f)} loading={loading} onDebug={handleDebug} />
+        <InputBar onSend={handleSend} onPdfOpen={f => setPdfFile(f)} loading={loading} />
       </main>
 
       {pdfFile && (
@@ -612,8 +597,6 @@ export default function HomePage() {
           onAsk={handlePdfAsk}
         />
       )}
-
-      {debugData && <DebugPromptModal data={debugData} onClose={() => setDebugData(null)} />}
 
       {showSignup && (
         <SignupModal
