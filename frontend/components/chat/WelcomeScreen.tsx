@@ -146,6 +146,13 @@ export function WelcomeScreen({ user, onSend }: Props) {
         ))}
       </div>
 
+      <button
+        onClick={() => window.dispatchEvent(new CustomEvent('start-home-tour'))}
+        className="text-[11px] text-[var(--tx8)] hover:text-purple-400 transition-colors mt-1"
+      >
+        New here? Take a quick tour →
+      </button>
+
     </div>
   );
 }

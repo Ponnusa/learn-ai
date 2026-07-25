@@ -41,6 +41,15 @@ export function HomeTour() {
     return () => clearTimeout(t);
   }, []);
 
+  useEffect(() => {
+    function onTrigger() {
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
+      setShow(true);
+    }
+    window.addEventListener('start-home-tour', onTrigger);
+    return () => window.removeEventListener('start-home-tour', onTrigger);
+  }, []);
+
   if (!show) return null;
   return (
     <SpotlightTour
