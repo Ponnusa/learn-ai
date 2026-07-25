@@ -123,6 +123,14 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             GROUP BY concept_id
         """, student_id)
 
+        # Most recent quiz attempt's per-question answers per concept
+        last_answer_rows = await db.fetch("""
+            SELECT DISTINCT ON (concept_id) concept_id, answers
+            FROM concept_quiz_attempts
+            WHERE student_id = $1::uuid AND answers IS NOT NULL
+            ORDER BY concept_id, taken_at DESC
+        """, student_id)
+
     fc_map: dict[str, dict] = {}
     for r in fc_rows:
         total    = int(r["total_cards"]   or 0)
@@ -148,6 +156,7 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
     time_map: dict[str, int] = {str(r["concept_id"]): int(r["total_seconds"] or 0) for r in time_rows}
     video_total_map: dict[str, int]   = {str(r["concept_id"]): int(r["total"])   for r in video_block_total_rows}
     video_watched_map: dict[str, int] = {str(r["concept_id"]): int(r["watched"]) for r in video_watched_rows}
+    last_answers_map: dict[str, list] = {str(r["concept_id"]): r["answers"] for r in last_answer_rows}
 
     courses: dict[str, dict] = {}
     for r in rows:
@@ -171,6 +180,7 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             "time_spent_seconds":    time_map.get(cpt_id, 0),
             "video_blocks_total":    video_total_map.get(cpt_id, 0),
             "video_blocks_watched":  video_watched_map.get(cpt_id, 0),
+            "last_attempt_answers":  last_answers_map.get(cpt_id),
         })
 
     return {

@@ -22,6 +22,7 @@ interface ConceptProgress {
   time_spent_seconds: number;
   video_blocks_total: number;
   video_blocks_watched: number;
+  last_attempt_answers: QuizAnswer[] | null;
 }
 interface CourseProgress  { id: string; name: string; concepts: ConceptProgress[]; }
 interface StudentProgress { id: string; name: string; email: string; courses: CourseProgress[]; }
@@ -435,11 +436,14 @@ export default function TeacherStudentDetailPage() {
                 <div className="space-y-1">
                   {course.concepts.map(concept => {
                     const m = getMastery(concept);
-                    const isExpanded = expandedQuizConcept === concept.id;
-                    const history    = quizHistories[concept.id];
-                    const isLoading  = loadingQuizHistory === concept.id;
+                    const isExpanded  = expandedQuizConcept === concept.id;
+                    const history     = quizHistories[concept.id];
+                    const isLoading   = loadingQuizHistory === concept.id;
+                    const lastAnswers = concept.last_attempt_answers;
+                    const hasQuiz     = concept.quiz_attempts.length > 0;
                     return (
                       <div key={concept.id} className="rounded-lg">
+                        {/* ── Main row ── */}
                         <div className="flex items-center gap-3 text-sm py-1.5 px-1 rounded-lg hover:bg-[var(--ov1)]">
                           {/* Mastery icon */}
                           <div className="shrink-0">
@@ -497,21 +501,33 @@ export default function TeacherStudentDetailPage() {
                             </span>
                           )}
 
-                          {/* Quiz score trend — clickable to expand drilldown */}
-                          {concept.quiz_attempts.length > 0 ? (
+                          {/* Quiz score trend — clickable to expand full history */}
+                          {hasQuiz ? (
                             <button
-                              onClick={() => toggleQuizDrilldown(concept.id, concept.quiz_attempts.length > 0)}
+                              onClick={() => toggleQuizDrilldown(concept.id, true)}
                               className="flex items-center gap-1 shrink-0 hover:opacity-70 transition-opacity"
                             >
                               <QuizTrend attempts={concept.quiz_attempts} />
                               {isExpanded ? <ChevronUp size={10} className="text-[var(--tx7)]" /> : <ChevronDown size={10} className="text-[var(--tx7)]" />}
                             </button>
-                          ) : (
-                            <QuizTrend attempts={concept.quiz_attempts} />
-                          )}
+                          ) : null}
                         </div>
 
-                        {/* Quiz drilldown */}
+                        {/* ── Inline Q dots from last attempt ── */}
+                        {lastAnswers && lastAnswers.length > 0 && (
+                          <div className="ml-[22px] flex items-center gap-1 pb-1.5 flex-wrap">
+                            {lastAnswers.map((ans, i) => (
+                              <span
+                                key={i}
+                                title={`Q${i + 1}: ${ans.question} — ${ans.ok ? 'Correct' : `Wrong (chose ${String.fromCharCode(65 + ans.chosen)})`}`}
+                                className={`w-2 h-2 rounded-full cursor-default ${ans.ok ? 'bg-green-400' : 'bg-red-400'}`}
+                              />
+                            ))}
+                            <span className="text-[9px] text-[var(--tx8)] ml-1">last attempt</span>
+                          </div>
+                        )}
+
+                        {/* Quiz drilldown — full attempt history on click */}
                         {isExpanded && (
                           <div className="ml-6 mr-1 mb-2 bg-[var(--ov1)] rounded-xl border border-[var(--bd)] overflow-hidden">
                             {isLoading ? (
