@@ -32,8 +32,7 @@ async def transcribe_audio(file: UploadFile, language: str = "en"):
     try:
         buf = io.BytesIO(audio_bytes)
         buf.name = filename
-        result = await asyncio.to_thread(
-            openai_client.audio.transcriptions.create,
+        result = await openai_client.audio.transcriptions.create(
             model="whisper-1",
             file=buf,
             language=lang,
