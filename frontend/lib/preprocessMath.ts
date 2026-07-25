@@ -21,6 +21,14 @@ export function preprocessMath(content: string): string {
     (_m, math: string) => `$${math.trim()}$`,
   );
 
+  // Normalise $$...$$ so the delimiters are always on their own line.
+  // remark-math v6 only treats $$...$$ as block math when $$ starts/ends a line.
+  // GPT-4o often writes $$\begin{array}...\end{array}$$ inline, breaking the parser.
+  content = content.replace(
+    /\$\$([\s\S]+?)\$\$/g,
+    (_m, math: string) => `\n$$\n${math.trim()}\n$$\n`,
+  );
+
   // Bare [ ... ] used by GPT-4o as display math delimiters.
   // Only convert when the content contains a LaTeX command (\word) so we don't
   // accidentally convert Markdown links ([text](...)) or plain bracketed text.
