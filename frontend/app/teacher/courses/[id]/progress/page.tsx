@@ -14,6 +14,7 @@ interface Cell {
   flashcard_pct: number | null;
   flashcard_mastered: number;
   flashcard_total: number;
+  quiz_attempts: number[];
 }
 interface Concept     { id: string; title: string; unit_title: string; }
 interface StudentRow  {
@@ -196,14 +197,25 @@ export default function CourseProgressPage() {
                   </td>
                   {/* Per-concept mastery cells */}
                   {data.concepts.map(c => {
-                    const cell = s.cells[c.id];
-                    const m    = getMastery(cell);
+                    const cell     = s.cells[c.id];
+                    const m        = getMastery(cell);
+                    const attempts = cell?.quiz_attempts ?? [];
+                    const tip      = attempts.length > 1
+                      ? `Attempts: ${attempts.join(' → ')}%`
+                      : attempts.length === 1 ? `Score: ${attempts[0]}%` : undefined;
                     return (
-                      <td key={c.id} className={`text-center p-2 ${MASTERY_BG[m]}`}>
+                      <td key={c.id} className={`text-center p-2 ${MASTERY_BG[m]}`} title={tip}>
                         <div className="flex flex-col items-center gap-0.5">
                           <span className={MASTERY_DOT[m]} />
-                          {cell?.quiz_score !== null && cell?.quiz_score !== undefined && (
-                            <span className="text-[10px] text-[var(--tx7)]">{Math.round(cell.quiz_score)}%</span>
+                          {attempts.length > 0 && (
+                            <span className="text-[10px] text-[var(--tx7)]">
+                              {attempts[attempts.length - 1]}%
+                              {attempts.length > 1 && (
+                                <span className={attempts[attempts.length-1] > attempts[0] ? 'text-green-400' : attempts[attempts.length-1] < attempts[0] ? 'text-red-400' : ''}>
+                                  {attempts[attempts.length-1] > attempts[0] ? ' ↑' : attempts[attempts.length-1] < attempts[0] ? ' ↓' : ''}
+                                </span>
+                              )}
+                            </span>
                           )}
                           {cell?.flashcard_total > 0 && (
                             <span className="text-[9px] text-[var(--tx8)]">

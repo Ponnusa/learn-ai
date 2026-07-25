@@ -101,6 +101,20 @@ export default function StudentConceptDetailPage() {
     } finally { setLoading(false); }
   }
 
+  // Time-on-page heartbeat — fires every 30 s while the page is mounted
+  useEffect(() => {
+    if (!user || !token) return;
+    const INTERVAL = 30_000;
+    const iv = setInterval(() => {
+      fetch(`${API_BASE}/api/courses/concepts/${conceptId}/heartbeat`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ seconds: INTERVAL / 1000 }),
+      }).catch(() => {});
+    }, INTERVAL);
+    return () => clearInterval(iv);
+  }, [user, token, conceptId]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMsgs]);

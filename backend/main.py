@@ -482,6 +482,28 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE course_concepts        ADD COLUMN IF NOT EXISTS quiz_mode  TEXT NOT NULL DEFAULT 'ordered'",
             # ── Concept source page within its chapter PDF ────────────────────
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS page_start INTEGER",
+            # ── Phase 3 progress: per-attempt quiz log ────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS concept_quiz_attempts (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                student_id  UUID NOT NULL REFERENCES users(id)            ON DELETE CASCADE,
+                concept_id  UUID NOT NULL REFERENCES course_concepts(id)  ON DELETE CASCADE,
+                score       FLOAT NOT NULL,
+                taken_at    TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_quiz_attempts_student_concept ON concept_quiz_attempts(student_id, concept_id, taken_at)",
+            # ── Phase 3 progress: daily time-on-page per concept ─────────────
+            """
+            CREATE TABLE IF NOT EXISTS concept_time_logs (
+                student_id   UUID NOT NULL REFERENCES users(id)            ON DELETE CASCADE,
+                concept_id   UUID NOT NULL REFERENCES course_concepts(id)  ON DELETE CASCADE,
+                log_date     DATE NOT NULL DEFAULT CURRENT_DATE,
+                seconds_spent INT NOT NULL DEFAULT 0,
+                PRIMARY KEY (student_id, concept_id, log_date)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_time_logs_student ON concept_time_logs(student_id, concept_id)",
         ]:
             try:
                 await db.execute(sql)

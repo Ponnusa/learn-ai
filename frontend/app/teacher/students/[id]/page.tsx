@@ -18,6 +18,8 @@ interface ConceptProgress {
   flashcard_pct: number | null;
   flashcard_mastered: number; flashcard_total: number;
   ai_msg_count: number;
+  quiz_attempts: number[];       // last 5 scores oldest→newest
+  time_spent_seconds: number;
 }
 interface CourseProgress  { id: string; name: string; concepts: ConceptProgress[]; }
 interface StudentProgress { id: string; name: string; email: string; courses: CourseProgress[]; }
@@ -51,6 +53,37 @@ function getMastery(c: ConceptProgress): Mastery {
   if (c.quiz_score >= 70) return 'mastered';
   if (c.quiz_score >= 40) return 'practiced';
   return 'struggling';
+}
+
+function formatTime(seconds: number): string {
+  if (seconds < 60)   return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  return `${(seconds / 3600).toFixed(1)}h`;
+}
+
+// Inline quiz score trend: "45 → 67 → 82%" with a coloured trend arrow
+function QuizTrend({ attempts }: { attempts: number[] }) {
+  if (attempts.length === 0) return null;
+  if (attempts.length === 1) {
+    const s = attempts[0];
+    return (
+      <span className={`text-xs font-medium ${s >= 70 ? 'text-green-400' : s >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
+        {s}%
+      </span>
+    );
+  }
+  const first = attempts[0];
+  const last  = attempts[attempts.length - 1];
+  const up    = last > first;
+  const same  = last === first;
+  return (
+    <span className="flex items-center gap-1 text-xs shrink-0">
+      <span className="text-[var(--tx7)]">{attempts.join(' → ')}%</span>
+      <span className={up ? 'text-green-400' : same ? 'text-[var(--tx7)]' : 'text-red-400'}>
+        {up ? '↑' : same ? '→' : '↓'}
+      </span>
+    </span>
+  );
 }
 
 function relativeTime(iso: string | null): string {
@@ -416,21 +449,22 @@ export default function TeacherStudentDetailPage() {
                           </span>
                         )}
 
-                        {/* Last seen */}
-                        {concept.last_seen_at && (
+                        {/* Time spent */}
+                        {concept.time_spent_seconds > 0 && (
                           <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx8)] shrink-0">
-                            <Clock size={9} /> {relativeTime(concept.last_seen_at)}
+                            <Clock size={9} /> {formatTime(concept.time_spent_seconds)}
                           </span>
                         )}
 
-                        {/* Quiz score */}
-                        {concept.quiz_score !== null && (
-                          <span className={`text-xs font-medium shrink-0 ${
-                            concept.quiz_score >= 70 ? 'text-green-400'
-                            : concept.quiz_score >= 40 ? 'text-amber-400'
-                            : 'text-red-400'
-                          }`}>{Math.round(concept.quiz_score)}%</span>
+                        {/* Last seen */}
+                        {concept.last_seen_at && (
+                          <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx8)] shrink-0">
+                            {relativeTime(concept.last_seen_at)}
+                          </span>
                         )}
+
+                        {/* Quiz score trend */}
+                        <QuizTrend attempts={concept.quiz_attempts} />
                       </div>
                     );
                   })}

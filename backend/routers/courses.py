@@ -536,6 +536,16 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             WHERE cu.course_id = $1::uuid
         """, course_id)
 
+        # Quiz attempt history per (student, concept) — up to 5 most recent
+        attempt_rows = await db.fetch("""
+            SELECT qa.student_id, qa.concept_id, qa.score
+            FROM concept_quiz_attempts qa
+            JOIN course_concepts cc ON cc.id = qa.concept_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid
+            ORDER BY qa.student_id, qa.concept_id, qa.taken_at ASC
+        """, course_id)
+
         # Flashcard mastery: latest review rating per (student, flashcard) → % mastered (≥3)
         flashcard_rows = await db.fetch("""
             WITH total_cards AS (
@@ -563,6 +573,13 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             JOIN total_cards tc ON tc.concept_id = lr.concept_id
             GROUP BY lr.student_id, lr.concept_id, tc.total
         """, course_id)
+
+    attempt_map_grid: dict[tuple, list] = {}
+    for r in attempt_rows:
+        key = (str(r["student_id"]), str(r["concept_id"]))
+        attempt_map_grid.setdefault(key, []).append(round(r["score"]))
+    for key in attempt_map_grid:
+        attempt_map_grid[key] = attempt_map_grid[key][-5:]
 
     flashcard_map: dict[tuple, dict] = {}
     for r in flashcard_rows:
@@ -606,6 +623,7 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
                 "flashcard_pct":     fc.get("flashcard_pct"),
                 "flashcard_mastered":fc.get("flashcard_mastered", 0),
                 "flashcard_total":   fc.get("flashcard_total", 0),
+                "quiz_attempts":     attempt_map_grid.get((sid, c["id"]), []),
             }
             if cell["visited"]:
                 visited_count += 1
@@ -2134,7 +2152,36 @@ async def submit_quiz_score(
                           last_seen_at = NOW()
         """, student_id, concept_id, str(concept["course_id"]), score)
 
+        # Log every attempt so teachers can see score trends
+        await db.execute(
+            "INSERT INTO concept_quiz_attempts (student_id, concept_id, score) VALUES ($1::uuid, $2::uuid, $3)",
+            student_id, concept_id, score,
+        )
+
     return {"ok": True, "quiz_score": score}
+
+
+class HeartbeatRequest(BaseModel):
+    seconds: int  # seconds spent since last heartbeat (client sends every 30s)
+
+
+@router.post("/concepts/{concept_id}/heartbeat")
+async def concept_heartbeat(concept_id: str, req: HeartbeatRequest, authorization: str = Header(...)):
+    """
+    Student time-on-page signal — client sends every 30 s while the page is open.
+    Accumulates into concept_time_logs (one row per student × concept × day).
+    Capped at 3 600 s per call to guard against tab-left-open drift.
+    """
+    student_id = await _get_student(authorization)
+    seconds    = max(1, min(3600, req.seconds))
+    async with get_db() as db:
+        await db.execute("""
+            INSERT INTO concept_time_logs (student_id, concept_id, log_date, seconds_spent)
+            VALUES ($1::uuid, $2::uuid, CURRENT_DATE, $3)
+            ON CONFLICT (student_id, concept_id, log_date)
+            DO UPDATE SET seconds_spent = concept_time_logs.seconds_spent + $3
+        """, student_id, concept_id, seconds)
+    return {"ok": True}
 
 
 class FlashcardReviewRequest(BaseModel):

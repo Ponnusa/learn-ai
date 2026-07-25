@@ -89,6 +89,22 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             GROUP BY c.concept_id
         """, student_id)
 
+        # Quiz attempt history — up to 5 most recent per concept
+        attempt_rows = await db.fetch("""
+            SELECT concept_id, score, taken_at
+            FROM concept_quiz_attempts
+            WHERE student_id = $1::uuid
+            ORDER BY concept_id, taken_at ASC
+        """, student_id)
+
+        # Total time spent per concept (sum across all days)
+        time_rows = await db.fetch("""
+            SELECT concept_id, SUM(seconds_spent) AS total_seconds
+            FROM concept_time_logs
+            WHERE student_id = $1::uuid
+            GROUP BY concept_id
+        """, student_id)
+
     fc_map: dict[str, dict] = {}
     for r in fc_rows:
         total    = int(r["total_cards"]   or 0)
@@ -100,6 +116,18 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
         }
 
     ai_map: dict[str, int] = {str(r["concept_id"]): int(r["msg_count"] or 0) for r in msg_count_rows}
+
+    # Group attempts by concept, keep last 5
+    attempt_map: dict[str, list] = {}
+    for r in attempt_rows:
+        cid = str(r["concept_id"])
+        if cid not in attempt_map:
+            attempt_map[cid] = []
+        attempt_map[cid].append(round(r["score"]))
+    for cid in attempt_map:
+        attempt_map[cid] = attempt_map[cid][-5:]  # keep 5 most recent
+
+    time_map: dict[str, int] = {str(r["concept_id"]): int(r["total_seconds"] or 0) for r in time_rows}
 
     courses: dict[str, dict] = {}
     for r in rows:
@@ -119,6 +147,8 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             "flashcard_mastered": fc.get("flashcard_mastered", 0),
             "flashcard_total":    fc.get("flashcard_total", 0),
             "ai_msg_count":       ai_map.get(cpt_id, 0),
+            "quiz_attempts":      attempt_map.get(cpt_id, []),
+            "time_spent_seconds": time_map.get(cpt_id, 0),
         })
 
     return {
