@@ -67,6 +67,7 @@ export default function StudentConceptDetailPage() {
   const [chatResource, setChatResource] = useState<{ id: string; title: string; type: string } | null>(null);
   const chatEndRef         = useRef<HTMLDivElement>(null);
   const legacyMaxWatchRef  = useRef(0);
+  const lastActivityRef    = useRef(Date.now()); // updated on any user interaction
 
   // Quiz state
   const [quizAnswers, setQuizAnswers]   = useState<Record<number, number>>({});
@@ -102,11 +103,30 @@ export default function StudentConceptDetailPage() {
     } finally { setLoading(false); }
   }
 
-  // Time-on-page heartbeat — fires every 30 s while the page is mounted
+  // Track user activity — any interaction resets the idle clock
+  useEffect(() => {
+    const onActivity = () => { lastActivityRef.current = Date.now(); };
+    const onVisibility = () => {
+      // Tab hidden → force idle; tab visible again → restart clock
+      lastActivityRef.current = document.hidden ? 0 : Date.now();
+    };
+    const events = ['mousemove', 'keydown', 'scroll', 'click', 'touchstart'] as const;
+    events.forEach(e => window.addEventListener(e, onActivity, { passive: true }));
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      events.forEach(e => window.removeEventListener(e, onActivity));
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, []);
+
+  // Heartbeat — only fires when student was active in the last 60 s and tab is visible
   useEffect(() => {
     if (!user || !token) return;
-    const INTERVAL = 30_000;
+    const INTERVAL     = 30_000;
+    const IDLE_CUTOFF  = 60_000; // 60 s without any input = idle
     const iv = setInterval(() => {
+      if (document.hidden) return;
+      if (Date.now() - lastActivityRef.current > IDLE_CUTOFF) return;
       fetch(`${API_BASE}/api/courses/concepts/${conceptId}/heartbeat`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
