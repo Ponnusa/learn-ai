@@ -370,37 +370,49 @@ async def _generate_title(message: str, language: str) -> str:
 
 _TTS_LANG_NAMES = {'en': 'English', 'fi': 'Finnish', 'sv': 'Swedish'}
 
+_TTS_SYSTEM = (
+    "Convert this educational text to a clean spoken script in {lang}. "
+    "Rules: remove all LaTeX delimiters and commands ($, $$, \\[, \\], \\ce{{}}, etc.); "
+    "write formulas as spoken words (e.g. C_2H_4 becomes C 2 H 4, x^2 becomes x squared, "
+    "\\frac{{a}}{{b}} becomes a over b); "
+    "remove all markdown symbols (**, __, #, backticks, bullet dashes); "
+    "convert bullet lists to natural flowing sentences; "
+    "keep all educational content intact. "
+    "Output plain prose only — no symbols, no formatting marks."
+)
 
-class TTSRequest(BaseModel):
-    content: str
-    language: str = "en"
 
+@router.get("/messages/{message_id}/audio")
+async def get_message_audio(message_id: str, language: str = "en"):
+    """Return cached audio for a chat message, generating and saving it on first call.
 
-@router.post("/tts")
-async def chat_tts(req: TTSRequest):
-    """Convert a chat message to spoken audio.
-    Step 1: GPT-4o-mini strips LaTeX/markdown → clean spoken prose.
-    Step 2: OpenAI tts-1 (nova) → audio/mpeg returned directly.
+    First call:  GPT-4o-mini cleans LaTeX/markdown to spoken prose,
+                 tts-1 (nova) converts to audio, saved to messages.audio_data.
+    Subsequent:  read audio_data from DB directly — no AI calls.
     """
-    lang_name = _TTS_LANG_NAMES.get(req.language, 'English')
+    from fastapi import HTTPException as _HTTPException
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT audio_data, content FROM messages WHERE id = $1::uuid",
+            message_id,
+        )
+    if not row:
+        raise _HTTPException(404, "Message not found")
+
+    if row["audio_data"]:
+        return Response(
+            content=bytes(row["audio_data"]),
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    lang_name = _TTS_LANG_NAMES.get(language, "English")
 
     clean_resp = await openai_client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {
-                "role": "system",
-                "content": (
-                    f"Convert this educational text to a clean spoken script in {lang_name}. "
-                    "Rules: remove all LaTeX delimiters ($, $$, \\[, \\], \\ce{{}}) and commands; "
-                    "write formulas as spoken words (e.g. C_2H_4 → 'C 2 H 4', x^2 → 'x squared', "
-                    "\\frac{{a}}{{b}} → 'a over b'); "
-                    "remove markdown symbols (**, __, #, backticks, bullet dashes); "
-                    "convert bullet lists to natural flowing sentences; "
-                    "keep all educational content intact. "
-                    "Output plain prose only — no symbols, no formatting marks."
-                ),
-            },
-            {"role": "user", "content": req.content[:3000]},
+            {"role": "system", "content": _TTS_SYSTEM.format(lang=lang_name)},
+            {"role": "user", "content": row["content"][:3000]},
         ],
         max_tokens=800,
         temperature=0.3,
@@ -408,13 +420,18 @@ async def chat_tts(req: TTSRequest):
     spoken = clean_resp.choices[0].message.content.strip()
 
     audio_resp = await openai_client.audio.speech.create(
-        model="tts-1",
-        voice="nova",
-        input=spoken[:4096],
+        model="tts-1", voice="nova", input=spoken[:4096],
     )
+    audio_bytes = audio_resp.content
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE messages SET audio_data = $1, audio_script = $2 WHERE id = $3::uuid",
+            audio_bytes, spoken, message_id,
+        )
 
     return Response(
-        content=audio_resp.content,
+        content=audio_bytes,
         media_type="audio/mpeg",
-        headers={"Cache-Control": "no-store"},
+        headers={"Cache-Control": "public, max-age=86400"},
     )

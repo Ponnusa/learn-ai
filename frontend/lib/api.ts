@@ -154,6 +154,12 @@ export const sendMessage = (data: {
   subject: { subject: string; subtopic: string; icon: string } | null;
 }>('/api/chat/send', data, token);
 
+export async function getChatMessageAudio(messageId: string, language = 'en'): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/api/chat/messages/${messageId}/audio?language=${language}`);
+  if (!res.ok) throw new Error('Audio generation failed');
+  return res.blob();
+}
+
 // ── Videos ────────────────────────────────────────────────────────────────────
 export const generateVideo = (data: {
   prompt: string;

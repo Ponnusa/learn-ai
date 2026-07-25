@@ -11,7 +11,7 @@ import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
-import { getQuiz, getVideoStatus, retryVideoManim, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage } from '@/lib/api';
+import { getQuiz, getVideoStatus, retryVideoManim, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage, getChatMessageAudio } from '@/lib/api';
 
 interface Message {
   id: string;
@@ -709,13 +709,7 @@ export function MessageBubble({
     if (ttsPlaying || ttsLoading) { stopTts(); setTtsLoading(false); return; }
     setTtsLoading(true);
     try {
-      const res = await fetch('/api/chat/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: message.content, language }),
-      });
-      if (!res.ok) throw new Error('TTS failed');
-      const blob = await res.blob();
+      const blob = await getChatMessageAudio(message.id, language);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       ttsAudioRef.current = audio;

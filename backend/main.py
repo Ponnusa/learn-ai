@@ -495,6 +495,8 @@ async def lifespan(app: FastAPI):
             "CREATE INDEX IF NOT EXISTS idx_quiz_attempts_student_concept ON concept_quiz_attempts(student_id, concept_id, taken_at)",
             # Store per-question answers so teachers can see which questions trip students up
             "ALTER TABLE concept_quiz_attempts ADD COLUMN IF NOT EXISTS answers JSONB",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS audio_data   BYTEA",
+            "ALTER TABLE messages ADD COLUMN IF NOT EXISTS audio_script TEXT",
             # ── Phase 3 progress: daily time-on-page per concept ─────────────
             """
             CREATE TABLE IF NOT EXISTS concept_time_logs (
