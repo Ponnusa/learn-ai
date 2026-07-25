@@ -20,6 +20,7 @@ interface ConceptProgress {
   ai_msg_count: number;
   quiz_attempts: number[];       // last 5 scores oldest→newest
   time_spent_seconds: number;
+  video_pct_watched: number | null;
 }
 interface CourseProgress  { id: string; name: string; concepts: ConceptProgress[]; }
 interface StudentProgress { id: string; name: string; email: string; courses: CourseProgress[]; }
@@ -453,6 +454,17 @@ export default function TeacherStudentDetailPage() {
                         {concept.time_spent_seconds > 0 && (
                           <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx8)] shrink-0">
                             <Clock size={9} /> {formatTime(concept.time_spent_seconds)}
+                          </span>
+                        )}
+
+                        {/* Video watch % */}
+                        {concept.video_pct_watched != null && (
+                          <span className={`flex items-center gap-0.5 text-[10px] shrink-0 ${
+                            concept.video_pct_watched >= 90 ? 'text-green-400'
+                            : concept.video_pct_watched >= 50 ? 'text-amber-400'
+                            : 'text-[var(--tx8)]'
+                          }`}>
+                            <Video size={9} /> {concept.video_pct_watched}%
                           </span>
                         )}
 

@@ -504,6 +504,17 @@ async def lifespan(app: FastAPI):
             )
             """,
             "CREATE INDEX IF NOT EXISTS idx_time_logs_student ON concept_time_logs(student_id, concept_id)",
+            # ── Phase 3 progress: max video watch position per student × concept ─
+            """
+            CREATE TABLE IF NOT EXISTS concept_video_watches (
+                student_id   UUID  NOT NULL REFERENCES users(id)            ON DELETE CASCADE,
+                concept_id   UUID  NOT NULL REFERENCES course_concepts(id)  ON DELETE CASCADE,
+                pct_watched  FLOAT NOT NULL DEFAULT 0,
+                updated_at   TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (student_id, concept_id)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_video_watches_student ON concept_video_watches(student_id, concept_id)",
         ]:
             try:
                 await db.execute(sql)

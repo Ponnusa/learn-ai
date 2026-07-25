@@ -65,7 +65,8 @@ export default function StudentConceptDetailPage() {
   const [chatSending, setChatSending] = useState(false);
   // resource context: when set, next message carries this resource_id for vision/PDF grounding
   const [chatResource, setChatResource] = useState<{ id: string; title: string; type: string } | null>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatEndRef         = useRef<HTMLDivElement>(null);
+  const legacyMaxWatchRef  = useRef(0);
 
   // Quiz state
   const [quizAnswers, setQuizAnswers]   = useState<Record<number, number>>({});
@@ -114,6 +115,33 @@ export default function StudentConceptDetailPage() {
     }, INTERVAL);
     return () => clearInterval(iv);
   }, [user, token, conceptId]);
+
+  const LEGACY_WATCH_THRESHOLDS = [10, 25, 50, 75, 90, 100];
+
+  function handleLegacyVideoTimeUpdate(e: React.SyntheticEvent<HTMLVideoElement>) {
+    const vid = e.currentTarget;
+    if (!vid.duration || !token) return;
+    const pct = Math.floor((vid.currentTime / vid.duration) * 100);
+    const next = LEGACY_WATCH_THRESHOLDS.find(t => t > legacyMaxWatchRef.current && pct >= t);
+    if (next !== undefined) {
+      legacyMaxWatchRef.current = next;
+      fetch(`${API_BASE}/api/courses/concepts/${conceptId}/video-progress`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pct: next }),
+      }).catch(() => {});
+    }
+  }
+
+  function handleLegacyVideoEnded() {
+    if (!token || legacyMaxWatchRef.current >= 100) return;
+    legacyMaxWatchRef.current = 100;
+    fetch(`${API_BASE}/api/courses/concepts/${conceptId}/video-progress`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pct: 100 }),
+    }).catch(() => {});
+  }
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -295,12 +323,15 @@ export default function StudentConceptDetailPage() {
       {activeTab === 'learn' && (
         <>
           {/* Textbook content blocks */}
-          <ConceptTextbook conceptId={conceptId} token={token!} onHasBlocks={setHasBlocks} />
+          <ConceptTextbook conceptId={conceptId} token={token!} onHasBlocks={setHasBlocks} trackProgress />
 
           {/* Legacy single-asset view (only when no textbook blocks) */}
           {!hasBlocks && showVideo && (
             <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mb-6">
-              <video controls src={`${API_BASE}${assets!.video_url}`} className="w-full aspect-video" />
+              <video controls src={`${API_BASE}${assets!.video_url}`} className="w-full aspect-video"
+                onTimeUpdate={handleLegacyVideoTimeUpdate}
+                onEnded={handleLegacyVideoEnded}
+              />
               <p className="px-4 py-2 text-[var(--tx8)] text-xs flex items-center gap-1.5">
                 <Video size={11} /> Video lesson
               </p>

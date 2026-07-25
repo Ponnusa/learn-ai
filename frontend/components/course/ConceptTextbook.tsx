@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -42,10 +42,15 @@ function resourceUrl(bodyOrId: string): string {
 
 // ── Block sub-components ──────────────────────────────────────────────────────
 
-function VideoBlock({ block, token }: { block: ContentBlock; token?: string }) {
+const WATCH_THRESHOLDS = [10, 25, 50, 75, 90, 100];
+
+function VideoBlock({ block, token, onWatchPct }: {
+  block: ContentBlock; token?: string; onWatchPct?: (pct: number) => void;
+}) {
   const [videoUrl, setVideoUrl] = useState(block.video_url);
   const [status,   setStatus]   = useState(block.video_status);
   const [polling,  setPolling]  = useState(!block.video_url && !!block.video_id);
+  const maxReportedRef = useRef(0);
 
   useEffect(() => {
     if (!polling || !block.video_id) return;
@@ -65,6 +70,18 @@ function VideoBlock({ block, token }: { block: ContentBlock; token?: string }) {
     return () => { alive = false; clearInterval(iv); };
   }, [polling, block.video_id, token]);
 
+  function handleTimeUpdate(e: React.SyntheticEvent<HTMLVideoElement>) {
+    const vid = e.currentTarget;
+    if (!vid.duration || !onWatchPct) return;
+    const pct = Math.floor((vid.currentTime / vid.duration) * 100);
+    const next = WATCH_THRESHOLDS.find(t => t > maxReportedRef.current && pct >= t);
+    if (next !== undefined) { maxReportedRef.current = next; onWatchPct(next); }
+  }
+
+  function handleEnded() {
+    if (onWatchPct && maxReportedRef.current < 100) { maxReportedRef.current = 100; onWatchPct(100); }
+  }
+
   return (
     <div className="rounded-xl border border-[var(--bd)] overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
@@ -72,7 +89,10 @@ function VideoBlock({ block, token }: { block: ContentBlock; token?: string }) {
         <span className="text-sm font-medium text-[var(--tx2)]">{block.title || 'Video'}</span>
       </div>
       {videoUrl
-        ? <video src={videoUrl} controls className="w-full aspect-video bg-black" preload="metadata" />
+        ? <video src={videoUrl} controls className="w-full aspect-video bg-black" preload="metadata"
+            onTimeUpdate={onWatchPct ? handleTimeUpdate : undefined}
+            onEnded={onWatchPct ? handleEnded : undefined}
+          />
         : <div className="flex flex-col items-center justify-center gap-2 py-10 text-[var(--tx7)]">
             {status === 'failed'
               ? <p className="text-sm text-red-400">Video generation failed</p>
@@ -331,9 +351,10 @@ function SortableBlock({ block, conceptId, token, editable, onDelete, onLightbox
 interface ConceptTextbookProps {
   conceptId: string; token: string; editable?: boolean;
   onHasBlocks?: (has: boolean) => void;
+  trackProgress?: boolean;
 }
 
-export function ConceptTextbook({ conceptId, token, editable = false, onHasBlocks }: ConceptTextbookProps) {
+export function ConceptTextbook({ conceptId, token, editable = false, onHasBlocks, trackProgress = false }: ConceptTextbookProps) {
   const [blocks,       setBlocks]       = useState<ContentBlock[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [error,        setError]        = useState<string | null>(null);
@@ -353,6 +374,15 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
       .catch(e => setError(e.message ?? 'Failed to load'))
       .finally(() => setLoading(false));
   }, [conceptId, token]);
+
+  const reportWatchPct = useCallback((pct: number) => {
+    if (!trackProgress) return;
+    fetch(`${API_BASE}/api/courses/concepts/${conceptId}/video-progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ pct }),
+    }).catch(() => {});
+  }, [conceptId, token, trackProgress]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -396,7 +426,7 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
               editable onDelete={handleDelete} onLightbox={setLightboxUrl}
               onPdf={(url, title) => setPdfModal({ url, title })} />
           : <div key={block.id}>
-              {block.type === 'video'        ? <VideoBlock      block={block} token={token} />
+              {block.type === 'video'        ? <VideoBlock      block={block} token={token} onWatchPct={trackProgress ? reportWatchPct : undefined} />
               : block.type === 'audio'       ? <AudioBlock      block={block} />
               : block.type === 'embed_video' ? <EmbedVideoBlock block={block} />
               : block.type === 'embed_image' ? <EmbedImageBlock block={block} onLightbox={setLightboxUrl} />

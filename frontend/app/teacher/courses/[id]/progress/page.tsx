@@ -15,6 +15,7 @@ interface Cell {
   flashcard_mastered: number;
   flashcard_total: number;
   quiz_attempts: number[];
+  video_pct_watched: number | null;
 }
 interface Concept     { id: string; title: string; unit_title: string; }
 interface StudentRow  {
@@ -200,11 +201,12 @@ export default function CourseProgressPage() {
                     const cell     = s.cells[c.id];
                     const m        = getMastery(cell);
                     const attempts = cell?.quiz_attempts ?? [];
-                    const tip      = attempts.length > 1
-                      ? `Attempts: ${attempts.join(' → ')}%`
-                      : attempts.length === 1 ? `Score: ${attempts[0]}%` : undefined;
+                    const tipParts: string[] = [];
+                    if (attempts.length > 1) tipParts.push(`Quiz: ${attempts.join(' → ')}%`);
+                    else if (attempts.length === 1) tipParts.push(`Quiz: ${attempts[0]}%`);
+                    if (cell?.video_pct_watched != null) tipParts.push(`Video: ${cell.video_pct_watched}% watched`);
                     return (
-                      <td key={c.id} className={`text-center p-2 ${MASTERY_BG[m]}`} title={tip}>
+                      <td key={c.id} className={`text-center p-2 ${MASTERY_BG[m]}`} title={tipParts.join(' · ') || undefined}>
                         <div className="flex flex-col items-center gap-0.5">
                           <span className={MASTERY_DOT[m]} />
                           {attempts.length > 0 && (
@@ -216,6 +218,9 @@ export default function CourseProgressPage() {
                                 </span>
                               )}
                             </span>
+                          )}
+                          {cell?.video_pct_watched != null && (
+                            <span className="text-[9px] text-[var(--tx8)]">▶ {cell.video_pct_watched}%</span>
                           )}
                           {cell?.flashcard_total > 0 && (
                             <span className="text-[9px] text-[var(--tx8)]">

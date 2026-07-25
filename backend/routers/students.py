@@ -105,6 +105,13 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             GROUP BY concept_id
         """, student_id)
 
+        # Max video watch % per concept
+        video_watch_rows = await db.fetch("""
+            SELECT concept_id, pct_watched
+            FROM concept_video_watches
+            WHERE student_id = $1::uuid
+        """, student_id)
+
     fc_map: dict[str, dict] = {}
     for r in fc_rows:
         total    = int(r["total_cards"]   or 0)
@@ -128,6 +135,7 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
         attempt_map[cid] = attempt_map[cid][-5:]  # keep 5 most recent
 
     time_map: dict[str, int] = {str(r["concept_id"]): int(r["total_seconds"] or 0) for r in time_rows}
+    video_watch_map: dict[str, int] = {str(r["concept_id"]): round(r["pct_watched"]) for r in video_watch_rows}
 
     courses: dict[str, dict] = {}
     for r in rows:
@@ -146,9 +154,10 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             "flashcard_pct":      fc.get("flashcard_pct"),
             "flashcard_mastered": fc.get("flashcard_mastered", 0),
             "flashcard_total":    fc.get("flashcard_total", 0),
-            "ai_msg_count":       ai_map.get(cpt_id, 0),
-            "quiz_attempts":      attempt_map.get(cpt_id, []),
-            "time_spent_seconds": time_map.get(cpt_id, 0),
+            "ai_msg_count":        ai_map.get(cpt_id, 0),
+            "quiz_attempts":       attempt_map.get(cpt_id, []),
+            "time_spent_seconds":  time_map.get(cpt_id, 0),
+            "video_pct_watched":   video_watch_map.get(cpt_id),
         })
 
     return {

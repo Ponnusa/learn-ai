@@ -546,6 +546,15 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             ORDER BY qa.student_id, qa.concept_id, qa.taken_at ASC
         """, course_id)
 
+        # Max video watch % per (student, concept)
+        video_watch_rows = await db.fetch("""
+            SELECT vw.student_id, vw.concept_id, vw.pct_watched
+            FROM concept_video_watches vw
+            JOIN course_concepts cc ON cc.id = vw.concept_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid
+        """, course_id)
+
         # Flashcard mastery: latest review rating per (student, flashcard) → % mastered (≥3)
         flashcard_rows = await db.fetch("""
             WITH total_cards AS (
@@ -573,6 +582,10 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             JOIN total_cards tc ON tc.concept_id = lr.concept_id
             GROUP BY lr.student_id, lr.concept_id, tc.total
         """, course_id)
+
+    video_watch_map: dict[tuple, int] = {}
+    for r in video_watch_rows:
+        video_watch_map[(str(r["student_id"]), str(r["concept_id"]))] = round(r["pct_watched"])
 
     attempt_map_grid: dict[tuple, list] = {}
     for r in attempt_rows:
@@ -617,13 +630,14 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             fc   = flashcard_map.get((sid, c["id"]), {})
             ls   = cell.get("last_seen_at")
             cells[c["id"]] = {
-                "visited":           bool(cell["visited"]),
-                "quiz_score":        cell["quiz_score"],
-                "last_seen_at":      ls.isoformat() if ls else None,
-                "flashcard_pct":     fc.get("flashcard_pct"),
-                "flashcard_mastered":fc.get("flashcard_mastered", 0),
-                "flashcard_total":   fc.get("flashcard_total", 0),
-                "quiz_attempts":     attempt_map_grid.get((sid, c["id"]), []),
+                "visited":            bool(cell["visited"]),
+                "quiz_score":         cell["quiz_score"],
+                "last_seen_at":       ls.isoformat() if ls else None,
+                "flashcard_pct":      fc.get("flashcard_pct"),
+                "flashcard_mastered": fc.get("flashcard_mastered", 0),
+                "flashcard_total":    fc.get("flashcard_total", 0),
+                "quiz_attempts":      attempt_map_grid.get((sid, c["id"]), []),
+                "video_pct_watched":  video_watch_map.get((sid, c["id"])),
             }
             if cell["visited"]:
                 visited_count += 1
@@ -2181,6 +2195,30 @@ async def concept_heartbeat(concept_id: str, req: HeartbeatRequest, authorizatio
             ON CONFLICT (student_id, concept_id, log_date)
             DO UPDATE SET seconds_spent = concept_time_logs.seconds_spent + $3
         """, student_id, concept_id, seconds)
+    return {"ok": True}
+
+
+class VideoProgressRequest(BaseModel):
+    pct: float  # 0–100, max % of the video reached
+
+
+@router.post("/concepts/{concept_id}/video-progress")
+async def concept_video_progress(concept_id: str, req: VideoProgressRequest, authorization: str = Header(...)):
+    """
+    Student video-watch signal — records the highest % of the concept video watched.
+    Only advances the stored value, never regresses it (GREATEST).
+    """
+    student_id = await _get_student(authorization)
+    pct = max(0.0, min(100.0, req.pct))
+    async with get_db() as db:
+        await db.execute("""
+            INSERT INTO concept_video_watches (student_id, concept_id, pct_watched, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, NOW())
+            ON CONFLICT (student_id, concept_id)
+            DO UPDATE SET
+                pct_watched = GREATEST(concept_video_watches.pct_watched, $3),
+                updated_at  = NOW()
+        """, student_id, concept_id, pct)
     return {"ok": True}
 
 
