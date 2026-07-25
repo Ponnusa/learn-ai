@@ -11,6 +11,7 @@ import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
+import { SmilesBlock } from './SmilesBlock';
 import { getQuiz, getVideoStatus, retryVideoManim, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage, getChatMessageAudio } from '@/lib/api';
 
 interface Message {
@@ -788,7 +789,19 @@ export function MessageBubble({
             />
           ) : (
             <div className="ai-content">
-              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkMath]}
+                rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
+                components={{
+                  code({ className, children }) {
+                    const lang = /language-(\w+)/.exec(className ?? '')?.[1];
+                    if (lang === 'smiles') {
+                      return <SmilesBlock smiles={String(children).trim()} />;
+                    }
+                    return <code className={className}>{children}</code>;
+                  },
+                }}
+              >
                 {preprocessMath(message.content)}
               </ReactMarkdown>
             </div>

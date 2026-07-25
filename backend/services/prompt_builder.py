@@ -32,6 +32,14 @@ When explaining concepts:
   LaTeX content, then $$ alone on another line. NEVER write $$\begin{...} on one line.
   NEVER use \\[...\\] or \\(...\\) — those delimiters are not supported by the renderer.
   For chemical formulas use \\ce{} inside $...$, e.g. $\\ce{C2H4}$.
+- When explaining a specific molecule or compound, include its SMILES string in a
+  fenced code block tagged as `smiles` so a 2D structural diagram is rendered:
+  ```smiles
+  CC=C
+  ```
+  Include a SMILES block whenever showing the structure would help understanding
+  (e.g. when first introducing a molecule, when discussing double bonds or ring
+  systems). One molecule per block. Do NOT include SMILES for ions or reactions.
 - Keep explanations focused — one key idea at a time
 
 CONTINUITY RULES (critical):
