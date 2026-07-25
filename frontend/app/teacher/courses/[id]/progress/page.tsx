@@ -15,7 +15,8 @@ interface Cell {
   flashcard_mastered: number;
   flashcard_total: number;
   quiz_attempts: number[];
-  video_pct_watched: number | null;
+  video_blocks_total: number;
+  video_blocks_watched: number;
 }
 interface Concept     { id: string; title: string; unit_title: string; }
 interface StudentRow  {
@@ -202,7 +203,7 @@ export default function CourseProgressPage() {
                     const tipParts: string[] = [];
                     if (attempts.length > 1) tipParts.push(`Quiz: ${attempts.join(' → ')}%`);
                     else if (attempts.length === 1) tipParts.push(`Quiz: ${attempts[0]}%`);
-                    if (cell?.video_pct_watched != null) tipParts.push(`Video: ${cell.video_pct_watched}% watched`);
+                    if (cell?.video_blocks_total > 0) tipParts.push(`Videos: ${cell.video_blocks_watched}/${cell.video_blocks_total} watched (≥75%)`);
                     return (
                       <td key={c.id} className={`text-center p-2 ${MASTERY_BG[m]}`} title={tipParts.join(' · ') || undefined}>
                         <div className="flex flex-col items-center gap-0.5">
@@ -217,8 +218,12 @@ export default function CourseProgressPage() {
                               )}
                             </span>
                           )}
-                          {cell?.video_pct_watched != null && (
-                            <span className="text-[9px] text-[var(--tx8)]">▶ {cell.video_pct_watched}%</span>
+                          {cell?.video_blocks_total > 0 && (
+                            <span className={`text-[9px] shrink-0 ${
+                              cell.video_blocks_watched === cell.video_blocks_total ? 'text-green-400'
+                              : cell.video_blocks_watched > 0 ? 'text-amber-400'
+                              : 'text-[var(--tx8)]'
+                            }`}>▶ {cell.video_blocks_watched}/{cell.video_blocks_total}</span>
                           )}
                           {cell?.flashcard_total > 0 && (
                             <span className="text-[9px] text-[var(--tx8)]">

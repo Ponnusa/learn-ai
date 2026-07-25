@@ -45,7 +45,7 @@ function resourceUrl(bodyOrId: string): string {
 const WATCH_THRESHOLDS = [10, 25, 50, 75, 90, 100];
 
 function VideoBlock({ block, token, onWatchPct }: {
-  block: ContentBlock; token?: string; onWatchPct?: (pct: number) => void;
+  block: ContentBlock; token?: string; onWatchPct?: (pct: number, blockId: string) => void;
 }) {
   const [videoUrl, setVideoUrl] = useState(block.video_url);
   const [status,   setStatus]   = useState(block.video_status);
@@ -75,11 +75,11 @@ function VideoBlock({ block, token, onWatchPct }: {
     if (!vid.duration || !onWatchPct) return;
     const pct = Math.floor((vid.currentTime / vid.duration) * 100);
     const next = WATCH_THRESHOLDS.find(t => t > maxReportedRef.current && pct >= t);
-    if (next !== undefined) { maxReportedRef.current = next; onWatchPct(next); }
+    if (next !== undefined) { maxReportedRef.current = next; onWatchPct(next, block.id); }
   }
 
   function handleEnded() {
-    if (onWatchPct && maxReportedRef.current < 100) { maxReportedRef.current = 100; onWatchPct(100); }
+    if (onWatchPct && maxReportedRef.current < 100) { maxReportedRef.current = 100; onWatchPct(100, block.id); }
   }
 
   return (
@@ -375,12 +375,12 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
       .finally(() => setLoading(false));
   }, [conceptId, token]);
 
-  const reportWatchPct = useCallback((pct: number) => {
+  const reportWatchPct = useCallback((pct: number, blockId: string) => {
     if (!trackProgress) return;
     fetch(`${API_BASE}/api/courses/concepts/${conceptId}/video-progress`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ pct }),
+      body: JSON.stringify({ pct, block_id: blockId }),
     }).catch(() => {});
   }, [conceptId, token, trackProgress]);
 

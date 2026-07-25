@@ -105,11 +105,22 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             GROUP BY concept_id
         """, student_id)
 
-        # Max video watch % per concept
-        video_watch_rows = await db.fetch("""
-            SELECT concept_id, pct_watched
+        # Video block totals per concept (textbook blocks only)
+        video_block_total_rows = await db.fetch("""
+            SELECT concept_id, COUNT(*) AS total
+            FROM concept_content_blocks
+            WHERE type = 'video' AND in_textbook = true
+            GROUP BY concept_id
+        """)
+
+        # How many video blocks this student has watched ≥ 75 %
+        video_watched_rows = await db.fetch("""
+            SELECT concept_id, COUNT(*) AS watched
             FROM concept_video_watches
             WHERE student_id = $1::uuid
+              AND pct_watched >= 75
+              AND block_id != 'legacy'
+            GROUP BY concept_id
         """, student_id)
 
     fc_map: dict[str, dict] = {}
@@ -135,7 +146,8 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
         attempt_map[cid] = attempt_map[cid][-5:]  # keep 5 most recent
 
     time_map: dict[str, int] = {str(r["concept_id"]): int(r["total_seconds"] or 0) for r in time_rows}
-    video_watch_map: dict[str, int] = {str(r["concept_id"]): round(r["pct_watched"]) for r in video_watch_rows}
+    video_total_map: dict[str, int]   = {str(r["concept_id"]): int(r["total"])   for r in video_block_total_rows}
+    video_watched_map: dict[str, int] = {str(r["concept_id"]): int(r["watched"]) for r in video_watched_rows}
 
     courses: dict[str, dict] = {}
     for r in rows:
@@ -154,10 +166,11 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             "flashcard_pct":      fc.get("flashcard_pct"),
             "flashcard_mastered": fc.get("flashcard_mastered", 0),
             "flashcard_total":    fc.get("flashcard_total", 0),
-            "ai_msg_count":        ai_map.get(cpt_id, 0),
-            "quiz_attempts":       attempt_map.get(cpt_id, []),
-            "time_spent_seconds":  time_map.get(cpt_id, 0),
-            "video_pct_watched":   video_watch_map.get(cpt_id),
+            "ai_msg_count":          ai_map.get(cpt_id, 0),
+            "quiz_attempts":         attempt_map.get(cpt_id, []),
+            "time_spent_seconds":    time_map.get(cpt_id, 0),
+            "video_blocks_total":    video_total_map.get(cpt_id, 0),
+            "video_blocks_watched":  video_watched_map.get(cpt_id, 0),
         })
 
     return {

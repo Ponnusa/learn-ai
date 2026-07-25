@@ -546,13 +546,26 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             ORDER BY qa.student_id, qa.concept_id, qa.taken_at ASC
         """, course_id)
 
-        # Max video watch % per (student, concept)
-        video_watch_rows = await db.fetch("""
-            SELECT vw.student_id, vw.concept_id, vw.pct_watched
+        # Total video content blocks per concept (≠ legacy single-video)
+        video_block_total_rows = await db.fetch("""
+            SELECT ccb.concept_id, COUNT(*) AS total
+            FROM concept_content_blocks ccb
+            JOIN course_concepts cc ON cc.id = ccb.concept_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid AND ccb.type = 'video' AND ccb.in_textbook = true
+            GROUP BY ccb.concept_id
+        """, course_id)
+
+        # How many of those blocks each student has watched ≥ 75 %
+        video_watched_rows = await db.fetch("""
+            SELECT vw.student_id, vw.concept_id, COUNT(*) AS watched
             FROM concept_video_watches vw
             JOIN course_concepts cc ON cc.id = vw.concept_id
             JOIN course_units cu    ON cu.id = cc.unit_id
             WHERE cu.course_id = $1::uuid
+              AND vw.pct_watched >= 75
+              AND vw.block_id != 'legacy'
+            GROUP BY vw.student_id, vw.concept_id
         """, course_id)
 
         # Flashcard mastery: latest review rating per (student, flashcard) → % mastered (≥3)
@@ -583,9 +596,10 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             GROUP BY lr.student_id, lr.concept_id, tc.total
         """, course_id)
 
-    video_watch_map: dict[tuple, int] = {}
-    for r in video_watch_rows:
-        video_watch_map[(str(r["student_id"]), str(r["concept_id"]))] = round(r["pct_watched"])
+    video_total_map: dict[str, int] = {str(r["concept_id"]): int(r["total"]) for r in video_block_total_rows}
+    video_watched_map: dict[tuple, int] = {
+        (str(r["student_id"]), str(r["concept_id"])): int(r["watched"]) for r in video_watched_rows
+    }
 
     attempt_map_grid: dict[tuple, list] = {}
     for r in attempt_rows:
@@ -636,8 +650,9 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
                 "flashcard_pct":      fc.get("flashcard_pct"),
                 "flashcard_mastered": fc.get("flashcard_mastered", 0),
                 "flashcard_total":    fc.get("flashcard_total", 0),
-                "quiz_attempts":      attempt_map_grid.get((sid, c["id"]), []),
-                "video_pct_watched":  video_watch_map.get((sid, c["id"])),
+                "quiz_attempts":          attempt_map_grid.get((sid, c["id"]), []),
+                "video_blocks_total":     video_total_map.get(c["id"], 0),
+                "video_blocks_watched":   video_watched_map.get((sid, c["id"]), 0),
             }
             if cell["visited"]:
                 visited_count += 1
@@ -2199,26 +2214,29 @@ async def concept_heartbeat(concept_id: str, req: HeartbeatRequest, authorizatio
 
 
 class VideoProgressRequest(BaseModel):
-    pct: float  # 0–100, max % of the video reached
+    pct: float              # 0–100, the watch percentage reached
+    block_id: str = 'legacy'  # content-block UUID, or 'legacy' for old single-video concepts
 
 
 @router.post("/concepts/{concept_id}/video-progress")
 async def concept_video_progress(concept_id: str, req: VideoProgressRequest, authorization: str = Header(...)):
     """
-    Student video-watch signal — records the highest % of the concept video watched.
-    Only advances the stored value, never regresses it (GREATEST).
+    Student video-watch signal — records the highest % watched per content block.
+    Tracked per (student, concept, block_id) so multiple videos in one concept are
+    counted independently. Only advances pct, never regresses (GREATEST).
     """
     student_id = await _get_student(authorization)
-    pct = max(0.0, min(100.0, req.pct))
+    pct      = max(0.0, min(100.0, req.pct))
+    block_id = req.block_id or 'legacy'
     async with get_db() as db:
         await db.execute("""
-            INSERT INTO concept_video_watches (student_id, concept_id, pct_watched, updated_at)
-            VALUES ($1::uuid, $2::uuid, $3, NOW())
-            ON CONFLICT (student_id, concept_id)
+            INSERT INTO concept_video_watches (student_id, concept_id, block_id, pct_watched, updated_at)
+            VALUES ($1::uuid, $2::uuid, $3, $4, NOW())
+            ON CONFLICT (student_id, concept_id, block_id)
             DO UPDATE SET
-                pct_watched = GREATEST(concept_video_watches.pct_watched, $3),
+                pct_watched = GREATEST(concept_video_watches.pct_watched, $4),
                 updated_at  = NOW()
-        """, student_id, concept_id, pct)
+        """, student_id, concept_id, block_id, pct)
     return {"ok": True}
 
 

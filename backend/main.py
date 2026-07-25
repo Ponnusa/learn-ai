@@ -504,17 +504,34 @@ async def lifespan(app: FastAPI):
             )
             """,
             "CREATE INDEX IF NOT EXISTS idx_time_logs_student ON concept_time_logs(student_id, concept_id)",
-            # ── Phase 3 progress: max video watch position per student × concept ─
+            # ── Phase 3 progress: max video watch % per student × concept × block ─
+            # block_id = content-block UUID, or 'legacy' for old single-video concepts
             """
             CREATE TABLE IF NOT EXISTS concept_video_watches (
                 student_id   UUID  NOT NULL REFERENCES users(id)            ON DELETE CASCADE,
                 concept_id   UUID  NOT NULL REFERENCES course_concepts(id)  ON DELETE CASCADE,
+                block_id     TEXT  NOT NULL DEFAULT 'legacy',
                 pct_watched  FLOAT NOT NULL DEFAULT 0,
                 updated_at   TIMESTAMPTZ DEFAULT NOW(),
-                PRIMARY KEY (student_id, concept_id)
+                PRIMARY KEY (student_id, concept_id, block_id)
             )
             """,
             "CREATE INDEX IF NOT EXISTS idx_video_watches_student ON concept_video_watches(student_id, concept_id)",
+            # Upgrade: add block_id column if the table already existed without it
+            "ALTER TABLE concept_video_watches ADD COLUMN IF NOT EXISTS block_id TEXT NOT NULL DEFAULT 'legacy'",
+            # Upgrade: rebuild PK to include block_id (idempotent via exception handling)
+            """
+            DO $$ BEGIN
+              BEGIN
+                ALTER TABLE concept_video_watches DROP CONSTRAINT concept_video_watches_pkey;
+              EXCEPTION WHEN others THEN NULL;
+              END;
+              BEGIN
+                ALTER TABLE concept_video_watches ADD PRIMARY KEY (student_id, concept_id, block_id);
+              EXCEPTION WHEN others THEN NULL;
+              END;
+            END $$
+            """,
         ]:
             try:
                 await db.execute(sql)
