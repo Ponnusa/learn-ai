@@ -650,6 +650,18 @@ export interface Translation {
     colStudent: string;
     colVisited: string;
     colAvgQuiz: string;
+    colLastActive: string;
+    classAvgRow: string;
+    masteryNone: string;
+    masteryVisited: string;
+    masteryStruggling: string;
+    masteryPracticed: string;
+    masteryMastered: string;
+    needsAttention: string;
+    relToday: string;
+    relDaysAgo: string;
+    relWeeksAgo: string;
+    relMonthsAgo: string;
     studioGenerateTitle: string;
     studioGenerateDesc: string;
     studioGenerateBtn: string;

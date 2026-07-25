@@ -87,14 +87,13 @@ function QuizTrend({ attempts }: { attempts: number[] }) {
   );
 }
 
-function relativeTime(iso: string | null): string {
+function relativeTime(iso: string | null, tt: { relToday: string; relDaysAgo: string; relWeeksAgo: string; relMonthsAgo: string }): string {
   if (!iso) return '—';
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
-  if (days === 0) return 'today';
-  if (days === 1) return '1d ago';
-  if (days < 7)  return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return `${Math.floor(days / 30)}mo ago`;
+  if (days === 0) return tt.relToday;
+  if (days < 7)  return tt.relDaysAgo.replace('{n}', String(days));
+  if (days < 30) return tt.relWeeksAgo.replace('{n}', String(Math.floor(days / 7)));
+  return tt.relMonthsAgo.replace('{n}', String(Math.floor(days / 30)));
 }
 
 function isAtRisk(course: CourseProgress): boolean {
@@ -403,7 +402,7 @@ export default function TeacherStudentDetailPage() {
                   <h2 className="text-[var(--tx1)] font-semibold flex-1">{course.name}</h2>
                   {risk && (
                     <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      <AlertTriangle size={9} /> Needs attention
+                      <AlertTriangle size={9} /> {t.teacher.needsAttention}
                     </span>
                   )}
                 </div>
@@ -471,7 +470,7 @@ export default function TeacherStudentDetailPage() {
                         {/* Last seen */}
                         {concept.last_seen_at && (
                           <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx8)] shrink-0">
-                            {relativeTime(concept.last_seen_at)}
+                            {relativeTime(concept.last_seen_at, t.teacher)}
                           </span>
                         )}
 

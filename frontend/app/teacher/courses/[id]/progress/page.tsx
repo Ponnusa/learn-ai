@@ -56,15 +56,13 @@ const MASTERY_BG: Record<Mastery, string> = {
   mastered:   'bg-green-500/8',
 };
 
-function relativeTime(iso: string | null): string {
+function relativeTime(iso: string | null, tt: { relToday: string; relDaysAgo: string; relWeeksAgo: string; relMonthsAgo: string }): string {
   if (!iso) return '—';
-  const diff = Date.now() - new Date(iso).getTime();
-  const days = Math.floor(diff / 86_400_000);
-  if (days === 0) return 'today';
-  if (days === 1) return '1d ago';
-  if (days < 7)  return `${days}d ago`;
-  if (days < 30) return `${Math.floor(days / 7)}w ago`;
-  return `${Math.floor(days / 30)}mo ago`;
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days === 0) return tt.relToday;
+  if (days < 7)  return tt.relDaysAgo.replace('{n}', String(days));
+  if (days < 30) return tt.relWeeksAgo.replace('{n}', String(Math.floor(days / 7)));
+  return tt.relMonthsAgo.replace('{n}', String(Math.floor(days / 30)));
 }
 
 function lastSeenColor(iso: string | null): string {
@@ -135,11 +133,11 @@ export default function CourseProgressPage() {
         {(['none','visited','struggling','practiced','mastered'] as Mastery[]).map(m => (
           <span key={m} className="flex items-center gap-1.5">
             <span className={MASTERY_DOT[m]} />
-            {m === 'none'       ? 'Not started'
-            : m === 'visited'   ? 'Visited (no quiz)'
-            : m === 'struggling'? 'Struggling (<40%)'
-            : m === 'practiced' ? 'Practiced (40–69%)'
-            :                     'Mastered (≥70%)'}
+            {m === 'none'       ? t.teacher.masteryNone
+            : m === 'visited'   ? t.teacher.masteryVisited
+            : m === 'struggling'? t.teacher.masteryStruggling
+            : m === 'practiced' ? t.teacher.masteryPracticed
+            :                     t.teacher.masteryMastered}
           </span>
         ))}
       </div>
@@ -162,7 +160,7 @@ export default function CourseProgressPage() {
                 </th>
                 <th className="text-center p-3 text-[var(--tx7)] font-medium whitespace-nowrap">{t.teacher.colVisited}</th>
                 <th className="text-center p-3 text-[var(--tx7)] font-medium whitespace-nowrap">{t.teacher.colAvgQuiz}</th>
-                <th className="text-center p-3 text-[var(--tx7)] font-medium whitespace-nowrap">Last Active</th>
+                <th className="text-center p-3 text-[var(--tx7)] font-medium whitespace-nowrap">{t.teacher.colLastActive}</th>
                 {data.concepts.map(c => (
                   <th key={c.id} className="text-center p-2 text-[var(--tx7)] font-medium min-w-[90px] max-w-[110px]" title={c.title}>
                     <div className="truncate text-xs">{c.title}</div>
@@ -194,7 +192,7 @@ export default function CourseProgressPage() {
                   </td>
                   {/* Last active */}
                   <td className={`text-center p-3 text-xs whitespace-nowrap ${lastSeenColor(s.last_seen_at)}`}>
-                    {relativeTime(s.last_seen_at)}
+                    {relativeTime(s.last_seen_at, t.teacher)}
                   </td>
                   {/* Per-concept mastery cells */}
                   {data.concepts.map(c => {
@@ -237,7 +235,7 @@ export default function CourseProgressPage() {
               {/* Class average row */}
               <tr className="border-t-2 border-[var(--bd)] bg-[var(--ov1)]">
                 <td className="p-3 sticky left-0 bg-[var(--ov1)]">
-                  <p className="text-[var(--tx6)] text-xs font-semibold uppercase tracking-wide">Class avg</p>
+                  <p className="text-[var(--tx6)] text-xs font-semibold uppercase tracking-wide">{t.teacher.classAvgRow}</p>
                 </td>
                 <td colSpan={3} />
                 {data.concepts.map(c => {
