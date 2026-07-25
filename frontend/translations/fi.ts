@@ -112,7 +112,7 @@ export const fi: Translation = {
     welcomeTitle: 'Mitä haluat oppia tänään?',
     welcomeSubtitle: 'Kysy kysymys, lataa PDF tai valitse aihe alta.',
     starterPrompts: [
-      'Selitä bentseenin rakenne',
+      'Selitä aspiriinin rakenne',
       'Selitä Newtonin liikelait',
       'Mikä on Pythagoraan lause?',
       'Selitä kysyntä ja tarjonta',

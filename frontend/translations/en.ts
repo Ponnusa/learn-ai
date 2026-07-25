@@ -112,7 +112,7 @@ export const en: Translation = {
     welcomeTitle: 'What do you want to learn today?',
     welcomeSubtitle: 'Ask a question, upload a PDF, or pick a topic below.',
     starterPrompts: [
-      'Explain the structure of benzene',
+      'Explain the structure of aspirin',
       "Explain Newton's laws of motion",
       'What is the Pythagorean theorem?',
       'Explain supply and demand',
