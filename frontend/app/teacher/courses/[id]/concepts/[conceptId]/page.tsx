@@ -19,6 +19,7 @@ import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import { SmilesBlock } from '@/components/chat/SmilesBlock';
+import { ConceptEditorTour } from '@/components/onboarding/ConceptEditorTour';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -937,6 +938,8 @@ export default function ConceptEditorPage() {
 
         <div className="p-6 max-w-2xl mx-auto">
 
+          <ConceptEditorTour />
+
           {/* Nav */}
           <div className="flex items-center justify-between mb-5">
             <button onClick={() => router.push(`/teacher/courses/${courseId}`)}
@@ -944,6 +947,11 @@ export default function ConceptEditorPage() {
               <ArrowLeft size={15} /> {t.teacher.backToCourse}
             </button>
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => window.dispatchEvent(new CustomEvent('start-concept-editor-tour'))}
+                className="text-[var(--tx7)] hover:text-purple-400 transition-colors p-1"
+                title="Take a tour"
+              ><HelpCircle size={14} /></button>
               <button onClick={() => setShowLeft(p => !p)}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-[var(--ov1)] hover:bg-[var(--ov2)] text-[var(--tx3)] transition-colors">
                 <BookOpen size={13} />{showLeft ? t.teacher.hidePanel : t.teacher.showPanel}
@@ -958,7 +966,7 @@ export default function ConceptEditorPage() {
           </div>
 
           {/* Tab bar */}
-          <div className="flex gap-1 border-b border-[var(--bd)] mb-6 overflow-x-auto">
+          <div data-tour="concept-tabs" className="flex gap-1 border-b border-[var(--bd)] mb-6 overflow-x-auto">
             {([
               ['studio',    'Studio',                 Wand2],
               ['textbook',  'Textbook',               LayoutList],

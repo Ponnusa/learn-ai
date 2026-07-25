@@ -4,7 +4,7 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
   Upload, Loader2, Check, BookOpen, Users,
-  CheckCircle, Globe, Zap, Circle, Crop, Sparkles, ListChecks, Wand2, GripVertical,
+  CheckCircle, Globe, Zap, Circle, Crop, Sparkles, ListChecks, Wand2, GripVertical, HelpCircle,
 } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -12,6 +12,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 import { useSessionStore } from '@/store/sessionStore';
 import { PDFViewerModal } from '@/components/chat/PDFViewerModal';
+import { CourseDetailTour } from '@/components/onboarding/CourseDetailTour';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -506,6 +507,8 @@ export default function CourseDetailPage() {
   return (
     <div className="p-6 max-w-3xl mx-auto">
 
+      <CourseDetailTour />
+
       {/* Back */}
       <button onClick={() => router.push('/teacher/courses')}
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
@@ -525,11 +528,16 @@ export default function CourseDetailPage() {
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('start-course-detail-tour'))}
+            className="text-[var(--tx7)] hover:text-purple-400 transition-colors p-1"
+            title="Take a tour"
+          ><HelpCircle size={14} /></button>
           <button onClick={() => router.push(`/teacher/courses/${courseId}/progress`)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
             <Users size={14} /> {t.teacher.progressBtn}
           </button>
-          <button onClick={publish}
+          <button data-tour="publish-btn" onClick={publish}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all ${
               course.status === 'published'
                 ? 'border-green-500/30 text-green-400 hover:bg-green-500/10'
@@ -567,7 +575,7 @@ export default function CourseDetailPage() {
               {t.teacher.uploadChapterDesc}
             </p>
           </div>
-          <button onClick={() => chapterRef.current?.click()} disabled={uploading || detecting || isProcessing}
+          <button data-tour="upload-chapter" onClick={() => chapterRef.current?.click()} disabled={uploading || detecting || isProcessing}
             className="shrink-0 flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-500
                        text-white text-sm rounded-xl transition-all disabled:opacity-40">
             {uploading || detecting ? <Loader2 size={14} className="animate-spin" /> : <><Upload size={14} /> {t.teacher.uploadChapterBtn}</>}
@@ -812,7 +820,7 @@ export default function CourseDetailPage() {
               className="px-3 py-2 text-[var(--tx7)] text-sm rounded-xl">{t.cancel}</button>
           </form>
         ) : (
-          <button onClick={() => setAddingUnit(true)}
+          <button data-tour="add-unit" onClick={() => setAddingUnit(true)}
             className="w-full flex items-center justify-center gap-2 py-3 border border-dashed
                        border-[var(--bd)] hover:border-purple-500/40 rounded-2xl text-[var(--tx7)]
                        hover:text-purple-400 text-sm transition-all">
