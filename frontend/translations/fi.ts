@@ -724,5 +724,13 @@ export const fi: Translation = {
     quizHistoryNoDetail:        'Ei yksityiskohtaisia tietoja',
     quizHistoryChose:           'valitsi {letter}',
     quizHistoryNoAnswers:       'Ei kysymyskohtaisia tietoja tästä yrityksestä',
+    progressSortByLabel:        'Järjestä:',
+    progressViewStudents:       'Oppilaat',
+    progressViewConcepts:       'Käsitteet',
+    progressSortStruggling:     'Eniten vaikeuksia',
+    progressSortLowestScore:    'Alhaisin keskiarvo',
+    progressSortMastered:       'Eniten hallittu',
+    progressSortTitle:          'Otsikko',
+    quizLastAttempt:            'viimeisin yritys',
   },
 };

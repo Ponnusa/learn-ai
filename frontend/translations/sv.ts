@@ -724,5 +724,13 @@ export const sv: Translation = {
     quizHistoryNoDetail:        'Inga detaljerade svardata',
     quizHistoryChose:           'valde {letter}',
     quizHistoryNoAnswers:       'Inga frågespecifika data för detta försök',
+    progressSortByLabel:        'Sortera:',
+    progressViewStudents:       'Elever',
+    progressViewConcepts:       'Begrepp',
+    progressSortStruggling:     'Flest svårigheter',
+    progressSortLowestScore:    'Lägst genomsnittspoäng',
+    progressSortMastered:       'Mest bemästrat',
+    progressSortTitle:          'Titel',
+    quizLastAttempt:            'senaste försök',
   },
 };

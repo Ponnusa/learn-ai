@@ -704,5 +704,13 @@ export interface Translation {
     quizHistoryNoDetail: string;
     quizHistoryChose: string;
     quizHistoryNoAnswers: string;
+    progressSortByLabel: string;
+    progressViewStudents: string;
+    progressViewConcepts: string;
+    progressSortStruggling: string;
+    progressSortLowestScore: string;
+    progressSortMastered: string;
+    progressSortTitle: string;
+    quizLastAttempt: string;
   };
 }

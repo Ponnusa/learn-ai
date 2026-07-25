@@ -523,7 +523,7 @@ export default function TeacherStudentDetailPage() {
                                 className={`w-2 h-2 rounded-full cursor-default ${ans.ok ? 'bg-green-400' : 'bg-red-400'}`}
                               />
                             ))}
-                            <span className="text-[9px] text-[var(--tx8)] ml-1">last attempt</span>
+                            <span className="text-[9px] text-[var(--tx8)] ml-1">{t.teacher.quizLastAttempt}</span>
                           </div>
                         )}
 

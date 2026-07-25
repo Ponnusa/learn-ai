@@ -724,5 +724,13 @@ export const en: Translation = {
     quizHistoryNoDetail:        'No detailed answer data',
     quizHistoryChose:           'chose {letter}',
     quizHistoryNoAnswers:       'No per-question data for this attempt',
+    progressSortByLabel:        'Sort by:',
+    progressViewStudents:       'Students',
+    progressViewConcepts:       'Concepts',
+    progressSortStruggling:     'Most struggling',
+    progressSortLowestScore:    'Lowest avg score',
+    progressSortMastered:       'Most mastered',
+    progressSortTitle:          'Title',
+    quizLastAttempt:            'last attempt',
   },
 };

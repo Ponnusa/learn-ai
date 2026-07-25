@@ -258,7 +258,7 @@ export default function CourseProgressPage() {
                   : 'text-[var(--tx6)] hover:text-[var(--tx2)]'
               }`}
             >
-              <Users size={12} /> Students
+              <Users size={12} /> {t.teacher.progressViewStudents}
             </button>
             <button
               onClick={() => setViewMode('concepts')}
@@ -268,7 +268,7 @@ export default function CourseProgressPage() {
                   : 'text-[var(--tx6)] hover:text-[var(--tx2)]'
               }`}
             >
-              <BarChart2 size={12} /> Concepts
+              <BarChart2 size={12} /> {t.teacher.progressViewConcepts}
             </button>
           </div>
         )}
@@ -306,11 +306,11 @@ export default function CourseProgressPage() {
         <div className="space-y-3">
           {/* Sort controls */}
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[var(--tx7)] text-[11px]">Sort by:</span>
-            <SortBtn id="struggling" label="Most struggling" />
-            <SortBtn id="quiz"       label="Lowest avg score" />
-            <SortBtn id="mastered"   label="Most mastered" />
-            <SortBtn id="title"      label="Title" />
+            <span className="text-[var(--tx7)] text-[11px]">{t.teacher.progressSortByLabel}</span>
+            <SortBtn id="struggling" label={t.teacher.progressSortStruggling} />
+            <SortBtn id="quiz"       label={t.teacher.progressSortLowestScore} />
+            <SortBtn id="mastered"   label={t.teacher.progressSortMastered} />
+            <SortBtn id="title"      label={t.teacher.progressSortTitle} />
           </div>
 
           {/* Concept cards */}
