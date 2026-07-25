@@ -21,16 +21,28 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 @router.post("/transcribe")
 async def transcribe_audio(file: UploadFile, language: str = "en"):
+    import io
+    from fastapi import HTTPException
     audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Empty audio")
     filename = file.filename or "audio.webm"
     lang = language if language in ("en", "fi", "sv") else "en"
-    result = await asyncio.to_thread(
-        openai_client.audio.transcriptions.create,
-        model="whisper-1",
-        file=(filename, audio_bytes, file.content_type or "audio/webm"),
-        language=lang,
-    )
-    return {"text": result.text}
+    print(f"[transcribe] {len(audio_bytes)} bytes, filename={filename}, lang={lang}, content_type={file.content_type}")
+    try:
+        buf = io.BytesIO(audio_bytes)
+        buf.name = filename
+        result = await asyncio.to_thread(
+            openai_client.audio.transcriptions.create,
+            model="whisper-1",
+            file=buf,
+            language=lang,
+        )
+        print(f"[transcribe] ok: {result.text!r}")
+        return {"text": result.text}
+    except Exception as e:
+        print(f"[transcribe] error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 async def _noop() -> dict:
