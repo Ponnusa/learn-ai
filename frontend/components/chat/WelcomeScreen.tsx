@@ -1,5 +1,6 @@
 'use client';
 import { useMemo } from 'react';
+import { HelpCircle } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 
 interface User {
@@ -148,9 +149,14 @@ export function WelcomeScreen({ user, onSend }: Props) {
 
       <button
         onClick={() => window.dispatchEvent(new CustomEvent('start-home-tour'))}
-        className="text-[11px] text-[var(--tx8)] hover:text-purple-400 transition-colors mt-1"
+        className="flex items-center gap-1.5 mt-3 px-3 py-1.5 rounded-full
+                   text-[11px] text-[var(--tx7)] hover:text-purple-400
+                   border border-[var(--bd)] hover:border-purple-400/40
+                   bg-[var(--surface)] hover:bg-purple-500/5
+                   transition-all"
       >
-        New here? Take a quick tour →
+        <HelpCircle size={12} />
+        New here? Take a quick tour
       </button>
 
     </div>
