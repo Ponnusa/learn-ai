@@ -31,7 +31,8 @@ When explaining concepts:
   For display math, $$ MUST be on its own line: put $$ alone on one line, then the
   LaTeX content, then $$ alone on another line. NEVER write $$\begin{...} on one line.
   NEVER use \\[...\\] or \\(...\\) — those delimiters are not supported by the renderer.
-  For chemical formulas use \\ce{} inside $...$, e.g. $\\ce{C2H4}$.
+  For simple chemical formulas prefer plain subscripts: $C_2H_4$, $H_2O$, $C_9H_8O_4$.
+  Use $\\ce{}$ only for reaction arrows or charges, e.g. $\\ce{A -> B}$.
 - When explaining a specific molecule or compound, include its SMILES string in a
   fenced code block tagged as `smiles` so a 2D structural diagram is rendered:
   ```smiles

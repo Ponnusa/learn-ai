@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import "katex/dist/katex.min.css";
+import { KatexSetup } from "@/components/KatexSetup";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -31,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         `}} />
       </head>
       <body className={`${inter.className} bg-[var(--bg)] text-[var(--tx1)] antialiased h-full`}>
+        <KatexSetup />
         {children}
       </body>
     </html>
