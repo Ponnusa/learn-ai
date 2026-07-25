@@ -1,6 +1,6 @@
 'use client';
 import { useRef, useState, KeyboardEvent } from 'react';
-import { Send, Paperclip, X, Mic, Square } from 'lucide-react';
+import { Send, Paperclip, X, Mic, Square, AlertCircle } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { transcribeAudio } from '@/lib/api';
 
@@ -18,6 +18,7 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
   const [dragOver, setDragOver] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
+  const [micError, setMicError] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -53,31 +54,60 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
   }
 
   async function startRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      chunksRef.current = [];
-      const mr = new MediaRecorder(stream);
-      mediaRecorderRef.current = mr;
-      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach(tr => tr.stop());
-        const blob = new Blob(chunksRef.current, { type: mr.mimeType });
-        setTranscribing(true);
-        try {
-          const result = await transcribeAudio(blob, language);
-          setText(prev => prev ? `${prev} ${result}` : result);
-          textRef.current?.focus();
-        } catch {
-          // mic permission or network issue — user can try again
-        } finally {
-          setTranscribing(false);
-        }
-      };
-      mr.start();
-      setRecording(true);
-    } catch {
-      // getUserMedia denied or unavailable
+    setMicError(false);
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      console.error('[mic] getUserMedia not available (requires HTTPS or localhost)');
+      setMicError(true);
+      return;
     }
+
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      console.error('[mic] getUserMedia denied:', err);
+      setMicError(true);
+      return;
+    }
+
+    chunksRef.current = [];
+    const mr = new MediaRecorder(stream);
+    mediaRecorderRef.current = mr;
+
+    mr.ondataavailable = e => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+
+    mr.onstop = async () => {
+      stream.getTracks().forEach(tr => tr.stop());
+
+      const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
+      console.log('[mic] recorded blob:', blob.size, 'bytes, type:', blob.type);
+
+      if (blob.size === 0) {
+        console.error('[mic] blob is empty — no audio captured');
+        setMicError(true);
+        setTranscribing(false);
+        return;
+      }
+
+      setTranscribing(true);
+      try {
+        const result = await transcribeAudio(blob, language);
+        console.log('[mic] transcribed:', result);
+        setText(prev => prev ? `${prev} ${result}` : result);
+        textRef.current?.focus();
+      } catch (err) {
+        console.error('[mic] transcription failed:', err);
+        setMicError(true);
+      } finally {
+        setTranscribing(false);
+      }
+    };
+
+    mr.start(200); // 200ms timeslice — more reliable chunk delivery
+    setRecording(true);
   }
 
   function stopRecording() {
@@ -142,16 +172,23 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
         <button
           onClick={recording ? stopRecording : startRecording}
           disabled={disabled || loading || transcribing}
-          title={recording ? t.chat.micStop : t.chat.micRecord}
+          title={recording ? t.chat.micStop : micError ? t.chat.micError : t.chat.micRecord}
           className={`shrink-0 pb-0.5 transition-colors ${
             recording
               ? 'text-red-400 hover:text-red-300'
               : transcribing
                 ? 'text-purple-400 animate-pulse cursor-not-allowed'
-                : 'text-[var(--tx6)] hover:text-[var(--tx2)]'
+                : micError
+                  ? 'text-amber-400 hover:text-amber-300'
+                  : 'text-[var(--tx6)] hover:text-[var(--tx2)]'
           }`}
         >
-          {recording ? <Square size={16} /> : <Mic size={18} />}
+          {recording
+            ? <Square size={16} />
+            : micError
+              ? <AlertCircle size={18} />
+              : <Mic size={18} />
+          }
         </button>
 
         {/* Send */}
@@ -168,9 +205,15 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
         </button>
       </div>
 
-      <p className="text-center text-[var(--txa)] text-[10px] mt-2">
-        {t.chat.disclaimer}
-      </p>
+      {/* Error hint — shown below the bar */}
+      {micError && !recording && !transcribing && (
+        <p className="text-amber-400 text-[10px] mt-1 text-center">{t.chat.micError}</p>
+      )}
+      {!micError && (
+        <p className="text-center text-[var(--txa)] text-[10px] mt-2">
+          {t.chat.disclaimer}
+        </p>
+      )}
     </div>
   );
 }
