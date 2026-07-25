@@ -2148,7 +2148,8 @@ async def activate_concept(concept_id: str, authorization: str = Header(...)):
 
 
 class QuizScoreRequest(BaseModel):
-    score: float  # 0-100
+    score: float                    # 0-100
+    answers: list | None = None     # [{qi, question, chosen, correct, ok}, ...]
 
 
 @router.post("/concepts/{concept_id}/quiz/score")
@@ -2181,13 +2182,90 @@ async def submit_quiz_score(
                           last_seen_at = NOW()
         """, student_id, concept_id, str(concept["course_id"]), score)
 
-        # Log every attempt so teachers can see score trends
+        # Log every attempt with per-question answers so teachers can see score trends and question stats
+        import json as _json
+        answers_json = _json.dumps(req.answers) if req.answers else None
         await db.execute(
-            "INSERT INTO concept_quiz_attempts (student_id, concept_id, score) VALUES ($1::uuid, $2::uuid, $3)",
-            student_id, concept_id, score,
+            "INSERT INTO concept_quiz_attempts (student_id, concept_id, score, answers) VALUES ($1::uuid, $2::uuid, $3, $4::jsonb)",
+            student_id, concept_id, score, answers_json,
         )
 
     return {"ok": True, "quiz_score": score}
+
+
+@router.get("/concepts/{concept_id}/quiz-analytics")
+async def get_quiz_analytics(concept_id: str, authorization: str = Header(...)):
+    """
+    Teacher-only. Aggregates per-question performance across all student attempts
+    that include answer detail. Returns questions sorted hardest-first (lowest correct %).
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        # Verify teacher owns this concept
+        owned = await db.fetchval("""
+            SELECT 1
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses c       ON c.id  = cu.course_id
+            WHERE cc.id = $1::uuid AND c.teacher_id = $2::uuid
+        """, concept_id, teacher_id)
+        if not owned:
+            raise HTTPException(403, "Not your concept")
+
+        rows = await db.fetch("""
+            SELECT score, answers, taken_at
+            FROM concept_quiz_attempts
+            WHERE concept_id = $1::uuid AND answers IS NOT NULL
+            ORDER BY taken_at ASC
+        """, concept_id)
+
+    total_attempts = len(rows)
+    question_stats: dict[int, dict] = {}
+
+    for row in rows:
+        answers = row["answers"]
+        if not answers:
+            continue
+        for ans in answers:
+            qi = int(ans.get("qi", 0))
+            if qi not in question_stats:
+                question_stats[qi] = {
+                    "qi": qi,
+                    "question": ans.get("question", ""),
+                    "correct": 0,
+                    "total": 0,
+                    "wrong_tally": {},
+                }
+            s = question_stats[qi]
+            s["total"] += 1
+            if ans.get("ok"):
+                s["correct"] += 1
+            else:
+                chosen = str(ans.get("chosen", ""))
+                s["wrong_tally"][chosen] = s["wrong_tally"].get(chosen, 0) + 1
+
+    questions = []
+    for qi, s in sorted(question_stats.items()):
+        most_wrong = (
+            int(max(s["wrong_tally"], key=s["wrong_tally"].get))
+            if s["wrong_tally"] else None
+        )
+        questions.append({
+            "qi":               qi,
+            "question":         s["question"],
+            "correct_pct":      round(s["correct"] / s["total"] * 100) if s["total"] > 0 else None,
+            "attempt_count":    s["total"],
+            "most_wrong_option": most_wrong,
+        })
+
+    # Sort hardest first (lowest correct %)
+    questions.sort(key=lambda x: x["correct_pct"] if x["correct_pct"] is not None else 100)
+
+    return {
+        "concept_id":     concept_id,
+        "total_attempts": total_attempts,
+        "questions":      questions,
+    }
 
 
 class HeartbeatRequest(BaseModel):

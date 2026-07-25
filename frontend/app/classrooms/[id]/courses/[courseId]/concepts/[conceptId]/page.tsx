@@ -216,11 +216,18 @@ export default function StudentConceptDetailPage() {
       const next = { ...prev, [qi]: oi };
       const quiz = assets?.quiz ?? [];
       if (!scoreSubmitted && Object.keys(next).length === quiz.length && quiz.length > 0) {
-        const correct = Object.entries(next).filter(([i, o]) => o === quiz[Number(i)].correct_idx).length;
+        const answers = quiz.map((q, i) => ({
+          qi:       i,
+          question: q.question,
+          chosen:   next[i],
+          correct:  q.correct_idx,
+          ok:       next[i] === q.correct_idx,
+        }));
+        const correct = answers.filter(a => a.ok).length;
         const score   = (correct / quiz.length) * 100;
         setScoreSubmitted(true);
         fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz/score`, {
-          method: 'POST', headers: authH, body: JSON.stringify({ score }),
+          method: 'POST', headers: authH, body: JSON.stringify({ score, answers }),
         }).catch(() => {});
       }
       return next;

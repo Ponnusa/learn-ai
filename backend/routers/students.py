@@ -181,6 +181,31 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
     }
 
 
+@router.get("/{student_id}/concepts/{concept_id}/quiz-history")
+async def get_student_quiz_history(student_id: str, concept_id: str, authorization: str = Header(...)):
+    """
+    Teacher-only. Full attempt history for one student × concept, including per-question
+    answers so the teacher can see exactly which questions the student got wrong.
+    """
+    await _require_teacher_of_student(authorization, student_id)
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT id, score, answers, taken_at
+            FROM concept_quiz_attempts
+            WHERE student_id = $1::uuid AND concept_id = $2::uuid
+            ORDER BY taken_at ASC
+        """, student_id, concept_id)
+    return [
+        {
+            "id":       str(r["id"]),
+            "score":    round(r["score"]),
+            "answers":  r["answers"],
+            "taken_at": r["taken_at"].isoformat() if r["taken_at"] else None,
+        }
+        for r in rows
+    ]
+
+
 @router.get("/{student_id}/profile")
 async def get_student_learning_profile(student_id: str, authorization: str = Header(...)):
     """
