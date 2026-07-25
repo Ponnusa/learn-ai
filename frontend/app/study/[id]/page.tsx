@@ -8,6 +8,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
+import { SmilesBlock } from '@/components/chat/SmilesBlock';
 import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, ArrowRight, Upload, Loader, LayoutGrid, MessageSquare,
@@ -1065,7 +1066,17 @@ function ActiveChat({
                   ? 'bg-indigo-600 text-white rounded-br-md'
                   : 'bg-[var(--surface)] border border-[var(--bd)] text-[var(--tx2)] rounded-bl-md'}`}>
                 {m.role === 'assistant'
-                  ? <div className="ai-content"><ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>{preprocessMath(m.content)}</ReactMarkdown></div>
+                  ? <div className="ai-content"><ReactMarkdown
+                      remarkPlugins={[remarkMath]}
+                      rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
+                      components={{
+                        code({ className, children }) {
+                          const lang = /language-(\w+)/.exec(className ?? '')?.[1];
+                          if (lang === 'smiles') return <SmilesBlock smiles={String(children).trim()} />;
+                          return <code className={className}>{children}</code>;
+                        },
+                      }}
+                    >{preprocessMath(m.content)}</ReactMarkdown></div>
                   : m.content}
               </div>
             )}

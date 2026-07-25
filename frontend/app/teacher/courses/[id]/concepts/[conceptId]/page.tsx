@@ -18,6 +18,7 @@ import { PDFContextPicker } from '@/components/course/PDFContextPicker';
 import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
+import { SmilesBlock } from '@/components/chat/SmilesBlock';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -1107,7 +1108,17 @@ export default function ConceptEditorPage() {
                           <div className="px-3.5 py-2.5 whitespace-pre-wrap">
                           {m.role === 'assistant' ? (
                             <div className="ai-content leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0">
-                              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
+                              <ReactMarkdown
+                                remarkPlugins={[remarkMath]}
+                                rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}
+                                components={{
+                                  code({ className, children }) {
+                                    const lang = /language-(\w+)/.exec(className ?? '')?.[1];
+                                    if (lang === 'smiles') return <SmilesBlock smiles={String(children).trim()} />;
+                                    return <code className={className}>{children}</code>;
+                                  },
+                                }}
+                              >
                                 {preprocessMath(m.content)}
                               </ReactMarkdown>
                             </div>
