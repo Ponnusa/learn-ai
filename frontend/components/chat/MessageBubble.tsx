@@ -14,6 +14,9 @@ import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import { SmilesBlock } from './SmilesBlock';
 import { getQuiz, getVideoStatus, retryVideoManim, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage, getChatMessageAudio } from '@/lib/api';
 
+// Module-level: at most one TTS audio plays at a time across all bubbles
+let globalStopTts: (() => void) | null = null;
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -701,6 +704,7 @@ export function MessageBubble({
       ttsAudioRef.current.src = '';
       ttsAudioRef.current = null;
     }
+    if (globalStopTts === stopTts) globalStopTts = null;
     setTtsPlaying(false);
   }
 
@@ -708,18 +712,22 @@ export function MessageBubble({
 
   async function handleSpeak() {
     if (ttsPlaying || ttsLoading) { stopTts(); setTtsLoading(false); return; }
+    // Stop any other bubble that is currently playing
+    globalStopTts?.();
+    globalStopTts = stopTts;
     setTtsLoading(true);
     try {
       const blob = await getChatMessageAudio(message.id, language);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       ttsAudioRef.current = audio;
-      audio.onended = () => { setTtsPlaying(false); URL.revokeObjectURL(url); ttsAudioRef.current = null; };
-      audio.onerror = () => { setTtsPlaying(false); ttsAudioRef.current = null; };
+      audio.onended = () => { setTtsPlaying(false); URL.revokeObjectURL(url); ttsAudioRef.current = null; if (globalStopTts === stopTts) globalStopTts = null; };
+      audio.onerror = () => { setTtsPlaying(false); ttsAudioRef.current = null; if (globalStopTts === stopTts) globalStopTts = null; };
       await audio.play();
       setTtsPlaying(true);
     } catch {
       setTtsPlaying(false);
+      if (globalStopTts === stopTts) globalStopTts = null;
     } finally {
       setTtsLoading(false);
     }
