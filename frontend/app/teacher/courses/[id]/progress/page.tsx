@@ -2,8 +2,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
-  ArrowLeft, Loader2, Users, ChevronDown, ChevronUp,
-  HelpCircle, Layers, Video, BarChart2,
+  ArrowLeft, Loader2, Users, ExternalLink,
+  Layers, Video, BarChart2,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -31,16 +31,6 @@ interface StudentRow  {
 interface ProgressData {
   course_id: string; course_name: string;
   concepts: Concept[]; students: StudentRow[];
-}
-
-interface QuizAnalyticsQuestion {
-  qi: number; question: string;
-  correct_pct: number; attempt_count: number;
-  most_wrong_option: string | null;
-}
-interface QuizAnalyticsData {
-  concept_id: string; total_attempts: number;
-  questions: QuizAnalyticsQuestion[];
 }
 
 type Mastery = 'none' | 'visited' | 'struggling' | 'practiced' | 'mastered';
@@ -107,11 +97,9 @@ export default function CourseProgressPage() {
   const [data,    setData]    = useState<ProgressData | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // View toggle & concept analytics
-  const [viewMode,         setViewMode]         = useState<ViewMode>('students');
-  const [sortBy,           setSortBy]           = useState<SortBy>('struggling');
-  const [expandedConcept,  setExpandedConcept]  = useState<string | null>(null);
-  const [conceptAnalytics, setConceptAnalytics] = useState<Record<string, QuizAnalyticsData | null | 'loading'>>({});
+  // View toggle
+  const [viewMode, setViewMode] = useState<ViewMode>('students');
+  const [sortBy,   setSortBy]   = useState<SortBy>('struggling');
 
   useEffect(() => {
     if (!user) { router.replace('/auth/teacher'); return; }
@@ -127,22 +115,6 @@ export default function CourseProgressPage() {
       if (!res.ok) { router.replace(`/teacher/courses/${courseId}`); return; }
       setData(await res.json());
     } finally { setLoading(false); }
-  }
-
-  async function toggleConceptExpand(conceptId: string) {
-    if (expandedConcept === conceptId) { setExpandedConcept(null); return; }
-    setExpandedConcept(conceptId);
-    if (conceptId in conceptAnalytics) return;
-    setConceptAnalytics(prev => ({ ...prev, [conceptId]: 'loading' }));
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/quiz-analytics`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const d = res.ok ? await res.json() : null;
-      setConceptAnalytics(prev => ({ ...prev, [conceptId]: d }));
-    } catch {
-      setConceptAnalytics(prev => ({ ...prev, [conceptId]: null }));
-    }
   }
 
   if (loading) return (
@@ -316,173 +288,112 @@ export default function CourseProgressPage() {
           {/* Concept cards */}
           <div className="space-y-2">
             {sortedStats.map(stat => {
-              const c          = stat.concept;
-              const isExpanded = expandedConcept === c.id;
-              const analytics  = conceptAnalytics[c.id];
-
+              const c = stat.concept;
               const unitColor = unitGroups.findIndex(ug => ug.title === c.unit_title) % 2 === 0
                 ? 'bg-purple-500/10 text-purple-400 border-purple-500/20'
                 : 'bg-blue-500/10 text-blue-400 border-blue-500/20';
 
               return (
-                <div key={c.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden">
-                  {/* ── Main concept row ── */}
-                  <button
-                    onClick={() => toggleConceptExpand(c.id)}
-                    className="w-full text-left px-5 py-4 hover:bg-[var(--ov1)] transition-colors"
-                  >
-                    <div className="flex items-center gap-3 flex-wrap">
-                      {/* Title + unit */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="text-[var(--tx1)] font-medium text-sm">{c.title}</span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full border font-medium ${unitColor}`}>
-                            {c.unit_title}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Stat chips */}
-                      <div className="flex items-center gap-4 flex-wrap shrink-0">
-
-                        {/* Students visited */}
-                        <div className="text-center min-w-[56px]">
-                          <p className="text-[10px] text-[var(--tx7)] mb-0.5">Visited</p>
-                          <p className="text-sm font-semibold text-[var(--tx2)]">
-                            {stat.visitedCount}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.totalStudents}</span>
-                          </p>
-                          <ScoreBar pct={stat.totalStudents > 0 ? (stat.visitedCount / stat.totalStudents) * 100 : 0} className="mt-1 w-14" />
-                        </div>
-
-                        {/* Avg quiz */}
-                        <div className="text-center min-w-[56px]">
-                          <p className="text-[10px] text-[var(--tx7)] mb-0.5">Avg quiz</p>
-                          {stat.avgQuizScore !== null ? (
-                            <>
-                              <p className={`text-sm font-semibold ${
-                                stat.avgQuizScore >= 70 ? 'text-green-400' : stat.avgQuizScore >= 40 ? 'text-amber-400' : 'text-red-400'
-                              }`}>{Math.round(stat.avgQuizScore)}%</p>
-                              <ScoreBar pct={stat.avgQuizScore} className="mt-1 w-14" />
-                            </>
-                          ) : <p className="text-[var(--tx8)] text-xs">—</p>}
-                        </div>
-
-                        {/* Mastered */}
-                        <div className="text-center min-w-[56px]">
-                          <p className="text-[10px] text-[var(--tx7)] mb-0.5">Mastered</p>
-                          <p className="text-sm font-semibold text-green-400">
-                            {stat.masteredCount}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.totalStudents}</span>
-                          </p>
-                          <div className="h-1 bg-[var(--ov3)] rounded-full overflow-hidden mt-1 w-14">
-                            <div className="h-full rounded-full bg-green-400" style={{ width: `${stat.totalStudents > 0 ? (stat.masteredCount / stat.totalStudents) * 100 : 0}%` }} />
-                          </div>
-                        </div>
-
-                        {/* Struggling */}
-                        {stat.strugglingCount > 0 && (
-                          <div className="text-center min-w-[56px]">
-                            <p className="text-[10px] text-[var(--tx7)] mb-0.5">Struggling</p>
-                            <p className="text-sm font-semibold text-red-400">
-                              {stat.strugglingCount}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.totalStudents}</span>
-                            </p>
-                            <div className="h-1 bg-[var(--ov3)] rounded-full overflow-hidden mt-1 w-14">
-                              <div className="h-full rounded-full bg-red-400" style={{ width: `${stat.totalStudents > 0 ? (stat.strugglingCount / stat.totalStudents) * 100 : 0}%` }} />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Flashcards */}
-                        {stat.avgFlashcardPct !== null && (
-                          <div className="text-center min-w-[56px]">
-                            <p className="text-[10px] text-[var(--tx7)] mb-0.5 flex items-center gap-0.5 justify-center">
-                              <Layers size={8} /> Cards
-                            </p>
-                            <p className={`text-sm font-semibold ${
-                              stat.avgFlashcardPct >= 70 ? 'text-green-400' : stat.avgFlashcardPct >= 40 ? 'text-amber-400' : 'text-[var(--tx6)]'
-                            }`}>{Math.round(stat.avgFlashcardPct)}%</p>
-                            <ScoreBar pct={stat.avgFlashcardPct} className="mt-1 w-14" />
-                          </div>
-                        )}
-
-                        {/* Videos */}
-                        {stat.videoStudents > 0 && (
-                          <div className="text-center min-w-[56px]">
-                            <p className="text-[10px] text-[var(--tx7)] mb-0.5 flex items-center gap-0.5 justify-center">
-                              <Video size={8} /> Videos
-                            </p>
-                            <p className={`text-sm font-semibold ${
-                              stat.videoCompleted === stat.videoStudents ? 'text-green-400' : stat.videoCompleted > 0 ? 'text-amber-400' : 'text-[var(--tx8)]'
-                            }`}>
-                              {stat.videoCompleted}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.videoStudents}</span>
-                            </p>
-                            <div className="h-1 bg-[var(--ov3)] rounded-full overflow-hidden mt-1 w-14">
-                              <div className={`h-full rounded-full ${stat.videoCompleted === stat.videoStudents ? 'bg-green-400' : 'bg-amber-400'}`}
-                                style={{ width: `${stat.videoStudents > 0 ? (stat.videoCompleted / stat.videoStudents) * 100 : 0}%` }} />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Expand chevron */}
-                        <div className="text-[var(--tx7)] shrink-0 pl-2">
-                          {isExpanded
-                            ? <ChevronUp size={16} />
-                            : <ChevronDown size={16} />
-                          }
-                        </div>
+                <div key={c.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl px-5 py-4">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    {/* Title + unit + open link */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[var(--tx1)] font-medium text-sm">{c.title}</span>
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full border font-medium ${unitColor}`}>
+                          {c.unit_title}
+                        </span>
+                        <button
+                          onClick={() => router.push(`/teacher/courses/${courseId}/concepts/${c.id}`)}
+                          className="flex items-center gap-0.5 text-[10px] text-[var(--tx7)] hover:text-purple-400 transition-colors ml-1"
+                          title="Open concept"
+                        >
+                          <ExternalLink size={10} />
+                        </button>
                       </div>
                     </div>
-                  </button>
 
-                  {/* ── Expanded quiz analytics panel ── */}
-                  {isExpanded && (
-                    <div className="border-t border-[var(--bd)] bg-[var(--ov1)] px-5 py-4">
-                      <div className="flex items-center gap-2 mb-3">
-                        <HelpCircle size={13} className="text-purple-400" />
-                        <span className="text-xs font-medium text-[var(--tx2)]">Quiz Analytics</span>
-                        {analytics && analytics !== 'loading' && analytics !== null && (
-                          <span className="text-[10px] text-[var(--tx7)] ml-1">
-                            · {analytics.total_attempts} attempt{analytics.total_attempts !== 1 ? 's' : ''}
-                          </span>
-                        )}
+                    {/* Stat chips */}
+                    <div className="flex items-center gap-4 flex-wrap shrink-0">
+
+                      {/* Students visited */}
+                      <div className="text-center min-w-[56px]">
+                        <p className="text-[10px] text-[var(--tx7)] mb-0.5">Visited</p>
+                        <p className="text-sm font-semibold text-[var(--tx2)]">
+                          {stat.visitedCount}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.totalStudents}</span>
+                        </p>
+                        <ScoreBar pct={stat.totalStudents > 0 ? (stat.visitedCount / stat.totalStudents) * 100 : 0} className="mt-1 w-14" />
                       </div>
 
-                      {analytics === 'loading' ? (
-                        <div className="flex items-center justify-center py-6">
-                          <Loader2 size={18} className="text-purple-400 animate-spin" />
-                        </div>
-                      ) : !analytics || analytics.total_attempts === 0 || analytics.questions.length === 0 ? (
-                        <p className="text-[var(--tx7)] text-xs py-3">
-                          No attempt data yet — students haven&apos;t submitted quiz answers for this concept
+                      {/* Avg quiz */}
+                      <div className="text-center min-w-[56px]">
+                        <p className="text-[10px] text-[var(--tx7)] mb-0.5">Avg quiz</p>
+                        {stat.avgQuizScore !== null ? (
+                          <>
+                            <p className={`text-sm font-semibold ${
+                              stat.avgQuizScore >= 70 ? 'text-green-400' : stat.avgQuizScore >= 40 ? 'text-amber-400' : 'text-red-400'
+                            }`}>{Math.round(stat.avgQuizScore)}%</p>
+                            <ScoreBar pct={stat.avgQuizScore} className="mt-1 w-14" />
+                          </>
+                        ) : <p className="text-[var(--tx8)] text-xs mt-1">—</p>}
+                      </div>
+
+                      {/* Mastered */}
+                      <div className="text-center min-w-[56px]">
+                        <p className="text-[10px] text-[var(--tx7)] mb-0.5">Mastered</p>
+                        <p className="text-sm font-semibold text-green-400">
+                          {stat.masteredCount}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.totalStudents}</span>
                         </p>
-                      ) : (
-                        <div className="space-y-3 max-w-2xl">
-                          {analytics.questions.map((q, qi) => (
-                            <div key={q.qi}>
-                              <div className="flex items-start gap-2 mb-1">
-                                <span className="text-[10px] font-mono text-[var(--tx7)] shrink-0 mt-0.5">{qi + 1}.</span>
-                                <p className="text-xs text-[var(--tx2)] flex-1">{q.question}</p>
-                                <span className={`text-xs font-semibold shrink-0 ${
-                                  q.correct_pct >= 70 ? 'text-green-400' : q.correct_pct >= 40 ? 'text-amber-400' : 'text-red-400'
-                                }`}>{Math.round(q.correct_pct)}%</span>
-                              </div>
-                              <div className="ml-4">
-                                <div className="h-1.5 bg-[var(--ov3)] rounded-full overflow-hidden mb-1">
-                                  <div className={`h-full rounded-full ${
-                                    q.correct_pct >= 70 ? 'bg-green-400' : q.correct_pct >= 40 ? 'bg-amber-400' : 'bg-red-400'
-                                  }`} style={{ width: `${q.correct_pct}%` }} />
-                                </div>
-                                {q.most_wrong_option && (
-                                  <p className="text-[10px] text-[var(--tx7)]">
-                                    Most common wrong answer: <span className="text-red-400">{q.most_wrong_option}</span>
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                          ))}
+                        <div className="h-1 bg-[var(--ov3)] rounded-full overflow-hidden mt-1 w-14">
+                          <div className="h-full rounded-full bg-green-400" style={{ width: `${stat.totalStudents > 0 ? (stat.masteredCount / stat.totalStudents) * 100 : 0}%` }} />
+                        </div>
+                      </div>
+
+                      {/* Struggling */}
+                      {stat.strugglingCount > 0 && (
+                        <div className="text-center min-w-[56px]">
+                          <p className="text-[10px] text-[var(--tx7)] mb-0.5">Struggling</p>
+                          <p className="text-sm font-semibold text-red-400">
+                            {stat.strugglingCount}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.totalStudents}</span>
+                          </p>
+                          <div className="h-1 bg-[var(--ov3)] rounded-full overflow-hidden mt-1 w-14">
+                            <div className="h-full rounded-full bg-red-400" style={{ width: `${stat.totalStudents > 0 ? (stat.strugglingCount / stat.totalStudents) * 100 : 0}%` }} />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Flashcards */}
+                      {stat.avgFlashcardPct !== null && (
+                        <div className="text-center min-w-[56px]">
+                          <p className="text-[10px] text-[var(--tx7)] mb-0.5 flex items-center gap-0.5 justify-center">
+                            <Layers size={8} /> Cards
+                          </p>
+                          <p className={`text-sm font-semibold ${
+                            stat.avgFlashcardPct >= 70 ? 'text-green-400' : stat.avgFlashcardPct >= 40 ? 'text-amber-400' : 'text-[var(--tx6)]'
+                          }`}>{Math.round(stat.avgFlashcardPct)}%</p>
+                          <ScoreBar pct={stat.avgFlashcardPct} className="mt-1 w-14" />
+                        </div>
+                      )}
+
+                      {/* Videos */}
+                      {stat.videoStudents > 0 && (
+                        <div className="text-center min-w-[56px]">
+                          <p className="text-[10px] text-[var(--tx7)] mb-0.5 flex items-center gap-0.5 justify-center">
+                            <Video size={8} /> Videos
+                          </p>
+                          <p className={`text-sm font-semibold ${
+                            stat.videoCompleted === stat.videoStudents ? 'text-green-400' : stat.videoCompleted > 0 ? 'text-amber-400' : 'text-[var(--tx8)]'
+                          }`}>
+                            {stat.videoCompleted}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.videoStudents}</span>
+                          </p>
+                          <div className="h-1 bg-[var(--ov3)] rounded-full overflow-hidden mt-1 w-14">
+                            <div className={`h-full rounded-full ${stat.videoCompleted === stat.videoStudents ? 'bg-green-400' : 'bg-amber-400'}`}
+                              style={{ width: `${stat.videoStudents > 0 ? (stat.videoCompleted / stat.videoStudents) * 100 : 0}%` }} />
+                          </div>
                         </div>
                       )}
                     </div>
-                  )}
+                  </div>
                 </div>
               );
             })}
