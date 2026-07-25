@@ -18,3 +18,7 @@ frontend/out/
 
 # Worker script (contains hardcoded secrets — keep local only)
 worker.py
+
+# Local planning docs — not for version control
+SPRINT_*.md
+*.plan.md

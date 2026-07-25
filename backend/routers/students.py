@@ -45,7 +45,7 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             SELECT DISTINCT c.id AS course_id, c.name AS course_name, c.created_at AS course_created_at,
                    cu.position AS unit_position,
                    cc.id AS concept_id, cc.title AS concept_title, cc.position AS concept_position,
-                   scp.visited, scp.quiz_score
+                   scp.visited, scp.quiz_score, scp.last_seen_at
             FROM classroom_students cs
             JOIN classrooms cl         ON cl.id = cs.classroom_id AND cl.teacher_id = $2::uuid
             JOIN classroom_courses clc ON clc.classroom_id = cl.id
@@ -58,16 +58,67 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             ORDER BY c.created_at, cu.position, cc.position
         """, student_id, teacher_id)
 
+        # Flashcard mastery per concept for this student
+        fc_rows = await db.fetch("""
+            WITH latest AS (
+                SELECT DISTINCT ON (cfr.flashcard_id)
+                       cf.concept_id, cfr.rating
+                FROM concept_flashcard_reviews cfr
+                JOIN concept_flashcards cf ON cf.id = cfr.flashcard_id
+                WHERE cfr.student_id = $1::uuid
+                ORDER BY cfr.flashcard_id, cfr.reviewed_at DESC
+            ),
+            totals AS (
+                SELECT concept_id, COUNT(*) AS total FROM concept_flashcards
+                GROUP BY concept_id
+            )
+            SELECT l.concept_id,
+                   t.total                                    AS total_cards,
+                   COUNT(*) FILTER (WHERE l.rating >= 3)     AS mastered_cards
+            FROM latest l
+            JOIN totals t ON t.concept_id = l.concept_id
+            GROUP BY l.concept_id, t.total
+        """, student_id)
+
+        # AI messages asked about concepts (via conversations linked to this student)
+        msg_count_rows = await db.fetch("""
+            SELECT c.concept_id, COUNT(m.id) AS msg_count
+            FROM conversations c
+            JOIN messages m ON m.conversation_id = c.id AND m.role = 'user'
+            WHERE c.user_id = $1::uuid AND c.concept_id IS NOT NULL
+            GROUP BY c.concept_id
+        """, student_id)
+
+    fc_map: dict[str, dict] = {}
+    for r in fc_rows:
+        total    = int(r["total_cards"]   or 0)
+        mastered = int(r["mastered_cards"] or 0)
+        fc_map[str(r["concept_id"])] = {
+            "flashcard_pct":      round(mastered / total * 100) if total > 0 else None,
+            "flashcard_mastered": mastered,
+            "flashcard_total":    total,
+        }
+
+    ai_map: dict[str, int] = {str(r["concept_id"]): int(r["msg_count"] or 0) for r in msg_count_rows}
+
     courses: dict[str, dict] = {}
     for r in rows:
         cid = str(r["course_id"])
         if cid not in courses:
             courses[cid] = {"id": cid, "name": r["course_name"], "concepts": []}
+        cpt_id = str(r["concept_id"])
+        fc     = fc_map.get(cpt_id, {})
+        ls     = r["last_seen_at"]
         courses[cid]["concepts"].append({
-            "id":         str(r["concept_id"]),
-            "title":      r["concept_title"],
-            "visited":    bool(r["visited"]),
-            "quiz_score": r["quiz_score"],
+            "id":                 cpt_id,
+            "title":              r["concept_title"],
+            "visited":            bool(r["visited"]),
+            "quiz_score":         r["quiz_score"],
+            "last_seen_at":       ls.isoformat() if ls else None,
+            "flashcard_pct":      fc.get("flashcard_pct"),
+            "flashcard_mastered": fc.get("flashcard_mastered", 0),
+            "flashcard_total":    fc.get("flashcard_total", 0),
+            "ai_msg_count":       ai_map.get(cpt_id, 0),
         })
 
     return {

@@ -2,15 +2,23 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
-  ArrowLeft, Loader2, CheckCircle2, Circle, Brain, MessageSquare, ChevronDown, ChevronUp,
+  ArrowLeft, Loader2, Brain, MessageSquare, ChevronDown, ChevronUp,
   Sparkles, HelpCircle, Layers, Video, BookOpen, AlertTriangle,
+  CheckCircle2, Circle, Clock, Zap,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-interface ConceptProgress { id: string; title: string; visited: boolean; quiz_score: number | null; }
+interface ConceptProgress {
+  id: string; title: string;
+  visited: boolean; quiz_score: number | null;
+  last_seen_at: string | null;
+  flashcard_pct: number | null;
+  flashcard_mastered: number; flashcard_total: number;
+  ai_msg_count: number;
+}
 interface CourseProgress  { id: string; name: string; concepts: ConceptProgress[]; }
 interface StudentProgress { id: string; name: string; email: string; courses: CourseProgress[]; }
 
@@ -20,10 +28,8 @@ interface Profile {
   known_misconceptions: string[];
   struggle_areas: string[];
   mastered_concepts: string[];
-  grade: string | null;
-  goal: string | null;
-  avg_quiz_score: number | null;
-  total_messages: number;
+  grade: string | null; goal: string | null;
+  avg_quiz_score: number | null; total_messages: number;
 }
 
 interface ConversationSummary {
@@ -33,7 +39,66 @@ interface ConversationSummary {
 interface ChatMessage { role: string; content: string; created_at: string | null; }
 
 interface Assignment {
-  id: string; concept_id: string | null; kind: string; title: string; status: string; created_at: string | null;
+  id: string; concept_id: string | null; kind: string;
+  title: string; status: string; created_at: string | null;
+}
+
+type Mastery = 'none' | 'visited' | 'struggling' | 'practiced' | 'mastered';
+
+function getMastery(c: ConceptProgress): Mastery {
+  if (!c.visited) return 'none';
+  if (c.quiz_score === null) return 'visited';
+  if (c.quiz_score >= 70) return 'mastered';
+  if (c.quiz_score >= 40) return 'practiced';
+  return 'struggling';
+}
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return '—';
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days === 0) return 'today';
+  if (days === 1) return '1d ago';
+  if (days < 7)  return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days / 7)}w ago`;
+  return `${Math.floor(days / 30)}mo ago`;
+}
+
+function isAtRisk(course: CourseProgress): boolean {
+  const visited    = course.concepts.filter(c => c.visited);
+  if (visited.length === 0) return false;
+  const avg        = visited.reduce((s, c) => s + (c.quiz_score ?? 100), 0) / visited.length;
+  const lastActive = course.concepts
+    .map(c => c.last_seen_at ? new Date(c.last_seen_at).getTime() : 0)
+    .reduce((a, b) => Math.max(a, b), 0);
+  const daysSince  = lastActive ? (Date.now() - lastActive) / 86_400_000 : 999;
+  return avg < 50 || daysSince > 7;
+}
+
+// Stacked mastery bar for a course
+function MasteryBar({ concepts }: { concepts: ConceptProgress[] }) {
+  const counts = { mastered: 0, practiced: 0, visited: 0, struggling: 0, none: 0 };
+  for (const c of concepts) counts[getMastery(c)]++;
+  const total = concepts.length;
+  if (total === 0) return null;
+  const pct = (n: number) => `${(n / total * 100).toFixed(1)}%`;
+  return (
+    <div className="space-y-1">
+      <div className="flex h-2 rounded-full overflow-hidden gap-px">
+        {counts.mastered   > 0 && <div className="bg-green-500"  style={{ width: pct(counts.mastered) }}   title={`Mastered: ${counts.mastered}`} />}
+        {counts.practiced  > 0 && <div className="bg-amber-500"  style={{ width: pct(counts.practiced) }}  title={`Practiced: ${counts.practiced}`} />}
+        {counts.visited    > 0 && <div className="bg-blue-400"   style={{ width: pct(counts.visited) }}    title={`Visited: ${counts.visited}`} />}
+        {counts.struggling > 0 && <div className="bg-red-500"    style={{ width: pct(counts.struggling) }} title={`Struggling: ${counts.struggling}`} />}
+        {counts.none       > 0 && <div className="bg-[var(--ov3)]" style={{ width: pct(counts.none) }}     title={`Not started: ${counts.none}`} />}
+      </div>
+      <div className="flex gap-3 text-[10px] text-[var(--tx7)] flex-wrap">
+        {counts.mastered   > 0 && <span className="text-green-400">{counts.mastered} mastered</span>}
+        {counts.practiced  > 0 && <span className="text-amber-400">{counts.practiced} practiced</span>}
+        {counts.visited    > 0 && <span className="text-blue-400">{counts.visited} visited</span>}
+        {counts.struggling > 0 && <span className="text-red-400">{counts.struggling} struggling</span>}
+        {counts.none       > 0 && <span>{counts.none} not started</span>}
+      </div>
+    </div>
+  );
 }
 
 export default function TeacherStudentDetailPage() {
@@ -55,13 +120,13 @@ export default function TeacherStudentDetailPage() {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading,       setLoading]       = useState(true);
 
-  const [expandedConvId, setExpandedConvId] = useState<string | null>(null);
-  const [convMessages,   setConvMessages]   = useState<ChatMessage[]>([]);
-  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [expandedConvId,   setExpandedConvId]   = useState<string | null>(null);
+  const [convMessages,     setConvMessages]     = useState<ChatMessage[]>([]);
+  const [loadingMessages,  setLoadingMessages]  = useState(false);
 
-  const [assignments,    setAssignments]    = useState<Assignment[]>([]);
+  const [assignments,     setAssignments]     = useState<Assignment[]>([]);
   const [selectedConcept, setSelectedConcept] = useState('');
-  const [assigning,      setAssigning]      = useState<string | null>(null);
+  const [assigning,       setAssigning]       = useState<string | null>(null);
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -86,8 +151,8 @@ export default function TeacherStudentDetailPage() {
       if (convRes.ok)    setConversations(await convRes.json());
       if (assignRes.ok)  setAssignments(await assignRes.json());
       if (!selectedConcept) {
-        const firstConcept = progress.courses?.[0]?.concepts?.[0]?.id;
-        if (firstConcept) setSelectedConcept(firstConcept);
+        const first = progress.courses?.[0]?.concepts?.[0]?.id;
+        if (first) setSelectedConcept(first);
       }
     } finally { setLoading(false); }
   }
@@ -101,8 +166,8 @@ export default function TeacherStudentDetailPage() {
         body: JSON.stringify({ student_id: studentId, concept_id: selectedConcept, kind }),
       });
       if (res.ok) {
-        const assignRes = await fetch(`${API_BASE}/api/assignments/student/${studentId}`, { headers });
-        if (assignRes.ok) setAssignments(await assignRes.json());
+        const r = await fetch(`${API_BASE}/api/assignments/student/${studentId}`, { headers });
+        if (r.ok) setAssignments(await r.json());
       }
     } finally { setAssigning(null); }
   }
@@ -124,6 +189,8 @@ export default function TeacherStudentDetailPage() {
   );
   if (!data) return null;
 
+  const atRiskCourses = data.courses.filter(isAtRisk);
+
   return (
     <div className="p-6 max-w-3xl mx-auto pb-16">
       <button onClick={() => router.push('/teacher/students')}
@@ -133,7 +200,14 @@ export default function TeacherStudentDetailPage() {
 
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{data.name ?? data.email}</h1>
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="text-[var(--tx1)] text-2xl font-bold">{data.name ?? data.email}</h1>
+            {atRiskCourses.length > 0 && (
+              <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+                <AlertTriangle size={11} /> At risk
+              </span>
+            )}
+          </div>
           <p className="text-[var(--tx7)] text-sm">{data.email}</p>
         </div>
         <button onClick={() => router.push(`/messages/${studentId}`)}
@@ -182,8 +256,8 @@ export default function TeacherStudentDetailPage() {
             )}
             <div className="flex items-center gap-3 text-xs text-[var(--tx7)]">
               {profile.grade && <span>Grade: {profile.grade}</span>}
-              {profile.goal && <span>Goal: {profile.goal}</span>}
-              <span>{profile.total_messages} AI tutor messages</span>
+              {profile.goal  && <span>Goal: {profile.goal}</span>}
+              <span>{profile.total_messages} AI messages</span>
             </div>
           </div>
         )}
@@ -194,7 +268,6 @@ export default function TeacherStudentDetailPage() {
         <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
           <Sparkles size={12} /> {t.teacher.assignExtraPractice}
         </h2>
-
         {data.courses.length === 0 ? (
           <p className="text-[var(--tx7)] text-sm">{t.teacher.noConceptsToAssign}</p>
         ) : (
@@ -210,7 +283,6 @@ export default function TeacherStudentDetailPage() {
                 </optgroup>
               ))}
             </select>
-
             <div className="flex gap-2 flex-wrap">
               {Object.entries(KIND_LABEL).map(([kind, { label, icon: Icon }]) => (
                 <button key={kind} onClick={() => assign(kind)} disabled={!!assigning}
@@ -223,7 +295,6 @@ export default function TeacherStudentDetailPage() {
             </div>
           </>
         )}
-
         {assignments.length > 0 && (
           <div className="mt-4 pt-4 border-t border-[var(--bd)] space-y-1.5">
             {assignments.map(a => {
@@ -242,7 +313,7 @@ export default function TeacherStudentDetailPage() {
         )}
       </div>
 
-      {/* AI tutor conversations (read-only) */}
+      {/* AI tutor conversations */}
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
         <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
           <MessageSquare size={12} /> {t.teacher.aiConversations}
@@ -283,33 +354,90 @@ export default function TeacherStudentDetailPage() {
         )}
       </div>
 
-      {/* Course progress */}
+      {/* Course progress — per-concept detail */}
       {data.courses.length === 0 ? (
         <div className="bg-[var(--ov1)] border border-dashed border-[var(--bd)] rounded-2xl p-6 text-center">
           <p className="text-[var(--tx6)] text-sm">{t.teacher.noCoursesAssigned}</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {data.courses.map(c => (
-            <div key={c.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
-              <h2 className="text-[var(--tx1)] font-semibold mb-3">{c.name}</h2>
-              <div className="space-y-1.5">
-                {c.concepts.map(concept => (
-                  <div key={concept.id} className="flex items-center gap-3 text-sm py-1">
-                    {concept.visited
-                      ? <CheckCircle2 size={14} className="text-green-400 shrink-0" />
-                      : <Circle size={14} className="text-[var(--tx8)] shrink-0" />}
-                    <span className="flex-1 text-[var(--tx2)]">{concept.title}</span>
-                    {concept.quiz_score !== null && (
-                      <span className={
-                        concept.quiz_score >= 70 ? 'text-green-400' : concept.quiz_score >= 40 ? 'text-amber-400' : 'text-red-400'
-                      }>{Math.round(concept.quiz_score)}%</span>
-                    )}
-                  </div>
-                ))}
+          {data.courses.map(course => {
+            const risk = isAtRisk(course);
+            return (
+              <div key={course.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="text-[var(--tx1)] font-semibold flex-1">{course.name}</h2>
+                  {risk && (
+                    <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      <AlertTriangle size={9} /> Needs attention
+                    </span>
+                  )}
+                </div>
+
+                {/* Mastery progress bar */}
+                <div className="mb-4">
+                  <MasteryBar concepts={course.concepts} />
+                </div>
+
+                {/* Per-concept rows */}
+                <div className="space-y-1">
+                  {course.concepts.map(concept => {
+                    const m = getMastery(concept);
+                    return (
+                      <div key={concept.id} className="flex items-center gap-3 text-sm py-1.5 px-1 rounded-lg hover:bg-[var(--ov1)]">
+                        {/* Mastery icon */}
+                        <div className="shrink-0">
+                          {m === 'mastered'   && <CheckCircle2 size={14} className="text-green-400" />}
+                          {m === 'practiced'  && <CheckCircle2 size={14} className="text-amber-400" />}
+                          {m === 'struggling' && <AlertTriangle size={14} className="text-red-400" />}
+                          {m === 'visited'    && <Circle size={14} className="text-blue-400" />}
+                          {m === 'none'       && <Circle size={14} className="text-[var(--tx8)]" />}
+                        </div>
+
+                        {/* Title */}
+                        <span className="flex-1 text-[var(--tx2)] truncate">{concept.title}</span>
+
+                        {/* AI chat count */}
+                        {concept.ai_msg_count > 0 && (
+                          <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx7)] shrink-0">
+                            <MessageSquare size={9} /> {concept.ai_msg_count}
+                          </span>
+                        )}
+
+                        {/* Flashcard mastery */}
+                        {concept.flashcard_total > 0 && (
+                          <span className={`text-[10px] shrink-0 ${
+                            concept.flashcard_pct !== null && concept.flashcard_pct >= 70 ? 'text-green-400'
+                            : concept.flashcard_pct !== null && concept.flashcard_pct >= 40 ? 'text-amber-400'
+                            : 'text-[var(--tx7)]'
+                          }`}>
+                            <Layers size={9} className="inline mr-0.5" />
+                            {concept.flashcard_mastered}/{concept.flashcard_total}
+                          </span>
+                        )}
+
+                        {/* Last seen */}
+                        {concept.last_seen_at && (
+                          <span className="flex items-center gap-0.5 text-[10px] text-[var(--tx8)] shrink-0">
+                            <Clock size={9} /> {relativeTime(concept.last_seen_at)}
+                          </span>
+                        )}
+
+                        {/* Quiz score */}
+                        {concept.quiz_score !== null && (
+                          <span className={`text-xs font-medium shrink-0 ${
+                            concept.quiz_score >= 70 ? 'text-green-400'
+                            : concept.quiz_score >= 40 ? 'text-amber-400'
+                            : 'text-red-400'
+                          }`}>{Math.round(concept.quiz_score)}%</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

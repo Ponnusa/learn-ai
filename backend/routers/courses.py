@@ -528,16 +528,57 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
         """, course_id, teacher_id)
 
         progress = await db.fetch("""
-            SELECT scp.student_id, scp.concept_id, scp.visited, scp.quiz_score
+            SELECT scp.student_id, scp.concept_id, scp.visited, scp.quiz_score,
+                   scp.last_seen_at
             FROM student_concept_progress scp
             JOIN course_concepts cc ON cc.id = scp.concept_id
             JOIN course_units cu    ON cu.id = cc.unit_id
             WHERE cu.course_id = $1::uuid
         """, course_id)
 
+        # Flashcard mastery: latest review rating per (student, flashcard) → % mastered (≥3)
+        flashcard_rows = await db.fetch("""
+            WITH total_cards AS (
+                SELECT cf.concept_id, COUNT(*) AS total
+                FROM concept_flashcards cf
+                JOIN course_concepts cc ON cc.id = cf.concept_id
+                JOIN course_units cu    ON cu.id = cc.unit_id
+                WHERE cu.course_id = $1::uuid
+                GROUP BY cf.concept_id
+            ),
+            latest AS (
+                SELECT DISTINCT ON (cfr.student_id, cfr.flashcard_id)
+                       cfr.student_id, cf.concept_id, cfr.rating
+                FROM concept_flashcard_reviews cfr
+                JOIN concept_flashcards cf ON cf.id = cfr.flashcard_id
+                JOIN course_concepts cc ON cc.id = cf.concept_id
+                JOIN course_units cu    ON cu.id = cc.unit_id
+                WHERE cu.course_id = $1::uuid
+                ORDER BY cfr.student_id, cfr.flashcard_id, cfr.reviewed_at DESC
+            )
+            SELECT lr.student_id, lr.concept_id,
+                   tc.total                                          AS total_cards,
+                   COUNT(*) FILTER (WHERE lr.rating >= 3)           AS mastered_cards
+            FROM latest lr
+            JOIN total_cards tc ON tc.concept_id = lr.concept_id
+            GROUP BY lr.student_id, lr.concept_id, tc.total
+        """, course_id)
+
+    flashcard_map: dict[tuple, dict] = {}
+    for r in flashcard_rows:
+        total    = int(r["total_cards"]   or 0)
+        mastered = int(r["mastered_cards"] or 0)
+        flashcard_map[(str(r["student_id"]), str(r["concept_id"]))] = {
+            "flashcard_pct":      round(mastered / total * 100) if total > 0 else None,
+            "flashcard_mastered": mastered,
+            "flashcard_total":    total,
+        }
+
     progress_map: dict[tuple, dict] = {
         (str(p["student_id"]), str(p["concept_id"])): {
-            "visited": p["visited"], "quiz_score": p["quiz_score"],
+            "visited":      p["visited"],
+            "quiz_score":   p["quiz_score"],
+            "last_seen_at": p["last_seen_at"],
         }
         for p in progress
     }
@@ -550,23 +591,36 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
     student_rows = []
     for s in students:
         sid = str(s["id"])
-        cells = {}
+        cells: dict = {}
         visited_count = 0
-        scores = []
+        scores: list = []
+        last_seen_at  = None
         for c in concept_list:
-            cell = progress_map.get((sid, c["id"]), {"visited": False, "quiz_score": None})
-            cells[c["id"]] = cell
+            cell = progress_map.get((sid, c["id"]), {"visited": False, "quiz_score": None, "last_seen_at": None})
+            fc   = flashcard_map.get((sid, c["id"]), {})
+            ls   = cell.get("last_seen_at")
+            cells[c["id"]] = {
+                "visited":           bool(cell["visited"]),
+                "quiz_score":        cell["quiz_score"],
+                "last_seen_at":      ls.isoformat() if ls else None,
+                "flashcard_pct":     fc.get("flashcard_pct"),
+                "flashcard_mastered":fc.get("flashcard_mastered", 0),
+                "flashcard_total":   fc.get("flashcard_total", 0),
+            }
             if cell["visited"]:
                 visited_count += 1
             if cell["quiz_score"] is not None:
                 scores.append(cell["quiz_score"])
+            if ls and (last_seen_at is None or ls > last_seen_at):
+                last_seen_at = ls
         student_rows.append({
-            "id":            sid,
-            "name":          s["name"],
-            "email":         s["email"],
-            "visited_count": visited_count,
+            "id":             sid,
+            "name":           s["name"],
+            "email":          s["email"],
+            "visited_count":  visited_count,
             "avg_quiz_score": (sum(scores) / len(scores)) if scores else None,
-            "cells":         cells,
+            "last_seen_at":   last_seen_at.isoformat() if last_seen_at else None,
+            "cells":          cells,
         })
 
     return {
