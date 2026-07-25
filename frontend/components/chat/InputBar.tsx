@@ -81,6 +81,7 @@ export function InputBar({ onSend, onPdfOpen, onDebug, loading = false, hasFile 
           onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
         />
         <button
+          data-tour="image-upload"
           onClick={() => fileRef.current?.click()}
           className="text-[var(--tx6)] hover:text-[var(--tx2)] transition-colors shrink-0 pb-0.5"
           title="Attach PDF or image"
@@ -90,6 +91,7 @@ export function InputBar({ onSend, onPdfOpen, onDebug, loading = false, hasFile 
 
         {/* Text input */}
         <textarea
+          data-tour="chat-input"
           ref={textRef}
           value={text}
           onChange={e => setText(e.target.value)}

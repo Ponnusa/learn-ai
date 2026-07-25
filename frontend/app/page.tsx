@@ -20,6 +20,7 @@ import { useSessionStore } from '@/store/sessionStore';
 import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, debugChatPrompt, getStudentProfile, uploadRegionImage } from '@/lib/api';
 import { DebugPromptModal } from '@/components/chat/DebugPromptModal';
 import { ProfileNudgeCard } from '@/components/profile/ProfileNudgeCard';
+import { HomeTour } from '@/components/onboarding/HomeTour';
 
 interface Message {
   id: string;
@@ -539,6 +540,7 @@ export default function HomePage() {
 
   return (
     <div className="flex h-screen overflow-hidden">
+      <HomeTour />
       <Sidebar
         selectedConversationId={conversationId ?? undefined}
         onNewChat={() => { setMessages([]); setConversationId(null); setActiveConversationId(null); }}

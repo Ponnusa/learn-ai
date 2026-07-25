@@ -130,7 +130,7 @@ export function WelcomeScreen({ user, onSend }: Props) {
       </div>
 
       {/* Starter prompts */}
-      <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+      <div data-tour="starter-prompts" className="flex flex-wrap gap-2 justify-center max-w-lg">
         {prompts.map((p, i) => (
           <button
             key={i}
