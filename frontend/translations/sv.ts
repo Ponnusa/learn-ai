@@ -112,8 +112,8 @@ export const sv: Translation = {
     welcomeTitle: 'Vad vill du lära dig idag?',
     welcomeSubtitle: 'Ställ en fråga, ladda upp en PDF eller välj ett ämne nedan.',
     starterPrompts: [
+      'Förklara bensens struktur',
       'Förklara Newtons rörelserlagar',
-      'Hur fungerar fotosyntes?',
       'Vad är Pythagoras sats?',
       'Förklara utbud och efterfrågan',
     ],
