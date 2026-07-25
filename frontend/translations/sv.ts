@@ -132,6 +132,7 @@ export const sv: Translation = {
     micRecord: 'Tala din fråga',
     micStop: 'Stoppa inspelning',
     micTranscribing: 'Transkriberar…',
+    micError: 'Kunde inte transkribera — försök igen',
   },
 
   video: {

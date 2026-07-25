@@ -132,6 +132,7 @@ export const fi: Translation = {
     micRecord: 'Puhu kysymyksesi',
     micStop: 'Lopeta tallennus',
     micTranscribing: 'Muutetaan tekstiksi…',
+    micError: 'Transkriptio epäonnistui — yritä uudelleen',
   },
 
   video: {

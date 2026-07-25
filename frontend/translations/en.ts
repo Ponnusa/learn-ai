@@ -132,6 +132,7 @@ export const en: Translation = {
     micRecord: 'Speak your question',
     micStop: 'Stop recording',
     micTranscribing: 'Transcribing…',
+    micError: 'Could not transcribe — please try again',
   },
 
   video: {

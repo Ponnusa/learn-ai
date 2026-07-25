@@ -123,6 +123,7 @@ export interface Translation {
     micRecord: string;
     micStop: string;
     micTranscribing: string;
+    micError: string;
   };
 
   video: {
