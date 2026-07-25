@@ -1,33 +1,29 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { SpotlightTour, TourStep } from './SpotlightTour';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const STORAGE_KEY = 'learnai-teacher-classrooms-tour-v1';
 const EVENT_KEY   = 'start-teacher-classrooms-tour';
-
-const STEPS: TourStep[] = [
-  {
-    title: 'Classrooms',
-    body: 'Group students into classrooms, assign courses, and share a join code — students enrol themselves in seconds.',
-  },
-  {
-    title: 'Create a classroom',
-    body: 'Name it, pick a subject and grade. A unique 6-character join code is generated automatically — no email invites needed.',
-    targetSelector: '[data-tour="new-classroom"]',
-  },
-  {
-    title: 'Share the join code',
-    body: 'Copy the bold code shown on each classroom card and send it to your students. They go to their Classrooms page and enter it to enrol.\n\nFrom inside the classroom you can assign courses and track student progress.',
-  },
+const SELECTORS: (string | undefined)[] = [
+  undefined,
+  '[data-tour="new-classroom"]',
+  undefined,
 ];
 
 export function TeacherClassroomsTour() {
+  const { t } = useTranslation();
   const [show, setShow] = useState(false);
+
+  const steps: TourStep[] = t.tours.teacherClassrooms.map((s, i) => ({
+    ...s,
+    ...(SELECTORS[i] ? { targetSelector: SELECTORS[i]! } : {}),
+  }));
 
   useEffect(() => {
     try { if (localStorage.getItem(STORAGE_KEY)) return; } catch {}
-    const t = setTimeout(() => setShow(true), 900);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setShow(true), 900);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -41,6 +37,6 @@ export function TeacherClassroomsTour() {
 
   if (!show) return null;
   return (
-    <SpotlightTour steps={STEPS} storageKey={STORAGE_KEY} onDone={() => setShow(false)} />
+    <SpotlightTour steps={steps} storageKey={STORAGE_KEY} onDone={() => setShow(false)} />
   );
 }

@@ -1,33 +1,29 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { SpotlightTour, TourStep } from './SpotlightTour';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const STORAGE_KEY = 'learnai-teacher-students-tour-v1';
 const EVENT_KEY   = 'start-teacher-students-tour';
-
-const STEPS: TourStep[] = [
-  {
-    title: 'Students overview',
-    body: 'Every student across all your classrooms in one list — quiz scores, flashcard backlog, last activity, and a risk flag.',
-  },
-  {
-    title: 'At-risk filter',
-    body: 'Toggle this to surface students flagged as at-risk — low quiz scores (< 40%) or no activity in 7+ days. Select multiple to bulk-assign practice.',
-    targetSelector: '[data-tour="risk-filter"]',
-  },
-  {
-    title: 'Drill into a student',
-    body: 'Click any student to see their full breakdown:\n📊 Concept-by-concept quiz history\n🃏 Flashcard schedule\n📈 Progress heatmap\n💬 Message them directly',
-  },
+const SELECTORS: (string | undefined)[] = [
+  undefined,
+  '[data-tour="risk-filter"]',
+  undefined,
 ];
 
 export function TeacherStudentsTour() {
+  const { t } = useTranslation();
   const [show, setShow] = useState(false);
+
+  const steps: TourStep[] = t.tours.teacherStudents.map((s, i) => ({
+    ...s,
+    ...(SELECTORS[i] ? { targetSelector: SELECTORS[i]! } : {}),
+  }));
 
   useEffect(() => {
     try { if (localStorage.getItem(STORAGE_KEY)) return; } catch {}
-    const t = setTimeout(() => setShow(true), 900);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setShow(true), 900);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -41,6 +37,6 @@ export function TeacherStudentsTour() {
 
   if (!show) return null;
   return (
-    <SpotlightTour steps={STEPS} storageKey={STORAGE_KEY} onDone={() => setShow(false)} />
+    <SpotlightTour steps={steps} storageKey={STORAGE_KEY} onDone={() => setShow(false)} />
   );
 }

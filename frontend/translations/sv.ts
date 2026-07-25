@@ -751,4 +751,71 @@ export const sv: Translation = {
     progressSortTitle:          'Titel',
     quizLastAttempt:            'senaste försök',
   },
+
+  tours: {
+    home: [
+      { title: 'Välkommen till LearnX-AI 👋', body: 'En 30-sekunders rundtur för att visa vad den här chatten kan.\nTryck Nästa eller → för att fortsätta.' },
+      { title: 'Fråga vad som helst', body: 'Skriv vilken fråga som helst — matte, fysik, kemi.\nFormler och kemiska strukturer visas vackert i texten.' },
+      { title: 'Kom igång med exempel', body: 'Klicka på ett förslag för att prova det direkt.\nAspirinexemplet renderar ett 2D-molekyldiagram med SMILES-notation.' },
+      { title: 'Ladda upp ett foto eller PDF', body: 'Ta ett foto av en lärobokssida, läxproblem eller labbdiagram — AI:n läser det och svarar på din fråga.' },
+      { title: 'Gör mer efter svaret', body: 'När AI:n svarar visas knappar nedanför:\n\n🎬 Animera — animerad visuell förklaring\n🔊 Läs högt — text-till-tal på ditt språk\n📝 Testa mig — snabbquiz\n🎨 Skissa — AI-ritad illustration\n\nUtforska fritt — allt sparas automatiskt.' },
+    ],
+    videos: [
+      { title: 'Videostudio', body: 'Förvandla vilket ämne som helst till en animerad utbildningsvideo — matte, fysik, kemi med mera.\nVideor genereras med Manim och tar ~2 minuter.' },
+      { title: 'Beskriv ditt ämne', body: 'Skriv vilket begrepp som helst här. Var specifik för bästa resultat:\n"Förklara Faradays induktionslag" → vacker animerad förklaring.' },
+      { title: 'Snabbexempel', body: 'Klicka på ett alternativ för att fylla i ett färdigt ämne. Alla exempel är översatta till ditt språk.' },
+      { title: 'Ditt videobibliotek', body: 'Varje video du genererar sparas här. Du kan titta om, läsa manuset eller gå tillbaka till den ursprungliga chattkonversationen.' },
+    ],
+    study: [
+      { title: 'Studieset', body: 'Ladda upp valfri PDF — lärobokskapitel, föreläsningsanteckningar, gamla prov — och AI skapar automatiskt flashcards, ett quiz och en personlig tutorchat.' },
+      { title: 'Skapa ditt första set', body: 'Klicka här för att ladda upp en PDF. AI läser den och bygger ditt studiematerial på ungefär 30 sekunder.' },
+      { title: 'Inuti ett studieset', body: 'Varje set har:\n📚 Flashcards — bläddra igenom nyckelbegrepp\n✏️ Quiz — testa dig själv med automatiskt rättade frågor\n💬 Chattuttor — fråga vad som helst om materialet' },
+    ],
+    images: [
+      { title: 'Utbildningsdiagram', body: 'Generera lärobokskvalitets märkta diagram från vilket begrepp som helst på ~30 sekunder. Utmärkt för visuella inlärare eller för att göra studieanteckningar.' },
+      { title: 'Beskriv vad som ska ritas', body: 'Skriv vilket utbildningsbegrepp som helst. AI:n extraherar nyckelelement, planerar diagrammet, genererar det med GPT-image-1 och betygsätter det för noggrannhet.' },
+      { title: 'Snabbexempel', body: 'Dessa alternativ är översatta till ditt språk — klicka på ett för att prova direkt. Byt språk i inställningarna för att få lokaliserade exempel.' },
+      { title: 'Kvalitetspoäng & detaljer', body: 'Varje diagram visar ett kvalitetspoäng (0–100), vilka visuella element som inkluderades och lärandemålet. Klicka på ett tidigare diagram för att zooma in.' },
+    ],
+    teacherCourses: [
+      { title: 'Kursbyggaren', body: 'Bygg strukturerade kurser med enheter, begrepp och AI-genererade quiz, flashcards och videor — allt från eget innehåll.' },
+      { title: 'Skapa din första kurs', body: 'Ge den ett namn, ämne och nivå. När kursen är skapad, lägg till enheter och ladda upp begreppsinnehåll (text, bilder, PDF:er).' },
+      { title: 'Vad händer inuti', body: 'Varje begrepp får:\n📝 AI-sammanfattning och manus\n🃏 Flashcard-kortlek med spaced repetition\n✏️ Automatiskt rättat quiz\n🎬 Animerad video\n\nPublicera kursen för att göra den synlig för din klass.' },
+    ],
+    teacherClassrooms: [
+      { title: 'Klassrum', body: 'Gruppera elever i klassrum, tilldela kurser och dela en anslutningskod — elever registrerar sig själva på sekunder.' },
+      { title: 'Skapa ett klassrum', body: 'Namnge det och välj ämne och nivå. En unik 6-tecken anslutningskod genereras automatiskt — inga e-postinbjudningar behövs.' },
+      { title: 'Dela anslutningskoden', body: 'Kopiera den feta koden som visas på varje klassrumskort och skicka den till dina elever. De går till sin Klassrums-sida och anger den för att registrera sig.\n\nInifrån klassrummet kan du tilldela kurser och följa elevers framsteg.' },
+    ],
+    teacherStudents: [
+      { title: 'Elevöversikt', body: 'Alla elever från alla dina klassrum i en lista — quizpoäng, flashcard-efterskott, senaste aktivitet och en riskflagga.' },
+      { title: 'Riskfilter', body: 'Aktivera detta för att visa elever som flaggats som i riskzonen — låga quizpoäng (< 40 %) eller ingen aktivitet på 7+ dagar. Välj flera för att masstilldela övningar.' },
+      { title: 'Djupdyk i en elev', body: 'Klicka på en elev för att se deras fullständiga uppdelning:\n📊 Begrepp-för-begrepp quizhistorik\n🃏 Flashcard-schema\n📈 Framstegsöversikt\n💬 Skicka meddelande direkt' },
+    ],
+    messagesTeacher: [
+      { title: 'Direktmeddelanden', body: 'Privata, trådade konversationer mellan dig och enskilda elever.' },
+      { title: 'Starta en konversation', body: 'Gå till en elevs profilsida och klicka "Meddelande" för att öppna en tråd.\n\nNya meddelanden från elever visas här med ett oläst-märke. Svar är omedelbart — ingen e-post behövs.' },
+    ],
+    messagesStudent: [
+      { title: 'Meddelanden', body: 'Direktmeddelanden mellan dig och dina lärare — privat och omedelbart.' },
+      { title: 'Hur det fungerar', body: 'Din lärare kan meddela dig direkt från Elever-vyn.\nDu svarar här eller inifrån ditt klassrum.\n\nKolla tillbaka för feedback på uppgifter och quizresultat.' },
+    ],
+    studentClassrooms: [
+      { title: 'Dina klassrum', body: 'Varje klassrum innehåller kurser din lärare har tilldelat. Arbeta igenom begrepp, gör quiz och repetera flashcards med spaced repetition.' },
+      { title: 'Gå med i ett klassrum', body: 'Ange den 6-tecken kod din lärare delade och tryck Gå med. Du ser direkt deras tilldelade kurser.' },
+      { title: 'Inuti ett klassrum', body: 'Varje begrepp har:\n🃏 Flashcards — påminnelser om spaced repetition\n✏️ Quiz — poängsatt och rapporterat till din lärare\n💬 AI-tutorchat — fråga vad som helst om ämnet\n🎬 Video — animerad förklaring' },
+    ],
+    courseDetail: [
+      { title: 'Din kursarbetsyta', body: 'Varje kurs består av enheter (kapitel) och begrepp (ämnen). Ladda upp en PDF och AI fyller i strukturen automatiskt, eller bygg den enhet för enhet.' },
+      { title: 'Ladda upp ett kapitel-PDF', body: 'Släpp vilket lärobokskapitel som helst här. AI identifierar enheter, extraherar nyckelbegrepp och köar sammanfattningar, quiz, flashcards och animerade videor — ett klick.' },
+      { title: 'Lägg till enheter manuellt', body: 'Föredrar du att bygga för hand? Lägg till en enhet, sedan begreppsämnen inuti den. Du kan alltid bifoga en PDF till en enhet senare för AI-generering.' },
+      { title: 'Publicera & tilldela', body: 'När kursen är klar, publicera den och tilldela den till ett klassrum. Elever ser den direkt i sin klassrumsvy.' },
+    ],
+    conceptEditor: [
+      { title: 'Begreppseditorn', body: 'Här skapar, granskar och godkänner du innehåll för ett begrepp. Fyra flikar täcker varje steg — från att skissa med AI till att publicera resurser för elever.' },
+      { title: 'Fyra flikar, ett arbetsflöde', body: 'Studio → chatta med AI för att skissa förklaringen.\nLärobok → granska och arrangera innehållsblock som elever kommer att läsa.\nResurser → bifoga bilder eller diagram.\nTillgångar → godkänn quiz, flashcards, ljudberättelse och animerad video.' },
+      { title: 'Studio: skissa med AI', body: 'Be AI:n skriva en sammanfattning, lägga till fler exempel eller omformulera ett avsnitt. När du är nöjd, skicka innehållet till Läroboken eller tillämpa det som sammanfattning och manus.' },
+      { title: 'Godkänn tillgångar för elever', body: 'Byt till fliken Tillgångar för att lyssna på AI-berättelsen, titta på den animerade videon och granska quizet. Godkänn var och en när den är klar — bara godkända tillgångar visas för elever.' },
+    ],
+  },
 };

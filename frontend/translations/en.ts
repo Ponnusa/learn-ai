@@ -751,4 +751,71 @@ export const en: Translation = {
     progressSortTitle:          'Title',
     quizLastAttempt:            'last attempt',
   },
+
+  tours: {
+    home: [
+      { title: 'Welcome to LearnX-AI 👋', body: 'A 30-second tour to show you what this chat can do.\nPress Next or use → to continue.' },
+      { title: 'Ask anything', body: 'Type any question here — maths, physics, chemistry.\nFormulas, equations, and chemical structures render beautifully inline.' },
+      { title: 'Jump-start with examples', body: 'Click a suggestion to try it instantly.\nThe aspirin example renders a 2-D molecular diagram using SMILES notation.' },
+      { title: 'Upload a photo or PDF', body: 'Snap a photo of a textbook page, homework problem, or lab diagram — the AI will read it and answer your question about it.' },
+      { title: 'Do more after the reply', body: 'Once the AI answers, action buttons appear below:\n\n🎬 Animate it — animated visual explainer\n🔊 Read aloud — text-to-speech in your language\n📝 Quiz me — instant comprehension quiz\n🎨 Sketch it — AI-drawn illustration\n\nExplore freely — everything is saved automatically.' },
+    ],
+    videos: [
+      { title: 'Video Studio', body: 'Turn any topic into an animated educational video — maths, physics, chemistry, and more.\nVideos are generated with Manim and take ~2 minutes.' },
+      { title: 'Describe your topic', body: "Type any concept here. Be specific for best results:\n\"Explain Faraday's law of induction\" → beautiful animated explainer." },
+      { title: 'Quick-start examples', body: 'Click any chip to pre-fill the input with a ready-to-go topic. All examples are translated to your language.' },
+      { title: 'Your video library', body: 'Every video you generate is saved here. You can re-watch, view the transcript, or go back to the original chat conversation.' },
+    ],
+    study: [
+      { title: 'Study Sets', body: 'Upload any PDF — textbook chapter, lecture notes, past paper — and AI automatically creates flashcards, a quiz, and a personal tutor chat for it.' },
+      { title: 'Create your first set', body: 'Click here to upload a PDF. AI will read it and build your study material in about 30 seconds.' },
+      { title: 'Inside a study set', body: 'Each set has:\n📚 Flashcards — swipe through key concepts\n✏️ Quiz — test yourself with auto-graded questions\n💬 Chat tutor — ask anything about the material' },
+    ],
+    images: [
+      { title: 'Educational Diagrams', body: 'Generate textbook-quality labelled diagrams from any concept in ~30 seconds. Great for visual learners or making study notes.' },
+      { title: 'Describe what to draw', body: 'Type any educational concept. The AI extracts key elements, plans the diagram, generates it with GPT-image-1, then scores it for accuracy.' },
+      { title: 'Quick examples', body: 'These chips are translated to your language — click one to try it immediately. Switch language in settings to get localised examples.' },
+      { title: 'Quality score & details', body: 'Each diagram shows a quality score (0–100), what visual elements were included, and the learning goal. Click any past diagram to zoom in.' },
+    ],
+    teacherCourses: [
+      { title: 'Course Builder', body: 'Build structured courses with units, concepts, and AI-generated quizzes, flashcards, and videos — all from your own content.' },
+      { title: 'Create your first course', body: 'Give it a name, subject, and grade level. Once created, add units and upload concept material (text, images, PDFs).' },
+      { title: 'What happens inside', body: 'Each concept gets:\n📝 AI summary & transcript\n🃏 Flashcard deck with spaced repetition\n✏️ Auto-graded quiz\n🎬 Animated video\n\nPublish the course to make it visible to your classroom.' },
+    ],
+    teacherClassrooms: [
+      { title: 'Classrooms', body: 'Group students into classrooms, assign courses, and share a join code — students enrol themselves in seconds.' },
+      { title: 'Create a classroom', body: 'Name it, pick a subject and grade. A unique 6-character join code is generated automatically — no email invites needed.' },
+      { title: 'Share the join code', body: 'Copy the bold code shown on each classroom card and send it to your students. They go to their Classrooms page and enter it to enrol.\n\nFrom inside the classroom you can assign courses and track student progress.' },
+    ],
+    teacherStudents: [
+      { title: 'Students overview', body: 'Every student across all your classrooms in one list — quiz scores, flashcard backlog, last activity, and a risk flag.' },
+      { title: 'At-risk filter', body: 'Toggle this to surface students flagged as at-risk — low quiz scores (< 40%) or no activity in 7+ days. Select multiple to bulk-assign practice.' },
+      { title: 'Drill into a student', body: 'Click any student to see their full breakdown:\n📊 Concept-by-concept quiz history\n🃏 Flashcard schedule\n📈 Progress heatmap\n💬 Message them directly' },
+    ],
+    messagesTeacher: [
+      { title: 'Direct messages', body: 'Private, threaded conversations between you and individual students.' },
+      { title: 'Starting a conversation', body: 'Go to a student\'s profile page and click "Message" to open a thread.\n\nNew messages from students appear here with an unread badge. Replies are instant — no email needed.' },
+    ],
+    messagesStudent: [
+      { title: 'Messages', body: 'Direct messages between you and your teachers — private and instant.' },
+      { title: 'How it works', body: 'Your teacher can message you directly from the Students view.\nYou reply here or from inside your classroom.\n\nCheck back for feedback on assignments and quiz results.' },
+    ],
+    studentClassrooms: [
+      { title: 'Your classrooms', body: 'Each classroom contains courses your teacher has assigned. Work through concepts, take quizzes, and review flashcards with spaced repetition.' },
+      { title: 'Join a classroom', body: "Enter the 6-character code your teacher shared and press Join. You'll immediately see their assigned courses." },
+      { title: 'Inside a classroom', body: 'Each concept has:\n🃏 Flashcards — spaced repetition reminders\n✏️ Quiz — scored and reported to your teacher\n💬 AI tutor chat — ask anything about the topic\n🎬 Video — animated explanation' },
+    ],
+    courseDetail: [
+      { title: 'Your course workspace', body: 'Each course is made of units (chapters) and concepts (topics). Upload a PDF and AI fills in the structure automatically, or build it unit by unit.' },
+      { title: 'Upload a chapter PDF', body: 'Drop any textbook chapter here. AI detects units, extracts key concepts, and queues up summaries, quizzes, flashcards and animated videos — one click.' },
+      { title: 'Add units manually', body: 'Prefer to build by hand? Add a unit, then add concept topics inside it. You can always attach a PDF to a unit later for AI generation.' },
+      { title: 'Publish & assign', body: 'When the course is ready, publish it and assign it to a classroom. Students see it instantly in their classroom view.' },
+    ],
+    conceptEditor: [
+      { title: 'Concept editor', body: 'This is where you author, review, and approve content for one concept. Four tabs cover every stage — from drafting with AI to publishing assets for students.' },
+      { title: 'Four tabs, one workflow', body: 'Studio → chat with AI to draft the explanation.\nTextbook → review and arrange content blocks students will read.\nResources → attach images or diagrams.\nAssets → approve quiz, flashcards, audio narration, and animated video.' },
+      { title: 'Studio: draft with AI', body: "Ask the AI to write a summary, add more examples, or rephrase a section. When you're happy, send the content to the Textbook or apply it as the summary and transcript." },
+      { title: 'Approve assets for students', body: 'Switch to the Assets tab to listen to the AI narration, watch the animated video, and review the quiz. Approve each one when ready — only approved assets appear to students.' },
+    ],
+  },
 };

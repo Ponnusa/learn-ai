@@ -751,4 +751,71 @@ export const fi: Translation = {
     progressSortTitle:          'Otsikko',
     quizLastAttempt:            'viimeisin yritys',
   },
+
+  tours: {
+    home: [
+      { title: 'Tervetuloa LearnX-AI:hin 👋', body: '30-sekunnin esittely chatista.\nPaina Seuraava tai → jatkaaksesi.' },
+      { title: 'Kysy mitä tahansa', body: 'Kirjoita mikä tahansa kysymys — matematiikka, fysiikka, kemia.\nKaavat ja kemikaalirakenteet näkyvät kauniisti tekstissä.' },
+      { title: 'Aloita esimerkeillä', body: 'Napsauta ehdotusta kokeillaksesi sitä heti.\nAspiriiniesimerkki luo 2D-molekyylikaavion SMILES-notaatiolla.' },
+      { title: 'Lataa kuva tai PDF', body: 'Ota kuva oppikirjasivusta, kotitehtävästä tai laboratoriokaavioista — tekoäly lukee sen ja vastaa kysymykseesi.' },
+      { title: 'Tee enemmän vastauksen jälkeen', body: 'Kun tekoäly vastaa, toimintopainikkeet ilmestyvät alle:\n\n🎬 Animoi — animoitu visuaalinen selitys\n🔊 Lue ääneen — puhesynteesi kielelläsi\n📝 Tenttaa minut — pikatesti\n🎨 Piirrä — tekoälyn piirtämä kuva\n\nTutki vapaasti — kaikki tallennetaan automaattisesti.' },
+    ],
+    videos: [
+      { title: 'Videostudio', body: 'Muuta mikä tahansa aihe animoiduksi opetusvideoksi — matematiikka, fysiikka, kemia ja paljon muuta.\nVideot luodaan Manimilla ja se kestää noin 2 minuuttia.' },
+      { title: 'Kuvaile aihettasi', body: 'Kirjoita mikä tahansa käsite tähän. Ole tarkka parhaiden tulosten saamiseksi:\n"Selitä Faradayn induktiolaki" → kaunis animoitu selitys.' },
+      { title: 'Pikaesimerkit', body: 'Napsauta mitä tahansa ehdotusta esitäyttääksesi syötteen valmiilla aiheella. Kaikki esimerkit on käännetty kielellesi.' },
+      { title: 'Videokirjastosi', body: 'Jokainen luomasi video tallennetaan tähän. Voit katsoa uudelleen, lukea käsikirjoituksen tai palata alkuperäiseen chat-keskusteluun.' },
+    ],
+    study: [
+      { title: 'Opiskelupaketit', body: 'Lataa mikä tahansa PDF — oppikirjan luku, luentomuistiinpanot, vanhat kokeet — ja tekoäly luo automaattisesti muistikortteja, tietokilpailun ja henkilökohtaisen opettajabotin.' },
+      { title: 'Luo ensimmäinen pakettisi', body: 'Napsauta tätä ladataksesi PDF-tiedoston. Tekoäly lukee sen ja rakentaa opiskelumateriaalin noin 30 sekunnissa.' },
+      { title: 'Opiskelupaketin sisältö', body: 'Jokaisessa paketissa on:\n📚 Muistikortit — selaa läpi käsitteitä\n✏️ Tietokilpailu — testaa itsesi automaattisesti arvostetuilla kysymyksillä\n💬 Chat-opettaja — kysy mitä tahansa materiaalista' },
+    ],
+    images: [
+      { title: 'Oppimiskaaviot', body: 'Luo oppikirjalaadun mukaisia, merkittyjä kaavioita mistä tahansa käsitteestä noin 30 sekunnissa. Sopii erinomaisesti visuaalisille oppijoille ja opiskelumuistiinpanoihin.' },
+      { title: 'Kuvaile piirrettävää', body: 'Kirjoita mikä tahansa oppimiskäsite. Tekoäly poimii tärkeimmät elementit, suunnittelee kaavion, luo sen GPT-image-1:llä ja arvioi sen tarkkuuden.' },
+      { title: 'Pikaesimerkit', body: 'Nämä ehdotukset on käännetty kielellesi — napsauta yhtä kokeillaksesi heti. Vaihda kieli asetuksista saadaksesi paikallisia esimerkkejä.' },
+      { title: 'Laatu ja yksityiskohdat', body: 'Jokainen kaavio näyttää laatupisteet (0–100), mitä visuaalisia elementtejä sisältyi ja oppimistavoitteen. Napsauta mitä tahansa aiempaa kaaviota lähentääksesi.' },
+    ],
+    teacherCourses: [
+      { title: 'Kurssirakentaja', body: 'Rakenna jäsenneltyjä kursseja yksiköillä, käsitteillä ja tekoälyn luomilla testeillä, muistikorteilla ja videoilla — kaikki omasta materiaalista.' },
+      { title: 'Luo ensimmäinen kurssi', body: 'Anna sille nimi, oppiaine ja luokkataso. Kun kurssi on luotu, lisää yksiköitä ja lataa käsitemateriaalia (tekstiä, kuvia, PDF-tiedostoja).' },
+      { title: 'Mitä tapahtuu sisällä', body: 'Jokainen käsite saa:\n📝 Tekoälyn yhteenvedon ja käsikirjoituksen\n🃏 Muistikorttipakan hajautetun kertauksen kanssa\n✏️ Automaattisesti arvostellun tietokilpailun\n🎬 Animoidun videon\n\nJulkaise kurssi tehdäksesi siitä näkyvän luokallesi.' },
+    ],
+    teacherClassrooms: [
+      { title: 'Luokkahuoneet', body: 'Ryhmittele oppilaat luokkahuoneisiin, osoita kursseja ja jaa liittymiskoodi — oppilaat liittyvät itse sekunneissa.' },
+      { title: 'Luo luokkahuone', body: 'Nimeä se ja valitse oppiaine ja luokkataso. Ainutlaatuinen 6-merkin liittymiskoodi luodaan automaattisesti — sähköpostikutsuja ei tarvita.' },
+      { title: 'Jaa liittymiskoodi', body: 'Kopioi lihavoitu koodi jokaisesta luokkahuonekortista ja lähetä se oppilaillesi. He menevät Luokkahuoneet-sivulle ja syöttävät sen liittyäkseen.\n\nLuokkahuoneen sisältä voit osoittaa kursseja ja seurata oppilaiden edistymistä.' },
+    ],
+    teacherStudents: [
+      { title: 'Oppilaiden yhteenveto', body: 'Kaikki oppilaat kaikilta luokiltasi yhdessä listassa — testitulokset, muistikorttirästit, viimeisin toiminta ja riskimerkintä.' },
+      { title: 'Riskisuodatin', body: 'Aktivoi tämä nähdäksesi oppilaat, jotka on merkitty riskiryhmään — alhaiset testitulokset (< 40 %) tai ei toimintaa 7+ päivään. Valitse useita jakaaksesi harjoituksia ryhmälle.' },
+      { title: 'Tutustu yksittäiseen oppilaaseen', body: 'Napsauta mitä tahansa oppilasta nähdäksesi täydellinen erittely:\n📊 Käsite kerrallaan tietovisan historia\n🃏 Muistikorttiaikataulu\n📈 Edistymiskartta\n💬 Viesti heille suoraan' },
+    ],
+    messagesTeacher: [
+      { title: 'Suorat viestit', body: 'Yksityiset, ketjutetut keskustelut sinun ja yksittäisten oppilaiden välillä.' },
+      { title: 'Keskustelun aloittaminen', body: 'Mene oppilaan profiilisivulle ja napsauta "Viesti" avataaksesi viestiketjun.\n\nUudet viestit oppilailta näkyvät täällä lukemattomalla merkinnällä. Vastaukset ovat välittömiä — sähköpostia ei tarvita.' },
+    ],
+    messagesStudent: [
+      { title: 'Viestit', body: 'Suorat viestit sinun ja opettajiesi välillä — yksityisiä ja välittömiä.' },
+      { title: 'Miten se toimii', body: 'Opettajasi voi lähettää sinulle viestin suoraan Oppilaat-näkymästä.\nVastaat täällä tai luokkahuoneesi sisältä.\n\nTarkista palautetta tehtävistä ja testituloksista.' },
+    ],
+    studentClassrooms: [
+      { title: 'Luokkahuoneesi', body: 'Jokainen luokkahuone sisältää opettajasi osoittamat kurssit. Käy läpi käsitteitä, tee testejä ja kertaa muistikortteja hajautetulla kertauksella.' },
+      { title: 'Liity luokkahuoneeseen', body: 'Syötä opettajan jakama 6-merkin koodi ja paina Liity. Näet välittömästi heidän osoittamansa kurssit.' },
+      { title: 'Luokkahuoneen sisällä', body: 'Jokaisella käsitteellä on:\n🃏 Muistikortit — hajautetun kertauksen muistutukset\n✏️ Tietokilpailu — pisteytys ja raportointi opettajallesi\n💬 Tekoäly-opettajachat — kysy mitä tahansa aiheesta\n🎬 Video — animoitu selitys' },
+    ],
+    courseDetail: [
+      { title: 'Kurssi­työtilasi', body: 'Jokainen kurssi koostuu yksiköistä (luvuista) ja käsitteistä (aiheista). Lataa PDF ja tekoäly täyttää rakenteen automaattisesti tai rakenna yksikkö kerrallaan.' },
+      { title: 'Lataa luvun PDF', body: 'Pudota mikä tahansa oppikirjan luku tähän. Tekoäly havaitsee yksiköt, poimii avain­käsitteet ja jonottaa yhteenvetoja, testejä, muistikortteja ja animoituja videoita — yhdellä napsautuksella.' },
+      { title: 'Lisää yksiköt manuaalisesti', body: 'Haluatko rakentaa käsin? Lisää yksikkö ja sitten käsite­aiheita sen sisälle. Voit aina liittää PDF:n yksikköön myöhemmin tekoälygeneraatiota varten.' },
+      { title: 'Julkaise ja osoita', body: 'Kun kurssi on valmis, julkaise se ja osoita se luokkahuoneelle. Oppilaat näkevät sen välittömästi luokkahuonenäkymässään.' },
+    ],
+    conceptEditor: [
+      { title: 'Käsite-editori', body: 'Täällä luot, tarkistat ja hyväksyt sisältöä yhdelle käsitteelle. Neljä välilehteä kattaa jokaisen vaiheen — tekoälyn kanssa luonnostelusta oppilaiden materiaalien julkaisemiseen.' },
+      { title: 'Neljä välilehteä, yksi työnkulku', body: 'Studio → jutustele tekoälyn kanssa selityksen luonnostelemiseksi.\nOppikirja → tarkista ja järjestä sisältölohkoja, joita oppilaat lukevat.\nResurssit → liitä kuvia tai kaavioita.\nMateriaalit → hyväksy tietokilpailu, muistikortit, ääniselostus ja animoitu video.' },
+      { title: 'Studio: luonnosta tekoälyn kanssa', body: 'Pyydä tekoälyä kirjoittamaan yhteenveto, lisäämään lisää esimerkkejä tai muotoilemaan osio uudelleen. Kun olet tyytyväinen, lähetä sisältö Oppikirjaan tai ota se käyttöön yhteenvetona ja käsikirjoituksena.' },
+      { title: 'Hyväksy materiaalit oppilaille', body: 'Vaihda Materiaalit-välilehteen kuunnellaksesi tekoälyn selostuksen, katsellaksesi animoitua videota ja tarkistaaksesi tietokilpailun. Hyväksy kukin, kun se on valmis — vain hyväksytyt materiaalit näkyvät oppilaille.' },
+    ],
+  },
 };

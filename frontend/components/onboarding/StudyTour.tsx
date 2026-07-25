@@ -1,33 +1,29 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { SpotlightTour, TourStep } from './SpotlightTour';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const STORAGE_KEY = 'learnai-study-tour-v1';
 const EVENT_KEY   = 'start-study-tour';
-
-const STEPS: TourStep[] = [
-  {
-    title: 'Study Sets',
-    body: 'Upload any PDF — textbook chapter, lecture notes, past paper — and AI automatically creates flashcards, a quiz, and a personal tutor chat for it.',
-  },
-  {
-    title: 'Create your first set',
-    body: 'Click here to upload a PDF. AI will read it and build your study material in about 30 seconds.',
-    targetSelector: '[data-tour="new-study-set"]',
-  },
-  {
-    title: 'Inside a study set',
-    body: 'Each set has:\n📚 Flashcards — swipe through key concepts\n✏️ Quiz — test yourself with auto-graded questions\n💬 Chat tutor — ask anything about the material',
-  },
+const SELECTORS: (string | undefined)[] = [
+  undefined,
+  '[data-tour="new-study-set"]',
+  undefined,
 ];
 
 export function StudyTour() {
+  const { t } = useTranslation();
   const [show, setShow] = useState(false);
+
+  const steps: TourStep[] = t.tours.study.map((s, i) => ({
+    ...s,
+    ...(SELECTORS[i] ? { targetSelector: SELECTORS[i]! } : {}),
+  }));
 
   useEffect(() => {
     try { if (localStorage.getItem(STORAGE_KEY)) return; } catch {}
-    const t = setTimeout(() => setShow(true), 900);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setShow(true), 900);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -41,10 +37,6 @@ export function StudyTour() {
 
   if (!show) return null;
   return (
-    <SpotlightTour
-      steps={STEPS}
-      storageKey={STORAGE_KEY}
-      onDone={() => setShow(false)}
-    />
+    <SpotlightTour steps={steps} storageKey={STORAGE_KEY} onDone={() => setShow(false)} />
   );
 }

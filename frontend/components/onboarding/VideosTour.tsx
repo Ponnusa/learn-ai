@@ -1,38 +1,30 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { SpotlightTour, TourStep } from './SpotlightTour';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const STORAGE_KEY = 'learnai-videos-tour-v1';
 const EVENT_KEY   = 'start-videos-tour';
-
-const STEPS: TourStep[] = [
-  {
-    title: 'Video Studio',
-    body: 'Turn any topic into an animated educational video — maths, physics, chemistry, and more.\nVideos are generated with Manim and take ~2 minutes.',
-  },
-  {
-    title: 'Describe your topic',
-    body: 'Type any concept here. Be specific for best results:\n"Explain Faraday\'s law of induction" → beautiful animated explainer.',
-    targetSelector: '[data-tour="video-input"]',
-  },
-  {
-    title: 'Quick-start examples',
-    body: 'Click any chip to pre-fill the input with a ready-to-go topic. All examples are translated to your language.',
-    targetSelector: '[data-tour="video-examples"]',
-  },
-  {
-    title: 'Your video library',
-    body: 'Every video you generate is saved here. You can re-watch, view the transcript, or go back to the original chat conversation.',
-  },
+const SELECTORS: (string | undefined)[] = [
+  undefined,
+  '[data-tour="video-input"]',
+  '[data-tour="video-examples"]',
+  undefined,
 ];
 
 export function VideosTour() {
+  const { t } = useTranslation();
   const [show, setShow] = useState(false);
+
+  const steps: TourStep[] = t.tours.videos.map((s, i) => ({
+    ...s,
+    ...(SELECTORS[i] ? { targetSelector: SELECTORS[i]! } : {}),
+  }));
 
   useEffect(() => {
     try { if (localStorage.getItem(STORAGE_KEY)) return; } catch {}
-    const t = setTimeout(() => setShow(true), 900);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setShow(true), 900);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -46,10 +38,6 @@ export function VideosTour() {
 
   if (!show) return null;
   return (
-    <SpotlightTour
-      steps={STEPS}
-      storageKey={STORAGE_KEY}
-      onDone={() => setShow(false)}
-    />
+    <SpotlightTour steps={steps} storageKey={STORAGE_KEY} onDone={() => setShow(false)} />
   );
 }

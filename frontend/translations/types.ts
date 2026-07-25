@@ -715,4 +715,19 @@ export interface Translation {
     progressSortTitle: string;
     quizLastAttempt: string;
   };
+
+  tours: {
+    home: { title: string; body: string }[];
+    videos: { title: string; body: string }[];
+    study: { title: string; body: string }[];
+    images: { title: string; body: string }[];
+    teacherCourses: { title: string; body: string }[];
+    teacherClassrooms: { title: string; body: string }[];
+    teacherStudents: { title: string; body: string }[];
+    messagesTeacher: { title: string; body: string }[];
+    messagesStudent: { title: string; body: string }[];
+    studentClassrooms: { title: string; body: string }[];
+    courseDetail: { title: string; body: string }[];
+    conceptEditor: { title: string; body: string }[];
+  };
 }
