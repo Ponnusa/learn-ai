@@ -177,6 +177,13 @@ export const fi: Translation = {
     transcript: 'Transkripti',
     videoContent: 'Videosisältö',
     stepBySolution: 'Vaiheittainen ratkaisu',
+    examples: [
+      'Miten Newtonin kolmas laki toimii?',
+      'Selitä fotosynteesi vaihe vaiheelta',
+      'Mikä on toisen asteen yhtälön ratkaisukaava?',
+      'Miten sähköpiirit toimivat?',
+      'Selitä vesikierto',
+    ],
   },
 
   quiz: {
@@ -312,6 +319,18 @@ export const fi: Translation = {
     retrying: 'Yritetään uudelleen…',
     deleting: 'Poistetaan…',
     generatingInline: 'Luodaan kaaviota…',
+    examples: [
+      'Voimat liukumäellä liikkuvassa reessä',
+      'Vesikierto — haihtuminen, tiivistyminen, sademäärä',
+      'Ihmisen hermosolun rakenne',
+      'Newtonin kolmas laki — vaikutus ja vastavaikutus',
+      'Fotosynteesi kasvisolussa',
+      'DNA-kaksoiskierteen rakenne',
+      'Mitoosin vaiheet',
+      'Kovalenttinen sidos vesimolekyylissä',
+      'Heittoliikkeen paraabeli',
+      'Kivien kierto',
+    ],
   },
 
   profile: {

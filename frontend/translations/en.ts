@@ -177,6 +177,13 @@ export const en: Translation = {
     transcript: 'Transcript',
     videoContent: 'Video Content',
     stepBySolution: 'Step-by-step Solution',
+    examples: [
+      "How does Newton's third law work?",
+      'Explain photosynthesis step by step',
+      'What is the quadratic formula?',
+      'How do circuits work?',
+      'Explain the water cycle',
+    ],
   },
 
   quiz: {
@@ -312,6 +319,18 @@ export const en: Translation = {
     retrying: 'Retrying…',
     deleting: 'Deleting…',
     generatingInline: 'Generating diagram…',
+    examples: [
+      'Forces acting on a sled on an inclined plane',
+      'Water cycle — evaporation, condensation, precipitation',
+      'Structure of a human neuron',
+      "Newton's Third Law — action and reaction forces",
+      'Photosynthesis in a plant cell',
+      'DNA double helix structure',
+      'Phases of mitosis',
+      'Covalent bonding in a water molecule',
+      'Projectile motion parabola',
+      'The rock cycle',
+    ],
   },
 
   profile: {

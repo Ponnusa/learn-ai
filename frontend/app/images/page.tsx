@@ -9,6 +9,8 @@ import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { generateEduImage, getEduImageJob, listEduImages, deleteEduImage, retryEduImage, EduImageJob } from '@/lib/api';
+import { ImagesTour } from '@/components/onboarding/ImagesTour';
+import { HelpCircle } from 'lucide-react';
 
 // ── Domain styles (gradient bg + badge color) — mirrors video SUBJECT_STYLES ──
 
@@ -33,18 +35,7 @@ function DomainBadge({ domain }: { domain?: string }) {
   );
 }
 
-const EXAMPLES = [
-  'Forces acting on a sled moving down an inclined plane',
-  'Water cycle — evaporation, condensation, and precipitation',
-  'Structure of a human neuron',
-  "Newton's Third Law — action and reaction forces",
-  'Photosynthesis process in a plant cell',
-  'Structure of a DNA double helix',
-  'Phases of mitosis',
-  'Covalent bonding in a water molecule',
-  'Projectile motion parabola',
-  'The rock cycle',
-];
+// EXAMPLES now come from t.images.examples (translated per language)
 
 
 // ── ImageLightbox ─────────────────────────────────────────────────────────────
@@ -327,6 +318,7 @@ export default function ImagesPage() {
       <Sidebar onNewChat={() => router.push('/')} />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <ImagesTour />
         <MobileTopBar />
         {/* Header */}
         <div className="flex items-center gap-3 px-4 sm:px-6 py-4 border-b border-[var(--bd)] shrink-0">
@@ -334,6 +326,13 @@ export default function ImagesPage() {
             <h1 className="text-[var(--tx1)] font-semibold">{t.images.title}</h1>
             <p className="text-[var(--tx6)] text-xs mt-0.5">{t.images.subtitle}</p>
           </div>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('start-images-tour'))}
+            className="text-[var(--tx7)] hover:text-indigo-400 transition-colors p-1"
+            title="Take a tour"
+          >
+            <HelpCircle size={13} />
+          </button>
         </div>
 
         <div className="flex-1 chat-scroll">
@@ -342,6 +341,7 @@ export default function ImagesPage() {
             <div className="space-y-3">
               <div className="relative">
                 <textarea
+                  data-tour="image-input"
                   ref={inputRef}
                   value={concept}
                   onChange={e => setConcept(e.target.value)}
@@ -365,8 +365,8 @@ export default function ImagesPage() {
               </div>
 
               {/* Example pills */}
-              <div className="flex flex-wrap gap-1.5">
-                {EXAMPLES.slice(0, 5).map(ex => (
+              <div data-tour="image-examples" className="flex flex-wrap gap-1.5">
+                {t.images.examples.slice(0, 5).map(ex => (
                   <button key={ex} onClick={() => { setConcept(ex); inputRef.current?.focus(); }}
                     className="text-[10px] px-2.5 py-1 rounded-full bg-[var(--ov3)] hover:bg-[var(--ov4)]
                                text-[var(--tx5)] hover:text-[var(--tx2)] border border-[var(--bd)]
@@ -544,7 +544,7 @@ export default function ImagesPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2 justify-center max-w-md">
-                  {EXAMPLES.slice(5).map(ex => (
+                  {t.images.examples.slice(5).map(ex => (
                     <button key={ex} onClick={() => { setConcept(ex); inputRef.current?.focus(); }}
                       className="text-[11px] px-3 py-1.5 rounded-xl bg-[var(--surface)] hover:bg-[var(--ov3)]
                                  text-[var(--tx4)] border border-[var(--bd)] transition-colors">

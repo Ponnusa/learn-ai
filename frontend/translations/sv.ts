@@ -177,6 +177,13 @@ export const sv: Translation = {
     transcript: 'Transkript',
     videoContent: 'Videoinnehåll',
     stepBySolution: 'Steg-för-steg-lösning',
+    examples: [
+      'Hur fungerar Newtons tredje lag?',
+      'Förklara fotosyntes steg för steg',
+      'Vad är andragradsekvationens lösningsformel?',
+      'Hur fungerar elektriska kretsar?',
+      'Förklara vattnets kretslopp',
+    ],
   },
 
   quiz: {
@@ -312,6 +319,18 @@ export const sv: Translation = {
     retrying: 'Försöker igen…',
     deleting: 'Tar bort…',
     generatingInline: 'Genererar diagram…',
+    examples: [
+      'Krafter på en kälke på ett lutande plan',
+      'Vattnets kretslopp — avdunstning, kondensation, nederbörd',
+      'Strukturen hos en mänsklig neuron',
+      'Newtons tredje lag — aktion och reaktion',
+      'Fotosyntes i en växttcell',
+      'DNA-dubbelhelixens struktur',
+      'Mitosets faser',
+      'Kovalent bindning i en vattenmolekyl',
+      'Parabelrörelse vid projektilrörelse',
+      'Bergartskretslopp',
+    ],
   },
 
   profile: {

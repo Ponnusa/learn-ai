@@ -17,6 +17,8 @@ import { useLanguageStore } from '@/store/languageStore';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
+import { VideosTour } from '@/components/onboarding/VideosTour';
+import { HelpCircle } from 'lucide-react';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -713,19 +715,14 @@ function VideosContent() {
 
   // ── Library view (no ?id=) ────────────────────────────────────────────────
   if (!videoId) {
-    const EXAMPLES = [
-      'How does Newton\'s third law work?',
-      'Explain photosynthesis step by step',
-      'What is the quadratic formula?',
-      'How do circuits work?',
-      'Explain the water cycle',
-    ];
+    const EXAMPLES = t.video.examples;
 
     return (
       <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
         <Sidebar onNewChat={() => router.push('/')} />
 
         <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <VideosTour />
           <MobileTopBar />
           {/* Header */}
           <div className="flex items-center gap-2 px-4 sm:px-5 py-4 border-b border-[var(--bd)] shrink-0">
@@ -733,6 +730,13 @@ function VideosContent() {
               <h1 className="text-[var(--tx1)] font-semibold">{t.video.studio}</h1>
               <p className="text-[var(--tx6)] text-xs mt-0.5">{t.video.studioDesc}</p>
             </div>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('start-videos-tour'))}
+              className="flex items-center gap-1 text-[11px] text-[var(--tx7)] hover:text-purple-400 transition-colors px-2 py-1"
+              title="Take a tour"
+            >
+              <HelpCircle size={13} />
+            </button>
             {!videosLoading && videos.length > 0 && (
               <span className="px-2 py-0.5 bg-[var(--ov3)] rounded-full text-[var(--tx5)] text-xs shrink-0">
                 {videos.length}
@@ -746,6 +750,7 @@ function VideosContent() {
               <div className="space-y-3">
                 <div className="relative">
                   <textarea
+                    data-tour="video-input"
                     value={genTopic}
                     onChange={e => setGenTopic(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }}
@@ -772,7 +777,7 @@ function VideosContent() {
                 </div>
 
                 {/* Example pills */}
-                <div className="flex flex-wrap gap-1.5">
+                <div data-tour="video-examples" className="flex flex-wrap gap-1.5">
                   {EXAMPLES.map(ex => (
                     <button key={ex} onClick={() => setGenTopic(ex)}
                       className="text-[10px] px-2.5 py-1 rounded-full bg-[var(--ov3)] hover:bg-[var(--ov4)]

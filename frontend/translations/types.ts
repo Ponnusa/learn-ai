@@ -168,6 +168,7 @@ export interface Translation {
     transcript: string;
     videoContent: string;
     stepBySolution: string;
+    examples: string[];
   };
 
   quiz: {
@@ -303,6 +304,7 @@ export interface Translation {
     retrying: string;
     deleting: string;
     generatingInline: string;
+    examples: string[];
   };
 
   profile: {

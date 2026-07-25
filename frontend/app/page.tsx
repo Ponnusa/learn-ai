@@ -221,6 +221,9 @@ export default function HomePage() {
   async function handleSend(text: string, file?: File) {
     if (!text && !file) return;
 
+    // Mark home tour complete on first ever chat
+    try { localStorage.setItem('learnai-home-tour-v1', '1'); } catch {}
+
     // Hard gate at anonymous limit
     if (!user && msgCount >= 8) {
       setSignupReason('session_limit');

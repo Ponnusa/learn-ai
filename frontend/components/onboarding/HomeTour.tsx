@@ -55,6 +55,7 @@ export function HomeTour() {
     <SpotlightTour
       steps={STEPS}
       storageKey={STORAGE_KEY}
+      persistOnDone={false}
       onDone={() => setShow(false)}
     />
   );

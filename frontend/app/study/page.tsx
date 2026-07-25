@@ -9,6 +9,8 @@ import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { createStudySet, listStudySets, deleteStudySet, StudySetSummary } from '@/lib/api';
+import { StudyTour } from '@/components/onboarding/StudyTour';
+import { HelpCircle } from 'lucide-react';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -252,6 +254,7 @@ export default function StudyPage() {
       <Sidebar onNewChat={() => router.push('/')} />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <StudyTour />
         <MobileTopBar />
 
         {/* Header */}
@@ -265,14 +268,24 @@ export default function StudyPage() {
               </span>
             )}
           </div>
-          <button
-            onClick={() => setShowModal(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl
-                       bg-indigo-600 hover:bg-indigo-500 text-white text-sm
-                       font-medium transition-colors"
-          >
-            <Plus size={14} /> {t.studySets.newStudySet}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('start-study-tour'))}
+              className="text-[var(--tx7)] hover:text-indigo-400 transition-colors p-1"
+              title="Take a tour"
+            >
+              <HelpCircle size={13} />
+            </button>
+            <button
+              data-tour="new-study-set"
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl
+                         bg-indigo-600 hover:bg-indigo-500 text-white text-sm
+                         font-medium transition-colors"
+            >
+              <Plus size={14} /> {t.studySets.newStudySet}
+            </button>
+          </div>
         </div>
 
         {/* Content */}

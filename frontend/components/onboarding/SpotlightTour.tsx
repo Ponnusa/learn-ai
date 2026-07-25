@@ -18,10 +18,13 @@ const TOOLTIP_W = 300;
 export function SpotlightTour({
   steps,
   storageKey,
+  persistOnDone = true,
   onDone,
 }: {
   steps: TourStep[];
   storageKey: string;
+  /** Write storageKey to localStorage when done/skipped. Default true. Pass false when the parent controls persistence. */
+  persistOnDone?: boolean;
   onDone: () => void;
 }) {
   const [step, setStep] = useState(0);
@@ -34,9 +37,9 @@ export function SpotlightTour({
   const isLast = step === steps.length - 1;
 
   const finish = useCallback(() => {
-    try { localStorage.setItem(storageKey, '1'); } catch {}
+    if (persistOnDone) { try { localStorage.setItem(storageKey, '1'); } catch {} }
     onDone();
-  }, [storageKey, onDone]);
+  }, [storageKey, persistOnDone, onDone]);
 
   // Position the spotlight over the target element
   useLayoutEffect(() => {
