@@ -1,4 +1,5 @@
 """AI-generated contextual follow-up suggestion chips."""
+import html
 import json
 from services.ai_router import openai_client, get_model
 from services.prompt_builder import _LANGUAGE_NAMES
@@ -35,6 +36,6 @@ async def generate_chips(reply: str, language: str = "en") -> list[str]:
         )
         data = json.loads(resp.choices[0].message.content)
         chips = data.get("suggestions") or data.get("chips") or []
-        return [c for c in chips if isinstance(c, str) and c.strip()][:3]
+        return [html.unescape(c) for c in chips if isinstance(c, str) and c.strip()][:3]
     except Exception:
         return []

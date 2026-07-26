@@ -164,7 +164,11 @@ async def build_chat_prompt(
 
     lang_name = _LANGUAGE_NAMES.get(language)
     if lang_name:
-        prompt += f"\n\nRespond entirely in {lang_name}."
+        prompt += (
+            f"\n\nRespond entirely in {lang_name}. "
+            "Use direct UTF-8 characters for all accented letters and special characters "
+            "(write é not &eacute;, write ¿ not &#191;) — never use HTML entities."
+        )
 
     if not user_id:
         return prompt  # anonymous: base only, full quality
@@ -268,7 +272,11 @@ async def build_studyset_prompt(
 
     lang_name = _LANGUAGE_NAMES.get(language)
     if lang_name:
-        prompt += f"\n\nRespond entirely in {lang_name}."
+        prompt += (
+            f"\n\nRespond entirely in {lang_name}. "
+            "Use direct UTF-8 characters for all accented letters and special characters "
+            "(write é not &eacute;, write ¿ not &#191;) — never use HTML entities."
+        )
 
     if not user_id:
         return prompt

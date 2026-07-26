@@ -4,6 +4,7 @@ Subject detection runs in parallel with main AI call (asyncio.gather).
 Profile update runs in background after every 5 messages.
 """
 import asyncio
+import html
 import json
 from fastapi import APIRouter, BackgroundTasks, Response, UploadFile
 from pydantic import BaseModel
@@ -319,7 +320,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         max_tokens=2048,
         temperature=0.7,
     )
-    reply_text = ai_resp.choices[0].message.content
+    reply_text = html.unescape(ai_resp.choices[0].message.content or "")
 
     # ── 6. Generate suggestion chips (background-ish, fast) ──────────────────
     chips = await generate_chips(reply_text, req.language)
