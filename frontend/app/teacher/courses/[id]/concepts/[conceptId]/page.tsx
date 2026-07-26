@@ -14,6 +14,7 @@ import {
   ChevronUp, ChevronDown, Shuffle, AlignJustify, Star, Paperclip,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
+import { AudioPlayer } from '@/components/ui/AudioPlayer';
 import { PDFContextPicker } from '@/components/course/PDFContextPicker';
 import { useSessionStore } from '@/store/sessionStore';
 import { preprocessMath } from '@/lib/preprocessMath';
@@ -1916,7 +1917,7 @@ export default function ConceptEditorPage() {
                     {assets.audio_url && assets.audio_status !== 'generating' && (
                       <div className="px-4 pb-4 mt-3">
                         <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-4">
-                          <audio controls src={`${API_BASE}${assets.audio_url}`} className="w-full" />
+                          <AudioPlayer src={`${API_BASE}${assets.audio_url}`} />
                           {assets.audio_duration_sec && (
                             <p className="text-[var(--tx8)] text-xs mt-1.5">{tF(t.teacher.audioFromTranscript, { min: Math.round(assets.audio_duration_sec / 60) })}</p>
                           )}

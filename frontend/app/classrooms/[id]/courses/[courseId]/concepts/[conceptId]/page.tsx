@@ -14,6 +14,7 @@ import {
   CheckCircle2, XCircle, Send, FileText, Dumbbell,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
+import { AudioPlayer } from '@/components/ui/AudioPlayer';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -369,7 +370,7 @@ export default function StudentConceptDetailPage() {
               <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <Volume2 size={12} /> Listen
               </p>
-              <audio controls src={`${API_BASE}${assets!.audio_url}`} className="w-full" />
+              <AudioPlayer src={`${API_BASE}${assets!.audio_url}`} />
             </div>
           )}
           {!hasBlocks && explanation && (

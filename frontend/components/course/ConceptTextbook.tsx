@@ -8,6 +8,7 @@ import {
   Loader2, Video, Volume2, Trash2, Mic2, GripVertical, Save, Check,
   Pencil, X, FileText, ImageIcon, ExternalLink,
 } from 'lucide-react';
+import { AudioPlayer } from '@/components/ui/AudioPlayer';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, DragEndEvent,
 } from '@dnd-kit/core';
@@ -115,7 +116,7 @@ function AudioBlock({ block }: { block: ContentBlock }) {
         <span className="text-sm font-medium text-[var(--tx2)]">{block.title || 'Audio'}</span>
       </div>
       <div className="px-4 py-3">
-        <audio controls src={block.body || ''} className="w-full" />
+        <AudioPlayer src={block.body || ''} />
       </div>
     </div>
   );
@@ -281,11 +282,11 @@ function TextBlock({ block, conceptId, token, editable }: TextBlockProps) {
 
       <div className="mt-3 pt-3 border-t border-[var(--bd)]">
         {audioStatus === 'ready' ? (
-          <div className="flex items-center gap-2">
-            <audio controls src={audioUrl} className="flex-1 h-8" />
+          <div className="flex items-start gap-2">
+            <AudioPlayer src={audioUrl} className="flex-1" />
             {editable && (
               <button onClick={handleGenerateAudio} disabled={genAudio} title="Regenerate audio"
-                className="text-[var(--tx8)] hover:text-purple-400 transition-colors shrink-0">
+                className="text-[var(--tx8)] hover:text-purple-400 transition-colors shrink-0 mt-1">
                 <Mic2 size={13} />
               </button>
             )}

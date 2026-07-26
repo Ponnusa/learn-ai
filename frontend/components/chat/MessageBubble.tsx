@@ -13,6 +13,7 @@ import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import { SmilesBlock } from './SmilesBlock';
 import { getQuiz, getVideoStatus, retryVideo, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage, getChatMessageAudio } from '@/lib/api';
+import { getSavedAudioSpeed } from '@/components/ui/AudioPlayer';
 
 // Module-level: at most one TTS audio plays at a time across all bubbles
 let globalStopTts: (() => void) | null = null;
@@ -720,6 +721,7 @@ export function MessageBubble({
       const blob = await getChatMessageAudio(message.id, language);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      audio.playbackRate = getSavedAudioSpeed();
       ttsAudioRef.current = audio;
       audio.onended = () => { setTtsPlaying(false); URL.revokeObjectURL(url); ttsAudioRef.current = null; if (globalStopTts === stopTts) globalStopTts = null; };
       audio.onerror = () => { setTtsPlaying(false); ttsAudioRef.current = null; if (globalStopTts === stopTts) globalStopTts = null; };
