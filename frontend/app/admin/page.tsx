@@ -171,7 +171,7 @@ export default function AdminPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  const inputCls = `bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
+  const inputCls = `bg-[var(--input)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                     text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors`;
 
   if (loading) {

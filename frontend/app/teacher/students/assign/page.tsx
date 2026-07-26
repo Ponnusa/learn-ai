@@ -109,13 +109,13 @@ function BulkAssignContent() {
 
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 space-y-3">
         <select value={courseId} onChange={e => loadConcepts(e.target.value)}
-          className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
+          className="w-full bg-[var(--input)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                      text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors">
           {courses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
 
         <select value={conceptId} onChange={e => setConceptId(e.target.value)}
-          className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
+          className="w-full bg-[var(--input)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                      text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors">
           {units.map(u => (
             <optgroup key={u.id} label={u.title}>

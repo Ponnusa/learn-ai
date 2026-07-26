@@ -326,7 +326,7 @@ export default function TeacherStudentDetailPage() {
         ) : (
           <>
             <select value={selectedConcept} onChange={e => setSelectedConcept(e.target.value)}
-              className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
+              className="w-full bg-[var(--input)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                          text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors mb-3">
               {data.courses.map(c => (
                 <optgroup key={c.id} label={c.name}>

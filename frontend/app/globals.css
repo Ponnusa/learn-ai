@@ -111,6 +111,13 @@
   --pre-text:   #1f1235;
 }
 
+/* ── Native select: theme option/optgroup (browsers ignore CSS vars on them) */
+select option,
+select optgroup {
+  background-color: var(--input);
+  color: var(--tx1);
+}
+
 /* ── Base ───────────────────────────────────────────────────────── */
 body {
   background: var(--bg);

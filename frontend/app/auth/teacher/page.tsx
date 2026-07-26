@@ -76,7 +76,7 @@ export default function TeacherAuthPage() {
     }
   }
 
-  const inputCls = `w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-4 py-2.5
+  const inputCls = `w-full bg-[var(--input)] border border-[var(--bd)] rounded-xl px-4 py-2.5
                     text-sm text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors`;
 
   // ── Success state ──────────────────────────────────────────────────────────
