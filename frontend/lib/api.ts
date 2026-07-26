@@ -198,7 +198,7 @@ export const getVideoStatus = (videoId: number, token?: string) =>
     prompt?: string;
   }>(`/api/videos/${videoId}/status`, token);
 
-export const retryVideoManim = (videoId: number, token?: string) =>
+export const retryVideo = (videoId: number, token?: string) =>
   post<{ status: string; video_id: number }>(
     `/api/videos/${videoId}/retry-manim`, {}, token
   );

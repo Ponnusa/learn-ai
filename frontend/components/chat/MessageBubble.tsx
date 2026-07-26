@@ -12,7 +12,7 @@ import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import { SmilesBlock } from './SmilesBlock';
-import { getQuiz, getVideoStatus, retryVideoManim, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage, getChatMessageAudio } from '@/lib/api';
+import { getQuiz, getVideoStatus, retryVideo, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage, getChatMessageAudio } from '@/lib/api';
 
 // Module-level: at most one TTS audio plays at a time across all bubbles
 let globalStopTts: (() => void) | null = null;
@@ -259,7 +259,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
     setStepIdx(0);
     setVideoUrl(null);
     try {
-      await retryVideoManim(videoId, token);
+      await retryVideo(videoId, token);
       setRetryTick(t => t + 1);
     } catch {
       setStatus('failed');
@@ -660,7 +660,7 @@ export function ImageStatusCard({
       <div className="w-3.5 h-3.5 rounded-full bg-teal-500 animate-pulse shrink-0" />
       <div>
         <p className="text-[var(--tx2)] text-sm font-semibold">{t.images.generatingInline}</p>
-        <p className="text-[var(--tx8)] text-[10px]">Claude spec → gpt-image-1 · ~15s</p>
+        <p className="text-[var(--tx8)] text-[10px]">AI-generated · ~15s</p>
       </div>
     </div>
   );

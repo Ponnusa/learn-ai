@@ -155,7 +155,7 @@ export default function ConceptEditorPage() {
   const [generatingVideoMsg, setGeneratingVideoMsg] = useState<string | null>(null);
   const videoPollingRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
   const [removedVideoBlocks, setRemovedVideoBlocks] = useState<Set<string>>(new Set());
-  const [retryingManimMsgs,  setRetryingManimMsgs]  = useState<Set<string>>(new Set());
+  const [retryingVideoMsgs,  setRetryingVideoMsgs]  = useState<Set<string>>(new Set());
   const [showDraftPrompt,   setShowDraftPrompt]   = useState(false);
 
   // Studio quiz/flashcard generation config
@@ -493,8 +493,8 @@ export default function ConceptEditorPage() {
     }
   }
 
-  async function retryManimGeneration(msgId: string, videoId: number, blockId: string) {
-    setRetryingManimMsgs(prev => new Set([...prev, msgId]));
+  async function retryVideoById(msgId: string, videoId: number, blockId: string) {
+    setRetryingVideoMsgs(prev => new Set([...prev, msgId]));
     try {
       const res = await fetch(`${API_BASE}/api/videos/${videoId}/retry-manim`, {
         method: 'POST', headers: authH,
@@ -507,7 +507,7 @@ export default function ConceptEditorPage() {
     } catch (err: any) {
       alert(`Could not restart: ${err.message}`);
     } finally {
-      setRetryingManimMsgs(prev => { const s = new Set(prev); s.delete(msgId); return s; });
+      setRetryingVideoMsgs(prev => { const s = new Set(prev); s.delete(msgId); return s; });
     }
   }
 
@@ -1234,14 +1234,14 @@ export default function ConceptEditorPage() {
                                   <div className="flex items-center gap-2 px-3.5 pb-3">
                                     <Loader2 size={13} className="animate-spin text-blue-400 shrink-0" />
                                     <span className="text-[var(--tx7)] text-xs">
-                                      {vid.videoStatus === 'transcript_ready' ? 'Writing Manim animation code…'
+                                      {vid.videoStatus === 'transcript_ready' ? 'Building animation…'
                                       : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering video, this may take a few minutes…'
                                       : 'Writing animation script…'}
                                     </span>
                                     {vid.videoStatus === 'transcript_ready' && vid.videoId && vid.videoBlockId && (
                                       <button
-                                        onClick={() => retryManimGeneration(vid.id, vid.videoId!, vid.videoBlockId!)}
-                                        disabled={retryingManimMsgs.has(vid.id)}
+                                        onClick={() => retryVideoById(vid.id, vid.videoId!, vid.videoBlockId!)}
+                                        disabled={retryingVideoMsgs.has(vid.id)}
                                         className="ml-auto flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full
                                                    border border-[var(--bd)] text-[var(--tx7)]
                                                    hover:text-orange-400 hover:border-orange-500/30 transition-colors

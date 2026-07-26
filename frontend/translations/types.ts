@@ -647,7 +647,7 @@ export interface Translation {
     generatePrompt: string;
     generateNeedsSummary: string;
     audioFromTranscript: string;
-    animatedWithManim: string;
+    animatedFromTranscript: string;
     videoGenerating: string;
     transcriptPlaceholder: string;
     progressTitle: string;

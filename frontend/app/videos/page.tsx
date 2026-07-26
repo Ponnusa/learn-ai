@@ -10,7 +10,7 @@ import {
   RefreshCw, FileText, X, Play, MessageSquare,
   ChevronLeft, ChevronRight, Video, Sparkles,
 } from 'lucide-react';
-import { getVideoStatus, retryVideoManim, getUserVideos, getSessionVideos, generateVideo } from '@/lib/api';
+import { getVideoStatus, retryVideo, getUserVideos, getSessionVideos, generateVideo } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLanguageStore } from '@/store/languageStore';
@@ -655,7 +655,7 @@ function VideosContent() {
   async function handleRetryFromLibrary(videoId: number) {
     setVideos(prev => prev.map(v => v.id === videoId ? { ...v, status: 'pending' } : v));
     try {
-      await retryVideoManim(videoId, token ?? undefined);
+      await retryVideo(videoId, token ?? undefined);
       router.push(`/videos?id=${videoId}`);
     } catch {
       refreshList();
@@ -699,7 +699,7 @@ function VideosContent() {
     setStepIdx(0);
     setVideoUrl(null);
     try {
-      await retryVideoManim(videoId, token ?? undefined);
+      await retryVideo(videoId, token ?? undefined);
       refreshList();
       setRetryTick(n => n + 1);
     } catch (e: any) {
