@@ -15,6 +15,13 @@ import { SmilesBlock } from './SmilesBlock';
 import { getQuiz, getVideoStatus, retryVideo, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage, getChatMessageAudio } from '@/lib/api';
 import { getSavedAudioSpeed } from '@/components/ui/AudioPlayer';
 
+function decodeHtml(s: string): string {
+  if (typeof document === 'undefined') return s;
+  const el = document.createElement('textarea');
+  el.innerHTML = s;
+  return el.value;
+}
+
 // Module-level: at most one TTS audio plays at a time across all bubbles
 let globalStopTts: (() => void) | null = null;
 
@@ -892,7 +899,7 @@ export function MessageBubble({
                                border border-[var(--bd)] hover:border-[var(--bd2)]
                                text-[var(--tx5)] hover:text-[var(--tx2)] hover:bg-[var(--ov1)]"
                   >
-                    {chip}
+                    {decodeHtml(chip)}
                   </button>
                 ))}
                 <button

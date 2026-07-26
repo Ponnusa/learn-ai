@@ -1,5 +1,12 @@
 'use client';
 import { useEffect, useState, useRef, useCallback } from 'react';
+
+function decodeHtml(s: string): string {
+  if (typeof document === 'undefined') return s;
+  const el = document.createElement('textarea');
+  el.innerHTML = s;
+  return el.value;
+}
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import ReactMarkdown from 'react-markdown';
@@ -1161,7 +1168,7 @@ function ActiveChat({
                           className="text-xs px-3 py-1.5 rounded-full transition-all
                                      border border-[var(--bd)] hover:border-[var(--bd2)]
                                      text-[var(--tx5)] hover:text-[var(--tx2)] hover:bg-[var(--ov1)]">
-                          {c}
+                          {decodeHtml(c)}
                         </button>
                       ))
                     }
