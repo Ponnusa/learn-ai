@@ -122,12 +122,15 @@ async def get_messages(conversation_id: str):
                 meta = json.loads(meta)
             except Exception:
                 meta = {}
+        meta = meta or {}
+        if isinstance(meta.get("chips"), list):
+            meta["chips"] = [html.unescape(c) if isinstance(c, str) else c for c in meta["chips"]]
         result.append({
             "id":           str(r["id"]),
             "role":         r["role"],
             "content":      r["content"],
             "content_type": r["content_type"],
-            "metadata":     meta or {},
+            "metadata":     meta,
             "created_at":   r["created_at"].isoformat() if r["created_at"] else None,
         })
     return result
