@@ -272,7 +272,7 @@ async def _generate_video_bg(
 
     # ── Phase 1: solution + transcript ──────────────────────────────────────
     try:
-        teaching_prompt = await build_video_prompt(prompt, user_id, subject)
+        teaching_prompt = await build_video_prompt(prompt, user_id, subject, language)
         solution_data   = await generate_solution_only(teaching_prompt, language, 60)
 
         async with get_db() as db:

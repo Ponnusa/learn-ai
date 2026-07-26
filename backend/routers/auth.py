@@ -411,13 +411,16 @@ async def update_theme(req: ThemeUpdateRequest):
 
 class LanguageUpdateRequest(BaseModel):
     user_id:  str
-    language: str  # 'en' | 'fi' | 'sv'
+    language: str  # 'en' | 'fi' | 'sv' | 'es' | 'fr'
+
+
+_VALID_LANGUAGES = {"en", "fi", "sv", "es", "fr"}
 
 
 @router.patch("/language")
 async def update_language(req: LanguageUpdateRequest):
-    if req.language not in ("en", "fi", "sv"):
-        raise HTTPException(400, "language must be 'en', 'fi', or 'sv'")
+    if req.language not in _VALID_LANGUAGES:
+        raise HTTPException(400, f"language must be one of: {', '.join(sorted(_VALID_LANGUAGES))}")
     async with get_db() as db:
         await db.execute(
             "UPDATE users SET language = $1 WHERE id = $2::uuid",

@@ -147,7 +147,7 @@ def inject_conversation_context(
     return prompt + block
 
 
-_LANGUAGE_NAMES = {"fi": "Finnish", "sv": "Swedish"}
+_LANGUAGE_NAMES = {"fi": "Finnish", "sv": "Swedish", "es": "Spanish", "fr": "French"}
 
 
 async def build_chat_prompt(
@@ -319,6 +319,7 @@ async def build_video_prompt(
     concept_text: str,
     user_id: str | None,
     subject: str | None,
+    language: str = "en",
 ) -> str:
     """
     Frames the concept for the Manim pipeline.
@@ -338,4 +339,8 @@ async def build_video_prompt(
             elif score >= 65:
                 depth = "advanced — include full derivation steps and precise notation"
 
-    return VIDEO_TEACHING_PROMPT_TEMPLATE.format(concept=concept_text[:2000])
+    prompt = VIDEO_TEACHING_PROMPT_TEMPLATE.format(concept=concept_text[:2000])
+    lang_name = _LANGUAGE_NAMES.get(language)
+    if lang_name:
+        prompt += f"\n\nWrite ALL narration text and labels in {lang_name}."
+    return prompt

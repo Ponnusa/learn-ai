@@ -8,7 +8,7 @@ interface User {
   name?: string;
   tier: string;
   theme?: 'dark' | 'light';
-  language?: 'en' | 'fi' | 'sv';
+  language?: 'en' | 'fi' | 'sv' | 'es' | 'fr';
   account_type?: 'student' | 'teacher' | 'institution_admin' | 'super_admin';
 }
 

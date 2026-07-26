@@ -7,7 +7,7 @@ import { useSessionStore } from '@/store/sessionStore';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage } from '@/hooks/useLanguage';
 import { useTranslation } from '@/hooks/useTranslation';
-import { LANGUAGE_LABELS } from '@/translations';
+import { LANGUAGE_LABELS, getAvailableLanguages } from '@/translations';
 import type { LanguageCode } from '@/translations';
 
 export default function SettingsPage() {
@@ -23,7 +23,7 @@ export default function SettingsPage() {
     router.replace('/');
   }
 
-  const LANGUAGES: LanguageCode[] = ['en', 'fi', 'sv'];
+  const LANGUAGES = getAvailableLanguages();
 
   const sections = [
     {

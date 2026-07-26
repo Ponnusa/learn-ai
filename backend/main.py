@@ -536,6 +536,20 @@ async def lifespan(app: FastAPI):
               END;
             END $$
             """,
+            # ── Expand language check constraint to include Spanish and French ─────
+            """
+            DO $$ BEGIN
+              BEGIN
+                ALTER TABLE users DROP CONSTRAINT users_language_check;
+              EXCEPTION WHEN others THEN NULL;
+              END;
+              BEGIN
+                ALTER TABLE users ADD CONSTRAINT users_language_check
+                  CHECK (language IN ('en', 'fi', 'sv', 'es', 'fr'));
+              EXCEPTION WHEN others THEN NULL;
+              END;
+            END $$
+            """,
         ]:
             try:
                 await db.execute(sql)

@@ -76,7 +76,7 @@ export type StudentProfile = {
 export const updateTheme = (userId: string, theme: 'dark' | 'light', token?: string) =>
   request<{ ok: boolean }>('PATCH', '/api/auth/theme', { user_id: userId, theme }, token);
 
-export const updateLanguage = (userId: string, language: 'en' | 'fi' | 'sv', token?: string) =>
+export const updateLanguage = (userId: string, language: 'en' | 'fi' | 'sv' | 'es' | 'fr', token?: string) =>
   request<{ ok: boolean }>('PATCH', '/api/auth/language', { user_id: userId, language }, token);
 
 export const getStudentProfile = (userId: string, token?: string) =>

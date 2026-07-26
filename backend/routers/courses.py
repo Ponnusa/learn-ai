@@ -18,7 +18,7 @@ from routers.auth import decode_jwt
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
-_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish'}
+_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
 
 
 async def _summarize_one_concept(concept_id: str, course: dict | None):

@@ -371,7 +371,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     }
 
 
-_TITLE_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish'}
+_TITLE_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
 
 async def _generate_title(message: str, language: str) -> str:
     """Generate a short conversation title from the first message."""
@@ -393,7 +393,7 @@ async def _generate_title(message: str, language: str) -> str:
         return message[:40]
 
 
-_TTS_LANG_NAMES = {'en': 'English', 'fi': 'Finnish', 'sv': 'Swedish'}
+_TTS_LANG_NAMES = {'en': 'English', 'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
 
 _TTS_SYSTEM = (
     "Convert this educational text to a clean spoken script in {lang}. "

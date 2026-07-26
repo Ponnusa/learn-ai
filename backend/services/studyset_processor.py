@@ -41,7 +41,7 @@ def extract_pages_from_pdf(file_bytes: bytes) -> list[str]:
 
 # ─── AI generation ────────────────────────────────────────────────────────────
 
-_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish'}
+_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
 
 
 async def generate_concepts_and_flashcards(
