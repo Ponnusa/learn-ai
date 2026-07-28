@@ -3016,3 +3016,86 @@ async def generate_manim_from_solution(
         language, duration, aspect_ratio,
         solution_data,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# FEEDBACK-DRIVEN IMPROVEMENT
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+def _improve_manim_code_sync(
+    original_code: str,
+    feedback: str,
+    subject: str,
+    aspect_ratio: str,
+    language: str,
+) -> dict:
+    """
+    Take existing generated code + user feedback about layout/animation issues,
+    return improved code that preserves all SVG base64 data exactly.
+    """
+    system_prompt = _build_system_prompt(subject, aspect_ratio, language)
+
+    prompt = f"""You are given an existing Manim animation program and specific user feedback about layout or animation issues.
+
+TASK: Fix ONLY the issues described in the feedback. Do not change the educational content, voiceover narration, or topic.
+
+═══════════════════════════════════════════════════════════════
+CRITICAL PRESERVATION RULES — VIOLATIONS WILL BREAK THE VIDEO
+═══════════════════════════════════════════════════════════════
+1. The _SVG_DATA dict contains base64-encoded SVG assets embedded in the code.
+   Copy it CHARACTER-FOR-CHARACTER. Do not alter a single byte of any base64 string.
+2. The get_svg() helper function must remain exactly as-is.
+3. All voiceover text (strings inside self.voiceover(...)) must remain UNCHANGED.
+4. The class name must remain unchanged.
+5. Only fix: positions, sizes, colors, animation timing, panel placement,
+   and other visual issues described in the feedback.
+
+════════════════════════
+USER FEEDBACK TO ADDRESS
+════════════════════════
+{feedback}
+
+════════════════════════
+ORIGINAL CODE
+════════════════════════
+```python
+{original_code}
+```
+
+Return ONLY the improved Python code with no markdown fences."""
+
+    message = claude_with_retry(
+        _claude_sync.messages.create,
+        model=_CLAUDE_MODEL,
+        max_tokens=16000,
+        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": prompt}]
+    )
+
+    improved = _first_text(message).strip()
+    # Strip markdown fences if the model wrapped anyway
+    improved = re.sub(r"^```[a-z]*\n?", "", improved, flags=re.IGNORECASE)
+    improved = re.sub(r"\n?```$", "", improved).strip()
+
+    _cu = getattr(message, "usage", None)
+    if _cu:
+        logger.info(
+            f"[improve] write={getattr(_cu,'cache_creation_input_tokens',0)} "
+            f"read={getattr(_cu,'cache_read_input_tokens',0)}"
+        )
+
+    return {"generated_code": improved}
+
+
+async def improve_manim_code(
+    original_code: str,
+    feedback: str,
+    subject: str,
+    aspect_ratio: str,
+    language: str,
+) -> dict:
+    """Async wrapper — runs the feedback-improvement pass in a thread."""
+    return await asyncio.to_thread(
+        _improve_manim_code_sync,
+        original_code, feedback, subject, aspect_ratio, language,
+    )

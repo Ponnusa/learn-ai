@@ -21,6 +21,7 @@ from services.manim import (
     generate_manim_code_enhanced,
     generate_solution_only,
     generate_manim_from_solution,
+    improve_manim_code,
     fix_manim_colors,
     fix_deprecated_manim_apis,
     fix_unicode_in_mathtex,
@@ -169,6 +170,60 @@ async def regenerate_video(video_id: int, bg: BackgroundTasks):
     bg.add_task(
         _generate_video_bg, video_id, prompt, uid,
         row["subject"], row["language"] or "en", row["aspect_ratio"] or "16:9",
+    )
+    return {"status": "pending", "video_id": video_id}
+
+
+class VideoImproveRequest(BaseModel):
+    feedback: str
+
+
+@router.post("/{video_id}/improve")
+async def improve_video(video_id: int, req: VideoImproveRequest, bg: BackgroundTasks):
+    """
+    Feedback-driven improvement: re-generate Manim code using the original code as
+    a base, applying user feedback about layout/animation issues.
+    SVG data is preserved character-for-character by the AI prompt.
+    """
+    if not req.feedback.strip():
+        raise HTTPException(status_code=422, detail="Feedback cannot be empty")
+
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT generated_code, subject, language, aspect_ratio, user_id
+            FROM videos WHERE id = $1
+        """, video_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if not row["generated_code"]:
+        raise HTTPException(status_code=409, detail="No generated code to improve — retry the video first")
+
+    original_code = row["generated_code"]
+    subject       = row["subject"]      or "general"
+    language      = row["language"]     or "en"
+    aspect_ratio  = row["aspect_ratio"] or "16:9"
+    user_id       = str(row["user_id"]) if row["user_id"] else None
+
+    # Log feedback for prompt improvement analysis
+    async with get_db() as db:
+        await db.execute("""
+            INSERT INTO video_feedback (video_id, user_id, feedback, original_code)
+            VALUES ($1, $2::uuid, $3, $4)
+        """, video_id, user_id, req.feedback.strip(), original_code)
+
+    # Reset to pending so the frontend can poll
+    async with get_db() as db:
+        await db.execute("""
+            UPDATE videos
+            SET status = 'pending', error_message = NULL,
+                generated_code = NULL, updated_at = NOW()
+            WHERE id = $1
+        """, video_id)
+
+    bg.add_task(
+        _improve_video_bg,
+        video_id, original_code, req.feedback.strip(),
+        subject, language, aspect_ratio,
     )
     return {"status": "pending", "video_id": video_id}
 
@@ -454,3 +509,75 @@ async def _check_video_credit(user_id: str | None, session_id: str | None, tier:
                 "UPDATE anonymous_sessions SET video_count = video_count + 1 WHERE id = $1",
                 session_id
             )
+
+
+async def _improve_video_bg(
+    video_id: int,
+    original_code: str,
+    feedback: str,
+    subject: str,
+    language: str,
+    aspect_ratio: str,
+):
+    """
+    Background task for feedback-driven improvement.
+    Calls Claude with the original code + feedback, then re-renders.
+    """
+    _log = logging.getLogger(__name__)
+    _log.info(f"[improve] video {video_id}: starting feedback-driven improvement")
+
+    try:
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos SET status = 'transcript_ready', updated_at = NOW()
+                WHERE id = $1
+            """, video_id)
+    except Exception as _db_err:
+        _log.warning(f"[improve] video {video_id}: could not set transcript_ready — {_db_err}")
+
+    try:
+        result = await asyncio.wait_for(
+            improve_manim_code(original_code, feedback, subject, aspect_ratio, language),
+            timeout=600,
+        )
+        code = result["generated_code"]
+        code = fix_manim_colors(code)
+        code = fix_deprecated_manim_apis(code)
+        code = fix_unicode_in_mathtex(code)
+        code = ensure_numpy_import(code)
+        code = strip_invalid_tex_weight(code)
+
+        # Preserve svg_urls from original video (SVG assets did not change)
+        async with get_db() as db:
+            original_svg = await db.fetchval("SELECT svg_urls FROM videos WHERE id = $1", video_id)
+        svg_urls = json.loads(original_svg) if original_svg else {}
+
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos
+                SET generated_code = $1, status = 'queued',
+                    svg_urls = $2::jsonb, error_message = NULL, updated_at = NOW()
+                WHERE id = $3
+            """, code, json.dumps(svg_urls), video_id)
+
+        _log.info(f"[improve] video {video_id}: code improved, triggering render")
+        _trigger_video_generation(video_id, svg_urls)
+
+    except asyncio.TimeoutError:
+        _log.error(f"[improve] video {video_id}: timed out after 10 min")
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos SET status = 'failed',
+                    error_message = 'Improvement timed out — please retry',
+                    updated_at = NOW()
+                WHERE id = $1
+            """, video_id)
+    except BaseException as e:
+        _log.error(f"[improve] video {video_id}: failed — {type(e).__name__}: {e}", exc_info=True)
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
+                WHERE id = $2
+            """, f"Improvement failed: {type(e).__name__}: {e}", video_id)
+        if isinstance(e, asyncio.CancelledError):
+            raise

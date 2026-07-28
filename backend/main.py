@@ -548,6 +548,18 @@ async def lifespan(app: FastAPI):
               END;
             END $$
             """,
+            # ── Video feedback — user ratings for prompt improvement data flywheel ──
+            """
+            CREATE TABLE IF NOT EXISTS video_feedback (
+                id            SERIAL PRIMARY KEY,
+                video_id      INT  NOT NULL REFERENCES videos(id) ON DELETE CASCADE,
+                user_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+                feedback      TEXT NOT NULL,
+                original_code TEXT,
+                created_at    TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_video_feedback_video ON video_feedback(video_id)",
         ]:
             try:
                 await db.execute(sql)

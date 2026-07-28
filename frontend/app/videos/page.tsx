@@ -8,9 +8,9 @@ import 'katex/dist/katex.min.css';
 import {
   ArrowLeft, Download, CheckCircle, XCircle, Loader,
   RefreshCw, FileText, X, Play, MessageSquare,
-  ChevronLeft, ChevronRight, Video, Sparkles,
+  ChevronLeft, ChevronRight, Video, Sparkles, ThumbsDown,
 } from 'lucide-react';
-import { getVideoStatus, retryVideo, getUserVideos, getSessionVideos, generateVideo } from '@/lib/api';
+import { getVideoStatus, retryVideo, getUserVideos, getSessionVideos, generateVideo, improveVideo } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLanguageStore } from '@/store/languageStore';
@@ -173,6 +173,99 @@ function TranscriptModal({
                        text-[var(--tx2)] transition-colors"
           >
             {t.close}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FeedbackModal
+// ─────────────────────────────────────────────────────────────────────────────
+
+function FeedbackModal({
+  onClose,
+  onSubmit,
+  loading,
+}: {
+  onClose: () => void;
+  onSubmit: (feedback: string) => Promise<void>;
+  loading: boolean;
+}) {
+  const [text, setText] = useState('');
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !loading) onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, loading]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget && !loading) onClose(); }}
+    >
+      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl
+                      w-full max-w-md flex flex-col shadow-2xl shadow-black/40">
+
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--bd)] shrink-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-orange-500/15 flex items-center justify-center">
+              <ThumbsDown size={13} className="text-orange-400" />
+            </div>
+            <h2 className="text-[var(--tx1)] font-semibold text-sm">Improve this video</h2>
+          </div>
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="w-7 h-7 flex items-center justify-center rounded-lg
+                       text-[var(--tx6)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)]
+                       transition-colors disabled:opacity-40"
+            aria-label="Close"
+          >
+            <X size={15} />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <p className="text-[var(--tx5)] text-xs leading-relaxed">
+            Describe what needs fixing — layout issues, overlapping text, wrong panel placement, etc.
+            The content and voiceover will be preserved exactly.
+          </p>
+          <textarea
+            autoFocus
+            value={text}
+            onChange={e => setText(e.target.value)}
+            disabled={loading}
+            rows={4}
+            placeholder="e.g. The molecule diagram overlaps the text. Move it further left."
+            className="w-full px-3 py-2.5 rounded-xl bg-[var(--bg)] border border-[var(--bd)]
+                       text-[var(--tx1)] text-sm placeholder-[var(--tx7)] resize-none
+                       focus:outline-none focus:border-orange-500/50
+                       disabled:opacity-60 transition-colors"
+          />
+        </div>
+
+        <div className="px-5 py-3 border-t border-[var(--bd)] shrink-0 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-1.5 text-xs rounded-lg bg-[var(--ov3)] hover:bg-[var(--ov4)]
+                       text-[var(--tx2)] transition-colors disabled:opacity-40"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSubmit(text)}
+            disabled={!text.trim() || loading}
+            className="flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium rounded-lg
+                       bg-orange-600 hover:bg-orange-500 text-white
+                       disabled:opacity-40 transition-colors"
+          >
+            {loading
+              ? <><Loader size={11} className="animate-spin" /> Regenerating…</>
+              : <><RefreshCw size={11} /> Regenerate</>}
           </button>
         </div>
       </div>
@@ -581,9 +674,11 @@ function VideosContent() {
   const [error,      setError]      = useState<string | null>(null);
   const [stepIdx,    setStepIdx]    = useState(0);
   const [transcript, setTranscript] = useState<string | null>(null);
-  const [retrying,   setRetrying]   = useState(false);
-  const [showModal,  setShowModal]  = useState(false);
-  const [modalText,  setModalText]  = useState<string>('');
+  const [retrying,        setRetrying]        = useState(false);
+  const [showModal,       setShowModal]       = useState(false);
+  const [modalText,       setModalText]       = useState<string>('');
+  const [showFeedback,    setShowFeedback]    = useState(false);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
   const [retryTick,  setRetryTick]  = useState(0);
 
   // Videos list (both views)
@@ -706,6 +801,26 @@ function VideosContent() {
       setError(e.message ?? 'Retry failed');
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function handleImprove(feedback: string) {
+    if (!videoId || !feedback.trim()) return;
+    setFeedbackLoading(true);
+    try {
+      await improveVideo(videoId, feedback, token ?? undefined);
+      setShowFeedback(false);
+      setStatus('pending');
+      setStepIdx(0);
+      setVideoUrl(null);
+      setError(null);
+      refreshList();
+      setRetryTick(n => n + 1);
+    } catch (e: any) {
+      setError(e.message ?? 'Improvement failed. Please try again.');
+      setShowFeedback(false);
+    } finally {
+      setFeedbackLoading(false);
     }
   }
 
@@ -919,6 +1034,18 @@ function VideosContent() {
                         <Download size={14} />
                         <span className="hidden sm:inline">{t.download}</span>
                       </a>
+                      <button
+                        onClick={() => setShowFeedback(true)}
+                        title="Improve this video"
+                        className="flex items-center gap-2 px-3 sm:px-4 py-2
+                                   bg-[var(--ov3)] hover:bg-orange-500/15
+                                   hover:text-orange-400 hover:border-orange-500/30
+                                   border border-transparent
+                                   rounded-xl text-[var(--tx5)] text-sm transition-colors"
+                      >
+                        <ThumbsDown size={14} />
+                        <span className="hidden sm:inline">Improve</span>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1007,6 +1134,13 @@ function VideosContent() {
 
       {showModal && modalText && (
         <TranscriptModal markdown={modalText} onClose={closeModal} />
+      )}
+      {showFeedback && (
+        <FeedbackModal
+          loading={feedbackLoading}
+          onClose={() => setShowFeedback(false)}
+          onSubmit={handleImprove}
+        />
       )}
     </div>
   );
