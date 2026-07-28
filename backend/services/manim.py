@@ -50,6 +50,14 @@ _openai_sync = _openai_module.OpenAI(
 # ── Model for Manim code generation ──────────────────────────────────────────────────
 _CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-sonnet-5")
 
+
+def _first_text(message) -> str:
+    """Return text from the first TextBlock, skipping ThinkingBlocks (claude-sonnet-5+)."""
+    for block in (message.content or []):
+        if getattr(block, "text", None) is not None:
+            return block.text
+    return ""
+
 # ── R2 / Cloudflare config (mirrors AnimLearn naming for verbatim function copy) ──────
 R2_BUCKET_NAME = settings.R2_BUCKET_NAME
 R2_PUBLIC_URL  = settings.R2_PUBLIC_URL
@@ -304,7 +312,7 @@ CODE:
             max_tokens=16000,
             messages=[{"role": "user", "content": fix_prompt}],
         )
-        fixed = response.content[0].text.strip()
+        fixed = _first_text(response).strip()
         for fence in ("```python", "```"):
             if fixed.startswith(fence):
                 fixed = fixed[len(fence):].strip()
@@ -1670,7 +1678,7 @@ def plan_svg_assets(verified_solution: str, subject: str) -> list:
                 ),
                 messages=[{"role": "user", "content": f"Subject: {subject}\n\nSolution:\n{verified_solution[:1500]}"}]
             )
-            text = msg.content[0].text.strip()
+            text = _first_text(msg).strip()
             text = re.sub(r"^```[a-z]*\n?", "", text, flags=re.IGNORECASE)
             text = re.sub(r"\n?```$", "", text).strip()
             result = json.loads(text)
@@ -1746,7 +1754,7 @@ def call_claude_svg(asset_name: str) -> str:
         system=SVG_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
     )
-    return _strip_svg_markdown(msg.content[0].text)
+    return _strip_svg_markdown(_first_text(msg))
 
 
 def _svg_asset_url(r2_key: str) -> str:
@@ -2336,7 +2344,7 @@ LAST LINE MUST BE EXACTLY (8 spaces indent):
     if message.stop_reason == "max_tokens":
         logger.warning("⚠️  Setup block hit max_tokens — object definitions may be incomplete")
 
-    setup_code = message.content[0].text.strip()
+    setup_code = _first_text(message).strip()
     for fence in ("```python", "```"):
         if setup_code.startswith(fence):
             setup_code = setup_code[len(fence):].strip()
@@ -2460,7 +2468,7 @@ No markdown fences. No imports. No class. No setup code.
     if message.stop_reason == "max_tokens":
         logger.warning("⚠️  Animation beats hit max_tokens — response may be truncated")
 
-    beats_code = message.content[0].text.strip()
+    beats_code = _first_text(message).strip()
     for fence in ("```python", "```"):
         if beats_code.startswith(fence):
             beats_code = beats_code[len(fence):].strip()
@@ -2642,7 +2650,7 @@ MANDATORY RULES:
             max_tokens=2000,
             messages=[{"role": "user", "content": storyboard_prompt}]
         )
-        storyboard_text = storyboard_response.content[0].text.strip()
+        storyboard_text = _first_text(storyboard_response).strip()
         logger.info(f"📋 Storyboard ready: {len(storyboard_text)} chars")
     except Exception as sb_err:
         logger.warning(f"⚠️ Storyboard generation failed (non-fatal): {sb_err}")
@@ -2856,7 +2864,7 @@ CODE TO REVIEW:
             max_tokens=16000,
             messages=[{"role": "user", "content": critic_prompt}]
         )
-        critic_text = critic_response.content[0].text.strip()
+        critic_text = _first_text(critic_response).strip()
         if critic_text.startswith("```python"):
             critic_text = critic_text[len("```python"):].strip()
         if critic_text.startswith("```"):
