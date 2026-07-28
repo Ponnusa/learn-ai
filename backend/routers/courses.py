@@ -2872,21 +2872,24 @@ _TOC_HEADER_RE = re.compile(
 
 
 async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
-    """Scan the first 15 pages for a Contents/TOC page and extract chapters via GPT.
+    """Scan the first 20 pages for a Contents/TOC page and extract chapters via GPT.
     Returns [{title, start_page}, ...] or [] if nothing useful found."""
     toc_chunks: list[str] = []
     found_toc_start = False
-    for p in pages[:15]:
+    toc_start_idx = -1
+    for i, p in enumerate(pages[:20]):
         has_keyword = bool(_TOC_HEADER_RE.search(p))
         score = _toc_page_score(p)
         if not found_toc_start:
             if has_keyword or score >= 3:
                 found_toc_start = True
-                toc_chunks.append(p)
-        else:
-            if score >= 2:
-                toc_chunks.append(p)
-            else:
+                toc_start_idx = i
+        # Once TOC is found, collect this page + up to 10 more regardless of
+        # score — an embedded image on the TOC page produces score=0 and would
+        # otherwise cut the scan short, missing chapters listed after the image.
+        if found_toc_start:
+            toc_chunks.append(p)
+            if i >= toc_start_idx + 10:
                 break
     if not toc_chunks:
         return []
