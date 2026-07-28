@@ -2797,6 +2797,16 @@ async def detect_chapter_toc(
     if len(top_level) >= 2:
         method = "outline"
         entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in top_level]
+        # Cross-check: a large book with only 2–3 outline chapters usually means
+        # the outline is incomplete (some chapters weren't bookmarked). Try
+        # text-based TOC detection and prefer whichever result has more chapters.
+        if len(entries) <= 3 and page_count > 30:
+            if pages is None:
+                pages = extract_pages_from_pdf(file_bytes)
+            text_entries = await _detect_toc_from_text(pages)
+            if len(text_entries) > len(entries):
+                entries = text_entries
+                method = "contents_page"
     elif outline:
         # Level-1 entries were filtered out (e.g. the PDF only has "Contents"
         # and "Index" at level 1, with the real chapters one level deeper).
@@ -2808,51 +2818,12 @@ async def detect_chapter_toc(
             entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in level2]
 
     if method == "none":
-        pages = extract_pages_from_pdf(file_bytes)
-        contents_page_text = None
-        # Scan up to the first 15 pages using a two-signal strategy:
-        #   1. Keyword anchor — any multilingual "table of contents" heading
-        #   2. Structural score — count lines that look like "N.N  title … page"
-        # Once a candidate TOC page is found, keep appending the next pages while
-        # they still look structurally like a TOC continuation (handles 2+ page TOCs).
-        toc_chunks: list[str] = []
-        found_toc_start = False
-        for p in pages[:15]:
-            has_keyword = bool(_TOC_HEADER_RE.search(p))
-            score = _toc_page_score(p)
-            if not found_toc_start:
-                if has_keyword or score >= 3:
-                    found_toc_start = True
-                    toc_chunks.append(p)
-            else:
-                if score >= 2:
-                    toc_chunks.append(p)
-                else:
-                    break
-        if toc_chunks:
-            contents_page_text = "\n\n".join(toc_chunks)
-        if contents_page_text:
-            from openai import AsyncOpenAI
-            client = AsyncOpenAI()
-            try:
-                response = await client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[{"role": "user", "content": (
-                        "Extract the chapter list from this textbook Contents page as JSON. "
-                        "Ignore sub-sections (e.g. '1.1', '1.2') and exercise labels — only top-level chapters.\n\n"
-                        "Return ONLY valid JSON: {\"chapters\": [{\"title\": \"...\", \"start_page\": <int>}]}\n\n"
-                        f"--- CONTENTS ---\n{contents_page_text[:6000]}"
-                    )}],
-                    response_format={"type": "json_object"},
-                    max_tokens=1000,
-                    temperature=0.0,
-                )
-                parsed = json.loads(response.choices[0].message.content).get("chapters", [])
-                if len(parsed) >= 2:
-                    method = "contents_page"
-                    entries = [{"title": c["title"].strip(), "start_page": int(c["start_page"])} for c in parsed]
-            except Exception as exc:
-                logger.warning("[detect-toc] contents-page parse failed: %s", exc)
+        if pages is None:
+            pages = extract_pages_from_pdf(file_bytes)
+        text_entries = await _detect_toc_from_text(pages)
+        if len(text_entries) >= 2:
+            entries = text_entries
+            method = "contents_page"
 
     chapters = []
     for i, e in enumerate(entries):
@@ -2898,6 +2869,49 @@ _TOC_HEADER_RE = re.compile(
     r"CONTENTS?|SISÄLLYS(LUETTELO)?|INNEHÅLL(SFÖRTECKNING)?|INHALTS?VERZEICHNIS|SOMMAIRE|INDICE",
     re.IGNORECASE,
 )
+
+
+async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
+    """Scan the first 15 pages for a Contents/TOC page and extract chapters via GPT.
+    Returns [{title, start_page}, ...] or [] if nothing useful found."""
+    toc_chunks: list[str] = []
+    found_toc_start = False
+    for p in pages[:15]:
+        has_keyword = bool(_TOC_HEADER_RE.search(p))
+        score = _toc_page_score(p)
+        if not found_toc_start:
+            if has_keyword or score >= 3:
+                found_toc_start = True
+                toc_chunks.append(p)
+        else:
+            if score >= 2:
+                toc_chunks.append(p)
+            else:
+                break
+    if not toc_chunks:
+        return []
+    contents_page_text = "\n\n".join(toc_chunks)
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": (
+                "Extract the chapter list from this textbook Contents page as JSON. "
+                "Ignore sub-sections (e.g. '1.1', '1.2') and exercise labels — only top-level chapters.\n\n"
+                "Return ONLY valid JSON: {\"chapters\": [{\"title\": \"...\", \"start_page\": <int>}]}\n\n"
+                f"--- CONTENTS ---\n{contents_page_text[:6000]}"
+            )}],
+            response_format={"type": "json_object"},
+            max_tokens=1000,
+            temperature=0.0,
+        )
+        parsed = json.loads(response.choices[0].message.content).get("chapters", [])
+        if len(parsed) >= 2:
+            return [{"title": c["title"].strip(), "start_page": int(c["start_page"])} for c in parsed]
+    except Exception as exc:
+        logger.warning("[detect-toc] contents-page parse failed: %s", exc)
+    return []
 
 
 def _find_page_in_pages(pages: list[str], snippet: str) -> int | None:
