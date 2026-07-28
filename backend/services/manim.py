@@ -1617,7 +1617,9 @@ def prescan_svg_assets(text: str) -> list:
     seen = set()
     for keyword in sorted(KEYWORD_SVG_MAP.keys(), key=len, reverse=True):
         asset = KEYWORD_SVG_MAP[keyword]
-        if asset not in seen and keyword in text_lower:
+        # Word-boundary match — plain substring match false-positives on short
+        # keywords buried in longer words (e.g. "car" inside "carboxylic acid").
+        if asset not in seen and re.search(rf"\b{re.escape(keyword)}\b", text_lower):
             found.append(asset)
             seen.add(asset)
     return found

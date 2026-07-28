@@ -199,6 +199,18 @@ CHEMISTRY VIDEO RULES
 - For reactions: show reactants LEFT → Arrow (center) → products RIGHT
 - Color-code by element: O=RED, H=WHITE, C=GRAY, N=BLUE
 
+FUNCTIONAL GROUP ANNOTATIONS (molecule diagrams with multiple callouts,
+e.g. benzene ring / COOH / ester on aspirin-style structures):
+- Reveal ONE functional-group callout (box + label + arrow) at a time,
+  synced to its own voiceover beat — FadeOut it before the next appears.
+  NEVER show benzene + COOH + ester callouts simultaneously — this violates
+  the 5-element screen limit and produces a cluttered, overlapping result.
+- Highlight polygon overlaid on a hand-built ring (e.g. RegularPolygon
+  drawn on top of a hexagon built from custom vertices) MUST match the
+  base shape's rotation exactly (same start_angle / vertex offset).
+  A same-size polygon overlaid at a mismatched rotation does not look like
+  a clean highlight — it interleaves into a spiky star/gear artifact.
+
 ══════════════════════════════════════════════════════════════════
 GENERAL ANIMATION RULES
 ══════════════════════════════════════════════════════════════════
@@ -215,6 +227,17 @@ GENERAL ANIMATION RULES
   Use Group(*self.mobjects) if you need to group all current objects, or track objects in your own VGroup
 - NEVER place the SVG object as a Dot(radius=0.01) or any placeholder — always call get_svg() as instructed
 - When an SVG object moves (vehicle on a slope), move force arrows WITH it using .animate.shift() in the same play() call
+- ANNOTATION BOXES: SurroundingRectangle (or any box) must be built directly around the
+  object it visually encloses, AT that object's own position. NEVER build a box sized to
+  one object (e.g. SurroundingRectangle(some_other_label)) and then .move_to(...) it next
+  to a different, unrelated object — the box's size won't match what it's wrapping and
+  the label/box combo will misalign or overlap neighboring elements.
+- LABEL ARROWS: when pointing an Arrow from a multi-part VGroup (e.g. a molecule or
+  diagram built from several sub-shapes) to a nearby label, anchor the arrow to the
+  SPECIFIC sub-element being labeled — never to the whole VGroup's .get_right() /
+  .get_left() / .get_top(). If another sub-element already extends to that edge, the
+  group's bounding-box edge sits almost on top of the label's position, producing an
+  Arrow that collapses to a near-zero-length stub instead of a visible connector.
 
 CRASH PREVENTION:
 
