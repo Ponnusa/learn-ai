@@ -2417,7 +2417,7 @@ async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: d
     which page each concept starts on (page_start). Falls back to text-search if the
     AI omits page_number. Sets source='ai' on each concept.
     """
-    from services.studyset_processor import extract_pages_from_pdf
+    from services.studyset_processor import extract_pages_from_pdf, extract_text_from_pdf, is_sparse_text, extract_text_vision
     from openai import AsyncOpenAI
 
     pages = extract_pages_from_pdf(file_bytes)
@@ -2428,6 +2428,15 @@ async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: d
         if p.strip():
             paged_parts.append(f"--- Page {i + 1} ---\n{p.strip()}")
     paged_text = "\n\n".join(paged_parts)
+
+    # Scanned PDF fallback: if PyMuPDF returned almost no text, use Claude vision
+    # to OCR the pages so concept extraction works on scanned books too.
+    if is_sparse_text(paged_text, len(pages)):
+        logger.info("[chapter] sparse text (%d chars / %d pages) — switching to vision OCR",
+                    len(paged_text), len(pages))
+        ocr_text, _ = await extract_text_vision(file_bytes)
+        paged_text = ocr_text
+
     truncated  = paged_text[:80_000]
 
     concept_lang_note = ""
@@ -2794,29 +2803,29 @@ async def detect_chapter_toc(
     # a cover, TOC, or Index page) — these aren't real chapters and would
     # otherwise eat the first chapter's pages as their own.
     top_level = [o for o in top_level if not _FRONT_MATTER_RE.search(o[1])]
-    if len(top_level) >= 2:
+    if len(top_level) >= 4:
+        # Enough level-1 chapters to trust the outline without a cross-check.
         method = "outline"
         entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in top_level]
-        # Cross-check: a large book with only 2–3 outline chapters usually means
-        # the outline is incomplete (some chapters weren't bookmarked). Try
-        # text-based TOC detection and prefer whichever result has more chapters.
-        if len(entries) <= 3 and page_count > 30:
-            if pages is None:
-                pages = extract_pages_from_pdf(file_bytes)
-            text_entries = await _detect_toc_from_text(pages)
-            if len(text_entries) > len(entries):
-                entries = text_entries
-                method = "contents_page"
     elif outline:
-        # Level-1 entries were filtered out (e.g. the PDF only has "Contents"
-        # and "Index" at level 1, with the real chapters one level deeper).
-        # Try level-2 as a fallback before resorting to text-based detection.
-        level2 = [o for o in outline if o[0] == 2]
-        level2 = [o for o in level2 if not _FRONT_MATTER_RE.search(o[1])]
-        if len(level2) >= 2:
+        # Fewer than 4 level-1 chapters — also inspect level-2 in case the real
+        # chapters are nested under a structural bookmark (e.g. "Contents").
+        level2 = [o for o in outline if o[0] == 2 and not _FRONT_MATTER_RE.search(o[1])]
+        best = top_level if len(top_level) >= len(level2) else level2
+        if len(best) >= 2:
             method = "outline"
-            entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in level2]
+            entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in best]
 
+    # Vision is the primary fallback: reads actual page images so it handles
+    # scanned PDFs, images mid-TOC, decorative fonts, and multi-language books.
+    # Run it whenever the outline gave fewer than 4 chapters for a real book.
+    if (method == "none" or len(entries) < 4) and page_count > 20:
+        vis = await _detect_toc_vision(file_bytes, page_count)
+        if len(vis) >= 2 and len(vis) >= len(entries):
+            entries = vis
+            method = "vision"
+
+    # Last resort: text extraction + GPT (digital PDFs with readable text only).
     if method == "none":
         if pages is None:
             pages = extract_pages_from_pdf(file_bytes)
@@ -2869,6 +2878,58 @@ _TOC_HEADER_RE = re.compile(
     r"CONTENTS?|SISÄLLYS(LUETTELO)?|INNEHÅLL(SFÖRTECKNING)?|INHALTS?VERZEICHNIS|SOMMAIRE|INDICE",
     re.IGNORECASE,
 )
+
+
+async def _detect_toc_vision(file_bytes: bytes, page_count: int) -> list[dict]:
+    """Render the first 15 PDF pages as images and ask Claude Haiku to find the
+    Table of Contents and return each chapter's PHYSICAL page position.
+    Works on digital PDFs, scanned books, and complex layouts (images mid-TOC)."""
+    import fitz, base64
+    import anthropic
+
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    scan_pages = min(15, page_count)
+    mat = fitz.Matrix(1.2, 1.2)
+    content: list[dict] = []
+    for idx in range(scan_pages):
+        pix = doc[idx].get_pixmap(matrix=mat)
+        b64 = base64.standard_b64encode(pix.tobytes("png")).decode()
+        content.append({"type": "text", "text": f"Page {idx + 1}:"})
+        content.append({"type": "image", "source": {
+            "type": "base64", "media_type": "image/png", "data": b64,
+        }})
+    doc.close()
+
+    content.append({"type": "text", "text": (
+        f"These are the first {scan_pages} pages of a {page_count}-page textbook PDF.\n\n"
+        "1. Find the Table of Contents page.\n"
+        "2. List only TOP-LEVEL chapters (ignore sub-sections like 1.1, 1.2, exercises).\n"
+        "3. For each chapter, give the PHYSICAL page number where the chapter heading "
+        "actually appears in these images. If a chapter starts beyond the pages shown, "
+        "calculate its physical page: find which physical page the first chapter starts on, "
+        "subtract its printed page number from the TOC, and add that offset to each chapter's "
+        "printed page number.\n\n"
+        "Return ONLY valid JSON — no prose, no markdown fences:\n"
+        "{\"chapters\": [{\"title\": \"...\", \"start_page\": <physical_page_int>}]}"
+    )})
+
+    client = anthropic.AsyncAnthropic()
+    try:
+        resp = await client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            messages=[{"role": "user", "content": content}],
+        )
+        raw = re.sub(r'```(?:json)?\s*|\s*```', '', resp.content[0].text)
+        m = re.search(r'\{[\s\S]*\}', raw)
+        if m:
+            parsed = json.loads(m.group()).get("chapters", [])
+            if len(parsed) >= 2:
+                return [{"title": c["title"].strip(), "start_page": int(c["start_page"])}
+                        for c in parsed]
+    except Exception as exc:
+        logger.warning("[detect-toc] vision failed: %s", exc)
+    return []
 
 
 async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
