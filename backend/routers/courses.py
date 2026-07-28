@@ -2790,14 +2790,24 @@ async def detect_chapter_toc(
     pages: list[str] | None = None
 
     top_level = [o for o in outline if o[0] == 1] if outline else []
-    # Drop obvious front-matter bookmarks (publishers often bookmark a cover/TOC
-    # page too) — these aren't real chapters and would otherwise eat the first
-    # chapter's pages as their own.
+    # Drop obvious front-matter/back-matter bookmarks (publishers often bookmark
+    # a cover, TOC, or Index page) — these aren't real chapters and would
+    # otherwise eat the first chapter's pages as their own.
     top_level = [o for o in top_level if not _FRONT_MATTER_RE.search(o[1])]
     if len(top_level) >= 2:
         method = "outline"
         entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in top_level]
-    else:
+    elif outline:
+        # Level-1 entries were filtered out (e.g. the PDF only has "Contents"
+        # and "Index" at level 1, with the real chapters one level deeper).
+        # Try level-2 as a fallback before resorting to text-based detection.
+        level2 = [o for o in outline if o[0] == 2]
+        level2 = [o for o in level2 if not _FRONT_MATTER_RE.search(o[1])]
+        if len(level2) >= 2:
+            method = "outline"
+            entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in level2]
+
+    if method == "none":
         pages = extract_pages_from_pdf(file_bytes)
         contents_page_text = None
         # Scan up to the first 15 pages using a two-signal strategy:
@@ -2879,7 +2889,9 @@ async def detect_chapter_toc(
 
 
 _FRONT_MATTER_RE = re.compile(
-    r"front\s*page|cover|preface|title\s*page|^toc$|table of contents|acknowledg", re.IGNORECASE
+    r"front\s*page|cover|preface|title\s*page|^toc$|table of contents|acknowledg"
+    r"|^contents?$|^index$|^indices$|bibliography|^references?$|^glossary$|^appendix|^foreword$",
+    re.IGNORECASE,
 )
 
 _TOC_HEADER_RE = re.compile(
