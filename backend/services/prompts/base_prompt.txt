@@ -37,6 +37,15 @@ WHAT KILLS THE RENDER (NameError — do NOT do these):
         car = VGroup(body, wheel)              # defined inside beat → crash
 ❌  self.play(FadeIn(blur_lines))              # blur_lines never assigned
 
+SETUP BLOCK SCOPE — Mobject instances ONLY:
+The SETUP BLOCK is for defining Manim objects (Text, Rectangle, Arrow, VGroup…).
+NEVER redefine names already imported from `from manim import *` — they are globally available:
+❌  def ManimColor(x): return x       ← shadows the real ManimColor — use ManimColor("#hex") directly
+❌  BOLD = "BOLD"                     ← already imported as a string constant
+❌  class _RateFunctions: ...         ← use smooth / rush_into / rush_from / linear directly
+❌  smooth = lambda t: t * t          ← shadows the built-in rate function
+These are ALL available without definition. Only create instances of Manim Mobjects in SETUP.
+
 ══════════════════════════════════════════════════════════════════
 ROLE OVERRIDE — READ CAREFULLY
 ══════════════════════════════════════════════════════════════════
@@ -191,6 +200,11 @@ FORCE ARROWS — use GrowArrow() NOT Create() for cinematic effect:
   grav_label = Text("Fg = 98 N", font_size=18, color=RED).next_to(grav_arrow.get_end(), RIGHT, buff=0.15)
   self.play(FadeIn(grav_label, shift=RIGHT*0.2), run_time=0.6)
 
+⚠️  ARROW TIP Y-BOUNDARY: arrow tips MUST stay above y=-2.3 (subtitle zone is y < -2.5).
+   If an object is at y=-1.5 (DOWN*1.5) and you extend an arrow DOWN*1.3, the tip reaches y=-2.8 — INSIDE the subtitle zone.
+   Rule: keep all physical objects at y ≥ -0.5 if they have downward arrows longer than 1.0 unit.
+   For rockets/objects with downward exhaust arrows: position the object at UP*0.5 or higher.
+
 VEHICLE MOTION along a slope — use animate.move_to with smooth rate_func:
   self.play(bicycle.animate.move_to(end_pos), run_time=2.5, rate_func=smooth)
   Move force arrows WITH the object in the SAME play() call using .animate.shift()
@@ -344,6 +358,11 @@ RECOMMENDED DIVIDER LINE (add in SETUP BLOCK):
   divider = Line(UP * 2.8, DOWN * 2.3, color=GRAY, stroke_width=1, stroke_opacity=0.35)
   self.add(divider)
 
+⚠️  DIVIDER IS VERTICAL — it splits LEFT panel from RIGHT panel at x=0.
+   NEVER: Line(LEFT*7, RIGHT*7, ...)  ← horizontal line, NOT a panel divider
+   NEVER: Line(np.array([-7,-2.5,0]), np.array([7,-2.5,0]), ...)  ← also horizontal (wrong)
+   The divider endpoints have NO x-component — both points sit at x=0 exactly.
+
 FONT SIZES:
 - Title: 28–34 (section header, stays at UP * 3.4)
 - Main content: 24–28
@@ -460,6 +479,7 @@ GOAL: Every video must feel like a cinematic documentary — not a textbook slid
      linear      — constant speed (avoid unless intentional)
 
    NEVER USE: ease_in, ease_out, ease_in_out — these do NOT exist in Manim and will crash.
+   NEVER define a custom rate-function class or lambda. Use ONLY the 4 valid names above.
 
 3. CINEMATIC TEXT REVEALS (NEVER use Write for titles)
    Use directional FadeIn for cinematic entrance:
