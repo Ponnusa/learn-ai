@@ -126,6 +126,20 @@ CANVAS ZONES:
 - MIDDLE (-2 < y < 2): Main content — diagrams, equations, text
 - BOTTOM (y < -2.5):  Subtitles ONLY — never place content here
 
+CHAINED-OFFSET POSITIONS (MANDATORY CHECK):
+When a position is built from multiple relative offsets stacked on top of each
+other — e.g. molecule diagrams where atom_2 = atom_1 + offset, atom_3 = atom_2
++ another offset, and so on down a branch — the offsets ADD UP. Before using
+the final position, sum every offset in the chain and confirm the resulting
+y-coordinate still satisfies y > -2.3 (leave margin above the -2.5 subtitle
+line). A branch that descends through 3-4 chained offsets (e.g. an ester or
+side-chain group hanging off the bottom of a ring) easily drifts to y = -3 or
+below even though each individual offset looks small — this silently places
+atoms/bonds/labels UNDER the subtitle text for the entire time that group is
+on screen, not just during a transition. If a diagram must extend downward,
+either compress the offsets or shift the whole diagram's anchor point up so
+its lowest computed point still clears y = -2.3.
+
 TEXT SIZE LIMITS:
 - Titles:    font_size <= 36
 - Body text: font_size <= 28
