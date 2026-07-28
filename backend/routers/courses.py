@@ -2922,14 +2922,26 @@ async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
 
     # Calibrate printed page numbers → physical PDF page positions.
     # Textbooks number front-matter separately (roman numerals or skipped),
-    # so "Atoms  4" in the TOC means printed page 4 but could be physical page 9.
-    # Search for the first chapter's title as a heading in the pages just after
-    # the TOC section, then apply the calculated offset to all chapters.
+    # so "Atoms  4" in the TOC means printed page 4 but the actual PDF page
+    # is at a different physical position (e.g. physical page 9).
+    #
+    # Scan the whole PDF for the first chapter's title in the first few lines
+    # of each page. A TOC line looks like "Atoms  4" (ends with a page number);
+    # an actual chapter heading looks like "Atoms" or "1  Atoms" (no trailing
+    # number). We use that distinction to skip TOC/index pages automatically.
     first_title_lower = entries[0]["title"].lower()
-    search_start = toc_end_idx + 1
-    for i, p in enumerate(pages[search_start:search_start + 80], start=search_start):
-        first_lines = "\n".join(p.splitlines()[:6]).lower()
-        if first_title_lower in first_lines:
+    calibrated = False
+    for i, p in enumerate(pages):
+        if calibrated:
+            break
+        for line in p.splitlines()[:5]:
+            line_lower = line.lower().strip()
+            if first_title_lower not in line_lower:
+                continue
+            # Skip TOC/index lines that end with a standalone page number.
+            if re.search(r'\b\d{1,3}\s*$', line_lower):
+                continue
+            # Found the chapter heading — calculate and apply the offset.
             physical = i + 1  # 1-indexed
             offset = physical - entries[0]["start_page"]
             if offset != 0:
@@ -2937,6 +2949,7 @@ async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
                             offset, entries[0]["start_page"], physical)
                 entries = [{"title": e["title"], "start_page": max(1, e["start_page"] + offset)}
                            for e in entries]
+            calibrated = True
             break
 
     return entries
