@@ -2873,10 +2873,12 @@ _TOC_HEADER_RE = re.compile(
 
 async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
     """Scan the first 20 pages for a Contents/TOC page and extract chapters via GPT.
-    Returns [{title, start_page}, ...] or [] if nothing useful found."""
+    Returns [{title, start_page}, ...] or [] if nothing useful found.
+    Page numbers are calibrated from printed (logical) to physical PDF positions."""
     toc_chunks: list[str] = []
     found_toc_start = False
     toc_start_idx = -1
+    toc_end_idx = -1
     for i, p in enumerate(pages[:20]):
         has_keyword = bool(_TOC_HEADER_RE.search(p))
         score = _toc_page_score(p)
@@ -2889,6 +2891,7 @@ async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
         # otherwise cut the scan short, missing chapters listed after the image.
         if found_toc_start:
             toc_chunks.append(p)
+            toc_end_idx = i
             if i >= toc_start_idx + 10:
                 break
     if not toc_chunks:
@@ -2910,11 +2913,33 @@ async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
             temperature=0.0,
         )
         parsed = json.loads(response.choices[0].message.content).get("chapters", [])
-        if len(parsed) >= 2:
-            return [{"title": c["title"].strip(), "start_page": int(c["start_page"])} for c in parsed]
+        if len(parsed) < 2:
+            return []
+        entries = [{"title": c["title"].strip(), "start_page": int(c["start_page"])} for c in parsed]
     except Exception as exc:
         logger.warning("[detect-toc] contents-page parse failed: %s", exc)
-    return []
+        return []
+
+    # Calibrate printed page numbers → physical PDF page positions.
+    # Textbooks number front-matter separately (roman numerals or skipped),
+    # so "Atoms  4" in the TOC means printed page 4 but could be physical page 9.
+    # Search for the first chapter's title as a heading in the pages just after
+    # the TOC section, then apply the calculated offset to all chapters.
+    first_title_lower = entries[0]["title"].lower()
+    search_start = toc_end_idx + 1
+    for i, p in enumerate(pages[search_start:search_start + 80], start=search_start):
+        first_lines = "\n".join(p.splitlines()[:6]).lower()
+        if first_title_lower in first_lines:
+            physical = i + 1  # 1-indexed
+            offset = physical - entries[0]["start_page"]
+            if offset != 0:
+                logger.info("[detect-toc] front-matter offset %+d (printed %d → physical %d)",
+                            offset, entries[0]["start_page"], physical)
+                entries = [{"title": e["title"], "start_page": max(1, e["start_page"] + offset)}
+                           for e in entries]
+            break
+
+    return entries
 
 
 def _find_page_in_pages(pages: list[str], snippet: str) -> int | None:
