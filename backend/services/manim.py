@@ -1328,10 +1328,26 @@ def fix_9_16_layout(code: str) -> str:
 
 def fix_16_9_layout(code: str) -> str:
     fixes = [
+        # Title position
         (r'title\.move_to\(UP \* [6-9](?:\.[0-9]+)?\)', 'title.move_to(UP * 3.5)', "Adjusting title for landscape"),
+        # Font sizes
         (r'font_size\s*=\s*20(?![0-9])', 'font_size=24', "Increasing small fonts"),
         (r'font_size\s*=\s*24(?![0-9])', 'font_size=28', "Increasing medium fonts"),
         (r'font_size\s*=\s*3[2-9](?![0-9])', 'font_size=28', "Adjusting large fonts for landscape"),
+        # SMILES helper: move molecule from portrait positions to LEFT panel
+        (r'create_molecule_from_smiles\(([^)]*?)position\s*=\s*ORIGIN(?=[,\)])',
+         r'create_molecule_from_smiles(\1position=LEFT * 3.0',
+         "Moving SMILES molecule from ORIGIN to LEFT panel"),
+        (r'create_molecule_from_smiles\(([^)]*?)position\s*=\s*UP\s*\*\s*[0-9]+(?:\.[0-9]+)?(?=[,\)])',
+         r'create_molecule_from_smiles(\1position=LEFT * 3.0',
+         "Moving SMILES molecule from portrait position to LEFT panel"),
+        # Manual hexagon molecules (benzene) placed at ORIGIN — move to LEFT panel
+        (r'(hexagon|benzene_ring|ring_group|molecule_group)\.move_to\(ORIGIN\)',
+         r'\1.move_to(LEFT * 3.0)',
+         "Moving hexagon/molecule from ORIGIN to LEFT panel"),
+        (r'(hexagon|benzene_ring|structural_svg|aspirin_svg|molecule)\.move_to\(ORIGIN\s*\+\s*(?:LEFT|RIGHT)\s*\*\s*[0-9.]+\)',
+         r'\1.move_to(LEFT * 3.0)',
+         "Correcting molecule position to LEFT panel"),
     ]
     fixed_code = code
     for pattern, replacement, description in fixes:

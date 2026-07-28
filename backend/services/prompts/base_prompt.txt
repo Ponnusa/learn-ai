@@ -209,7 +209,9 @@ CHEMISTRY VIDEO RULES
 
 - Atom circles: Circle(radius=0.4) with element symbol Text inside
 - Bond lines: Line(stroke_width=3) connecting atom centers
-- Center molecule at ORIGIN, then shift to MIDDLE zone
+- For 16:9 LANDSCAPE: Position molecule in LEFT panel (move_to(LEFT * 3.0)); labels and text in RIGHT panel (move_to(RIGHT * 2.5))
+- For 9:16 PORTRAIT: Position molecule at UP * 2.5; text/explanation below DOWN * 1.5
+- NEVER center a molecule at ORIGIN for 16:9 — it blocks the right-panel text zone
 - For reactions: show reactants LEFT → Arrow (center) → products RIGHT
 - Color-code by element: O=RED, H=WHITE, C=GRAY, N=BLUE
 
@@ -219,6 +221,11 @@ e.g. benzene ring / COOH / ester on aspirin-style structures):
   synced to its own voiceover beat — FadeOut it before the next appears.
   NEVER show benzene + COOH + ester callouts simultaneously — this violates
   the 5-element screen limit and produces a cluttered, overlapping result.
+- For 16:9: molecule is in LEFT panel (x ≈ -3.0). Functional group LABELS
+  belong in the RIGHT panel (x ≈ +2.5 to +4.0). Use an Arrow that starts
+  at the RIGHT panel label and points left toward the feature on the molecule.
+  NEVER place text labels on top of or immediately beside the molecule itself
+  in 16:9 — that overlaps the structural diagram. Labels go on the RIGHT.
 - Highlight polygon overlaid on a hand-built ring (e.g. RegularPolygon
   drawn on top of a hexagon built from custom vertices) MUST match the
   base shape's rotation exactly (same start_angle / vertex offset).
@@ -328,14 +335,19 @@ When drawing diagrams (circuits, chemical cells, apparatus, geometric figures):
 ─────────────────────────────────────────
 
 ZONES:
-- Diagram zone: CENTER at LEFT * 3, vertical range: UP * 3 to DOWN * 3
-- Working zone: CENTER at RIGHT * 2.5, vertical range: UP * 3 to DOWN * 3
-- Separation: 1.5 units minimum
+- Diagram zone: CENTER at LEFT * 3.0, x range: -6.5 to -0.3, vertical range: UP * 2.8 to DOWN * 2.3
+- Working zone: CENTER at RIGHT * 2.8, x range: +0.3 to +6.5, vertical range: UP * 2.8 to DOWN * 2.3
+- Separation: vertical divider at x=0, 1.5 units minimum gap between panels
+- Subtitle zone: y < -2.5 — ONLY show_subtitle() output goes here
+
+RECOMMENDED DIVIDER LINE (add in SETUP BLOCK):
+  divider = Line(UP * 2.8, DOWN * 2.3, color=GRAY, stroke_width=1, stroke_opacity=0.35)
+  self.add(divider)
 
 FONT SIZES:
-- Title: 32-36
-- Main content: 28-32
-- Labels: 20-24
+- Title: 28–34 (section header, stays at UP * 3.4)
+- Main content: 24–28
+- Labels: 18–22
 
 ─────────────────────────────────────────
 9:16 (PORTRAIT) - OPTIMIZED TOP-BOTTOM
@@ -480,13 +492,15 @@ GOAL: Every video must feel like a cinematic documentary — not a textbook slid
      - Physics: TEAL (fields), GOLD (energy), WHITE (particles), ORANGE (force)
      - Mathematics: BLUE (primary), GREEN (result), ORANGE (highlight), WHITE (text)
 
-8. PARTICLE BACKGROUND (OPTIONAL BUT RECOMMENDED)
-   For concept videos, add subtle floating particles in the first block:
+8. PARTICLE BACKGROUND (OPTIONAL — use ONLY for 9:16 portrait, NOT for 16:9 landscape)
+   For portrait videos, subtle floating particles can add depth. SKIP for 16:9 landscape
+   — particles scatter across both panels and obscure the split-screen structure.
+   If using (9:16 only):
      import random
      particles = VGroup(*[
-         Dot(radius=0.025, color=WHITE, fill_opacity=random.uniform(0.05, 0.25))
-         .move_to([random.uniform(-6.5, 6.5), random.uniform(-3.5, 3.5), 0])
-         for _ in range(60)
+         Dot(radius=0.025, color=WHITE, fill_opacity=random.uniform(0.05, 0.15))
+         .move_to([random.uniform(-2.5, 2.5), random.uniform(-5.5, 5.5), 0])
+         for _ in range(30)
      ])
      self.add(particles)
 

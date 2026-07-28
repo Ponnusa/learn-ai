@@ -168,6 +168,11 @@ COMMON SMILES:
 - Ethane: "CC"
 - Acetic acid: "CC(=O)O"
 - Glucose: "C(C1C(C(C(C(O1)O)O)O)O)O"
+- Aspirin (acetylsalicylic acid, C₉H₈O₄): "CC(=O)Oc1ccccc1C(=O)O"
+- Salicylic acid: "OC(=O)c1ccccc1O"
+- Ethylene (alkene example): "C=C"
+- Propene: "CC=C"
+- Cyclohexane: "C1CCCCC1"
 
 IMPLEMENTATION:
 ```python
@@ -192,6 +197,47 @@ ethanol = create_molecule_from_smiles(
 )
 self.play(FadeIn(ethanol))
 ```
+
+══════════════════════════════════════════════════════════════════
+MANUAL BENZENE RING (16:9 LEFT-PANEL EXAMPLE)
+══════════════════════════════════════════════════════════════════
+
+When drawing a benzene ring manually for 16:9 videos, anchor it in the LEFT panel:
+
+```python
+import numpy as np
+ring_center = LEFT * 3.0 + UP * 0.0   # LEFT panel — not ORIGIN
+ring_radius = 1.1
+angles = [np.pi/2 + k * np.pi/3 for k in range(6)]
+verts  = [ring_center + ring_radius * np.array([np.cos(a), np.sin(a), 0]) for a in angles]
+ring_bonds = VGroup(*[
+    Line(verts[i], verts[(i+1)%6], color=WHITE, stroke_width=2.5)
+    for i in range(6)
+])
+inner_ring = Circle(radius=ring_radius * 0.55, color=WHITE, stroke_width=1.5).move_to(ring_center)
+benzene_group = VGroup(ring_bonds, inner_ring)
+```
+
+Side chain attachment (always keep within LEFT panel, x < 0):
+```python
+# COOH group attached to top vertex (verts[0]):
+cooh_c  = verts[0] + np.array([0, 0.65, 0])    # y stays above -2.3
+cooh_o1 = cooh_c   + np.array([0.4,  0.35, 0])
+cooh_o2 = cooh_c   + np.array([-0.4, 0.35, 0])
+cooh_bonds = VGroup(
+    Line(verts[0], cooh_c,  color=WHITE, stroke_width=2.0),
+    Line(cooh_c,   cooh_o1, color=RED_B, stroke_width=2.0),
+    Line(cooh_c,   cooh_o2, color=RED_B, stroke_width=2.0),
+)
+# Text label for COOH goes in RIGHT panel, NOT beside the bond:
+cooh_label = Text("—COOH\n(carboxyl group)", font_size=22, color=RED_B).move_to(RIGHT * 2.8 + UP * 1.2)
+cooh_arrow = Arrow(RIGHT * 1.0 + UP * 1.2, verts[0] + UP * 0.2, color=RED_B, buff=0.1, stroke_width=2)
+```
+
+KEY RULE: For 16:9, all structural text labels (COOH, -OCOCH₃, etc.) belong in the
+RIGHT panel (x > +0.3). The LEFT panel contains ONLY the drawn structure. Arrows
+connect RIGHT panel labels to LEFT panel features. Do NOT use .next_to(ring, RIGHT)
+for labels — that places them near x = -1.5 where they overlap both panels.
 
 ══════════════════════════════════════════════════════════════════
 DECISION FLOWCHART (USE THIS TO DECIDE)
@@ -252,8 +298,55 @@ PROMPT: "Show me CH₄ vs NH₃ polarity"
 → Mixed: CH₄ with SMILES (organic), NH₃ with Manual (simple)
 
 ══════════════════════════════════════════════════════════════════
-MOLECULAR POLARITY POSITIONING (9:16 PORTRAIT)
+MOLECULAR POSITIONING BY ASPECT RATIO (MANDATORY)
 ══════════════════════════════════════════════════════════════════
+
+FOR 16:9 (LANDSCAPE) — SPLIT-SCREEN LAYOUT:
+┌────────────────────────────────────────────────────────────┐
+│  HEADER: section title at UP * 3.4, font_size=28, GRAY     │
+├──────────────────────┬─────────────────────────────────────┤
+│  LEFT PANEL          │  RIGHT PANEL                        │
+│  molecule / diagram  │  labels, bullets, formulas          │
+│  center: LEFT * 3.0  │  center: RIGHT * 2.8                │
+│  x: -6.5 to -0.3    │  x: +0.3 to +6.5                    │
+│  y: -2.3 to +2.8    │  y: -2.3 to +2.8                    │
+├──────────────────────┴─────────────────────────────────────┤
+│  SUBTITLE ZONE: y < -2.5 — show_subtitle() output ONLY    │
+└────────────────────────────────────────────────────────────┘
+
+POSITIONING RULES FOR 16:9:
+- Title: UP * 3.4, font_size=28, color=LIGHT_GRAY
+- Single molecule: move_to(LEFT * 3.0), scale=2.0–2.5
+  NEVER move_to(ORIGIN) — this blocks the right-panel text zone
+- Explanation text / bullets: RIGHT_PANEL = RIGHT * 2.8
+  Stack bullet lines vertically: RIGHT * 2.8 + UP * 1.5, + UP * 0.5, + DOWN * 0.5 etc.
+- Formula / equation: RIGHT * 2.8 center, font_size=24–28
+- Side-by-side molecules: LEFT * 2.5 and RIGHT * 2.0 (not LEFT*4/RIGHT*4 — too far apart)
+- Divider line (recommended): Line(UP * 3.0, DOWN * 2.8, color=GRAY, stroke_width=1, stroke_opacity=0.3).move_to(ORIGIN)
+
+FUNCTIONAL GROUP ANNOTATIONS FOR 16:9:
+- Molecule stays in LEFT panel throughout the annotation beats
+- Label text goes in RIGHT panel: RIGHT * 2.8 + UP * (some y)
+- Arrow: start=RIGHT * 2.0 + UP * y, end=feature position on molecule (LEFT panel)
+- Show ONE annotation at a time: FadeOut label+arrow before next annotation
+- NEVER place text labels immediately beside the molecule (no .next_to(benzene_ring, RIGHT) — that lands at x≈-1.5, middle of screen, overlapping both panels)
+
+CLEARING BETWEEN ANNOTATION BEATS (MANDATORY FOR 16:9):
+```
+# Good pattern:
+with self.voiceover(text="The benzene ring provides stability...") as t:
+    sub = self.show_subtitle("The benzene ring provides stability...")
+    self.play(Create(ring_highlight), FadeIn(ring_label_right, shift=LEFT*0.2))  # both defined in SETUP
+    self.wait(max(0.1, t.duration - 0.5))
+self.play(FadeOut(sub), FadeOut(ring_highlight, shift=RIGHT*0.2), FadeOut(ring_label_right, shift=RIGHT*0.2))
+
+# Then next beat:
+with self.voiceover(text="The COOH group enhances solubility...") as t:
+    sub = self.show_subtitle("The COOH group enhances solubility...")
+    self.play(Create(cooh_highlight), FadeIn(cooh_label_right, shift=LEFT*0.2))
+    self.wait(max(0.1, t.duration - 0.5))
+self.play(FadeOut(sub), FadeOut(cooh_highlight, shift=RIGHT*0.2), FadeOut(cooh_label_right, shift=RIGHT*0.2))
+```
 
 FOR 9:16 (PORTRAIT):
 - Title: UP * 6, font_size=36
@@ -262,26 +355,14 @@ FOR 9:16 (PORTRAIT):
 - Font size for text: 30-32
 - Side-by-side: LEFT*2 + UP*3 and RIGHT*2 + UP*3, scale=2.5
 
-FOR 16:9 (LANDSCAPE):
-- Title: UP * 3.5, font_size=32
-- Single molecule: ORIGIN, scale=2.5
-- Text: DOWN * 3, font_size=28
-- Side-by-side: LEFT*4 and RIGHT*4, scale=2.0
-
-CRITICAL: SCREEN MANAGEMENT FOR MOLECULE SCENES
-✗ NEVER show molecule AND text in the SAME ZONE at the same time (they collide)
-✓ Molecule in MIDDLE zone (y ∈ [-1, +2.5]), explanatory text in BOTTOM zone (y < -2) — different zones, OK to coexist
-✓ For OVERVIEW PANEL LAYOUT (multi-compound): persistent list panel + active calc panel is intentional — see OVERVIEW PATTERN above
-✓ For focused molecule explanation: FadeOut molecule before showing comparison text at same position
-
 SPACING RULES (STRICT) FOR 9:16:
 - Screen range: UP * 7 to DOWN * 7 (14 units total)
 - Molecule zone: UP * 4 to UP * 1 (3 units) — centered at UP * 2.5
 - Gap zone: UP * 1 to DOWN * 1 (2 units) — EMPTY
 - Text zone: DOWN * 2 to DOWN * 5 (3 units)
 
-NEVER put molecule below UP * 1
-NEVER put text above DOWN * 1.5
+NEVER put molecule below UP * 1 (9:16)
+NEVER put text above DOWN * 1.5 (9:16)
 
 ══════════════════════════════════════════════════════════════════
 MANDATORY PATTERN: MOLECULAR POLARITY EXPLANATION
