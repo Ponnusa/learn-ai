@@ -11,7 +11,7 @@ import {
   Loader2, Check, Plus, FileText,
   CheckCircle, Zap, HelpCircle, Layers,
   RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X, FileImage, Scissors,
-  ChevronUp, ChevronDown, Shuffle, AlignJustify, Star, Paperclip,
+  ChevronUp, ChevronDown, Shuffle, AlignJustify, Star, Paperclip, ThumbsDown,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { AudioPlayer } from '@/components/ui/AudioPlayer';
@@ -155,8 +155,10 @@ export default function ConceptEditorPage() {
   const [addedMsgBlocks,    setAddedMsgBlocks]    = useState<Set<string>>(new Set());
   const [generatingVideoMsg, setGeneratingVideoMsg] = useState<string | null>(null);
   const videoPollingRef = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
-  const [removedVideoBlocks, setRemovedVideoBlocks] = useState<Set<string>>(new Set());
-  const [retryingVideoMsgs,  setRetryingVideoMsgs]  = useState<Set<string>>(new Set());
+  const [removedVideoBlocks,  setRemovedVideoBlocks]  = useState<Set<string>>(new Set());
+  const [retryingVideoMsgs,   setRetryingVideoMsgs]   = useState<Set<string>>(new Set());
+  const [videoImprove,        setVideoImprove]        = useState<{ vidId: string; text: string } | null>(null);
+  const [improvingVideoMsgs,  setImprovingVideoMsgs]  = useState<Set<string>>(new Set());
   const [showDraftPrompt,   setShowDraftPrompt]   = useState(false);
 
   // Studio quiz/flashcard generation config
@@ -509,6 +511,29 @@ export default function ConceptEditorPage() {
       alert(`Could not restart: ${err.message}`);
     } finally {
       setRetryingVideoMsgs(prev => { const s = new Set(prev); s.delete(msgId); return s; });
+    }
+  }
+
+  async function handleImproveVideo(vidId: string, videoId: number, blockId: string) {
+    const feedback = videoImprove?.text?.trim();
+    if (!feedback) return;
+    setImprovingVideoMsgs(prev => new Set([...prev, vidId]));
+    try {
+      const res = await fetch(`${API_BASE}/api/videos/${videoId}/improve`, {
+        method: 'POST', headers: jsonH,
+        body: JSON.stringify({ feedback }),
+      });
+      if (!res.ok) throw new Error('Improve failed');
+      setVideoImprove(null);
+      setChatMsgs(prev => prev.map(m =>
+        m.id === vidId
+          ? { ...m, videoStatus: 'pending', videoUrl: undefined, videoError: undefined }
+          : m
+      ));
+      if (!videoPollingRef.current.has(blockId)) startVideoPolling(blockId, vidId);
+    } catch { setVideoImprove(null); }
+    finally {
+      setImprovingVideoMsgs(prev => { const s = new Set(prev); s.delete(vidId); return s; });
     }
   }
 
@@ -1291,7 +1316,54 @@ export default function ConceptEditorPage() {
                                           <Plus size={11} /> {t.teacher.addToTextbook}
                                         </button>
                                       ) : null}
+                                      {vid.videoId && (
+                                        <button
+                                          onClick={() => setVideoImprove(
+                                            videoImprove?.vidId === vid.id ? null : { vidId: vid.id, text: '' }
+                                          )}
+                                          className="ml-auto flex items-center gap-1 text-xs text-[var(--tx7)]
+                                                     hover:text-orange-400 transition-colors"
+                                        >
+                                          <ThumbsDown size={11} /> Improve
+                                        </button>
+                                      )}
                                     </div>
+                                    {videoImprove?.vidId === vid.id && vid.videoId && (
+                                      <div className="px-3 pb-3 space-y-2 border-t border-[var(--bd)]">
+                                        <textarea
+                                          autoFocus
+                                          value={videoImprove.text}
+                                          onChange={e => setVideoImprove({ ...videoImprove, text: e.target.value })}
+                                          disabled={improvingVideoMsgs.has(vid.id)}
+                                          rows={2}
+                                          placeholder="Describe what needs fixing — layout, overlaps, panel placement…"
+                                          className="w-full mt-2 px-2.5 py-2 rounded-lg bg-[var(--bg)] border border-[var(--bd)]
+                                                     text-[var(--tx1)] text-xs placeholder-[var(--tx7)] resize-none
+                                                     focus:outline-none focus:border-orange-500/50 disabled:opacity-60"
+                                        />
+                                        <div className="flex gap-2 justify-end">
+                                          <button
+                                            onClick={() => setVideoImprove(null)}
+                                            disabled={improvingVideoMsgs.has(vid.id)}
+                                            className="text-xs px-2.5 py-1 rounded-lg bg-[var(--ov2)]
+                                                       text-[var(--tx5)] transition-colors disabled:opacity-40"
+                                          >
+                                            Cancel
+                                          </button>
+                                          <button
+                                            onClick={() => handleImproveVideo(vid.id, vid.videoId!, vid.videoBlockId!)}
+                                            disabled={!videoImprove.text.trim() || improvingVideoMsgs.has(vid.id)}
+                                            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
+                                                       bg-orange-600 hover:bg-orange-500 text-white
+                                                       disabled:opacity-40 transition-colors"
+                                          >
+                                            {improvingVideoMsgs.has(vid.id)
+                                              ? <><Loader2 size={10} className="animate-spin" /> Regenerating…</>
+                                              : <><RefreshCw size={10} /> Regenerate</>}
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
                                   </div>
                                 )}
                                 {/* Failed — error + retry */}

@@ -6,7 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import {
   Loader2, Video, Volume2, Trash2, Mic2, GripVertical, Save, Check,
-  Pencil, X, FileText, ImageIcon, ExternalLink,
+  Pencil, X, FileText, ImageIcon, ExternalLink, ThumbsDown, RefreshCw,
 } from 'lucide-react';
 import { AudioPlayer } from '@/components/ui/AudioPlayer';
 import {
@@ -18,7 +18,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   ContentBlock, listContentBlocks, deleteContentBlock,
-  generateBlockAudio, reorderContentBlocks, updateContentBlock,
+  generateBlockAudio, reorderContentBlocks, updateContentBlock, improveVideo,
 } from '@/lib/api';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
@@ -48,9 +48,12 @@ const WATCH_THRESHOLDS = [10, 25, 50, 75, 90, 100];
 function VideoBlock({ block, token, onWatchPct }: {
   block: ContentBlock; token?: string; onWatchPct?: (pct: number, blockId: string) => void;
 }) {
-  const [videoUrl, setVideoUrl] = useState(block.video_url);
-  const [status,   setStatus]   = useState(block.video_status);
-  const [polling,  setPolling]  = useState(!block.video_url && !!block.video_id);
+  const [videoUrl,      setVideoUrl]      = useState(block.video_url);
+  const [status,        setStatus]        = useState(block.video_status);
+  const [polling,       setPolling]       = useState(!block.video_url && !!block.video_id);
+  const [showFeedback,  setShowFeedback]  = useState(false);
+  const [feedbackText,  setFeedbackText]  = useState('');
+  const [feedbackBusy,  setFeedbackBusy]  = useState(false);
   const maxReportedRef = useRef(0);
 
   useEffect(() => {
@@ -83,6 +86,20 @@ function VideoBlock({ block, token, onWatchPct }: {
     if (onWatchPct && maxReportedRef.current < 100) { maxReportedRef.current = 100; onWatchPct(100, block.id); }
   }
 
+  async function handleImprove() {
+    if (!feedbackText.trim() || !block.video_id || feedbackBusy) return;
+    setFeedbackBusy(true);
+    try {
+      await improveVideo(block.video_id, feedbackText, token);
+      setShowFeedback(false);
+      setFeedbackText('');
+      setVideoUrl(null);
+      setStatus('pending');
+      setPolling(true);
+    } catch { /* silently fall through — video still shows */ }
+    finally { setFeedbackBusy(false); }
+  }
+
   return (
     <div className="rounded-xl border border-[var(--bd)] overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-[var(--bd)] bg-[var(--bg2)]">
@@ -90,10 +107,60 @@ function VideoBlock({ block, token, onWatchPct }: {
         <span className="text-sm font-medium text-[var(--tx2)]">{block.title || 'Video'}</span>
       </div>
       {videoUrl
-        ? <video src={videoUrl} controls className="w-full aspect-video bg-black" preload="metadata"
-            onTimeUpdate={onWatchPct ? handleTimeUpdate : undefined}
-            onEnded={onWatchPct ? handleEnded : undefined}
-          />
+        ? <>
+            <video src={videoUrl} controls className="w-full aspect-video bg-black" preload="metadata"
+              onTimeUpdate={onWatchPct ? handleTimeUpdate : undefined}
+              onEnded={onWatchPct ? handleEnded : undefined}
+            />
+            {block.video_id && (
+              <div className="px-3 py-2 border-t border-[var(--bd)]">
+                {!showFeedback ? (
+                  <button
+                    onClick={() => setShowFeedback(true)}
+                    className="flex items-center gap-1 text-xs text-[var(--tx7)]
+                               hover:text-orange-400 transition-colors"
+                  >
+                    <ThumbsDown size={11} /> Improve
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <textarea
+                      autoFocus
+                      value={feedbackText}
+                      onChange={e => setFeedbackText(e.target.value)}
+                      disabled={feedbackBusy}
+                      rows={2}
+                      placeholder="Describe what needs fixing — layout, overlaps, panel placement…"
+                      className="w-full px-2.5 py-2 rounded-lg bg-[var(--bg)] border border-[var(--bd)]
+                                 text-[var(--tx1)] text-xs placeholder-[var(--tx7)] resize-none
+                                 focus:outline-none focus:border-orange-500/50 disabled:opacity-60"
+                    />
+                    <div className="flex gap-2 justify-end">
+                      <button
+                        onClick={() => { setShowFeedback(false); setFeedbackText(''); }}
+                        disabled={feedbackBusy}
+                        className="text-xs px-2.5 py-1 rounded-lg bg-[var(--ov2)]
+                                   text-[var(--tx5)] transition-colors disabled:opacity-40"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleImprove}
+                        disabled={!feedbackText.trim() || feedbackBusy}
+                        className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg
+                                   bg-orange-600 hover:bg-orange-500 text-white
+                                   disabled:opacity-40 transition-colors"
+                      >
+                        {feedbackBusy
+                          ? <><Loader2 size={10} className="animate-spin" /> Regenerating…</>
+                          : <><RefreshCw size={10} /> Regenerate</>}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         : <div className="flex flex-col items-center justify-center gap-2 py-10 text-[var(--tx7)]">
             {status === 'failed'
               ? <p className="text-sm text-red-400">Video generation failed</p>
