@@ -36,8 +36,6 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE study_concepts ADD COLUMN IF NOT EXISTS name        TEXT",
             "ALTER TABLE study_concepts ADD COLUMN IF NOT EXISTS definition  TEXT NOT NULL DEFAULT ''",
             "ALTER TABLE study_concepts ADD COLUMN IF NOT EXISTS order_index INT NOT NULL DEFAULT 0",
-            # backfill name from title for any old rows
-            "UPDATE study_concepts SET name = title WHERE name IS NULL AND title IS NOT NULL",
             # ── Educational Images ────────────────────────────────────────────
             """
             CREATE TABLE IF NOT EXISTS educational_images (
