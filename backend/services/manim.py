@@ -47,8 +47,8 @@ _openai_sync = _openai_module.OpenAI(
     timeout=120.0,
 )
 
-# ── Model for Manim code generation (same tier as AnimLearn) ─────────────────────────
-_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-sonnet-4-6")
+# ── Model for Manim code generation ──────────────────────────────────────────────────
+_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-sonnet-5")
 
 # ── R2 / Cloudflare config (mirrors AnimLearn naming for verbatim function copy) ──────
 R2_BUCKET_NAME = settings.R2_BUCKET_NAME
@@ -2315,10 +2315,13 @@ LAST LINE MUST BE EXACTLY (8 spaces indent):
             with _claude_sync.messages.stream(
                 model=_CLAUDE_MODEL,
                 max_tokens=8000,
-                system=system_prompt,
+                system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": prompt}]
             ) as stream:
                 message = stream.get_final_message()
+            _cu = getattr(message, "usage", None)
+            if _cu:
+                logger.info(f"[cache] setup pass — write={getattr(_cu,'cache_creation_input_tokens',0)} read={getattr(_cu,'cache_read_input_tokens',0)}")
             break
         except Exception as _exc:
             _err = str(_exc)
@@ -2436,10 +2439,13 @@ No markdown fences. No imports. No class. No setup code.
             with _claude_sync.messages.stream(
                 model=_CLAUDE_MODEL,
                 max_tokens=16000,
-                system=system_prompt,
+                system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": prompt}]
             ) as stream:
                 message = stream.get_final_message()
+            _cu = getattr(message, "usage", None)
+            if _cu:
+                logger.info(f"[cache] beats pass — write={getattr(_cu,'cache_creation_input_tokens',0)} read={getattr(_cu,'cache_read_input_tokens',0)}")
             break
         except Exception as _exc:
             _err = str(_exc)

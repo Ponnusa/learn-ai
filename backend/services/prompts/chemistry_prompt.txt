@@ -430,3 +430,95 @@ TARGET DURATION:
 - Concept explanation videos: 150-180 seconds
 - Use all available time — do not rush through content
 - Each concept stage (introduction, mechanism, example, summary) should have breathing room
+
+══════════════════════════════════════════════════════════════════
+REFERENCE LAYOUT PROGRAM — 16:9 CHEMISTRY (FOLLOW THIS EXACTLY)
+══════════════════════════════════════════════════════════════════
+
+This is the GOLD STANDARD for 16:9 chemistry videos. Every structural choice
+below is deliberate. Do not deviate from it.
+
+```python
+from manim import *
+from manim_voiceover import VoiceoverScene
+from manim_voiceover.services.azure import AzureService
+import numpy as np
+
+class BenzeneExample(VoiceoverScene):
+    def show_subtitle(self, text, duration=None): ...  # injected by backend
+
+    def construct(self):
+        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=0.90))
+        self.camera.background_color = ManimColor("#0D1117")
+
+        # ── ZONE CONSTANTS — copy these to every 16:9 chemistry video ───────
+        # LEFT panel  (x: -6.5 to  0): molecule / diagram ONLY
+        # RIGHT panel (x:  0   to +6.5): all text, labels, formulas
+        RING_CENTER = LEFT * 3.0 + UP * 0.2   # molecule anchored in LEFT panel
+        TEXT_CENTER = RIGHT * 2.8              # all labels/text in RIGHT panel
+
+        # ── SETUP BLOCK — ALL objects defined here, before any voiceover ────
+        divider = Line(UP * 3.0, DOWN * 2.5, color=GRAY, stroke_width=1, stroke_opacity=0.35)
+        panel_title = Text("Benzene Structure", font_size=26, color=YELLOW,
+                           weight=BOLD).move_to(TEXT_CENTER + UP * 2.8)
+        panel_formula = MathTex(r"C_6H_6", font_size=32, color=WHITE
+                                ).next_to(panel_title, DOWN, buff=0.25)
+        panel_rule = Line(TEXT_CENTER + LEFT * 2.4 + UP * 2.1,
+                          TEXT_CENTER + RIGHT * 2.4 + UP * 2.1,
+                          color=GRAY, stroke_width=1, stroke_opacity=0.4)
+
+        # Benzene ring in LEFT panel — anchored at RING_CENTER, never at ORIGIN
+        rr = 1.1
+        angles = [np.pi/2 + k * np.pi/3 for k in range(6)]
+        verts = [RING_CENTER + rr * np.array([np.cos(a), np.sin(a), 0]) for a in angles]
+        ring_bonds = VGroup(*[
+            Line(verts[i], verts[(i+1)%6], color=ManimColor("#88CCFF"), stroke_width=2.5)
+            for i in range(6)
+        ])
+        inner_circle = Circle(radius=rr * 0.55, color=ManimColor("#88CCFF"),
+                              stroke_width=1.5).move_to(RING_CENTER)
+        benzene_group = VGroup(ring_bonds, inner_circle)
+
+        # SurroundingRectangle sized around the bonds ONLY (tight fit)
+        ring_hl = SurroundingRectangle(ring_bonds, color=YELLOW, buff=0.15, stroke_width=2)
+
+        # RIGHT panel beat text — all defined in SETUP, never inside voiceover blocks
+        b1_text = Text("Benzene has 6 carbon atoms\narranged in a hexagonal ring.",
+                       font_size=20, color=LIGHT_GRAY, line_spacing=1.3
+                       ).move_to(TEXT_CENTER + UP * 0.8)
+
+        b2_text = Text("The circle represents\ndelocalized π electrons.",
+                       font_size=20, color=LIGHT_GRAY, line_spacing=1.3
+                       ).move_to(TEXT_CENTER + UP * 0.8)
+        b2_key  = Text("Electron delocalization → stability",
+                       font_size=18, color=YELLOW).next_to(b2_text, DOWN, buff=0.28)
+
+        # ── Persistent elements added before any animation ────────────────
+        self.add(divider, panel_title, panel_formula, panel_rule)
+
+        # ── BEAT 1: introduce the ring ────────────────────────────────────
+        with self.voiceover(text="Benzene has six carbon atoms arranged in a hexagonal ring.") as tracker:
+            sub = self.show_subtitle("Six carbons in a hexagonal ring.")
+            self.play(Create(benzene_group), rate_func=smooth, run_time=1.5)
+            self.play(FadeIn(b1_text, shift=LEFT * 0.2), rate_func=smooth, run_time=0.8)
+            self.wait(max(0.1, tracker.duration - 2.5))
+        # Always FadeOut beat content before next beat
+        self.play(FadeOut(sub), FadeOut(b1_text, shift=RIGHT * 0.3), run_time=0.5)
+
+        # ── BEAT 2: delocalized electrons ────────────────────────────────
+        with self.voiceover(text="The inner circle represents delocalized pi electrons shared across all six bonds, giving benzene exceptional stability.") as tracker:
+            sub = self.show_subtitle("Inner circle = delocalized π electrons.")
+            self.play(Create(ring_hl), rate_func=smooth, run_time=0.8)
+            self.play(FadeIn(b2_text, shift=LEFT * 0.2), run_time=0.7)
+            self.play(FadeIn(b2_key,  shift=DOWN * 0.1), run_time=0.5)
+            self.wait(max(0.1, tracker.duration - 2.3))
+        self.play(FadeOut(sub), FadeOut(VGroup(b2_text, b2_key, ring_hl), shift=RIGHT * 0.3), run_time=0.5)
+```
+
+KEY RULES from this reference program:
+- RING_CENTER = LEFT * 3.0 — molecule NEVER at ORIGIN for 16:9
+- TEXT_CENTER = RIGHT * 2.8 — ALL text/labels in right panel
+- divider, panel_title, panel_formula added via self.add() — visible throughout
+- Beat text defined in SETUP BLOCK, FadeIn inside voiceover, FadeOut after
+- FadeOut every beat's content before the next beat begins — no accumulation
+- SurroundingRectangle surrounds the molecule group (LEFT panel), NOT text
