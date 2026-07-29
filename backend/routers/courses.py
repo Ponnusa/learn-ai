@@ -2656,6 +2656,7 @@ async def _bulk_generate_bg(
     unit_id:         str | None,
     suggest_lang:    str,
     course_dict:     dict,
+    teacher_id:      str | None = None,
 ) -> None:
     """Background: run per-concept asset generation for all concepts in a chapter."""
     import asyncio
@@ -2707,6 +2708,7 @@ async def _bulk_generate_bg(
                 return
 
             # --- Summary (must come first — audio/video depend on it) ---
+            summary_just_generated = False
             if 'summary' in gen_types and (not skip_existing or not c["ai_summary"]):
                 async with get_db() as db:
                     await db.execute(
@@ -2714,11 +2716,54 @@ async def _bulk_generate_bg(
                         concept_id,
                     )
                 await _summarize_one_concept(concept_id, course_dict)
+                summary_just_generated = True
                 async with get_db() as db:
                     c = await db.fetchrow(
                         "SELECT ai_summary, ai_transcript, quiz_status, flashcard_status, audio_status, video_status FROM course_concepts WHERE id=$1::uuid",
                         concept_id,
                     )
+
+            # Inject the generated summary into the concept's authoring chat so the
+            # teacher immediately sees it as a draft when they open the Studio tab.
+            if summary_just_generated and teacher_id and c and c["ai_summary"]:
+                try:
+                    async with get_db() as db:
+                        existing_conv = await db.fetchrow(
+                            "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+                        )
+                    if not existing_conv:
+                        async with get_db() as db:
+                            info = await db.fetchrow("""
+                                SELECT cc.title, c.subject
+                                FROM course_concepts cc
+                                JOIN course_units cu ON cu.id = cc.unit_id
+                                JOIN courses c ON c.id = cu.course_id
+                                WHERE cc.id = $1::uuid
+                            """, concept_id)
+                        if info:
+                            chat_content = f"### SUMMARY\n{c['ai_summary']}"
+                            if c["ai_transcript"]:
+                                chat_content += f"\n\n### TRANSCRIPT\n{c['ai_transcript']}"
+                            async with get_db() as db:
+                                conv = await db.fetchrow("""
+                                    INSERT INTO conversations
+                                      (user_id, title, subject, concept_id, conversation_type)
+                                    VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
+                                """, teacher_id,
+                                    f"{info['title']} — Authoring chat",
+                                    info["subject"], concept_id)
+                                await db.execute(
+                                    "INSERT INTO messages (conversation_id, role, content) "
+                                    "VALUES ($1::uuid, 'user', $2)",
+                                    conv["id"], "Generate a first draft.",
+                                )
+                                await db.execute(
+                                    "INSERT INTO messages (conversation_id, role, content) "
+                                    "VALUES ($1::uuid, 'assistant', $2)",
+                                    conv["id"], chat_content,
+                                )
+                except Exception as exc:
+                    logger.error("[bulk-gen] chat inject failed for concept %s: %s", concept_id, exc)
 
             # --- Quiz + Flashcard + Audio in parallel ---
             tier2: list = []
@@ -2803,6 +2848,7 @@ async def bulk_generate_chapter(
         str(chapter["unit_id"]) if 'suggest' in types else None,
         suggest_lang or 'en',
         course_dict,
+        str(teacher_id),
     )
 
     return {"ok": True, "concept_count": len(concept_ids)}
