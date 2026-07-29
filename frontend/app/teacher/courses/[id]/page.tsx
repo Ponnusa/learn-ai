@@ -189,6 +189,15 @@ export default function CourseDetailPage() {
     if (res.ok) setMyClassrooms(await res.json());
   }
 
+  // Silent course refresh used during polling — only updates concept/unit data
+  // without touching the loading spinner or resetting the expanded state.
+  async function refreshSilent() {
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/${courseId}`, { headers });
+      if (res.ok) setCourse(await res.json());
+    } catch {}
+  }
+
   // ── Pipeline polling ───────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -199,7 +208,7 @@ export default function CourseDetailPage() {
       const data = await res.json();
       const done = (data.counts?.approved ?? 0) + (data.counts?.ready ?? 0) + (data.counts?.failed ?? 0);
       setProcessedCount(done);
-      load();
+      refreshSilent();
       if (!data.is_processing) {
         setIsProcessing(false);
         setPipelineMsg('');
