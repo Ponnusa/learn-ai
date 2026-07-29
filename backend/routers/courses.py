@@ -2723,9 +2723,11 @@ async def _bulk_generate_bg(
                         concept_id,
                     )
 
-            # Inject the generated summary into the concept's authoring chat so the
-            # teacher immediately sees it as a draft when they open the Studio tab.
-            if summary_just_generated and teacher_id and c and c["ai_summary"]:
+            # Inject summary into the concept's authoring chat so the teacher
+            # immediately sees a draft when they open the Studio tab.
+            # Runs whether summary was just generated or already existed — either way,
+            # if there's no chat yet and a summary is available, seed it.
+            if 'summary' in gen_types and teacher_id and c and c["ai_summary"]:
                 try:
                     async with get_db() as db:
                         existing_conv = await db.fetchrow(
