@@ -722,8 +722,16 @@ export default function CourseDetailPage() {
                   </button>
                   {/* Magic-wand button + popover */}
                   <div className="relative" data-wand-popover>
+                    {unit.concepts.length === 0 && (
+                      <span className="absolute -top-1.5 -left-1.5 w-3 h-3 rounded-full bg-amber-400 ring-2 ring-[var(--bg)] z-10" title="No concepts extracted yet" />
+                    )}
                     <button
-                      onClick={() => setWandOpen(wandOpen === unit.chapter_ref ? null : unit.chapter_ref!)}
+                      onClick={() => {
+                        if (unit.concepts.length === 0) {
+                          setWandTypes(new Set(['suggest', 'summary', 'quiz', 'flashcard', 'audio']));
+                        }
+                        setWandOpen(wandOpen === unit.chapter_ref ? null : unit.chapter_ref!);
+                      }}
                       disabled={wandBusy === unit.chapter_ref}
                       className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
                                  text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">

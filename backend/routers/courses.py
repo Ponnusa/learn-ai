@@ -2672,6 +2672,12 @@ async def _bulk_generate_bg(
                     chapter_ref_id, unit_id, course_dict, bytes(row["pdf_data"]), suggest_lang
                 )
                 concept_ids = list(set(list(concept_ids) + new_ids))
+                if new_ids:
+                    async with get_db() as db:
+                        await db.execute(
+                            "UPDATE course_chapters SET status='complete' WHERE id=$1",
+                            chapter_ref_id,
+                        )
         except Exception as exc:
             logger.error("[bulk-gen] suggest failed for chapter %s: %s", chapter_ref_id, exc)
 
