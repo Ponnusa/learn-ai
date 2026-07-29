@@ -2796,7 +2796,7 @@ async def _bulk_generate_bg(
                         "UPDATE course_concepts SET video_status='generating', video_error=NULL WHERE id=$1::uuid",
                         concept_id,
                     )
-                asyncio.ensure_future(_generate_concept_video_bg(concept_id, course_id))
+                asyncio.ensure_future(_generate_concept_video_bg(concept_id, course_id, teacher_id))
 
         except Exception as exc:
             logger.error("[bulk-gen] concept %s failed: %s", concept_id, exc)
@@ -4780,7 +4780,7 @@ SOURCE MATERIAL:
 ---"""
 
 
-async def _generate_concept_video_bg(concept_id: str, course_id: str):
+async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id: str | None = None):
     """
     Background: generate a real Manim-animated video for a concept by reusing the
     AnimLearn pipeline (services/manim.py) — the exact two-phase flow used for
@@ -4855,6 +4855,48 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str):
 
         logger.info("[video] concept %s: Manim code ready, triggering Cloud Run render (video %s)", concept_id, video_id)
         _trigger_video_generation(video_id, svg_urls)
+
+        # Create a content block and inject a video card into the studio chat
+        # so the teacher can see and track the video without navigating away.
+        if teacher_id:
+            try:
+                async with get_db() as db:
+                    max_pos = await db.fetchval(
+                        "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+                        concept_id,
+                    )
+                    block = await db.fetchrow("""
+                        INSERT INTO concept_content_blocks
+                          (concept_id, type, position, title, body, created_by, in_textbook, video_id)
+                        VALUES ($1::uuid, 'video', $2, $3, $4, $5::uuid, false, $6)
+                        RETURNING id
+                    """, concept_id, int(max_pos) + 1, concept["title"], script, teacher_id, video_id)
+                    block_id = str(block["id"])
+
+                    conv = await db.fetchrow(
+                        "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+                    )
+                    if not conv:
+                        course_info = await db.fetchrow("""
+                            SELECT c.subject FROM course_concepts cc
+                            JOIN course_units cu ON cu.id = cc.unit_id
+                            JOIN courses c ON c.id = cu.course_id
+                            WHERE cc.id = $1::uuid
+                        """, concept_id)
+                        conv = await db.fetchrow("""
+                            INSERT INTO conversations
+                              (user_id, title, subject, concept_id, conversation_type)
+                            VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
+                        """, teacher_id,
+                            f"{concept['title']} — Authoring chat",
+                            (course_info["subject"] if course_info else None), concept_id)
+
+                    await db.execute("""
+                        INSERT INTO messages (conversation_id, role, content, metadata)
+                        VALUES ($1::uuid, 'assistant', '', $2::jsonb)
+                    """, conv["id"], json.dumps({"content_type": "video", "block_id": block_id}))
+            except Exception as exc:
+                logger.error("[video] concept %s: chat card inject failed: %s", concept_id, exc)
 
     except asyncio.TimeoutError:
         logger.error("[video] concept %s: Phase 2 timed out after 15 min (video %s)", concept_id, video_id)
@@ -5191,7 +5233,7 @@ async def generate_concept_video(
     authorization: str = Header(...),
 ):
     """Trigger a Manim-animated video for this concept via the AnimLearn Cloud Run pipeline."""
-    await _require_teacher(authorization)
+    teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         concept = await db.fetchrow("""
             SELECT cc.id, cc.video_status, cc.ai_summary, cc.ai_transcript, cu.course_id
@@ -5211,7 +5253,7 @@ async def generate_concept_video(
             "UPDATE course_concepts SET video_status = 'generating', video_error = NULL WHERE id = $1::uuid",
             concept_id,
         )
-    bg.add_task(_generate_concept_video_bg, concept_id, str(concept["course_id"]))
+    bg.add_task(_generate_concept_video_bg, concept_id, str(concept["course_id"]), str(teacher_id))
     return {"ok": True, "video_status": "generating"}
 
 
