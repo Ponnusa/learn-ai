@@ -726,6 +726,19 @@ export interface Translation {
     progressSortMastered: string;
     progressSortTitle: string;
     quizLastAttempt: string;
+    animatedVideoCard: string;
+    videoStatusWritingAnimation: string;
+    videoStatusRendering: string;
+    videoStatusAutoFixing: string;
+    videoStatusGenerating: string;
+    videoStatusFailed: string;
+    videoStatusReady: string;
+    videoProgressBuildingAnimation: string;
+    videoProgressRendering: string;
+    videoProgressAutoFixing: string;
+    videoProgressWritingScript: string;
+    videoAutoFix: string;
+    videoImprovePlaceholder: string;
   };
 
   tours: {

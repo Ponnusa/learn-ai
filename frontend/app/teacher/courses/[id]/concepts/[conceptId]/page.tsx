@@ -1104,13 +1104,13 @@ export default function ConceptEditorPage() {
                             <div className="max-w-[85%] rounded-xl overflow-hidden bg-[var(--ov1)] text-[var(--tx2)] border border-[var(--bd)]">
                               <div className="flex items-center gap-2 px-3.5 py-2">
                                 <Video size={11} className="text-blue-400 shrink-0" />
-                                <span className="text-[var(--tx6)] text-xs font-medium">Animated Video</span>
+                                <span className="text-[var(--tx6)] text-xs font-medium">{t.teacher.animatedVideoCard}</span>
                                 {!vidReady && !vidFailed && (
                                   <span className="ml-auto text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
-                                    {vid.videoStatus === 'transcript_ready' ? 'Writing animation…'
-                                     : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering…'
-                                     : vid.videoStatus === 'fixing' ? 'Auto-fixing error…'
-                                     : 'Generating script…'}
+                                    {vid.videoStatus === 'transcript_ready' ? t.teacher.videoStatusWritingAnimation
+                                     : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? t.teacher.videoStatusRendering
+                                     : vid.videoStatus === 'fixing' ? t.teacher.videoStatusAutoFixing
+                                     : t.teacher.videoStatusGenerating}
                                   </span>
                                 )}
                                 {vidFailed && <span className="ml-auto text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">Failed</span>}
@@ -1120,10 +1120,10 @@ export default function ConceptEditorPage() {
                                 <div className="flex items-center gap-2 px-3.5 pb-3">
                                   <Loader2 size={13} className="animate-spin text-blue-400 shrink-0" />
                                   <span className="text-[var(--tx7)] text-xs">
-                                    {vid.videoStatus === 'transcript_ready' ? 'Building animation…'
-                                     : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering video, this may take a few minutes…'
-                                     : vid.videoStatus === 'fixing' ? 'Claude is fixing the render error, this usually takes under a minute…'
-                                     : 'Writing animation script…'}
+                                    {vid.videoStatus === 'transcript_ready' ? t.teacher.videoProgressBuildingAnimation
+                                     : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? t.teacher.videoProgressRendering
+                                     : vid.videoStatus === 'fixing' ? t.teacher.videoProgressAutoFixing
+                                     : t.teacher.videoProgressWritingScript}
                                   </span>
                                 </div>
                               )}
@@ -1180,7 +1180,7 @@ export default function ConceptEditorPage() {
                                         onChange={e => setVideoImprove({ ...videoImprove, text: e.target.value })}
                                         disabled={improvingVideoMsgs.has(vid.id)}
                                         rows={2}
-                                        placeholder="Describe what needs fixing — layout, overlaps, panel placement…"
+                                        placeholder={t.teacher.videoImprovePlaceholder}
                                         className="w-full mt-2 px-2.5 py-2 rounded-lg bg-[var(--bg)] border border-[var(--bd)]
                                                    text-[var(--tx1)] text-xs placeholder-[var(--tx7)] resize-none
                                                    focus:outline-none focus:border-orange-500/50 disabled:opacity-60"
@@ -1211,13 +1211,13 @@ export default function ConceptEditorPage() {
                               )}
                               {vidFailed && (
                                 <div className="px-3.5 pb-3">
-                                  <p className="text-red-400 text-xs mb-2">{vid.videoError || 'Video generation failed'}</p>
+                                  <p className="text-red-400 text-xs mb-2">{vid.videoError || t.video.videoFailed}</p>
                                   {vid.videoId && vid.videoBlockId && (
                                     <button onClick={() => autoFixVideo(vid.id, vid.videoId!, vid.videoBlockId!)}
                                       className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg
                                                  border border-blue-500/30 bg-blue-500/10
                                                  text-blue-400 hover:bg-blue-500/20 transition-colors">
-                                      <Wand2 size={10} /> Auto-fix
+                                      <Wand2 size={10} /> {t.teacher.videoAutoFix}
                                     </button>
                                   )}
                                 </div>
@@ -1390,27 +1390,27 @@ export default function ConceptEditorPage() {
                                 {/* Header row */}
                                 <div className="flex items-center gap-2 px-3.5 py-2">
                                   <Video size={11} className="text-blue-400 shrink-0" />
-                                  <span className="text-[var(--tx6)] text-xs font-medium">Animated Video</span>
+                                  <span className="text-[var(--tx6)] text-xs font-medium">{t.teacher.animatedVideoCard}</span>
                                   {!vidReady && !vidFailed && (
                                     <span className="ml-auto text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
-                                      {vid.videoStatus === 'transcript_ready' ? 'Writing animation…'
-                                      : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering…'
-                                      : vid.videoStatus === 'fixing' ? 'Auto-fixing error…'
-                                      : 'Generating script…'}
+                                      {vid.videoStatus === 'transcript_ready' ? t.teacher.videoStatusWritingAnimation
+                                      : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? t.teacher.videoStatusRendering
+                                      : vid.videoStatus === 'fixing' ? t.teacher.videoStatusAutoFixing
+                                      : t.teacher.videoStatusGenerating}
                                     </span>
                                   )}
-                                  {vidFailed && <span className="ml-auto text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">Failed</span>}
-                                  {vidReady  && <span className="ml-auto text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">Ready</span>}
+                                  {vidFailed && <span className="ml-auto text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">{t.teacher.videoStatusFailed}</span>}
+                                  {vidReady  && <span className="ml-auto text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">{t.teacher.videoStatusReady}</span>}
                                 </div>
                                 {/* Generating / rendering progress */}
                                 {!vidReady && !vidFailed && (
                                   <div className="flex items-center gap-2 px-3.5 pb-3">
                                     <Loader2 size={13} className="animate-spin text-blue-400 shrink-0" />
                                     <span className="text-[var(--tx7)] text-xs">
-                                      {vid.videoStatus === 'transcript_ready' ? 'Building animation…'
-                                      : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering video, this may take a few minutes…'
-                                      : vid.videoStatus === 'fixing' ? 'Claude is fixing the render error, this usually takes under a minute…'
-                                      : 'Writing animation script…'}
+                                      {vid.videoStatus === 'transcript_ready' ? t.teacher.videoProgressBuildingAnimation
+                                      : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? t.teacher.videoProgressRendering
+                                      : vid.videoStatus === 'fixing' ? t.teacher.videoProgressAutoFixing
+                                      : t.teacher.videoProgressWritingScript}
                                     </span>
                                     {vid.videoStatus === 'transcript_ready' && vid.videoId && vid.videoBlockId && (
                                       <button
@@ -1484,7 +1484,7 @@ export default function ConceptEditorPage() {
                                           onChange={e => setVideoImprove({ ...videoImprove, text: e.target.value })}
                                           disabled={improvingVideoMsgs.has(vid.id)}
                                           rows={2}
-                                          placeholder="Describe what needs fixing — layout, overlaps, panel placement…"
+                                          placeholder={t.teacher.videoImprovePlaceholder}
                                           className="w-full mt-2 px-2.5 py-2 rounded-lg bg-[var(--bg)] border border-[var(--bd)]
                                                      text-[var(--tx1)] text-xs placeholder-[var(--tx7)] resize-none
                                                      focus:outline-none focus:border-orange-500/50 disabled:opacity-60"
@@ -1517,14 +1517,14 @@ export default function ConceptEditorPage() {
                                 {/* Failed — error + retry */}
                                 {vidFailed && (
                                   <div className="px-3.5 pb-3">
-                                    <p className="text-red-400 text-xs mb-2">{vid.videoError || 'Video generation failed'}</p>
+                                    <p className="text-red-400 text-xs mb-2">{vid.videoError || t.video.videoFailed}</p>
                                     <div className="flex gap-2">
                                       {vid.videoId && vid.videoBlockId && (
                                         <button onClick={() => autoFixVideo(vid.id, vid.videoId!, vid.videoBlockId!)}
                                           className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg
                                                      border border-blue-500/30 bg-blue-500/10
                                                      text-blue-400 hover:bg-blue-500/20 transition-colors">
-                                          <Wand2 size={10} /> Auto-fix
+                                          <Wand2 size={10} /> {t.teacher.videoAutoFix}
                                         </button>
                                       )}
                                       <button onClick={() => retryVideoGeneration(vid.id, vid.videoBlockId!)}
