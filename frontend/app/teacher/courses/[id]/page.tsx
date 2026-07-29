@@ -160,6 +160,24 @@ export default function CourseDetailPage() {
       const data = await res.json();
       setCourse(data);
       setExpanded(new Set(data.units.map((u: Unit) => u.id)));
+
+      // Auto-resume polling if background processing is still running
+      // (handles page refresh mid-upload without losing progress).
+      const pRes = await fetch(`${API_BASE}/api/courses/${courseId}/pipeline`, { headers });
+      if (pRes.ok) {
+        const pData = await pRes.json();
+        if (pData.is_processing) {
+          const c = (pData.counts ?? {}) as Record<string, number>;
+          const total = Object.values(c).reduce((a: number, b: number) => a + b, 0);
+          const done  = (c.approved ?? 0) + (c.ready ?? 0) + (c.failed ?? 0);
+          setTotalCount(total);
+          setProcessedCount(done);
+          if (!isProcessing) {
+            setIsProcessing(true);
+            setPipelineMsg('Extracting concepts in the background…');
+          }
+        }
+      }
     } finally { setLoading(false); }
   }
 
@@ -390,10 +408,10 @@ export default function CourseDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Split failed');
-      setTotalCount(data.concept_count);
+      setTotalCount(0);
       setProcessedCount(0);
       setIsProcessing(true);
-      setPipelineMsg(`Created ${data.chapters.length} chapters — generating content for ${data.concept_count} concepts…`);
+      setPipelineMsg(`Created ${data.chapter_count ?? data.chapters?.length ?? 0} chapters — extracting concepts in background…`);
       load();
     } catch (err: any) {
       alert(err.message);

@@ -2547,6 +2547,44 @@ async def _create_chapter_from_pdf(course_id: str, course: dict, file_bytes: byt
     return base
 
 
+async def _extract_and_summarize_chapter_bg(chapter_id: str, unit_id: str, course: dict, language: str) -> None:
+    """Background task: load chapter PDF from DB, extract concepts, then summarize.
+    Updates chapter status to 'processing' → 'complete' / 'failed'."""
+    try:
+        async with get_db() as db:
+            row = await db.fetchrow(
+                "SELECT pdf_data FROM course_chapters WHERE id = $1::uuid", chapter_id
+            )
+        if not row or not row["pdf_data"]:
+            logger.error("[bulk-split] chapter %s has no PDF data in DB", chapter_id)
+            return
+        concept_ids = await _extract_concepts_for_chapter(
+            chapter_id, unit_id, course, bytes(row["pdf_data"]), language
+        )
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_chapters SET status = 'complete' WHERE id = $1::uuid", chapter_id
+            )
+        if concept_ids:
+            await _summarize_concepts_bg(concept_ids, str(course["id"]))
+    except Exception as exc:
+        logger.error("[bulk-split] chapter %s failed: %s", chapter_id, exc)
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_chapters SET status = 'failed' WHERE id = $1::uuid", chapter_id
+            )
+
+
+async def _process_chapters_parallel_bg(chapters_info: list[dict], course: dict, language: str) -> None:
+    """Background task: extract and summarize all chapters in parallel."""
+    import asyncio
+    await asyncio.gather(
+        *[_extract_and_summarize_chapter_bg(c["chapter_id"], c["unit_id"], course, language)
+          for c in chapters_info],
+        return_exceptions=True,
+    )
+
+
 @router.post("/{course_id}/chapters")
 async def upload_chapter(
     course_id:     str,
@@ -3133,13 +3171,13 @@ async def bulk_split_chapters(
     source_doc = fitz.open(stream=file_bytes, filetype="pdf")
     page_count = len(source_doc)
 
-    results = []
-    all_concept_ids: list[str] = []
+    # ── Phase 1: slice PDFs and create DB rows (fast, done before returning) ──
+    results      = []
+    chapters_info: list[dict] = []
     for spec in chapter_specs:
         if spec.start_page > page_count:
             logger.warning(
-                "[bulk-split] skipping '%s': start_page %d > PDF page_count %d — "
-                "teacher likely uploaded a partial textbook",
+                "[bulk-split] skipping '%s': start_page %d > PDF page_count %d",
                 spec.title, spec.start_page, page_count,
             )
             results.append({"title": spec.title, "skipped": True, "reason": "start_page beyond PDF length"})
@@ -3153,16 +3191,31 @@ async def bulk_split_chapters(
         sliced_bytes = sliced.tobytes()
         sliced.close()
 
-        chapter_result = await _create_chapter_from_pdf(
-            course_id, dict(course), sliced_bytes, f"{spec.title}.pdf", bulk_language
-        )
-        all_concept_ids.extend(chapter_result["concept_ids"])
-        results.append(chapter_result)
+        base = await _create_chapter_only(course_id, dict(course), sliced_bytes, f"{spec.title}.pdf")
+        chapters_info.append({"chapter_id": base["chapter_id"], "unit_id": base["unit_id"]})
+        results.append({"title": spec.title, "chapter_id": base["chapter_id"], "unit_id": base["unit_id"]})
 
     source_doc.close()
-    bg.add_task(_summarize_concepts_bg, all_concept_ids, course_id)
 
-    return {"chapters": results, "concept_count": len(all_concept_ids)}
+    # Mark all created chapters as 'processing' so the pipeline endpoint
+    # reports is_processing=True immediately (before any concepts exist).
+    if chapters_info:
+        chapter_ids = [c["chapter_id"] for c in chapters_info]
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_chapters SET status = 'processing' WHERE id = ANY($1::uuid[])",
+                chapter_ids,
+            )
+
+    # ── Phase 2: queue parallel extraction as a background task, return now ──
+    if chapters_info:
+        bg.add_task(_process_chapters_parallel_bg, chapters_info, dict(course), bulk_language)
+
+    return {
+        "chapters":      results,
+        "chapter_count": len(chapters_info),
+        "concept_count": 0,   # filled in as background task runs; frontend polls /pipeline
+    }
 
 
 # ── Pipeline status (teacher polls while concepts are summarizing) ─────────────
@@ -3191,8 +3244,17 @@ async def get_pipeline_status(course_id: str, authorization: str = Header(...)):
     for r in rows:
         counts[r["pipeline_status"]] = counts.get(r["pipeline_status"], 0) + 1
 
+    # Also check whether any chapters are still being processed in the background
+    # (concept extraction phase — no concepts exist in DB yet for those chapters).
+    async with get_db() as db:
+        processing_chapters = await db.fetchval("""
+            SELECT COUNT(*) FROM course_chapters ch
+            JOIN course_units cu ON cu.chapter_ref = ch.id
+            WHERE cu.course_id = $1::uuid AND ch.status = 'processing'
+        """, course_id)
+
     return {
-        "is_processing": counts.get("summarizing", 0) > 0,
+        "is_processing": counts.get("summarizing", 0) > 0 or int(processing_chapters or 0) > 0,
         "counts":        counts,
         "concepts": [
             {
