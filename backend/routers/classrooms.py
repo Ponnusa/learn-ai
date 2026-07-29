@@ -5,6 +5,9 @@ Teachers create and manage classrooms; students join via a 6-char code.
 IMPORTANT: static path segments (/join, /enrolled, /teaching) are registered
 BEFORE parameterized routes (/{classroom_id}) so FastAPI matches them correctly.
 """
+import re
+import bcrypt
+
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
@@ -247,6 +250,133 @@ async def remove_student(
             WHERE classroom_id = $1::uuid AND student_id = $2::uuid
         """, classroom_id, student_id)
     return {"ok": True}
+
+
+# ── Teacher: students from other classrooms available to add ─────────────────
+
+@router.get("/{classroom_id}/students/available")
+async def available_students(classroom_id: str, authorization: str = Header(...)):
+    """Return students from the teacher's other classrooms not yet in this one."""
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        cls = await db.fetchrow(
+            "SELECT teacher_id FROM classrooms WHERE id = $1::uuid", classroom_id
+        )
+        if not cls or str(cls["teacher_id"]) != teacher_id:
+            raise HTTPException(403, "Not your classroom")
+
+        rows = await db.fetch("""
+            SELECT DISTINCT u.id, u.name, u.email,
+                   array_agg(DISTINCT c2.name ORDER BY c2.name) AS source_classrooms
+            FROM classroom_students cs
+            JOIN classrooms c2 ON c2.id = cs.classroom_id
+                AND c2.teacher_id = $2::uuid
+                AND c2.id != $1::uuid
+            JOIN users u ON u.id = cs.student_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM classroom_students cs2
+                WHERE cs2.classroom_id = $1::uuid AND cs2.student_id = u.id
+            )
+            GROUP BY u.id, u.name, u.email
+            ORDER BY u.name
+        """, classroom_id, teacher_id)
+
+    return [
+        {
+            "id":                str(r["id"]),
+            "name":              r["name"],
+            "email":             r["email"],
+            "source_classrooms": list(r["source_classrooms"]),
+        }
+        for r in rows
+    ]
+
+
+# ── Teacher: enroll existing students ────────────────────────────────────────
+
+class EnrollStudentsRequest(BaseModel):
+    student_ids: list[str]
+
+
+@router.post("/{classroom_id}/students/enroll")
+async def enroll_students(
+    classroom_id: str,
+    req: EnrollStudentsRequest,
+    authorization: str = Header(...),
+):
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        cls = await db.fetchrow(
+            "SELECT teacher_id FROM classrooms WHERE id = $1::uuid", classroom_id
+        )
+        if not cls or str(cls["teacher_id"]) != teacher_id:
+            raise HTTPException(403, "Not your classroom")
+
+        enrolled = 0
+        for sid in req.student_ids:
+            await db.execute("""
+                INSERT INTO classroom_students (classroom_id, student_id)
+                VALUES ($1::uuid, $2::uuid)
+                ON CONFLICT DO NOTHING
+            """, classroom_id, sid)
+            enrolled += 1
+
+    return {"enrolled": enrolled}
+
+
+# ── Teacher: provision new student accounts + auto-enroll ────────────────────
+
+class ProvisionStudentsRequest(BaseModel):
+    names:    list[str]
+    password: str = "LearnX123"
+
+
+@router.post("/{classroom_id}/students/provision")
+async def provision_students(
+    classroom_id: str,
+    req: ProvisionStudentsRequest,
+    authorization: str = Header(...),
+):
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        cls = await db.fetchrow(
+            "SELECT teacher_id, join_code FROM classrooms WHERE id = $1::uuid", classroom_id
+        )
+        if not cls or str(cls["teacher_id"]) != teacher_id:
+            raise HTTPException(403, "Not your classroom")
+
+    join_code   = cls["join_code"].lower()
+    pw_hash     = bcrypt.hashpw(req.password.encode(), bcrypt.gensalt()).decode()
+    credentials = []
+
+    async with get_db() as db:
+        for raw_name in req.names:
+            name = raw_name.strip()
+            if not name:
+                continue
+
+            slug = re.sub(r"[^a-z0-9]", "", name.lower())[:12] or "student"
+            base = f"{slug}.{join_code}@learnxai.app"
+            email, counter = base, 2
+            while await db.fetchval("SELECT 1 FROM users WHERE email = $1", email):
+                email = f"{slug}{counter}.{join_code}@learnxai.app"
+                counter += 1
+
+            user = await db.fetchrow("""
+                INSERT INTO users (email, name, password_hash, account_type, is_active)
+                VALUES ($1, $2, $3, 'student', true)
+                RETURNING id
+            """, email, name, pw_hash)
+
+            await db.execute("""
+                INSERT INTO classroom_students (classroom_id, student_id)
+                VALUES ($1::uuid, $2::uuid)
+                ON CONFLICT DO NOTHING
+            """, classroom_id, str(user["id"]))
+
+            credentials.append({"name": name, "email": email, "password": req.password})
+
+    return {"credentials": credentials}
 
 
 # ── Student: courses in a classroom ──────────────────────────────────────────
