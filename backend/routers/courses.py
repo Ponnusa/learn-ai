@@ -981,11 +981,13 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
         }
         if image_pages:
             entry["imagePages"] = image_pages
-        if video_source_id:
+        if video_block_id or video_source_id:
             # Always include videoBlockId for video-card messages so the frontend
-            # can identify them; empty string means the content block was deleted
-            entry["videoBlockId"]     = video_block_id
-            entry["videoSourceMsgId"] = video_source_id
+            # can identify them; empty string means the content block was deleted.
+            # video_source_id is absent for wand-generated standalone video cards.
+            entry["videoBlockId"] = video_block_id
+            if video_source_id:
+                entry["videoSourceMsgId"] = video_source_id
         if video_int_id is not None:
             entry["videoId"] = video_int_id
         if video_status:

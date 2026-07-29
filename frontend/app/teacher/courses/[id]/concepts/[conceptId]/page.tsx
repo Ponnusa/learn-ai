@@ -1078,8 +1078,86 @@ export default function ConceptEditorPage() {
                         );
                       }
 
-                      // ── Video card — now rendered inline inside its parent AI message ──
+                      // ── Chat-triggered video cards: hidden here, rendered inline inside parent message ──
                       if (m.videoBlockId !== undefined && m.videoSourceMsgId) return null;
+
+                      // ── Standalone video card (wand-generated, no source text message) ──
+                      if (m.role === 'assistant' && m.videoBlockId && !m.videoSourceMsgId && !m.content) {
+                        const vid = m;
+                        const vidReady  = !!vid.videoUrl;
+                        const vidFailed = vid.videoStatus === 'failed';
+                        return (
+                          <div key={m.id} className="flex justify-start">
+                            <div className="max-w-[85%] rounded-xl overflow-hidden bg-[var(--ov1)] text-[var(--tx2)] border border-[var(--bd)]">
+                              <div className="flex items-center gap-2 px-3.5 py-2">
+                                <Video size={11} className="text-blue-400 shrink-0" />
+                                <span className="text-[var(--tx6)] text-xs font-medium">Animated Video</span>
+                                {!vidReady && !vidFailed && (
+                                  <span className="ml-auto text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
+                                    {vid.videoStatus === 'transcript_ready' ? 'Writing animation…'
+                                     : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering…'
+                                     : 'Generating script…'}
+                                  </span>
+                                )}
+                                {vidFailed && <span className="ml-auto text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">Failed</span>}
+                                {vidReady  && <span className="ml-auto text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">Ready</span>}
+                              </div>
+                              {!vidReady && !vidFailed && (
+                                <div className="flex items-center gap-2 px-3.5 pb-3">
+                                  <Loader2 size={13} className="animate-spin text-blue-400 shrink-0" />
+                                  <span className="text-[var(--tx7)] text-xs">
+                                    {vid.videoStatus === 'transcript_ready' ? 'Building animation…'
+                                     : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering video, this may take a few minutes…'
+                                     : 'Writing animation script…'}
+                                  </span>
+                                </div>
+                              )}
+                              {vidReady && (
+                                <div>
+                                  <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata" />
+                                  <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
+                                    {vid.videoBlockId && vid.videoInTextbook && !removedVideoBlocks.has(vid.videoBlockId) ? (
+                                      <>
+                                        <button onClick={() => removeVideoFromTextbook(vid.videoBlockId!)}
+                                          className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-red-400 transition-colors">
+                                          <X size={11} /> {t.teacher.removeFromTextbook}
+                                        </button>
+                                        <button onClick={() => setActiveTab('textbook')}
+                                          className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors">
+                                          <LayoutList size={11} /> {t.teacher.viewInTextbook}
+                                        </button>
+                                      </>
+                                    ) : vid.videoId ? (
+                                      <button onClick={async () => {
+                                        if (vid.videoBlockId && !removedVideoBlocks.has(vid.videoBlockId)) {
+                                          try {
+                                            const r = await fetch(
+                                              `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${vid.videoBlockId}/add-to-textbook`,
+                                              { method: 'POST', headers: authH },
+                                            );
+                                            if (!r.ok) throw new Error('Could not add to textbook');
+                                            setChatMsgs(prev => prev.map(x => x.id === vid.id ? { ...x, videoInTextbook: true } : x));
+                                          } catch (err: any) { alert(err.message); }
+                                        } else {
+                                          addVideoBackToTextbook(vid.id, vid.videoId!, vid.videoBlockId ?? '');
+                                        }
+                                      }}
+                                        className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-green-400 transition-colors">
+                                        <Plus size={11} /> {t.teacher.addToTextbook}
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              )}
+                              {vidFailed && (
+                                <div className="px-3.5 pb-3">
+                                  <p className="text-red-400 text-xs mb-2">{vid.videoError || 'Video generation failed'}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
 
                       // ── Normal message ──────────────────────────────────────
                       return (
