@@ -3099,3 +3099,91 @@ async def improve_manim_code(
         _improve_manim_code_sync,
         original_code, feedback, subject, aspect_ratio, language,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# PHASE 2.5 — AUTO ERROR-FIX
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+def _fix_manim_error_sync(
+    original_code: str,
+    error_message: str,
+    subject: str,
+    aspect_ratio: str,
+    language: str,
+) -> dict:
+    """
+    Phase 2.5: given Manim code that failed to render + the full error traceback,
+    ask Claude to fix ONLY the code error while preserving all content, SVG assets,
+    and voiceover text exactly. Cheaper and faster than a full Phase 1+2 re-run.
+    """
+    system_prompt = _build_system_prompt(subject, aspect_ratio, language)
+
+    prompt = f"""You are given a Manim animation program that FAILED to render, and the full error traceback from the renderer.
+
+TASK: Fix the Python/Manim error. Do NOT change the educational content, voiceover narration, topic, or SVG assets.
+
+══════════════════════════════════════════
+RENDERER ERROR (full traceback)
+══════════════════════════════════════════
+{error_message[:4000]}
+
+══════════════════════════════════════════
+FAILED CODE
+══════════════════════════════════════════
+```python
+{original_code}
+```
+
+══════════════════════════════════════════
+CRITICAL RULES
+══════════════════════════════════════════
+1. Fix ONLY what the error describes — do not restructure or rewrite the whole animation.
+2. The _SVG_DATA dict base64 strings must be copied CHARACTER-FOR-CHARACTER, unchanged.
+3. The get_svg() helper function must remain exactly as-is.
+4. All self.voiceover(...) strings must remain UNCHANGED.
+5. The scene class name must remain unchanged.
+6. Common fixes to consider:
+   - Wrong method name on a Manim object → look up correct API
+   - Invalid LaTeX in MathTex(r"...") → escape or rewrite the expression
+   - Off-screen coordinates → adjust to fit within [-7,7] x [-4,4]
+   - Missing import → add at the top
+   - Wrong argument type/count → correct the call signature
+   - Undefined variable → define it or remove the reference
+
+Return ONLY the corrected Python code with no markdown fences."""
+
+    message = claude_with_retry(
+        _claude_sync.messages.create,
+        model=_CLAUDE_MODEL,
+        max_tokens=16000,
+        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    fixed = _first_text(message).strip()
+    fixed = re.sub(r"^```[a-z]*\n?", "", fixed, flags=re.IGNORECASE)
+    fixed = re.sub(r"\n?```$", "", fixed).strip()
+
+    _cu = getattr(message, "usage", None)
+    if _cu:
+        logger.info(
+            f"[fix] write={getattr(_cu,'cache_creation_input_tokens',0)} "
+            f"read={getattr(_cu,'cache_read_input_tokens',0)}"
+        )
+
+    return {"generated_code": fixed}
+
+
+async def fix_manim_error(
+    original_code: str,
+    error_message: str,
+    subject: str,
+    aspect_ratio: str,
+    language: str,
+) -> dict:
+    """Async wrapper for Phase 2.5 error-fix pass."""
+    return await asyncio.to_thread(
+        _fix_manim_error_sync,
+        original_code, error_message, subject, aspect_ratio, language,
+    )

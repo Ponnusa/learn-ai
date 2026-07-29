@@ -514,6 +514,19 @@ export default function ConceptEditorPage() {
     }
   }
 
+  async function autoFixVideo(msgId: string, videoId: number, blockId: string) {
+    setChatMsgs(prev => prev.map(m => m.id === msgId
+      ? { ...m, videoStatus: 'fixing', videoUrl: undefined, videoError: undefined } : m));
+    try {
+      const res = await fetch(`${API_BASE}/api/videos/${videoId}/auto-fix`, { method: 'POST', headers: authH });
+      if (!res.ok) throw new Error('Auto-fix failed');
+      if (!videoPollingRef.current.has(blockId)) startVideoPolling(blockId, msgId);
+    } catch (err: any) {
+      setChatMsgs(prev => prev.map(m => m.id === msgId
+        ? { ...m, videoStatus: 'failed', videoError: err.message } : m));
+    }
+  }
+
   async function handleImproveVideo(vidId: string, videoId: number, blockId: string) {
     const feedback = videoImprove?.text?.trim();
     if (!feedback) return;
@@ -1096,6 +1109,7 @@ export default function ConceptEditorPage() {
                                   <span className="ml-auto text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
                                     {vid.videoStatus === 'transcript_ready' ? 'Writing animation…'
                                      : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering…'
+                                     : vid.videoStatus === 'fixing' ? 'Auto-fixing error…'
                                      : 'Generating script…'}
                                   </span>
                                 )}
@@ -1108,6 +1122,7 @@ export default function ConceptEditorPage() {
                                   <span className="text-[var(--tx7)] text-xs">
                                     {vid.videoStatus === 'transcript_ready' ? 'Building animation…'
                                      : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering video, this may take a few minutes…'
+                                     : vid.videoStatus === 'fixing' ? 'Claude is fixing the render error, this usually takes under a minute…'
                                      : 'Writing animation script…'}
                                   </span>
                                 </div>
@@ -1197,6 +1212,14 @@ export default function ConceptEditorPage() {
                               {vidFailed && (
                                 <div className="px-3.5 pb-3">
                                   <p className="text-red-400 text-xs mb-2">{vid.videoError || 'Video generation failed'}</p>
+                                  {vid.videoId && vid.videoBlockId && (
+                                    <button onClick={() => autoFixVideo(vid.id, vid.videoId!, vid.videoBlockId!)}
+                                      className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg
+                                                 border border-blue-500/30 bg-blue-500/10
+                                                 text-blue-400 hover:bg-blue-500/20 transition-colors">
+                                      <Wand2 size={10} /> Auto-fix
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1372,6 +1395,7 @@ export default function ConceptEditorPage() {
                                     <span className="ml-auto text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
                                       {vid.videoStatus === 'transcript_ready' ? 'Writing animation…'
                                       : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering…'
+                                      : vid.videoStatus === 'fixing' ? 'Auto-fixing error…'
                                       : 'Generating script…'}
                                     </span>
                                   )}
@@ -1385,6 +1409,7 @@ export default function ConceptEditorPage() {
                                     <span className="text-[var(--tx7)] text-xs">
                                       {vid.videoStatus === 'transcript_ready' ? 'Building animation…'
                                       : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? 'Rendering video, this may take a few minutes…'
+                                      : vid.videoStatus === 'fixing' ? 'Claude is fixing the render error, this usually takes under a minute…'
                                       : 'Writing animation script…'}
                                     </span>
                                     {vid.videoStatus === 'transcript_ready' && vid.videoId && vid.videoBlockId && (
@@ -1493,12 +1518,22 @@ export default function ConceptEditorPage() {
                                 {vidFailed && (
                                   <div className="px-3.5 pb-3">
                                     <p className="text-red-400 text-xs mb-2">{vid.videoError || 'Video generation failed'}</p>
-                                    <button onClick={() => retryVideoGeneration(vid.id, vid.videoBlockId!)}
-                                      className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg
-                                                 border border-[var(--bd)] bg-[var(--ov2)]
-                                                 text-[var(--tx6)] hover:text-red-400 hover:border-red-500/30 transition-colors">
-                                      <RefreshCw size={10} /> Retry
-                                    </button>
+                                    <div className="flex gap-2">
+                                      {vid.videoId && vid.videoBlockId && (
+                                        <button onClick={() => autoFixVideo(vid.id, vid.videoId!, vid.videoBlockId!)}
+                                          className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg
+                                                     border border-blue-500/30 bg-blue-500/10
+                                                     text-blue-400 hover:bg-blue-500/20 transition-colors">
+                                          <Wand2 size={10} /> Auto-fix
+                                        </button>
+                                      )}
+                                      <button onClick={() => retryVideoGeneration(vid.id, vid.videoBlockId!)}
+                                        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg
+                                                   border border-[var(--bd)] bg-[var(--ov2)]
+                                                   text-[var(--tx6)] hover:text-red-400 hover:border-red-500/30 transition-colors">
+                                        <RefreshCw size={10} /> Retry
+                                      </button>
+                                    </div>
                                   </div>
                                 )}
                               </div>

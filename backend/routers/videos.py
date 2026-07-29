@@ -22,6 +22,7 @@ from services.manim import (
     generate_solution_only,
     generate_manim_from_solution,
     improve_manim_code,
+    fix_manim_error,
     fix_manim_colors,
     fix_deprecated_manim_apis,
     fix_unicode_in_mathtex,
@@ -226,6 +227,102 @@ async def improve_video(video_id: int, req: VideoImproveRequest, bg: BackgroundT
         subject, language, aspect_ratio,
     )
     return {"status": "pending", "video_id": video_id}
+
+
+async def _auto_fix_video_bg(
+    video_id: int,
+    original_code: str,
+    error_message: str,
+    subject: str,
+    language: str,
+    aspect_ratio: str,
+    svg_urls: dict,
+):
+    """Phase 2.5: ask Claude to fix the render error, re-submit to Cloud Run."""
+    logger = logging.getLogger(__name__)
+    try:
+        result = await asyncio.wait_for(
+            fix_manim_error(original_code, error_message, subject, aspect_ratio, language),
+            timeout=300,
+        )
+        code = fix_manim_colors(result["generated_code"])
+        code = fix_unicode_in_mathtex(code)
+        code = ensure_numpy_import(code)
+        code = strip_invalid_tex_weight(code)
+
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos
+                SET generated_code = $1, status = 'queued', error_message = NULL, updated_at = NOW()
+                WHERE id = $2
+            """, code, video_id)
+
+        _trigger_video_generation(video_id, svg_urls)
+        logger.info("[auto-fix] video %s fixed and re-queued", video_id)
+
+    except asyncio.TimeoutError:
+        logger.error("[auto-fix] video %s timed out after 5 min", video_id)
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos SET status = 'failed',
+                    error_message = 'Auto-fix timed out — use Improve to describe what to fix',
+                    updated_at = NOW()
+                WHERE id = $1
+            """, video_id)
+    except Exception as exc:
+        logger.error("[auto-fix] video %s failed: %s", video_id, exc)
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
+                WHERE id = $2
+            """, f"Auto-fix failed: {str(exc)[:1000]}", video_id)
+
+
+@router.post("/{video_id}/auto-fix")
+async def auto_fix_video(video_id: int, bg: BackgroundTasks):
+    """
+    Phase 2.5: pass the failed Manim code + renderer traceback to Claude,
+    get a targeted error fix, and re-submit to Cloud Run.
+    Faster than a full retry (no Phase 1 re-run) and handles most code-level
+    errors: wrong API calls, bad LaTeX, off-screen coords, missing imports.
+    """
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT generated_code, error_message, subject, language, aspect_ratio, svg_urls
+            FROM videos WHERE id = $1
+        """, video_id)
+
+    if not row:
+        raise HTTPException(404, "Video not found")
+    if not row["generated_code"]:
+        raise HTTPException(409, "No generated code to fix — run a full retry first")
+    if not row["error_message"]:
+        raise HTTPException(409, "Video has no error message to fix from")
+
+    svg_urls: dict = {}
+    if row["svg_urls"]:
+        try:
+            svg_urls = dict(row["svg_urls"]) if isinstance(row["svg_urls"], dict) else json.loads(row["svg_urls"])
+        except Exception:
+            pass
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE videos SET status = 'fixing', updated_at = NOW() WHERE id = $1",
+            video_id,
+        )
+
+    bg.add_task(
+        _auto_fix_video_bg,
+        video_id,
+        row["generated_code"],
+        row["error_message"],
+        row["subject"] or "general",
+        row["language"] or "en",
+        row["aspect_ratio"] or "16:9",
+        svg_urls,
+    )
+    return {"status": "fixing", "video_id": video_id}
 
 
 @router.delete("/{video_id}")
