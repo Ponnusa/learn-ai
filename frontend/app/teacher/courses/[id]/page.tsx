@@ -199,10 +199,10 @@ export default function CourseDetailPage() {
       const data = await res.json();
       const done = (data.counts?.approved ?? 0) + (data.counts?.ready ?? 0) + (data.counts?.failed ?? 0);
       setProcessedCount(done);
+      load();
       if (!data.is_processing) {
         setIsProcessing(false);
         setPipelineMsg('');
-        load();
       }
     }, 3000);
     return () => clearInterval(iv);

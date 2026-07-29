@@ -2668,18 +2668,28 @@ async def _bulk_generate_bg(
                     "SELECT pdf_data FROM course_chapters WHERE id = $1::uuid", chapter_ref_id
                 )
             if row and row["pdf_data"]:
+                # Mark as processing so the pipeline endpoint reports is_processing=True
+                # while extraction runs (can take 10-30s — longer than the first poll interval).
+                async with get_db() as db:
+                    await db.execute(
+                        "UPDATE course_chapters SET status='processing' WHERE id=$1",
+                        chapter_ref_id,
+                    )
                 new_ids = await _extract_concepts_for_chapter(
                     chapter_ref_id, unit_id, course_dict, bytes(row["pdf_data"]), suggest_lang
                 )
                 concept_ids = list(set(list(concept_ids) + new_ids))
-                if new_ids:
-                    async with get_db() as db:
-                        await db.execute(
-                            "UPDATE course_chapters SET status='complete' WHERE id=$1",
-                            chapter_ref_id,
-                        )
+                async with get_db() as db:
+                    await db.execute(
+                        "UPDATE course_chapters SET status=$1 WHERE id=$2",
+                        'complete' if new_ids else 'failed', chapter_ref_id,
+                    )
         except Exception as exc:
             logger.error("[bulk-gen] suggest failed for chapter %s: %s", chapter_ref_id, exc)
+            async with get_db() as db:
+                await db.execute(
+                    "UPDATE course_chapters SET status='failed' WHERE id=$1", chapter_ref_id
+                )
 
     gen_types = types - {'suggest'}
     if not gen_types or not concept_ids:
@@ -3411,8 +3421,22 @@ async def get_pipeline_status(course_id: str, authorization: str = Header(...)):
             WHERE cu.course_id = $1::uuid AND ch.status = 'processing'
         """, course_id)
 
+    # Also count concepts with in-flight asset generation (quiz/flashcard/audio/video).
+    async with get_db() as db:
+        generating_assets = await db.fetchval("""
+            SELECT COUNT(*) FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid
+              AND (cc.quiz_status = 'generating' OR cc.flashcard_status = 'generating'
+                   OR cc.audio_status = 'generating' OR cc.video_status = 'generating')
+        """, course_id)
+
     return {
-        "is_processing": counts.get("summarizing", 0) > 0 or int(processing_chapters or 0) > 0,
+        "is_processing": (
+            counts.get("summarizing", 0) > 0
+            or int(processing_chapters or 0) > 0
+            or int(generating_assets or 0) > 0
+        ),
         "counts":        counts,
         "concepts": [
             {
