@@ -57,12 +57,9 @@ export const COUNTRY_LANGUAGES: Record<string, LanguageCode[]> = {
   DEFAULT: ['en', 'fi', 'sv', 'es', 'fr'],
 };
 
-/** Returns the languages available for the current user's detected country. */
+/** Returns all available languages. */
 export function getAvailableLanguages(): LanguageCode[] {
-  if (typeof navigator === 'undefined') return COUNTRY_LANGUAGES['DEFAULT'];
-  const parts = (navigator.language || '').split('-');
-  const country = parts.length > 1 ? parts[parts.length - 1].toUpperCase() : 'DEFAULT';
-  return COUNTRY_LANGUAGES[country] ?? COUNTRY_LANGUAGES['DEFAULT'];
+  return Object.keys(translations) as LanguageCode[];
 }
 
 export type { Translation };
