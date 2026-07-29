@@ -583,8 +583,16 @@ export interface Translation {
     createChaptersBtn: string;
     justOneChapter: string;
     fromPdf: string;
-    suggestConcepts: string;
-    checkCoverage: string;
+    wandGenerate: string;
+    wandSummary: string;
+    wandQuiz: string;
+    wandFlashcard: string;
+    wandAudio: string;
+    wandVideo: string;
+    wandSuggest: string;
+    wandSkipExisting: string;
+    wandVideoWarn: string;
+    wandGenerateBtn: string;
     addConceptPlaceholder: string;
     addBtn: string;
     addConceptBtn: string;

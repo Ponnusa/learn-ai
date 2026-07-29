@@ -4,7 +4,7 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
   Upload, Loader2, Check, BookOpen, Users,
-  CheckCircle, Globe, Zap, Circle, Crop, Sparkles, ListChecks, Wand2, GripVertical, HelpCircle,
+  CheckCircle, Globe, Zap, Circle, Crop, Sparkles, Wand2, GripVertical, HelpCircle,
 } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -140,9 +140,11 @@ export default function CourseDetailPage() {
 
   // Manual concept creation — crop a region of the chapter PDF as an image
   const [cropTarget, setCropTarget] = useState<{ unitId: string; chapterRefId: string; file: File } | null>(null);
-  const [suggestingFor, setSuggestingFor] = useState<string | null>(null);
-  const [coverageBusy,   setCoverageBusy]   = useState<string | null>(null);
-  const [coverageResult, setCoverageResult] = useState<{ chapterId: string; summary: string } | null>(null);
+  // Magic-wand bulk generation
+  const [wandOpen,  setWandOpen]  = useState<string | null>(null); // chapter_ref_id of open popover
+  const [wandTypes, setWandTypes] = useState<Set<string>>(new Set(['summary', 'quiz', 'flashcard', 'audio']));
+  const [wandSkip,  setWandSkip]  = useState(true);
+  const [wandBusy,  setWandBusy]  = useState<string | null>(null);
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -151,6 +153,17 @@ export default function CourseDetailPage() {
     load();
     loadClassrooms();
   }, [user, courseId]);
+
+  // Close wand popover on outside click
+  useEffect(() => {
+    if (!wandOpen) return;
+    function handleClick(e: MouseEvent) {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-wand-popover]')) setWandOpen(null);
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [wandOpen]);
 
   async function load() {
     setLoading(true);
@@ -246,7 +259,6 @@ export default function CourseDetailPage() {
       await load();
 
       const chapterId = data.chapter_id;
-      setSuggestingFor(chapterId);
       setPipelineMsg('Reading content page by page to find concepts…');
       const sRes = await fetch(`${API_BASE}/api/courses/chapters/${chapterId}/suggest-concepts`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` },
@@ -266,45 +278,37 @@ export default function CourseDetailPage() {
       alert(err.message);
     } finally {
       setUploading(false);
-      setSuggestingFor(null);
       if (chapterRef.current) chapterRef.current.value = '';
     }
   }
 
-  async function suggestConcepts(chapterRefId: string) {
-    setSuggestingFor(chapterRefId); setPipelineMsg('');
+  function toggleWandType(type: string) {
+    setWandTypes(prev => {
+      const next = new Set(prev);
+      next.has(type) ? next.delete(type) : next.add(type);
+      return next;
+    });
+  }
+
+  async function generateWand(chapterRefId: string) {
+    if (wandTypes.size === 0) return;
+    setWandBusy(chapterRefId);
+    setWandOpen(null);
     try {
-      const res = await fetch(`${API_BASE}/api/courses/chapters/${chapterRefId}/suggest-concepts`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`${API_BASE}/api/courses/${courseId}/chapters/${chapterRefId}/bulk-generate`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ types: [...wandTypes], skip_existing: wandSkip }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Suggest concepts failed');
-      setTotalCount(data.concept_count);
-      setProcessedCount(0);
+      if (!res.ok) throw new Error(data.detail || 'Generation failed');
       setIsProcessing(true);
-      setPipelineMsg(`Generating content for ${data.concept_count} concepts…`);
+      setPipelineMsg(`Generating content for ${data.concept_count} concepts in background…`);
       load();
     } catch (err: any) {
       alert(err.message);
     } finally {
-      setSuggestingFor(null);
-    }
-  }
-
-  async function checkCoverage(chapterRefId: string) {
-    setCoverageBusy(chapterRefId);
-    setCoverageResult(null);
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/chapters/${chapterRefId}/coverage-check`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || 'Coverage check failed');
-      setCoverageResult({ chapterId: chapterRefId, summary: data.coverage_summary });
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      setCoverageBusy(null);
+      setWandBusy(null);
     }
   }
 
@@ -716,18 +720,68 @@ export default function CourseDetailPage() {
                                text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
                     <Crop size={12} /> {t.teacher.fromPdf}
                   </button>
-                  <button onClick={() => suggestConcepts(unit.chapter_ref!)} disabled={suggestingFor === unit.chapter_ref}
-                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
-                               text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
-                    {suggestingFor === unit.chapter_ref ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                    {t.teacher.suggestConcepts}
-                  </button>
-                  <button onClick={() => checkCoverage(unit.chapter_ref!)} disabled={coverageBusy === unit.chapter_ref}
-                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
-                               text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
-                    {coverageBusy === unit.chapter_ref ? <Loader2 size={12} className="animate-spin" /> : <ListChecks size={12} />}
-                    {t.teacher.checkCoverage}
-                  </button>
+                  {/* Magic-wand button + popover */}
+                  <div className="relative" data-wand-popover>
+                    <button
+                      onClick={() => setWandOpen(wandOpen === unit.chapter_ref ? null : unit.chapter_ref!)}
+                      disabled={wandBusy === unit.chapter_ref}
+                      className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
+                                 text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
+                      {wandBusy === unit.chapter_ref
+                        ? <Loader2 size={12} className="animate-spin" />
+                        : <Wand2 size={12} />}
+                      {t.teacher.wandGenerate}
+                    </button>
+
+                    {wandOpen === unit.chapter_ref && (
+                      <div className="absolute right-0 top-full mt-1.5 z-50 w-64 rounded-xl border border-[var(--bd)]
+                                      bg-[var(--bg1)] shadow-xl p-3 space-y-2">
+                        {/* Asset type checkboxes */}
+                        {([
+                          ['summary',   t.teacher.wandSummary,   null],
+                          ['quiz',      t.teacher.wandQuiz,       null],
+                          ['flashcard', t.teacher.wandFlashcard,  null],
+                          ['audio',     t.teacher.wandAudio,      null],
+                          ['video',     t.teacher.wandVideo,      t.teacher.wandVideoWarn],
+                          ['suggest',   t.teacher.wandSuggest,    null],
+                        ] as [string, string, string | null][]).map(([type, label, warn]) => (
+                          <label key={type} className="flex items-center gap-2 cursor-pointer group">
+                            <input
+                              type="checkbox"
+                              checked={wandTypes.has(type)}
+                              onChange={() => toggleWandType(type)}
+                              className="accent-purple-500 w-3.5 h-3.5 shrink-0"
+                            />
+                            <span className="text-xs text-[var(--tx3)] group-hover:text-[var(--tx1)] transition-colors flex items-center gap-1.5">
+                              {label}
+                              {warn && <span className="text-[10px] text-amber-400/80">{warn}</span>}
+                            </span>
+                          </label>
+                        ))}
+
+                        {/* Skip existing toggle */}
+                        <div className="border-t border-[var(--bd)] pt-2 mt-1">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={wandSkip}
+                              onChange={e => setWandSkip(e.target.checked)}
+                              className="accent-purple-500 w-3.5 h-3.5 shrink-0"
+                            />
+                            <span className="text-[11px] text-[var(--tx6)]">{t.teacher.wandSkipExisting}</span>
+                          </label>
+                        </div>
+
+                        <button
+                          onClick={() => generateWand(unit.chapter_ref!)}
+                          disabled={wandTypes.size === 0}
+                          className="w-full mt-1 py-1.5 text-xs rounded-lg bg-purple-600 hover:bg-purple-500
+                                     text-white font-medium transition-colors disabled:opacity-40 flex items-center justify-center gap-1.5">
+                          <Sparkles size={11} /> {t.teacher.wandGenerateBtn}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
               <button onClick={() => deleteUnit(unit.id)}
@@ -735,13 +789,6 @@ export default function CourseDetailPage() {
                 <Trash2 size={14} />
               </button>
             </div>
-
-            {coverageResult && coverageResult.chapterId === unit.chapter_ref && (
-              <div className="mx-5 mb-3 px-3 py-2.5 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl flex items-start justify-between gap-3">
-                <p className="text-[var(--tx3)] text-xs whitespace-pre-wrap flex-1">{coverageResult.summary}</p>
-                <button onClick={() => setCoverageResult(null)} className="text-[var(--tx8)] hover:text-[var(--tx3)] text-xs shrink-0">✕</button>
-              </div>
-            )}
 
             {/* Concepts */}
             {expanded.has(unit.id) && (

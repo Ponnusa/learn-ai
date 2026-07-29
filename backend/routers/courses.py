@@ -2640,6 +2640,158 @@ async def suggest_concepts(
     return {"concept_ids": concept_ids, "concept_count": len(concept_ids)}
 
 
+# ── Magic-wand bulk asset generation ──────────────────────────────────────────
+
+class BulkGenerateRequest(BaseModel):
+    types:         list[str]   # "summary" | "quiz" | "flashcard" | "audio" | "video" | "suggest"
+    skip_existing: bool = True
+
+
+async def _bulk_generate_bg(
+    concept_ids:     list[str],
+    types:           set,
+    course_id:       str,
+    skip_existing:   bool,
+    chapter_ref_id:  str | None,
+    unit_id:         str | None,
+    suggest_lang:    str,
+    course_dict:     dict,
+) -> None:
+    """Background: run per-concept asset generation for all concepts in a chapter."""
+    import asyncio
+
+    # Step 0: suggest missing concepts first so they're included in generation
+    if 'suggest' in types and chapter_ref_id and unit_id:
+        try:
+            async with get_db() as db:
+                row = await db.fetchrow(
+                    "SELECT pdf_data FROM course_chapters WHERE id = $1::uuid", chapter_ref_id
+                )
+            if row and row["pdf_data"]:
+                new_ids = await _extract_concepts_for_chapter(
+                    chapter_ref_id, unit_id, course_dict, bytes(row["pdf_data"]), suggest_lang
+                )
+                concept_ids = list(set(list(concept_ids) + new_ids))
+        except Exception as exc:
+            logger.error("[bulk-gen] suggest failed for chapter %s: %s", chapter_ref_id, exc)
+
+    gen_types = types - {'suggest'}
+    if not gen_types or not concept_ids:
+        return
+
+    async def _one(concept_id: str) -> None:
+        try:
+            async with get_db() as db:
+                c = await db.fetchrow("""
+                    SELECT pipeline_status, ai_summary, ai_transcript,
+                           quiz_status, flashcard_status, audio_status, video_status
+                    FROM course_concepts WHERE id = $1::uuid
+                """, concept_id)
+            if not c:
+                return
+
+            # --- Summary (must come first — audio/video depend on it) ---
+            if 'summary' in gen_types and (not skip_existing or not c["ai_summary"]):
+                async with get_db() as db:
+                    await db.execute(
+                        "UPDATE course_concepts SET pipeline_status='summarizing' WHERE id=$1::uuid",
+                        concept_id,
+                    )
+                await _summarize_one_concept(concept_id, course_dict)
+                async with get_db() as db:
+                    c = await db.fetchrow(
+                        "SELECT ai_summary, ai_transcript, quiz_status, flashcard_status, audio_status, video_status FROM course_concepts WHERE id=$1::uuid",
+                        concept_id,
+                    )
+
+            # --- Quiz + Flashcard + Audio in parallel ---
+            tier2: list = []
+            if 'quiz' in gen_types and (not skip_existing or c["quiz_status"] not in ("ready", "approved", "generating")):
+                async with get_db() as db:
+                    await db.execute("UPDATE course_concepts SET quiz_status='generating' WHERE id=$1::uuid", concept_id)
+                tier2.append(_generate_quiz_bg(concept_id, course_id))
+
+            if 'flashcard' in gen_types and (not skip_existing or c["flashcard_status"] not in ("ready", "approved", "generating")):
+                async with get_db() as db:
+                    await db.execute("UPDATE course_concepts SET flashcard_status='generating' WHERE id=$1::uuid", concept_id)
+                tier2.append(_generate_flashcards_bg(concept_id, course_id))
+
+            if 'audio' in gen_types and (c["ai_transcript"] or c["ai_summary"]) and \
+               (not skip_existing or c["audio_status"] not in ("ready", "approved", "generating")):
+                async with get_db() as db:
+                    await db.execute("UPDATE course_concepts SET audio_status='generating' WHERE id=$1::uuid", concept_id)
+                tier2.append(_generate_audio_bg(concept_id))
+
+            if tier2:
+                await asyncio.gather(*tier2, return_exceptions=True)
+
+            # --- Video: fire-and-forget (slow, doesn't block the above) ---
+            if 'video' in gen_types and (c["ai_transcript"] or c["ai_summary"]) and \
+               (not skip_existing or c["video_status"] not in ("ready", "approved", "generating")):
+                async with get_db() as db:
+                    await db.execute(
+                        "UPDATE course_concepts SET video_status='generating', video_error=NULL WHERE id=$1::uuid",
+                        concept_id,
+                    )
+                asyncio.ensure_future(_generate_concept_video_bg(concept_id, course_id))
+
+        except Exception as exc:
+            logger.error("[bulk-gen] concept %s failed: %s", concept_id, exc)
+
+    await asyncio.gather(*[_one(cid) for cid in concept_ids], return_exceptions=True)
+
+
+@router.post("/{course_id}/chapters/{chapter_ref_id}/bulk-generate")
+async def bulk_generate_chapter(
+    course_id:      str,
+    chapter_ref_id: str,
+    req:            BulkGenerateRequest,
+    bg:             BackgroundTasks,
+    authorization:  str = Header(...),
+):
+    """Teacher magic-wand: queue background generation of selected asset types for all chapter concepts."""
+    teacher_id = await _require_teacher(authorization)
+
+    async with get_db() as db:
+        chapter = await db.fetchrow("""
+            SELECT ch.id, cu.id AS unit_id, c.name, c.subject
+            FROM course_chapters ch
+            JOIN course_units cu ON cu.chapter_ref = ch.id
+            JOIN courses c ON c.id = $1::uuid AND c.teacher_id = $2::uuid
+            WHERE ch.id = $3::uuid
+        """, course_id, teacher_id, chapter_ref_id)
+        suggest_lang = await db.fetchval("SELECT language FROM users WHERE id=$1::uuid", teacher_id)
+        rows = await db.fetch("""
+            SELECT cc.id FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cu.chapter_ref = $1::uuid
+        """, chapter_ref_id)
+
+    if not chapter:
+        raise HTTPException(404, "Chapter not found")
+
+    concept_ids = [str(r["id"]) for r in rows]
+    types       = set(req.types)
+    course_dict = {"name": chapter["name"], "subject": chapter["subject"]}
+
+    if not concept_ids and 'suggest' not in types:
+        return {"ok": True, "concept_count": 0}
+
+    bg.add_task(
+        _bulk_generate_bg,
+        concept_ids,
+        types,
+        course_id,
+        req.skip_existing,
+        str(chapter["id"]) if 'suggest' in types else None,
+        str(chapter["unit_id"]) if 'suggest' in types else None,
+        suggest_lang or 'en',
+        course_dict,
+    )
+
+    return {"ok": True, "concept_count": len(concept_ids)}
+
+
 class RegionConceptRequest(BaseModel):
     unit_id:        str
     image_data_url: str
