@@ -760,6 +760,35 @@ export interface Translation {
     videoImprovePlaceholder: string;
   };
 
+  concept: {
+    tabLearn: string;
+    tabMaterials: string;
+    tabPractice: string;
+    backToCourse: string;
+    summary: string;
+    explanation: string;
+    illustrations: string;
+    viewMaterials: string;
+    practicePrompt: string;
+    pdfDocument: string;
+    askAI: string;
+    askAIAbout: string;
+    videoLesson: string;
+    listen: string;
+    deckComplete: string;
+    again: string;
+    gotIt: string;
+    tapToReveal: string;
+    revealAnswer: string;
+    perfectScore: string;
+    reviewExplanations: string;
+    askConceptAI: string;
+    chatClose: string;
+    chatOpen: string;
+    chatAskAnything: string;
+    chatPlaceholder: string;
+  };
+
   tours: {
     home: { title: string; body: string }[];
     videos: { title: string; body: string }[];

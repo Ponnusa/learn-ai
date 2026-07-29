@@ -48,7 +48,7 @@ export default function StudentConceptDetailPage() {
   const courseId    = params.courseId  as string;
   const conceptId   = params.conceptId as string;
   const { user, token } = useSessionStore();
-  const { language } = useTranslation();
+  const { language, t } = useTranslation();
 
   const [concept,    setConcept]    = useState<ConceptDetail | null>(null);
   const [assets,     setAssets]     = useState<Assets | null>(null);
@@ -313,9 +313,9 @@ export default function StudentConceptDetailPage() {
   const hasPractice  = showFlashcards || showQuiz;
 
   const tabs = [
-    { key: 'learn',     label: 'Learn',     icon: <BookOpen size={13} /> },
-    ...(hasResources ? [{ key: 'materials', label: 'Materials', icon: <FileText size={13} /> }] : []),
-    ...(hasPractice  ? [{ key: 'practice',  label: 'Practice',  icon: <Dumbbell size={13} /> }] : []),
+    { key: 'learn',     label: t.concept.tabLearn,     icon: <BookOpen size={13} /> },
+    ...(hasResources ? [{ key: 'materials', label: t.concept.tabMaterials, icon: <FileText size={13} /> }] : []),
+    ...(hasPractice  ? [{ key: 'practice',  label: t.concept.tabPractice,  icon: <Dumbbell size={13} /> }] : []),
   ] as const;
 
   return (
@@ -324,7 +324,7 @@ export default function StudentConceptDetailPage() {
       {/* Back */}
       <button onClick={() => router.push(`/classrooms/${classroomId}/courses/${courseId}`)}
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-4 transition-colors">
-        <ArrowLeft size={15} /> Back to course
+        <ArrowLeft size={15} /> {t.concept.backToCourse}
       </button>
 
       {/* Title */}
@@ -361,14 +361,14 @@ export default function StudentConceptDetailPage() {
                 onEnded={handleLegacyVideoEnded}
               />
               <p className="px-4 py-2 text-[var(--tx8)] text-xs flex items-center gap-1.5">
-                <Video size={11} /> Video lesson
+                <Video size={11} /> {t.concept.videoLesson}
               </p>
             </div>
           )}
           {!hasBlocks && showAudio && (
             <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4 mb-6">
               <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Volume2 size={12} /> Listen
+                <Volume2 size={12} /> {t.concept.listen}
               </p>
               <AudioPlayer src={`${API_BASE}${assets!.audio_url}`} />
             </div>
@@ -377,7 +377,7 @@ export default function StudentConceptDetailPage() {
             <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-6 mb-6">
               <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
                 <BookOpen size={12} />
-                {concept.pipeline_status === 'approved' ? 'Summary' : 'Explanation'}
+                {concept.pipeline_status === 'approved' ? t.concept.summary : t.concept.explanation}
               </h2>
               <div className="text-[var(--tx2)] text-sm leading-relaxed [&>p]:mb-2 [&>p:last-child]:mb-0">
                 <MathText>{explanation}</MathText>
@@ -387,7 +387,7 @@ export default function StudentConceptDetailPage() {
           {!hasBlocks && concept.images.length > 0 && (
             <div className="mb-6">
               <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <ImageIcon size={12} /> Illustrations
+                <ImageIcon size={12} /> {t.concept.illustrations}
               </h2>
               <div className="grid grid-cols-2 gap-3">
                 {concept.images.map(img => (
@@ -408,14 +408,14 @@ export default function StudentConceptDetailPage() {
                 <button onClick={() => setActiveTab('materials')}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
                              text-[var(--tx6)] hover:text-[var(--tx2)] hover:border-purple-500/40 transition-colors">
-                  <FileText size={11} /> View learning materials →
+                  <FileText size={11} /> {t.concept.viewMaterials}
                 </button>
               )}
               {hasPractice && (
                 <button onClick={() => setActiveTab('practice')}
                   className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
                              text-[var(--tx6)] hover:text-[var(--tx2)] hover:border-purple-500/40 transition-colors">
-                  <Dumbbell size={11} /> Practice with flashcards & quiz →
+                  <Dumbbell size={11} /> {t.concept.practicePrompt}
                 </button>
               )}
             </div>
@@ -437,7 +437,7 @@ export default function StudentConceptDetailPage() {
                     {r.title && <figcaption className="text-xs text-[var(--tx6)] truncate">{r.title}</figcaption>}
                     <button onClick={() => openChat({ id: r.id, title: r.title, type: 'image' })}
                       className="text-xs text-purple-400 hover:text-purple-300 transition-colors shrink-0 ml-2">
-                      Ask AI →
+                      {t.concept.askAI}
                     </button>
                   </div>
                 </figure>
@@ -452,17 +452,17 @@ export default function StudentConceptDetailPage() {
                 <FileText size={18} className="text-purple-400 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[var(--tx1)] truncate">{r.title}</p>
-                  <p className="text-xs text-[var(--tx7)]">PDF document</p>
+                  <p className="text-xs text-[var(--tx7)]">{t.concept.pdfDocument}</p>
                 </div>
                 <a href={`${API_BASE}${r.file_url}`} target="_blank" rel="noreferrer"
                   className="text-xs text-purple-400 hover:text-purple-300 transition-colors shrink-0">
-                  Open PDF
+                  {t.studySets.openPdf}
                 </a>
               </div>
               <div className="px-4 pb-3">
                 <button onClick={() => openChat({ id: r.id, title: r.title, type: r.type })}
                   className="text-xs text-purple-400 hover:text-purple-300 transition-colors">
-                  Ask AI about this →
+                  {t.concept.askAIAbout}
                 </button>
               </div>
             </div>
@@ -500,18 +500,18 @@ export default function StudentConceptDetailPage() {
           {showFlashcards && (
             <div>
               <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Layers size={12} /> Flashcards · {Math.min(cardIndex + 1, flashcards.length)} of {flashcards.length}
-                {flashcards.filter(c => c.is_due).length > 0 && ` · ${flashcards.filter(c => c.is_due).length} due`}
+                <Layers size={12} /> {t.concept.tabPractice} · {Math.min(cardIndex + 1, flashcards.length)} / {flashcards.length}
+                {flashcards.filter(c => c.is_due).length > 0 && ` · ${flashcards.filter(c => c.is_due).length} ${t.classrooms.flashcardsDue}`}
               </h2>
 
               {deckFinished ? (
                 <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 flex flex-col items-center text-center gap-3">
                   <CheckCircle2 size={28} className="text-green-400" />
-                  <p className="text-[var(--tx1)] font-semibold">Deck complete</p>
-                  <p className="text-[var(--tx7)] text-sm">{cardsDone.size} got it · {cardsAgain.length} to review again</p>
+                  <p className="text-[var(--tx1)] font-semibold">{t.concept.deckComplete}</p>
+                  <p className="text-[var(--tx7)] text-sm">{cardsDone.size} {t.concept.gotIt} · {cardsAgain.length} {t.concept.again}</p>
                   <button onClick={restartDeck}
                     className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all">
-                    Study again
+                    {t.studySets.studyAgain}
                   </button>
                 </div>
               ) : currentCard && (
@@ -522,7 +522,7 @@ export default function StudentConceptDetailPage() {
                       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 min-h-[140px] flex flex-col items-center justify-center text-center"
                         style={{ backfaceVisibility: 'hidden' }}>
                         <p className="text-[var(--tx1)] text-base font-semibold"><MathText inline>{currentCard.front}</MathText></p>
-                        <p className="text-[var(--tx8)] text-xs mt-3">Tap to reveal</p>
+                        <p className="text-[var(--tx8)] text-xs mt-3">{t.concept.tapToReveal}</p>
                       </div>
                       <div className="absolute inset-0 bg-purple-600/10 border border-purple-500/30 rounded-2xl p-8 flex flex-col items-center justify-center text-center"
                         style={{ backfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}>
@@ -535,17 +535,17 @@ export default function StudentConceptDetailPage() {
                     <div className="flex gap-3 mt-3">
                       <button onClick={handleCardAgain} disabled={reviewing}
                         className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-sm font-medium transition-colors disabled:opacity-50">
-                        Again
+                        {t.concept.again}
                       </button>
                       <button onClick={handleCardGotIt} disabled={reviewing}
                         className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl bg-green-500/10 hover:bg-green-500/20 border border-green-500/20 text-green-400 text-sm font-medium transition-colors disabled:opacity-50">
-                        <CheckCircle2 size={14} /> Got it
+                        <CheckCircle2 size={14} /> {t.concept.gotIt}
                       </button>
                     </div>
                   ) : (
                     <button onClick={() => setFlipped(true)}
                       className="w-full mt-3 px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-all">
-                      Reveal answer
+                      {t.concept.revealAnswer}
                     </button>
                   )}
 
@@ -574,7 +574,7 @@ export default function StudentConceptDetailPage() {
           {showQuiz && (
             <div>
               <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <HelpCircle size={12} /> Quiz · {quiz.length} questions
+                <HelpCircle size={12} /> Quiz · {t.quiz.questionsCount.replace('{n}', String(quiz.length))}
               </h2>
               <div className="space-y-4">
                 {quiz.map((q, qi) => {
@@ -614,11 +614,11 @@ export default function StudentConceptDetailPage() {
                 {Object.keys(quizAnswers).length === quiz.length && quiz.length > 0 && (
                   <div className="bg-purple-500/10 border border-purple-500/20 rounded-2xl p-4 text-center">
                     <p className="text-purple-300 font-semibold text-lg">
-                      {Object.entries(quizAnswers).filter(([qi, oi]) => oi === quiz[Number(qi)].correct_idx).length}/{quiz.length} correct
+                      {Object.entries(quizAnswers).filter(([qi, oi]) => oi === quiz[Number(qi)].correct_idx).length}/{quiz.length} {t.quiz.correct}
                     </p>
                     <p className="text-[var(--tx7)] text-xs mt-1">
                       {Object.entries(quizAnswers).filter(([qi, oi]) => oi === quiz[Number(qi)].correct_idx).length === quiz.length
-                        ? 'Perfect score! 🎉' : 'Review the explanations above and try again soon'}
+                        ? t.concept.perfectScore : t.concept.reviewExplanations}
                     </p>
                   </div>
                 )}
@@ -636,9 +636,9 @@ export default function StudentConceptDetailPage() {
             {activating
               ? <Loader2 size={16} className="animate-spin text-purple-400" />
               : <MessageSquare size={16} className="text-purple-400" />}
-            Ask AI about this concept
+            {t.concept.askConceptAI}
           </span>
-          <span className="text-[var(--tx7)] text-xs">{chatOpen ? 'Close' : 'Open'}</span>
+          <span className="text-[var(--tx7)] text-xs">{chatOpen ? t.concept.chatClose : t.concept.chatOpen}</span>
         </button>
 
         {chatOpen && (
@@ -646,7 +646,7 @@ export default function StudentConceptDetailPage() {
             <div className="px-4 py-3 space-y-3 max-h-80 overflow-y-auto">
               {chatMsgs.length === 0 && (
                 <p className="text-[var(--tx7)] text-sm text-center py-4">
-                  Ask anything about <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
+                  {t.concept.chatAskAnything} <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
                 </p>
               )}
               {chatMsgs.map((msg, i) => (
@@ -685,7 +685,7 @@ export default function StudentConceptDetailPage() {
 
             <form onSubmit={sendChatMessage} className="flex gap-2 px-4 py-3 border-t border-[var(--bd)]">
               <input value={chatInput} onChange={e => setChatInput(e.target.value)}
-                placeholder={chatResource ? `Ask about ${chatResource.title}…` : 'Ask a question…'}
+                placeholder={chatResource ? `${t.concept.chatAskAnything} ${chatResource.title}…` : t.concept.chatPlaceholder}
                 disabled={chatSending}
                 className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                            text-[var(--tx1)] placeholder-[var(--tx8)] focus:outline-none focus:border-purple-500 disabled:opacity-50" />
