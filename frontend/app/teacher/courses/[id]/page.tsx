@@ -154,16 +154,6 @@ export default function CourseDetailPage() {
     loadClassrooms();
   }, [user, courseId]);
 
-  // Close wand popover on outside click
-  useEffect(() => {
-    if (!wandOpen) return;
-    function handleClick(e: MouseEvent) {
-      const target = e.target as HTMLElement;
-      if (!target.closest('[data-wand-popover]')) setWandOpen(null);
-    }
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [wandOpen]);
 
   async function load() {
     setLoading(true);
@@ -720,8 +710,8 @@ export default function CourseDetailPage() {
                                text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
                     <Crop size={12} /> {t.teacher.fromPdf}
                   </button>
-                  {/* Magic-wand button + popover */}
-                  <div className="relative" data-wand-popover>
+                  {/* Magic-wand button */}
+                  <div className="relative">
                     {unit.concepts.length === 0 && (
                       <span className="absolute -top-1.5 -left-1.5 w-3 h-3 rounded-full bg-amber-400 ring-2 ring-[var(--bg)] z-10" title="No concepts extracted yet" />
                     )}
@@ -730,7 +720,7 @@ export default function CourseDetailPage() {
                         if (unit.concepts.length === 0) {
                           setWandTypes(new Set(['suggest', 'summary', 'quiz', 'flashcard', 'audio']));
                         }
-                        setWandOpen(wandOpen === unit.chapter_ref ? null : unit.chapter_ref!);
+                        setWandOpen(unit.chapter_ref!);
                       }}
                       disabled={wandBusy === unit.chapter_ref}
                       className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-lg border border-[var(--bd)]
@@ -740,55 +730,6 @@ export default function CourseDetailPage() {
                         : <Wand2 size={12} />}
                       {t.teacher.wandGenerate}
                     </button>
-
-                    {wandOpen === unit.chapter_ref && (
-                      <div className="absolute right-0 bottom-full mb-1.5 z-50 w-64 rounded-xl border border-[var(--bd)]
-                                      bg-[var(--surface)] shadow-xl p-3 space-y-2">
-                        {/* Asset type checkboxes */}
-                        {([
-                          ['summary',   t.teacher.wandSummary,   null],
-                          ['quiz',      t.teacher.wandQuiz,       null],
-                          ['flashcard', t.teacher.wandFlashcard,  null],
-                          ['audio',     t.teacher.wandAudio,      null],
-                          ['video',     t.teacher.wandVideo,      t.teacher.wandVideoWarn],
-                          ['suggest',   t.teacher.wandSuggest,    null],
-                        ] as [string, string, string | null][]).map(([type, label, warn]) => (
-                          <label key={type} className="flex items-center gap-2 cursor-pointer group">
-                            <input
-                              type="checkbox"
-                              checked={wandTypes.has(type)}
-                              onChange={() => toggleWandType(type)}
-                              className="accent-purple-500 w-3.5 h-3.5 shrink-0"
-                            />
-                            <span className="text-xs text-[var(--tx3)] group-hover:text-[var(--tx1)] transition-colors flex items-center gap-1.5">
-                              {label}
-                              {warn && <span className="text-[10px] text-amber-400/80">{warn}</span>}
-                            </span>
-                          </label>
-                        ))}
-
-                        {/* Skip existing toggle */}
-                        <div className="border-t border-[var(--bd)] pt-2 mt-1">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={wandSkip}
-                              onChange={e => setWandSkip(e.target.checked)}
-                              className="accent-purple-500 w-3.5 h-3.5 shrink-0"
-                            />
-                            <span className="text-[11px] text-[var(--tx6)]">{t.teacher.wandSkipExisting}</span>
-                          </label>
-                        </div>
-
-                        <button
-                          onClick={() => generateWand(unit.chapter_ref!)}
-                          disabled={wandTypes.size === 0}
-                          className="w-full mt-1 py-1.5 text-xs rounded-lg bg-purple-600 hover:bg-purple-500
-                                     text-white font-medium transition-colors disabled:opacity-40 flex items-center justify-center gap-1.5">
-                          <Sparkles size={11} /> {t.teacher.wandGenerateBtn}
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
               )}
@@ -955,6 +896,78 @@ export default function CourseDetailPage() {
           </div>
         </div>
       )}
+
+      {/* Magic-wand modal */}
+      {wandOpen && (() => {
+        const wandUnit = course?.units.find((u: Unit) => u.chapter_ref === wandOpen);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={() => setWandOpen(null)}>
+            <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+            <div
+              className="relative w-full max-w-sm rounded-2xl border border-[var(--bd)] bg-[var(--surface)] shadow-2xl p-5"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <p className="text-xs text-[var(--tx6)] mb-0.5">{wandUnit?.title}</p>
+                  <h3 className="text-sm font-semibold text-[var(--tx1)] flex items-center gap-1.5">
+                    <Wand2 size={14} className="text-purple-400" /> {t.teacher.wandGenerate}
+                  </h3>
+                </div>
+                <button onClick={() => setWandOpen(null)} className="text-[var(--tx6)] hover:text-[var(--tx1)] transition-colors text-lg leading-none">✕</button>
+              </div>
+
+              {/* Asset type checkboxes */}
+              <div className="space-y-3">
+                {([
+                  ['summary',   t.teacher.wandSummary,   null],
+                  ['quiz',      t.teacher.wandQuiz,       null],
+                  ['flashcard', t.teacher.wandFlashcard,  null],
+                  ['audio',     t.teacher.wandAudio,      null],
+                  ['video',     t.teacher.wandVideo,      t.teacher.wandVideoWarn],
+                  ['suggest',   t.teacher.wandSuggest,    null],
+                ] as [string, string, string | null][]).map(([type, label, warn]) => (
+                  <label key={type} className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={wandTypes.has(type)}
+                      onChange={() => toggleWandType(type)}
+                      className="accent-purple-500 w-4 h-4 shrink-0"
+                    />
+                    <span className="text-sm text-[var(--tx3)] group-hover:text-[var(--tx1)] transition-colors flex items-center gap-2">
+                      {label}
+                      {warn && <span className="text-xs text-amber-400/80">{warn}</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+
+              {/* Skip existing toggle */}
+              <div className="border-t border-[var(--bd)] mt-4 pt-3">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={wandSkip}
+                    onChange={e => setWandSkip(e.target.checked)}
+                    className="accent-purple-500 w-4 h-4 shrink-0"
+                  />
+                  <span className="text-sm text-[var(--tx6)]">{t.teacher.wandSkipExisting}</span>
+                </label>
+              </div>
+
+              {/* Generate button */}
+              <button
+                onClick={() => generateWand(wandOpen)}
+                disabled={wandTypes.size === 0}
+                className="mt-4 w-full py-2 text-sm rounded-xl bg-purple-600 hover:bg-purple-500
+                           text-white font-medium transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+                <Sparkles size={13} /> {t.teacher.wandGenerateBtn}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {cropTarget && (
         <PDFViewerModal
