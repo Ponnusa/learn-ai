@@ -4203,6 +4203,21 @@ async def serve_concept_video(concept_id: str):
 
 # ── Asset generation backgrounds ─────────────────────────────────────────────
 
+def _shuffle_quiz_options(questions: list) -> list:
+    """Randomly redistribute each question's options so the correct answer isn't always first."""
+    import random
+    out = []
+    for q in questions:
+        opts = list(q.get("options", []))
+        ci   = q.get("correct_idx", 0)
+        if opts and 0 <= ci < len(opts):
+            answer = opts[ci]
+            random.shuffle(opts)
+            ci = opts.index(answer)
+        out.append({**q, "options": opts, "correct_idx": ci})
+    return out
+
+
 def build_quiz_prompt(title: str, subject: str, source: str, extra: str = "", language: str = 'en') -> str:
     """Shared by the per-concept quiz generator and the per-student assignment generator."""
     lang_instruction = ""
@@ -4226,7 +4241,7 @@ Rules:
 - Vary difficulty: 2 recall, 2 comprehension, 2 application questions{lang_instruction}
 
 Return ONLY valid JSON:
-{{"questions": [{{"question": "...", "options": ["A", "B", "C", "D"], "correct_idx": 0, "explanation": "..."}}]}}"""
+{{"questions": [{{"question": "...", "options": ["A", "B", "C", "D"], "correct_idx": 2, "explanation": "..."}}]}}"""
 
 
 def build_flashcard_prompt(title: str, source: str, extra: str = "", language: str = 'en') -> str:
@@ -4379,7 +4394,7 @@ async def generate_quiz_from_chat(
         max_tokens=3000,
         temperature=0.3,
     )
-    questions = _json.loads(response.choices[0].message.content).get("questions", [])
+    questions = _shuffle_quiz_options(_json.loads(response.choices[0].message.content).get("questions", []))
 
     async with get_db() as db:
         max_pos = await db.fetchval(
@@ -4651,7 +4666,7 @@ async def _generate_quiz_bg(concept_id: str, course_id: str):
             temperature=0.3,
         )
         result = json.loads(response.choices[0].message.content)
-        questions = result.get("questions", [])
+        questions = _shuffle_quiz_options(result.get("questions", []))
 
         async with get_db() as db:
             await db.execute(
