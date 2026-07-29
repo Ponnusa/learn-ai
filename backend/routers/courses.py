@@ -3471,6 +3471,33 @@ async def get_pipeline_status(course_id: str, authorization: str = Header(...)):
             WHERE cu.course_id = $1::uuid AND ch.status = 'processing'
         """, course_id)
 
+    # Sync video_status on any concept whose Cloud Run job has since completed/failed.
+    # Cloud Run writes directly to the videos table; this keeps course_concepts in step
+    # without requiring a separate webhook, so the pipeline banner clears correctly.
+    async with get_db() as db:
+        await db.execute("""
+            UPDATE course_concepts AS cc
+            SET video_status = CASE
+                    WHEN v.status IN ('complete', 'completed') THEN 'ready'
+                    WHEN v.status = 'failed' THEN 'failed'
+                    ELSE cc.video_status
+                END,
+                video_url = CASE
+                    WHEN v.status IN ('complete', 'completed') THEN v.video_url
+                    ELSE cc.video_url
+                END,
+                video_error = CASE
+                    WHEN v.status = 'failed' THEN v.error_message
+                    ELSE cc.video_error
+                END
+            FROM videos v, course_units cu
+            WHERE cu.course_id = $1::uuid
+              AND cc.unit_id = cu.id
+              AND cc.video_status = 'generating'
+              AND cc.video_job_id = v.id
+              AND v.status IN ('complete', 'completed', 'failed')
+        """, course_id)
+
     # Also count concepts with in-flight asset generation (quiz/flashcard/audio/video).
     async with get_db() as db:
         generating_assets = await db.fetchval("""
