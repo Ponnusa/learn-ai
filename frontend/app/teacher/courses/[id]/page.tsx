@@ -735,7 +735,7 @@ export default function CourseDetailPage() {
 
                     {wandOpen === unit.chapter_ref && (
                       <div className="absolute right-0 top-full mt-1.5 z-50 w-64 rounded-xl border border-[var(--bd)]
-                                      bg-[var(--bg1)] shadow-xl p-3 space-y-2">
+                                      bg-[var(--surface)] shadow-xl p-3 space-y-2">
                         {/* Asset type checkboxes */}
                         {([
                           ['summary',   t.teacher.wandSummary,   null],
