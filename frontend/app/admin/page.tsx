@@ -5,12 +5,13 @@ import {
   CheckCircle, XCircle, Plus, Loader2, Building2, Users,
   KeyRound, ClipboardList, MessageSquare, Video, Search,
   ToggleLeft, ToggleRight, Copy, Check, KeySquare,
+  ChevronDown, UserPlus, GraduationCap,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab = 'users' | 'applications' | 'invites';
+type Tab = 'users' | 'applications' | 'invites' | 'institutions';
 
 interface UserRow {
   id: string;
@@ -43,6 +44,16 @@ interface Stats {
   total_messages: number; total_videos: number;
 }
 
+interface InstitutionRow {
+  id: string; name: string; type: string; plan: string; country?: string;
+  max_teachers: number; max_students: number;
+  teacher_count: number; student_count: number; created_at: string;
+}
+
+interface InstMember {
+  id: string; email: string; name?: string; status: string; joined_at?: string;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const { user, token } = useSessionStore();
@@ -65,6 +76,22 @@ export default function AdminPage() {
   const [pwdValue,    setPwdValue]    = useState('');
   const [pwdLoading,  setPwdLoading]  = useState(false);
 
+  // Institutions tab
+  const [institutions,      setInstitutions]      = useState<InstitutionRow[]>([]);
+  const [newInstName,       setNewInstName]       = useState('');
+  const [newInstAdminName,  setNewInstAdminName]  = useState('');
+  const [newInstPlan,       setNewInstPlan]       = useState('trial');
+  const [creatingInst,      setCreatingInst]      = useState(false);
+  const [instLastCreds,     setInstLastCreds]     = useState<{ email: string; password: string; instName: string } | null>(null);
+  const [instCopied,        setInstCopied]        = useState(false);
+  const [expandedInst,      setExpandedInst]      = useState<string | null>(null);
+  const [instMembers,       setInstMembers]       = useState<Record<string, InstMember[]>>({});
+  const [instMembersLoading,setInstMembersLoading]= useState<string | null>(null);
+  const [newTeacherName,    setNewTeacherName]    = useState<Record<string, string>>({});
+  const [provisioningTeacher,setProvisioningTeacher] = useState<string | null>(null);
+  const [teacherCreds,      setTeacherCreds]      = useState<Record<string, { name: string; email: string; password: string }[]>>({});
+  const [tcCopied,          setTcCopied]          = useState<string | null>(null);
+
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   useEffect(() => {
@@ -76,14 +103,16 @@ export default function AdminPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [sRes, aRes, iRes] = await Promise.all([
+      const [sRes, aRes, iRes, instRes] = await Promise.all([
         fetch(`${API_BASE}/api/admin/stats`, { headers }),
         fetch(`${API_BASE}/api/admin/applications?status=pending`, { headers }),
         fetch(`${API_BASE}/api/admin/invites`, { headers }),
+        fetch(`${API_BASE}/api/admin/institutions`, { headers }),
       ]);
       setStats(await sRes.json());
       setApps(await aRes.json());
       setInvites(await iRes.json());
+      if (instRes.ok) setInstitutions(await instRes.json());
     } catch { /* ignore */ } finally { setLoading(false); }
   }
 
@@ -161,6 +190,84 @@ export default function AdminPage() {
     } finally {
       setCreating(false);
     }
+  }
+
+  async function createInstitution() {
+    if (!newInstName.trim() || !newInstAdminName.trim()) return;
+    setCreatingInst(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/institutions`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ name: newInstName, admin_name: newInstAdminName, plan: newInstPlan }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed');
+      setInstLastCreds({ email: data.email, password: data.temp_password, instName: newInstName });
+      setNewInstName(''); setNewInstAdminName(''); setNewInstPlan('trial');
+      loadAll();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setCreatingInst(false);
+    }
+  }
+
+  function copyInstCredentials() {
+    if (!instLastCreds) return;
+    navigator.clipboard.writeText(`Login: ${instLastCreds.email}\nPassword: ${instLastCreds.password}`);
+    setInstCopied(true);
+    setTimeout(() => setInstCopied(false), 2000);
+  }
+
+  async function toggleInst(instId: string) {
+    if (expandedInst === instId) { setExpandedInst(null); return; }
+    setExpandedInst(instId);
+    if (!instMembers[instId]) {
+      setInstMembersLoading(instId);
+      try {
+        await loadInstMembers(instId);
+      } catch { /* ignore */ } finally {
+        setInstMembersLoading(null);
+      }
+    }
+  }
+
+  async function loadInstMembers(instId: string) {
+    const res = await fetch(`${API_BASE}/api/institutions/${instId}/members?role=teacher`, { headers });
+    if (res.ok) {
+      const data = await res.json();
+      setInstMembers(p => ({ ...p, [instId]: data }));
+    }
+  }
+
+  async function provisionTeacher(instId: string) {
+    const name = newTeacherName[instId]?.trim();
+    if (!name) return;
+    setProvisioningTeacher(instId);
+    try {
+      const res = await fetch(`${API_BASE}/api/institutions/${instId}/teachers/provision`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Failed');
+      setTeacherCreds(p => ({ ...p, [instId]: [...(p[instId] || []), data] }));
+      setNewTeacherName(p => ({ ...p, [instId]: '' }));
+      await loadInstMembers(instId);
+      loadAll();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setProvisioningTeacher(null);
+    }
+  }
+
+  function copyTeacherCreds(instId: string) {
+    const creds = teacherCreds[instId] || [];
+    const text = creds.map(c => `${c.name}\t${c.email}\t${c.password}`).join('\n');
+    navigator.clipboard.writeText(`Name\tEmail\tPassword\n${text}`);
+    setTcCopied(instId);
+    setTimeout(() => setTcCopied(null), 2000);
   }
 
   function copyCredentials() {
@@ -243,6 +350,7 @@ export default function AdminPage() {
             ['users',        `Users (${userTotal})`],
             ['applications', `Applications (${apps.length})`],
             ['invites',      `Invites (${invites.filter(i => !i.used_at).length} active)`],
+            ['institutions', `Institutions (${institutions.length})`],
           ] as const).map(([t, label]) => (
             <button key={t} onClick={() => setTab(t)}
               className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-all ${
@@ -451,6 +559,193 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* ── Institutions tab ──────────────────────────────────────────────── */}
+        {tab === 'institutions' && (
+          <div className="space-y-4">
+
+            {/* Create institution */}
+            <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
+              <p className="text-[var(--tx2)] text-sm font-medium mb-3">Create Institution</p>
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <input
+                  placeholder="Institution name"
+                  value={newInstName} onChange={e => setNewInstName(e.target.value)}
+                  className={`${inputCls} col-span-2`}
+                />
+                <input
+                  placeholder="Admin name (e.g. John Smith)"
+                  value={newInstAdminName} onChange={e => setNewInstAdminName(e.target.value)}
+                  className={inputCls}
+                />
+                <select value={newInstPlan} onChange={e => setNewInstPlan(e.target.value)} className={inputCls}>
+                  <option value="trial">Trial</option>
+                  <option value="basic">Basic</option>
+                  <option value="pro">Pro</option>
+                </select>
+              </div>
+              <p className="text-[var(--tx8)] text-xs mb-3">
+                Admin login will be auto-generated as <span className="font-mono text-purple-400">admin.{'{'}inst-name{'}'}</span>@learnxai.app
+              </p>
+              <button
+                onClick={createInstitution}
+                disabled={creatingInst || !newInstName.trim() || !newInstAdminName.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40"
+              >
+                {creatingInst ? <Loader2 size={14} className="animate-spin" /> : <><Plus size={14} /> Create Institution</>}
+              </button>
+            </div>
+
+            {/* Institution admin credentials popup */}
+            {instLastCreds && (
+              <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-green-400 font-semibold text-sm mb-2">
+                      Institution "{instLastCreds.instName}" created — share admin credentials
+                    </p>
+                    <p className="text-[var(--tx2)] text-sm font-mono">Email: <span className="text-white">{instLastCreds.email}</span></p>
+                    <p className="text-[var(--tx2)] text-sm font-mono">Password: <span className="text-white">{instLastCreds.password}</span></p>
+                    <p className="text-[var(--tx7)] text-xs mt-2">Institution admin can change password from Settings after first login.</p>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    <button onClick={copyInstCredentials}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-500/20 hover:bg-green-500/30 text-green-400 text-xs rounded-lg transition-all">
+                      {instCopied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                    </button>
+                    <button onClick={() => setInstLastCreds(null)} className="text-[var(--tx8)] hover:text-[var(--tx4)] text-xs px-2">✕</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Institution list */}
+            {institutions.length === 0 && (
+              <p className="text-[var(--tx6)] text-sm text-center py-12">No institutions yet</p>
+            )}
+            {institutions.map(inst => (
+              <div key={inst.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden">
+
+                {/* Header row */}
+                <button
+                  className="w-full flex items-center justify-between p-4 hover:bg-[var(--ov1)] transition-colors text-left"
+                  onClick={() => toggleInst(inst.id)}
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Building2 size={15} className="text-purple-400" />
+                      <p className="text-[var(--tx1)] font-medium">{inst.name}</p>
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 capitalize">{inst.plan}</span>
+                    </div>
+                    <p className="text-[var(--tx7)] text-xs mt-0.5 pl-5">
+                      <GraduationCap size={10} className="inline mr-1" />{inst.teacher_count}/{inst.max_teachers} teachers ·{' '}
+                      <Users size={10} className="inline mr-1" />{inst.student_count}/{inst.max_students} students
+                      {inst.country ? ` · ${inst.country}` : ''}
+                    </p>
+                  </div>
+                  <ChevronDown size={16} className={`text-[var(--tx7)] transition-transform ${expandedInst === inst.id ? 'rotate-180' : ''}`} />
+                </button>
+
+                {/* Expanded: teachers + add form */}
+                {expandedInst === inst.id && (
+                  <div className="border-t border-[var(--bd)] p-4 space-y-4">
+
+                    {/* Teacher list */}
+                    {instMembersLoading === inst.id ? (
+                      <div className="flex items-center gap-2 text-[var(--tx7)] text-sm">
+                        <Loader2 size={14} className="animate-spin" /> Loading teachers…
+                      </div>
+                    ) : (
+                      <div>
+                        <p className="text-[var(--tx5)] text-xs font-medium mb-2 uppercase tracking-wide">Teachers</p>
+                        {(instMembers[inst.id] || []).length === 0 ? (
+                          <p className="text-[var(--tx7)] text-sm">No teachers yet — add one below.</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {(instMembers[inst.id] || []).map(m => (
+                              <div key={m.id} className="flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--ov1)]">
+                                <div>
+                                  <span className="text-[var(--tx2)] text-sm">{m.name || m.email}</span>
+                                  {m.name && <span className="text-[var(--tx7)] text-xs ml-2 font-mono">{m.email}</span>}
+                                </div>
+                                <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                                  m.status === 'active' ? 'bg-green-500/15 text-green-400' : 'bg-yellow-500/15 text-yellow-400'
+                                }`}>{m.status}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Add teacher form */}
+                    <div>
+                      <p className="text-[var(--tx5)] text-xs font-medium mb-2 uppercase tracking-wide">Add Teacher</p>
+                      <div className="flex gap-2">
+                        <input
+                          placeholder="Teacher name (e.g. Sarah Jones)"
+                          value={newTeacherName[inst.id] || ''}
+                          onChange={e => setNewTeacherName(p => ({ ...p, [inst.id]: e.target.value }))}
+                          onKeyDown={e => e.key === 'Enter' && provisionTeacher(inst.id)}
+                          className={`${inputCls} flex-1`}
+                        />
+                        <button
+                          onClick={() => provisionTeacher(inst.id)}
+                          disabled={provisioningTeacher === inst.id || !newTeacherName[inst.id]?.trim()}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm rounded-xl transition-all disabled:opacity-40"
+                        >
+                          {provisioningTeacher === inst.id
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : <><UserPlus size={13} /> Add</>}
+                        </button>
+                      </div>
+                      <p className="text-[var(--tx8)] text-xs mt-1.5">
+                        Login will be <span className="font-mono text-purple-400">{'{'}name{'}'}.{'{'}inst{'}'}</span>@learnxai.app with a generated password.
+                      </p>
+                    </div>
+
+                    {/* New teacher credentials */}
+                    {(teacherCreds[inst.id] || []).length > 0 && (
+                      <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-blue-400 text-sm font-medium">New teacher credentials — share these</p>
+                          <button
+                            onClick={() => copyTeacherCreds(inst.id)}
+                            className="flex items-center gap-1 px-2.5 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 text-xs rounded-lg transition-all"
+                          >
+                            {tcCopied === inst.id ? <><Check size={11} /> Copied</> : <><Copy size={11} /> Copy all</>}
+                          </button>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-[var(--tx7)] border-b border-[var(--bd)]">
+                                <th className="text-left pb-1.5 pr-4">Name</th>
+                                <th className="text-left pb-1.5 pr-4">Email</th>
+                                <th className="text-left pb-1.5">Password</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(teacherCreds[inst.id] || []).map((c, i) => (
+                                <tr key={i} className="border-b border-[var(--bd)]/50 last:border-0">
+                                  <td className="py-1.5 pr-4 text-[var(--tx2)]">{c.name}</td>
+                                  <td className="py-1.5 pr-4 font-mono text-purple-300">{c.email}</td>
+                                  <td className="py-1.5 font-mono text-[var(--tx2)]">{c.password}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                  </div>
+                )}
+              </div>
+            ))}
+
           </div>
         )}
 

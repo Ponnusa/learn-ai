@@ -2,6 +2,7 @@
 Super admin router — user management, application review, invite codes, platform stats.
 All routes require account_type = 'super_admin'.
 """
+import re
 import secrets
 import string
 from fastapi import APIRouter, HTTPException, Header, Query
@@ -389,7 +390,56 @@ async def list_invites(authorization: str = Header(...)):
     ]
 
 
-# ── Institutions list ─────────────────────────────────────────────────────────
+# ── Institutions management ───────────────────────────────────────────────────
+
+class CreateInstitutionRequest(BaseModel):
+    name:         str
+    admin_name:   str
+    inst_type:    str = "school"
+    plan:         str = "trial"
+    country:      str | None = None
+    max_teachers: int = 10
+    max_students: int = 100
+
+
+@router.post("/institutions")
+async def create_institution(req: CreateInstitutionRequest, authorization: str = Header(...)):
+    admin_id = await _require_super_admin(authorization)
+
+    inst_slug = re.sub(r"[^a-z0-9]+", ".", req.name.lower()).strip(".")
+
+    async with get_db() as db:
+        base_email = f"admin.{inst_slug}@learnxai.app"
+        taken = await db.fetchrow("SELECT id FROM users WHERE email = $1", base_email)
+        admin_email = f"admin.{inst_slug}.{secrets.token_hex(3)}@learnxai.app" if taken else base_email
+
+        temp_password = _gen_password()
+        pwd_hash = _hash_password(temp_password)
+
+        inst = await db.fetchrow("""
+            INSERT INTO institutions (name, type, plan, country, max_teachers, max_students)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
+        """, req.name, req.inst_type, req.plan, req.country, req.max_teachers, req.max_students)
+
+        user = await db.fetchrow("""
+            INSERT INTO users (email, name, account_type, knowledge_level, password_hash)
+            VALUES ($1, $2, 'institution_admin', 'intermediate', $3)
+            RETURNING id
+        """, admin_email, req.admin_name, pwd_hash)
+
+        await db.execute("""
+            INSERT INTO institution_members (institution_id, user_id, role, status, invited_by)
+            VALUES ($1, $2, 'admin', 'active', $3::uuid)
+        """, inst["id"], user["id"], admin_id)
+
+    return {
+        "institution_id": str(inst["id"]),
+        "email":          admin_email,
+        "temp_password":  temp_password,
+        "note":           "Share these credentials with the institution admin.",
+    }
+
 
 @router.get("/institutions")
 async def list_institutions(authorization: str = Header(...)):

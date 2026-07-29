@@ -2,13 +2,24 @@
 Institution router — institution admin manages teachers and students.
 All routes require account_type = 'institution_admin'.
 """
+import re
 import secrets
+import string
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 
 from database import get_db
-from routers.auth import decode_jwt
+from routers.auth import decode_jwt, _hash_password
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", ".", name.lower()).strip(".")
+
+
+def _gen_password(length: int = 10) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 from config import settings
 
 router = APIRouter(prefix="/api/institutions", tags=["institutions"])
@@ -33,6 +44,40 @@ async def _get_admin_institution(user_id: str, db):
     if not row:
         raise HTTPException(403, "No institution found for this admin")
     return str(row["institution_id"])
+
+
+# ── My institution (for institution_admin dashboard) ─────────────────────────
+
+@router.get("/mine")
+async def get_my_institution(authorization: str = Header(...)):
+    user_id = await _require_institution_admin(authorization)
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT institution_id FROM institution_members
+            WHERE user_id = $1::uuid AND role = 'admin' AND status = 'active'
+        """, user_id)
+        if not row:
+            raise HTTPException(404, "No institution found for this admin")
+        inst_id = str(row["institution_id"])
+        inst = await db.fetchrow("SELECT * FROM institutions WHERE id = $1::uuid", inst_id)
+        teacher_count = await db.fetchval("""
+            SELECT COUNT(*) FROM institution_members
+            WHERE institution_id = $1::uuid AND role = 'teacher' AND status = 'active'
+        """, inst_id)
+        student_count = await db.fetchval("""
+            SELECT COUNT(*) FROM institution_members
+            WHERE institution_id = $1::uuid AND role = 'student' AND status = 'active'
+        """, inst_id)
+    return {
+        "id":            inst_id,
+        "name":          inst["name"],
+        "type":          inst["type"],
+        "plan":          inst["plan"],
+        "max_teachers":  inst["max_teachers"],
+        "max_students":  inst["max_students"],
+        "teacher_count": int(teacher_count or 0),
+        "student_count": int(student_count or 0),
+    }
 
 
 # ── Institution overview ──────────────────────────────────────────────────────
@@ -101,7 +146,59 @@ async def list_members(
     ]
 
 
-# ── Invite a teacher ──────────────────────────────────────────────────────────
+# ── Provision teacher with synthetic email ────────────────────────────────────
+
+class ProvisionTeacherRequest(BaseModel):
+    name:     str
+    password: str = ""
+
+
+@router.post("/{institution_id}/teachers/provision")
+async def provision_teacher(
+    institution_id: str,
+    req:            ProvisionTeacherRequest,
+    authorization:  str = Header(...),
+):
+    user_id = await _require_institution_admin(authorization)
+    async with get_db() as db:
+        inst = await db.fetchrow(
+            "SELECT name, max_teachers FROM institutions WHERE id = $1::uuid", institution_id
+        )
+        if not inst:
+            raise HTTPException(404, "Institution not found")
+
+        current = await db.fetchval("""
+            SELECT COUNT(*) FROM institution_members
+            WHERE institution_id = $1::uuid AND role = 'teacher' AND status = 'active'
+        """, institution_id)
+        if int(current or 0) >= inst["max_teachers"]:
+            raise HTTPException(400, f"Teacher limit reached ({inst['max_teachers']}). Upgrade your plan.")
+
+        inst_slug  = _slug(inst["name"])
+        name_slug  = _slug(req.name)
+        base_email = f"{name_slug}.{inst_slug}@learnxai.app"
+        taken      = await db.fetchrow("SELECT id FROM users WHERE email = $1", base_email)
+        email      = f"{name_slug}.{inst_slug}.{secrets.token_hex(3)}@learnxai.app" if taken else base_email
+
+        temp_password = req.password or _gen_password()
+        pwd_hash      = _hash_password(temp_password)
+
+        teacher = await db.fetchrow("""
+            INSERT INTO users (email, name, account_type, knowledge_level, password_hash)
+            VALUES ($1, $2, 'teacher', 'intermediate', $3)
+            RETURNING id
+        """, email, req.name, pwd_hash)
+
+        await db.execute("""
+            INSERT INTO institution_members (institution_id, user_id, role, status, invited_by)
+            VALUES ($1::uuid, $2, 'teacher', 'active', $3::uuid)
+            ON CONFLICT (institution_id, user_id) DO UPDATE SET status = 'active', invited_by = $3::uuid
+        """, institution_id, teacher["id"], user_id)
+
+    return {"name": req.name, "email": email, "password": temp_password}
+
+
+# ── Invite a teacher (email-based, legacy) ────────────────────────────────────
 
 class InviteTeacherRequest(BaseModel):
     email: EmailStr
