@@ -135,10 +135,7 @@ export default function ConceptEditorPage() {
   const [assetsLoaded,    setAssetsLoaded]    = useState(false);
   const [generatingQuiz,  setGeneratingQuiz]  = useState(false);
   const [generatingCards, setGeneratingCards] = useState(false);
-  const [generatingAudio, setGeneratingAudio] = useState(false);
   const [approvingA,        setApprovingA]        = useState<Record<string, boolean>>({});
-  const [addingToTextbook,  setAddingToTextbook]  = useState<'audio' | null>(null);
-  const [addedToTextbook,   setAddedToTextbook]   = useState<Set<string>>(new Set());
   const [addingMsgBlock,    setAddingMsgBlock]    = useState<string | null>(null);
 
   // Resources → Textbook
@@ -721,7 +718,6 @@ export default function ConceptEditorPage() {
       if (!anyGen) {
         setAssetPolling(false);
         setGeneratingQuiz(false); setGeneratingCards(false);
-        setGeneratingAudio(false);
       }
     }, 3000);
     return () => clearInterval(iv);
@@ -757,10 +753,9 @@ export default function ConceptEditorPage() {
     setConcept(prev => prev ? { ...prev, images: prev.images.filter(i => i.id !== imgId) } : prev);
   }
 
-  async function triggerGenerate(type: 'quiz' | 'flashcards' | 'audio') {
+  async function triggerGenerate(type: 'quiz' | 'flashcards') {
     if (type === 'quiz')       setGeneratingQuiz(true);
     if (type === 'flashcards') setGeneratingCards(true);
-    if (type === 'audio')      setGeneratingAudio(true);
     const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/generate/${type}`, {
       method: 'POST', headers: authH,
     });
@@ -769,7 +764,6 @@ export default function ConceptEditorPage() {
       alert(err.detail || 'Failed to start generation');
       if (type === 'quiz')       setGeneratingQuiz(false);
       if (type === 'flashcards') setGeneratingCards(false);
-      if (type === 'audio')      setGeneratingAudio(false);
       return;
     }
     setAssetPolling(true);
@@ -781,25 +775,7 @@ export default function ConceptEditorPage() {
     await loadAssets();
   }
 
-  async function addAudioToTextbook() {
-    if (!assets?.audio_url) return;
-    setAddingToTextbook('audio');
-    try {
-      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/content-blocks`, {
-        method: 'POST', headers: jsonH,
-        body: JSON.stringify({
-          type:  'audio',
-          title: (concept?.title ?? 'Concept') + ' — Audio narration',
-          body:  `${API_BASE}${assets.audio_url}`,
-        }),
-      });
-      if (res.ok) setAddedToTextbook(prev => new Set([...prev, 'audio']));
-    } catch { /* ignore */ } finally {
-      setAddingToTextbook(null);
-    }
-  }
-
-  async function approveAsset(type: 'quiz' | 'flashcards' | 'audio' | 'video') {
+  async function approveAsset(type: 'quiz' | 'flashcards' | 'video') {
     setApprovingA(prev => ({ ...prev, [type]: true }));
     await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/assets/approve`, {
       method: 'POST', headers: jsonH, body: JSON.stringify({ [type]: true }),
@@ -2129,41 +2105,6 @@ export default function ConceptEditorPage() {
                             </div>
                           ))}
                         </div>
-                      </div>
-                    )}
-                  </AssetSection>
-
-                  <AssetSection
-                    title={t.teacher.assetAudio} icon={<Volume2 size={14} />}
-                    status={assets.audio_status}
-                    isGenerating={generatingAudio || assets.audio_status === 'generating'}
-                    canGenerate={!!(concept.ai_transcript || concept.ai_summary)}
-                    canApprove={assets.audio_status === 'ready'}
-                    approving={!!approvingA['audio']}
-                    onGenerate={() => triggerGenerate('audio')}
-                    onApprove={() => approveAsset('audio')}
-                    noReset
-                  >
-                    {assets.audio_url && assets.audio_status !== 'generating' && (
-                      <div className="px-4 pb-4 mt-3">
-                        <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-4">
-                          <AudioPlayer src={`${API_BASE}${assets.audio_url}`} />
-                          {assets.audio_duration_sec && (
-                            <p className="text-[var(--tx8)] text-xs mt-1.5">{tF(t.teacher.audioFromTranscript, { min: Math.round(assets.audio_duration_sec / 60) })}</p>
-                          )}
-                        </div>
-                        <button
-                          onClick={addAudioToTextbook}
-                          disabled={!!addingToTextbook || addedToTextbook.has('audio')}
-                          className="mt-2 flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[var(--bd)]
-                                     text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all
-                                     disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {addingToTextbook === 'audio' ? <Loader2 size={11} className="animate-spin" /> :
-                           addedToTextbook.has('audio') ? <Check size={11} className="text-green-400" /> :
-                           <LayoutList size={11} />}
-                          {addedToTextbook.has('audio') ? 'Added to Textbook' : '→ Add to Textbook'}
-                        </button>
                       </div>
                     )}
                   </AssetSection>

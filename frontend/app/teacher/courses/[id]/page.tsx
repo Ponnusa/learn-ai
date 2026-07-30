@@ -933,7 +933,6 @@ export default function CourseDetailPage() {
                   ['summary',   t.teacher.wandSummary,   null],
                   ['quiz',      t.teacher.wandQuiz,       null],
                   ['flashcard', t.teacher.wandFlashcard,  null],
-                  ['audio',     t.teacher.wandAudio,      null],
                   ['video',     t.teacher.wandVideo,      t.teacher.wandVideoWarn],
                   ['suggest',   t.teacher.wandSuggest,    null],
                 ] as [string, string, string | null][]).map(([type, label, warn]) => (

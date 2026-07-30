@@ -2781,12 +2781,6 @@ async def _bulk_generate_bg(
                     await db.execute("UPDATE course_concepts SET flashcard_status='generating' WHERE id=$1::uuid", concept_id)
                 tier2.append(_generate_flashcards_bg(concept_id, course_id))
 
-            if 'audio' in gen_types and (c["ai_transcript"] or c["ai_summary"]) and \
-               (not skip_existing or c["audio_status"] not in ("ready", "approved", "generating")):
-                async with get_db() as db:
-                    await db.execute("UPDATE course_concepts SET audio_status='generating' WHERE id=$1::uuid", concept_id)
-                tier2.append(_generate_audio_bg(concept_id))
-
             if tier2:
                 await asyncio.gather(*tier2, return_exceptions=True)
 
@@ -4953,47 +4947,6 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
             )
 
 
-async def _generate_audio_bg(concept_id: str):
-    """Background: TTS via OpenAI — converts ai_transcript to MP3 and stores as bytea."""
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-
-    try:
-        async with get_db() as db:
-            concept = await db.fetchrow(
-                "SELECT ai_transcript, ai_summary, title FROM course_concepts WHERE id = $1::uuid",
-                concept_id,
-            )
-
-        script = concept["ai_transcript"] or concept["ai_summary"] or concept["title"]
-        if not script:
-            raise ValueError("No transcript or summary to convert")
-
-        response = await client.audio.speech.create(
-            model="tts-1",
-            voice="nova",
-            input=script[:4096],
-        )
-        audio_bytes = response.content
-
-        # Rough duration: TTS ~150 words/min, ~5 chars/word
-        duration_sec = max(1, len(script) // 25)
-
-        async with get_db() as db:
-            await db.execute("""
-                UPDATE course_concepts
-                SET audio_data = $1, audio_duration_sec = $2, audio_status = 'ready'
-                WHERE id = $3::uuid
-            """, audio_bytes, duration_sec, concept_id)
-
-    except Exception as exc:
-        logger.error("[audio] concept %s failed: %s", concept_id, exc)
-        async with get_db() as db:
-            await db.execute(
-                "UPDATE course_concepts SET audio_status = 'failed' WHERE id = $1::uuid", concept_id
-            )
-
-
 # ── Asset endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/concepts/{concept_id}/assets")
@@ -5174,37 +5127,9 @@ async def generate_concept_flashcards(
     return {"ok": True, "flashcard_status": "generating"}
 
 
-@router.post("/concepts/{concept_id}/generate/audio")
-async def generate_concept_audio(
-    concept_id: str,
-    bg: BackgroundTasks,
-    authorization: str = Header(...),
-):
-    await _require_teacher(authorization)
-    async with get_db() as db:
-        concept = await db.fetchrow(
-            "SELECT id, audio_status, ai_transcript, ai_summary FROM course_concepts WHERE id = $1::uuid",
-            concept_id,
-        )
-    if not concept:
-        raise HTTPException(404, "Concept not found")
-    if concept["audio_status"] == "generating":
-        raise HTTPException(409, "Audio generation already in progress")
-    if not concept["ai_transcript"] and not concept["ai_summary"]:
-        raise HTTPException(400, "Generate a summary/transcript first")
-
-    async with get_db() as db:
-        await db.execute(
-            "UPDATE course_concepts SET audio_status = 'generating' WHERE id = $1::uuid", concept_id
-        )
-    bg.add_task(_generate_audio_bg, concept_id)
-    return {"ok": True, "audio_status": "generating"}
-
-
 class AssetApproveRequest(BaseModel):
     quiz:       bool = False
     flashcards: bool = False
-    audio:      bool = False
     video:      bool = False
 
 
@@ -5218,7 +5143,6 @@ async def approve_concept_assets(
     sets: list[str] = []
     if req.quiz:       sets.append("quiz_status = 'approved'")
     if req.flashcards: sets.append("flashcard_status = 'approved'")
-    if req.audio:      sets.append("audio_status = 'approved'")
     if req.video:      sets.append("video_status = 'approved'")
     if not sets:
         return {"ok": True}

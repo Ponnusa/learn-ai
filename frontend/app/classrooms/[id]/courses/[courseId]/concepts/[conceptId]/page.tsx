@@ -10,11 +10,10 @@ import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, MessageSquare, Loader2, ImageIcon,
-  HelpCircle, Layers, Volume2, Video, ChevronLeft, ChevronRight,
+  HelpCircle, Layers, Video, ChevronLeft, ChevronRight,
   CheckCircle2, XCircle, Send, FileText, Dumbbell,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
-import { AudioPlayer } from '@/components/ui/AudioPlayer';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -302,7 +301,6 @@ export default function StudentConceptDetailPage() {
     : concept.content_text;
 
   const showVideo      = assets?.video_status === 'approved' && assets.video_url;
-  const showAudio      = !showVideo && assets?.audio_status === 'approved' && assets.has_audio && assets.audio_url;
   const showFlashcards = assets?.flashcard_status === 'approved' && (assets.flashcards?.length ?? 0) > 0;
   const showQuiz       = assets?.quiz_status === 'approved' && (assets.quiz?.length ?? 0) > 0;
   const flashcards     = assets?.flashcards ?? [];
@@ -363,14 +361,6 @@ export default function StudentConceptDetailPage() {
               <p className="px-4 py-2 text-[var(--tx8)] text-xs flex items-center gap-1.5">
                 <Video size={11} /> {t.concept.videoLesson}
               </p>
-            </div>
-          )}
-          {!hasBlocks && showAudio && (
-            <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4 mb-6">
-              <p className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Volume2 size={12} /> {t.concept.listen}
-              </p>
-              <AudioPlayer src={`${API_BASE}${assets!.audio_url}`} />
             </div>
           )}
           {!hasBlocks && explanation && (
