@@ -46,6 +46,7 @@ interface Stats {
 
 interface InstitutionRow {
   id: string; name: string; type: string; plan: string; country?: string;
+  language?: string | null;
   max_teachers: number; max_students: number;
   teacher_count: number; student_count: number; created_at: string;
 }
@@ -92,6 +93,8 @@ export default function AdminPage() {
   const [provisioningTeacher,setProvisioningTeacher] = useState<string | null>(null);
   const [teacherCreds,      setTeacherCreds]      = useState<Record<string, { name: string; email: string; password: string }[]>>({});
   const [tcCopied,          setTcCopied]          = useState<string | null>(null);
+  const [instLangValue,     setInstLangValue]     = useState<Record<string, string>>({});
+  const [savingInstLang,    setSavingInstLang]    = useState<string | null>(null);
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -223,6 +226,11 @@ export default function AdminPage() {
   async function toggleInst(instId: string) {
     if (expandedInst === instId) { setExpandedInst(null); return; }
     setExpandedInst(instId);
+    // seed the language editor with the current value
+    const inst = institutions.find(i => i.id === instId);
+    if (inst && instLangValue[instId] === undefined) {
+      setInstLangValue(p => ({ ...p, [instId]: inst.language ?? '' }));
+    }
     if (!instMembers[instId]) {
       setInstMembersLoading(instId);
       try {
@@ -231,6 +239,24 @@ export default function AdminPage() {
         setInstMembersLoading(null);
       }
     }
+  }
+
+  async function updateInstLanguage(instId: string) {
+    setSavingInstLang(instId);
+    try {
+      const lang = instLangValue[instId] || null;
+      const res = await fetch(`${API_BASE}/api/admin/institutions/${instId}/language`, {
+        method: 'PATCH', headers,
+        body: JSON.stringify({ language: lang }),
+      });
+      if (res.ok) {
+        setInstitutions(prev => prev.map(i => i.id === instId ? { ...i, language: lang } : i));
+      } else {
+        const d = await res.json();
+        alert(d.detail || 'Failed to update language');
+      }
+    } catch { alert('Request failed'); }
+    finally { setSavingInstLang(null); }
   }
 
   async function loadInstMembers(instId: string) {
@@ -647,6 +673,9 @@ export default function AdminPage() {
                       <Building2 size={15} className="text-purple-400" />
                       <p className="text-[var(--tx1)] font-medium">{inst.name}</p>
                       <span className="text-xs px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 capitalize">{inst.plan}</span>
+                      {inst.language && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-500/15 text-blue-400 uppercase">{inst.language}</span>
+                      )}
                     </div>
                     <p className="text-[var(--tx7)] text-xs mt-0.5 pl-5">
                       <GraduationCap size={10} className="inline mr-1" />{inst.teacher_count}/{inst.max_teachers} teachers ·{' '}
@@ -657,9 +686,35 @@ export default function AdminPage() {
                   <ChevronDown size={16} className={`text-[var(--tx7)] transition-transform ${expandedInst === inst.id ? 'rotate-180' : ''}`} />
                 </button>
 
-                {/* Expanded: teachers + add form */}
+                {/* Expanded: language + teachers + add form */}
                 {expandedInst === inst.id && (
                   <div className="border-t border-[var(--bd)] p-4 space-y-4">
+
+                    {/* Language setting */}
+                    <div>
+                      <p className="text-[var(--tx5)] text-xs font-medium mb-2 uppercase tracking-wide">Institution Language</p>
+                      <div className="flex gap-2">
+                        <select
+                          value={instLangValue[inst.id] ?? (inst.language ?? '')}
+                          onChange={e => setInstLangValue(p => ({ ...p, [inst.id]: e.target.value }))}
+                          className={`${inputCls} flex-1`}
+                        >
+                          <option value="">No lock — users choose freely</option>
+                          <option value="en">🇬🇧 English</option>
+                          <option value="fi">🇫🇮 Suomi (Finnish)</option>
+                          <option value="sv">🇸🇪 Svenska (Swedish)</option>
+                          <option value="es">🇪🇸 Español (Spanish)</option>
+                          <option value="fr">🇫🇷 Français (French)</option>
+                        </select>
+                        <button
+                          onClick={() => updateInstLanguage(inst.id)}
+                          disabled={savingInstLang === inst.id}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40"
+                        >
+                          {savingInstLang === inst.id ? <Loader2 size={13} className="animate-spin" /> : 'Save'}
+                        </button>
+                      </div>
+                    </div>
 
                     {/* Teacher list */}
                     {instMembersLoading === inst.id ? (
