@@ -47,8 +47,12 @@ _openai_sync = _openai_module.OpenAI(
     timeout=120.0,
 )
 
-# ── Model for Manim code generation ──────────────────────────────────────────────────
+# ── Models for Manim pipeline ────────────────────────────────────────────────────────
+# Heavy passes (setup block, beats, improve, auto-fix) — need top quality
 _CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-sonnet-5")
+# Light passes (SVG planner, SVG generator, storyboard, AST fix) — fast + cheap
+# Change CLAUDE_MODEL_FAST to swap all light calls at once without touching heavy ones
+_CLAUDE_MODEL_FAST = os.getenv("CLAUDE_MODEL_FAST", "claude-haiku-4-5-20251001")
 
 
 def _first_text(message) -> str:
@@ -308,7 +312,7 @@ CODE:
     try:
         response = claude_with_retry(
             _claude_sync.messages.create,
-            model=_CLAUDE_MODEL,
+            model=_CLAUDE_MODEL_FAST,  # mechanical name-fix insertion — Haiku is sufficient
             max_tokens=16000,
             messages=[{"role": "user", "content": fix_prompt}],
         )
@@ -1661,7 +1665,7 @@ def plan_svg_assets(verified_solution: str, subject: str) -> list:
     if remaining_slots > 0:
         try:
             msg = _claude_sync.messages.create(
-                model=_CLAUDE_MODEL,
+                model=_CLAUDE_MODEL_FAST,  # simple JSON list — Haiku is sufficient
                 max_tokens=150,
                 system=(
                     "You are planning SVG visual assets for an educational Manim animation.\n"
@@ -1749,7 +1753,7 @@ def call_claude_svg(asset_name: str) -> str:
         user_content += f"\nShape description: {hint}"
     user_content += "\nRemember: white strokes only, fill=none, no text, valid XML, centered in viewBox."
     msg = _claude_sync.messages.create(
-        model=_CLAUDE_MODEL,
+        model=_CLAUDE_MODEL_FAST,  # simple SVG shapes — Haiku is sufficient
         max_tokens=1000,
         system=SVG_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
@@ -2646,7 +2650,7 @@ MANDATORY RULES:
 
         storyboard_response = claude_with_retry(
             _claude_sync.messages.create,
-            model=_CLAUDE_MODEL,
+            model=_CLAUDE_MODEL_FAST,  # beat list planning — Haiku is sufficient
             max_tokens=2000,
             messages=[{"role": "user", "content": storyboard_prompt}]
         )
@@ -2790,8 +2794,10 @@ MANDATORY RULES:
         code = "\n".join(lines)
 
     # ─── Stage 3 — Critic loop ────────────────────────────────────────────────
-    try:
-        critic_prompt = f"""You are a Manim animation quality critic. Review the code below and fix any animation quality issues.
+    # Static checklist goes in the system prompt (cached); only dynamic parts
+    # (SVG list + code) go in the user message so the cache hit applies on
+    # every call that shares the same checklist within the 5-min cache TTL.
+    _CRITIC_SYSTEM = """You are a Manim animation quality critic. The user will give you Python code for a Manim animation. Review it and fix any issues from the checklist below.
 
 ANIMATION QUALITY CHECKLIST — check each item:
 
@@ -2817,9 +2823,6 @@ ANIMATION QUALITY CHECKLIST — check each item:
 
 8. VGROUP CRASH: Does any line use VGroup(*self.mobjects)?
    Fix: Replace EVERY occurrence with Group(*self.mobjects)
-
-9. SVG AUDIT: SVG assets available: {list(svg_urls.keys()) if svg_urls else 'none'}
-   If any named SVG object is drawn as a primitive shape, replace it with get_svg().
 
 10. ZERO-LENGTH LINE/DASHEDLINE CRASH: Guard with length check before every DashedLine/Line:
     _s, _e = np.array([...]), np.array([...])
@@ -2851,36 +2854,43 @@ ANIMATION QUALITY CHECKLIST — check each item:
     that assigns ALL missing objects before the first voiceover block.
 
 IMPORTANT: Only fix real problems. Do NOT restructure. Return ONLY the corrected Python code (no markdown fences).
-If the code is already good, return it unchanged.
+If the code passes ALL checks above with no issues, output exactly: NO_CHANGES_NEEDED"""
 
-CODE TO REVIEW:
-```python
-{code}
-```"""
+    try:
+        # Item 9 (SVG audit) is dynamic — put it in the user message with the code
+        svg_audit_line = (
+            f"9. SVG AUDIT: SVG assets available: {list(svg_urls.keys()) if svg_urls else 'none'}\n"
+            "   If any named SVG object is drawn as a primitive shape, replace it with get_svg().\n\n"
+        )
+        critic_user = f"{svg_audit_line}CODE TO REVIEW:\n```python\n{code}\n```"
 
         critic_response = claude_with_retry(
             _claude_sync.messages.create,
             model=_CLAUDE_MODEL,
             max_tokens=16000,
-            messages=[{"role": "user", "content": critic_prompt}]
+            system=[{"type": "text", "text": _CRITIC_SYSTEM, "cache_control": {"type": "ephemeral"}}],
+            messages=[{"role": "user", "content": critic_user}]
         )
         critic_text = _first_text(critic_response).strip()
-        if critic_text.startswith("```python"):
-            critic_text = critic_text[len("```python"):].strip()
-        if critic_text.startswith("```"):
-            critic_text = critic_text[3:].strip()
-        if critic_text.endswith("```"):
-            critic_text = critic_text[:-3].strip()
-        critic_text = _strip_critic_prose(critic_text)
-        try:
-            compile(critic_text, "<critic>", "exec")
-            if len(critic_text) > 100:
-                code = critic_text
-                logger.info(f"✅ Critic loop applied: {len(code)} chars")
-            else:
-                logger.warning("⚠️ Critic returned too-short code — keeping original")
-        except SyntaxError as critic_syn:
-            logger.warning(f"⚠️ Critic output has syntax error — keeping original: {critic_syn}")
+        if critic_text == "NO_CHANGES_NEEDED":
+            logger.info("✅ Critic: code passed all checks — no changes needed (0 output tokens wasted)")
+        else:
+            if critic_text.startswith("```python"):
+                critic_text = critic_text[len("```python"):].strip()
+            if critic_text.startswith("```"):
+                critic_text = critic_text[3:].strip()
+            if critic_text.endswith("```"):
+                critic_text = critic_text[:-3].strip()
+            critic_text = _strip_critic_prose(critic_text)
+            try:
+                compile(critic_text, "<critic>", "exec")
+                if len(critic_text) > 100:
+                    code = critic_text
+                    logger.info(f"✅ Critic loop applied: {len(code)} chars")
+                else:
+                    logger.warning("⚠️ Critic returned too-short code — keeping original")
+            except SyntaxError as critic_syn:
+                logger.warning(f"⚠️ Critic output has syntax error — keeping original: {critic_syn}")
     except Exception as critic_err:
         logger.warning(f"⚠️ Critic loop failed (non-fatal): {critic_err}")
 
