@@ -52,14 +52,29 @@ async def _get_admin_institution(user_id: str, db):
 
 @router.get("/my-lang")
 async def get_my_institution_language(authorization: str = Header(...)):
-    """Returns allowed languages for any institution member (student/teacher/admin)."""
+    """Returns allowed languages for any institution member.
+
+    Checks two paths:
+    1. institution_members — covers teachers and institution admins
+    2. classroom_students → classrooms → institutions — covers students who joined
+       via a classroom code/provision (they are NOT in institution_members)
+    """
     user_id = decode_jwt(authorization.removeprefix("Bearer ").strip())
     async with get_db() as db:
         row = await db.fetchrow("""
-            SELECT i.languages
-            FROM institution_members im
-            JOIN institutions i ON i.id = im.institution_id
-            WHERE im.user_id = $1::uuid AND im.status = 'active'
+            SELECT languages FROM (
+                SELECT i.languages
+                FROM institution_members im
+                JOIN institutions i ON i.id = im.institution_id
+                WHERE im.user_id = $1::uuid AND im.status = 'active'
+                UNION ALL
+                SELECT i.languages
+                FROM classroom_students cs
+                JOIN classrooms c ON c.id = cs.classroom_id
+                JOIN institutions i ON i.id = c.institution_id
+                WHERE cs.student_id = $1::uuid
+            ) combined
+            WHERE languages IS NOT NULL
             LIMIT 1
         """, user_id)
     langs = list(row["languages"]) if row and row["languages"] else None
