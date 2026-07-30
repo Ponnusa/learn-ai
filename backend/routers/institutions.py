@@ -63,15 +63,19 @@ async def get_my_institution_language(authorization: str = Header(...)):
     async with get_db() as db:
         row = await db.fetchrow("""
             SELECT languages FROM (
+                -- Path 1: direct institution member (teachers, admins)
                 SELECT i.languages
                 FROM institution_members im
                 JOIN institutions i ON i.id = im.institution_id
                 WHERE im.user_id = $1::uuid AND im.status = 'active'
                 UNION ALL
+                -- Path 2: student enrolled in a classroom whose teacher belongs to an institution
+                -- (classrooms.institution_id is not populated, so we follow the teacher)
                 SELECT i.languages
                 FROM classroom_students cs
                 JOIN classrooms c ON c.id = cs.classroom_id
-                JOIN institutions i ON i.id = c.institution_id
+                JOIN institution_members im ON im.user_id = c.teacher_id AND im.status = 'active'
+                JOIN institutions i ON i.id = im.institution_id
                 WHERE cs.student_id = $1::uuid
             ) combined
             WHERE languages IS NOT NULL
