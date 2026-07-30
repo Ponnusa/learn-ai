@@ -22,6 +22,8 @@ def _gen_password(length: int = 10) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 from config import settings
 
+_VALID_LANGUAGES = {'en', 'fi', 'sv', 'es', 'fr'}
+
 router = APIRouter(prefix="/api/institutions", tags=["institutions"])
 
 
@@ -44,6 +46,23 @@ async def _get_admin_institution(user_id: str, db):
     if not row:
         raise HTTPException(403, "No institution found for this admin")
     return str(row["institution_id"])
+
+
+# ── Institution language for any authenticated user ──────────────────────────
+
+@router.get("/my-lang")
+async def get_my_institution_language(authorization: str = Header(...)):
+    """Returns the institution language for any member (student/teacher/admin)."""
+    user_id = decode_jwt(authorization.removeprefix("Bearer ").strip())
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT i.language
+            FROM institution_members im
+            JOIN institutions i ON i.id = im.institution_id
+            WHERE im.user_id = $1::uuid AND im.status = 'active'
+            LIMIT 1
+        """, user_id)
+    return {"language": row["language"] if row else None}
 
 
 # ── My institution (for institution_admin dashboard) ─────────────────────────
@@ -73,11 +92,32 @@ async def get_my_institution(authorization: str = Header(...)):
         "name":          inst["name"],
         "type":          inst["type"],
         "plan":          inst["plan"],
+        "language":      inst["language"],
         "max_teachers":  inst["max_teachers"],
         "max_students":  inst["max_students"],
         "teacher_count": int(teacher_count or 0),
         "student_count": int(student_count or 0),
     }
+
+
+# ── Update institution language ───────────────────────────────────────────────
+
+class SetLanguageRequest(BaseModel):
+    language: str | None = None
+
+
+@router.patch("/mine/language")
+async def set_institution_language(req: SetLanguageRequest, authorization: str = Header(...)):
+    user_id = await _require_institution_admin(authorization)
+    if req.language is not None and req.language not in _VALID_LANGUAGES:
+        raise HTTPException(400, f"language must be one of: {', '.join(sorted(_VALID_LANGUAGES))}")
+    async with get_db() as db:
+        inst_id = await _get_admin_institution(user_id, db)
+        await db.execute(
+            "UPDATE institutions SET language = $1 WHERE id = $2::uuid",
+            req.language, inst_id,
+        )
+    return {"language": req.language}
 
 
 # ── Institution overview ──────────────────────────────────────────────────────

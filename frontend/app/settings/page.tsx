@@ -14,7 +14,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const { user, signOut } = useSessionStore();
   const { theme, setTheme } = useTheme();
-  const { language, setLanguage } = useLanguage();
+  const { language, setLanguage, institutionLanguage } = useLanguage();
   const { t } = useTranslation();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
 
@@ -133,24 +133,37 @@ export default function SettingsPage() {
                   <Globe size={15} className="text-[var(--tx5)]" />
                   <div>
                     <p className="text-[var(--tx2)] text-sm font-medium">{t.settings.language}</p>
-                    <p className="text-[var(--tx6)] text-xs mt-0.5">{t.settings.languageDesc}</p>
+                    <p className="text-[var(--tx6)] text-xs mt-0.5">
+                      {institutionLanguage
+                        ? 'Set by your institution'
+                        : t.settings.languageDesc}
+                    </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 bg-[var(--input)] rounded-xl p-1 border border-[var(--bd)]">
-                  {LANGUAGES.map((lang) => (
-                    <button
-                      key={lang}
-                      onClick={() => setLanguage(lang)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                        language === lang
-                          ? 'bg-purple-600 text-white shadow-sm'
-                          : 'text-[var(--tx5)] hover:text-[var(--tx2)]'
-                      }`}
-                    >
-                      {LANGUAGE_LABELS[lang]}
-                    </button>
-                  ))}
-                </div>
+                {institutionLanguage ? (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--input)] border border-[var(--bd)] opacity-70">
+                    <span className="text-xs font-medium text-[var(--tx3)]">
+                      {LANGUAGE_LABELS[institutionLanguage as keyof typeof LANGUAGE_LABELS] ?? institutionLanguage}
+                    </span>
+                    <span className="text-[10px] text-[var(--tx7)] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded-md">locked</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 bg-[var(--input)] rounded-xl p-1 border border-[var(--bd)]">
+                    {LANGUAGES.map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => setLanguage(lang)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                          language === lang
+                            ? 'bg-purple-600 text-white shadow-sm'
+                            : 'text-[var(--tx5)] hover:text-[var(--tx2)]'
+                        }`}
+                      >
+                        {LANGUAGE_LABELS[lang]}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 

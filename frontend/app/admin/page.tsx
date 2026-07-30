@@ -81,6 +81,7 @@ export default function AdminPage() {
   const [newInstName,       setNewInstName]       = useState('');
   const [newInstAdminName,  setNewInstAdminName]  = useState('');
   const [newInstPlan,       setNewInstPlan]       = useState('trial');
+  const [newInstLang,       setNewInstLang]       = useState('');
   const [creatingInst,      setCreatingInst]      = useState(false);
   const [instLastCreds,     setInstLastCreds]     = useState<{ email: string; password: string; instName: string } | null>(null);
   const [instCopied,        setInstCopied]        = useState(false);
@@ -198,12 +199,12 @@ export default function AdminPage() {
     try {
       const res = await fetch(`${API_BASE}/api/admin/institutions`, {
         method: 'POST', headers,
-        body: JSON.stringify({ name: newInstName, admin_name: newInstAdminName, plan: newInstPlan }),
+        body: JSON.stringify({ name: newInstName, admin_name: newInstAdminName, plan: newInstPlan, language: newInstLang || null }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Failed');
       setInstLastCreds({ email: data.email, password: data.temp_password, instName: newInstName });
-      setNewInstName(''); setNewInstAdminName(''); setNewInstPlan('trial');
+      setNewInstName(''); setNewInstAdminName(''); setNewInstPlan('trial'); setNewInstLang('');
       loadAll();
     } catch (err: any) {
       alert(err.message);
@@ -584,6 +585,14 @@ export default function AdminPage() {
                   <option value="trial">Trial</option>
                   <option value="basic">Basic</option>
                   <option value="pro">Pro</option>
+                </select>
+                <select value={newInstLang} onChange={e => setNewInstLang(e.target.value)} className={`${inputCls} col-span-2`}>
+                  <option value="">No language lock (users choose freely)</option>
+                  <option value="en">🇬🇧 English</option>
+                  <option value="fi">🇫🇮 Suomi (Finnish)</option>
+                  <option value="sv">🇸🇪 Svenska (Swedish)</option>
+                  <option value="es">🇪🇸 Español (Spanish)</option>
+                  <option value="fr">🇫🇷 Français (French)</option>
                 </select>
               </div>
               <p className="text-[var(--tx8)] text-xs mb-3">

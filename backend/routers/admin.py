@@ -398,6 +398,7 @@ class CreateInstitutionRequest(BaseModel):
     inst_type:    str = "school"
     plan:         str = "trial"
     country:      str | None = None
+    language:     str | None = None
     max_teachers: int = 10
     max_students: int = 100
 
@@ -417,10 +418,10 @@ async def create_institution(req: CreateInstitutionRequest, authorization: str =
         pwd_hash = _hash_password(temp_password)
 
         inst = await db.fetchrow("""
-            INSERT INTO institutions (name, type, plan, country, max_teachers, max_students)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO institutions (name, type, plan, country, language, max_teachers, max_students)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
-        """, req.name, req.inst_type, req.plan, req.country, req.max_teachers, req.max_students)
+        """, req.name, req.inst_type, req.plan, req.country, req.language, req.max_teachers, req.max_students)
 
         user = await db.fetchrow("""
             INSERT INTO users (email, name, account_type, knowledge_level, password_hash)
