@@ -3,8 +3,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Building2, Users, GraduationCap, Loader2, Globe } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
-import { LANGUAGE_LABELS } from '@/translations';
-import type { LanguageCode } from '@/translations';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -12,28 +10,27 @@ interface InstOverview {
   id: string;
   name: string;
   plan: string;
-  language: string | null;
+  languages: string[] | null;
   max_teachers: number;
   max_students: number;
   teacher_count: number;
   student_count: number;
 }
 
-const LANG_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '',   label: 'No lock — users choose freely' },
-  { value: 'en', label: '🇬🇧 English' },
-  { value: 'fi', label: '🇫🇮 Suomi' },
-  { value: 'sv', label: '🇸🇪 Svenska' },
-  { value: 'es', label: '🇪🇸 Español' },
-  { value: 'fr', label: '🇫🇷 Français' },
+const LANG_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: 'en', label: '🇬🇧 English' },
+  { code: 'fi', label: '🇫🇮 Suomi' },
+  { code: 'sv', label: '🇸🇪 Svenska' },
+  { code: 'es', label: '🇪🇸 Español' },
+  { code: 'fr', label: '🇫🇷 Français' },
 ];
 
 export default function InstitutionDashboard() {
   const router = useRouter();
-  const { user, token, setInstitutionLanguage } = useSessionStore();
+  const { user, token, setInstitutionLanguages } = useSessionStore();
   const [inst,         setInst]         = useState<InstOverview | null>(null);
   const [loading,      setLoading]      = useState(true);
-  const [langValue,    setLangValue]    = useState('');
+  const [langValues,   setLangValues]   = useState<string[]>([]);
   const [savingLang,   setSavingLang]   = useState(false);
   const [langSaved,    setLangSaved]    = useState(false);
 
@@ -54,7 +51,7 @@ export default function InstitutionDashboard() {
       if (res.ok) {
         const data = await res.json();
         setInst(data);
-        setLangValue(data.language ?? '');
+        setLangValues(data.languages ?? []);
       }
     } catch {
       // ignore
@@ -70,12 +67,13 @@ export default function InstitutionDashboard() {
       const res = await fetch(`${API_BASE}/api/institutions/mine/language`, {
         method: 'PATCH',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ language: langValue || null }),
+        body: JSON.stringify({ languages: langValues.length ? langValues : null }),
       });
       if (res.ok) {
         const data = await res.json();
-        setInst(prev => prev ? { ...prev, language: data.language } : prev);
-        setInstitutionLanguage(data.language);
+        const langs = data.languages ?? null;
+        setInst(prev => prev ? { ...prev, languages: langs } : prev);
+        setInstitutionLanguages(langs);
         setLangSaved(true);
         setTimeout(() => setLangSaved(false), 2000);
       }
@@ -122,31 +120,35 @@ export default function InstitutionDashboard() {
 
         {/* Language setting */}
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2">
             <Globe size={18} className="text-purple-400" />
-            <p className="text-[var(--tx1)] text-sm font-semibold">Institution Language</p>
+            <p className="text-[var(--tx1)] text-sm font-semibold">Allowed Languages</p>
           </div>
           <p className="text-[var(--tx7)] text-xs mb-4">
-            When set, all teachers and students in this institution will have this language applied automatically. Leave empty to let users choose their own.
+            Check the languages members of this institution can use. Leave all unchecked to let users choose freely.
           </p>
-          <div className="flex items-center gap-3">
-            <select
-              value={langValue}
-              onChange={e => setLangValue(e.target.value)}
-              className="flex-1 bg-[var(--input)] border border-[var(--bd)] text-[var(--tx2)] text-sm rounded-xl px-3 py-2 outline-none focus:border-purple-500"
-            >
-              {LANG_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            <button
-              onClick={saveLanguage}
-              disabled={savingLang || langValue === (inst?.language ?? '')}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40 min-w-[80px]"
-            >
-              {savingLang ? <Loader2 size={14} className="animate-spin mx-auto" /> : langSaved ? '✓ Saved' : 'Save'}
-            </button>
+          <div className="flex flex-wrap gap-4 mb-4">
+            {LANG_OPTIONS.map(({ code, label }) => (
+              <label key={code} className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={langValues.includes(code)}
+                  onChange={e => setLangValues(prev =>
+                    e.target.checked ? [...prev, code] : prev.filter(l => l !== code)
+                  )}
+                  className="accent-purple-500 w-4 h-4"
+                />
+                <span className="text-[var(--tx2)] text-sm">{label}</span>
+              </label>
+            ))}
           </div>
+          <button
+            onClick={saveLanguage}
+            disabled={savingLang}
+            className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40 min-w-[80px]"
+          >
+            {savingLang ? <Loader2 size={14} className="animate-spin mx-auto" /> : langSaved ? '✓ Saved' : 'Save'}
+          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-4">

@@ -398,7 +398,7 @@ class CreateInstitutionRequest(BaseModel):
     inst_type:    str = "school"
     plan:         str = "trial"
     country:      str | None = None
-    language:     str | None = None
+    languages:    list[str] | None = None
     max_teachers: int = 10
     max_students: int = 100
 
@@ -418,10 +418,10 @@ async def create_institution(req: CreateInstitutionRequest, authorization: str =
         pwd_hash = _hash_password(temp_password)
 
         inst = await db.fetchrow("""
-            INSERT INTO institutions (name, type, plan, country, language, max_teachers, max_students)
+            INSERT INTO institutions (name, type, plan, country, languages, max_teachers, max_students)
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING id
-        """, req.name, req.inst_type, req.plan, req.country, req.language, req.max_teachers, req.max_students)
+        """, req.name, req.inst_type, req.plan, req.country, req.languages or None, req.max_teachers, req.max_students)
 
         user = await db.fetchrow("""
             INSERT INTO users (email, name, account_type, knowledge_level, password_hash)
@@ -447,7 +447,7 @@ async def list_institutions(authorization: str = Header(...)):
     await _require_super_admin(authorization)
     async with get_db() as db:
         rows = await db.fetch("""
-            SELECT i.id, i.name, i.type, i.plan, i.country, i.language,
+            SELECT i.id, i.name, i.type, i.plan, i.country, i.languages,
                    i.max_teachers, i.max_students, i.created_at,
                    COUNT(CASE WHEN im.role = 'teacher' AND im.status = 'active' THEN 1 END) AS teacher_count,
                    COUNT(CASE WHEN im.role = 'student' AND im.status = 'active' THEN 1 END) AS student_count
@@ -463,7 +463,7 @@ async def list_institutions(authorization: str = Header(...)):
             "type":          r["type"],
             "plan":          r["plan"],
             "country":       r["country"],
-            "language":      r["language"],
+            "languages":     list(r["languages"]) if r["languages"] else None,
             "max_teachers":  r["max_teachers"],
             "max_students":  r["max_students"],
             "teacher_count": int(r["teacher_count"] or 0),
@@ -477,21 +477,23 @@ async def list_institutions(authorization: str = Header(...)):
 _ADMIN_VALID_LANGUAGES = {'en', 'fi', 'sv', 'es', 'fr'}
 
 
-class SetInstLanguageRequest(BaseModel):
-    language: str | None = None
+class SetInstLanguagesRequest(BaseModel):
+    languages: list[str] | None = None
 
 
 @router.patch("/institutions/{institution_id}/language")
-async def set_institution_language(institution_id: str, req: SetInstLanguageRequest, authorization: str = Header(...)):
+async def set_institution_languages(institution_id: str, req: SetInstLanguagesRequest, authorization: str = Header(...)):
     await _require_super_admin(authorization)
-    if req.language is not None and req.language not in _ADMIN_VALID_LANGUAGES:
-        raise HTTPException(400, f"language must be one of: {', '.join(sorted(_ADMIN_VALID_LANGUAGES))}")
+    if req.languages:
+        invalid = [l for l in req.languages if l not in _ADMIN_VALID_LANGUAGES]
+        if invalid:
+            raise HTTPException(400, f"Invalid language(s): {', '.join(invalid)}")
     async with get_db() as db:
         row = await db.fetchrow("SELECT id FROM institutions WHERE id = $1::uuid", institution_id)
         if not row:
             raise HTTPException(404, "Institution not found")
         await db.execute(
-            "UPDATE institutions SET language = $1 WHERE id = $2::uuid",
-            req.language, institution_id,
+            "UPDATE institutions SET languages = $1 WHERE id = $2::uuid",
+            req.languages or None, institution_id,
         )
-    return {"language": req.language}
+    return {"languages": req.languages or None}

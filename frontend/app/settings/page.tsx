@@ -7,14 +7,13 @@ import { useSessionStore } from '@/store/sessionStore';
 import { useTheme } from '@/hooks/useTheme';
 import { useLanguage } from '@/hooks/useLanguage';
 import { useTranslation } from '@/hooks/useTranslation';
-import { LANGUAGE_LABELS, getAvailableLanguages } from '@/translations';
-import type { LanguageCode } from '@/translations';
+import { LANGUAGE_LABELS } from '@/translations';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { user, signOut } = useSessionStore();
   const { theme, setTheme } = useTheme();
-  const { language, setLanguage, institutionLanguage } = useLanguage();
+  const { language, setLanguage, availableLanguages, institutionLanguages } = useLanguage();
   const { t } = useTranslation();
   const [confirmSignOut, setConfirmSignOut] = useState(false);
 
@@ -23,7 +22,7 @@ export default function SettingsPage() {
     router.replace('/');
   }
 
-  const LANGUAGES = getAvailableLanguages();
+  const locked = institutionLanguages?.length === 1;
 
   const sections = [
     {
@@ -134,36 +133,31 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-[var(--tx2)] text-sm font-medium">{t.settings.language}</p>
                     <p className="text-[var(--tx6)] text-xs mt-0.5">
-                      {institutionLanguage
-                        ? 'Set by your institution'
+                      {institutionLanguages
+                        ? locked ? 'Set by your institution' : 'Restricted by your institution'
                         : t.settings.languageDesc}
                     </p>
                   </div>
                 </div>
-                {institutionLanguage ? (
-                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--input)] border border-[var(--bd)] opacity-70">
-                    <span className="text-xs font-medium text-[var(--tx3)]">
-                      {LANGUAGE_LABELS[institutionLanguage as keyof typeof LANGUAGE_LABELS] ?? institutionLanguage}
-                    </span>
-                    <span className="text-[10px] text-[var(--tx7)] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded-md">locked</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1 bg-[var(--input)] rounded-xl p-1 border border-[var(--bd)]">
-                    {LANGUAGES.map((lang) => (
-                      <button
-                        key={lang}
-                        onClick={() => setLanguage(lang)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                          language === lang
-                            ? 'bg-purple-600 text-white shadow-sm'
-                            : 'text-[var(--tx5)] hover:text-[var(--tx2)]'
-                        }`}
-                      >
-                        {LANGUAGE_LABELS[lang]}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <div className={`flex items-center gap-1 bg-[var(--input)] rounded-xl p-1 border border-[var(--bd)] ${locked ? 'opacity-60' : ''}`}>
+                  {availableLanguages.map((lang) => (
+                    <button
+                      key={lang}
+                      onClick={() => setLanguage(lang)}
+                      disabled={locked}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                        language === lang
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : 'text-[var(--tx5)] hover:text-[var(--tx2)] disabled:cursor-not-allowed'
+                      }`}
+                    >
+                      {LANGUAGE_LABELS[lang]}
+                    </button>
+                  ))}
+                  {locked && (
+                    <span className="text-[10px] text-purple-400 bg-purple-500/20 px-1.5 py-0.5 rounded-md ml-1">locked</span>
+                  )}
+                </div>
               </div>
             </div>
 

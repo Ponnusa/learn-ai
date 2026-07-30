@@ -32,8 +32,8 @@ interface SessionState {
   // ── Registered user ────────────────────────────────────────────────────────
   user: User | null;
   token: string | null;
-  /** Non-null when the user belongs to an institution that has a language set */
-  institutionLanguage: string | null;
+  /** Non-null when the user belongs to an institution that restricts available languages */
+  institutionLanguages: string[] | null;
 
   // ── UI state persisted across navigation ──────────────────────────────────
   activeConversationId: string | null;
@@ -54,7 +54,7 @@ interface SessionState {
   incrementQuiz: () => void;
   /** Reset counters on login so anonymous usage doesn't bleed through */
   setUser: (user: User, token: string) => void;
-  setInstitutionLanguage: (lang: string | null) => void;
+  setInstitutionLanguages: (langs: string[] | null) => void;
   signOut: () => void;
   setActiveConversationId: (id: string | null) => void;
   setConversations: (convs: Conversation[]) => void;
@@ -70,7 +70,7 @@ export const useSessionStore = create<SessionState>()(
       quizCount:            0,
       user:                 null,
       token:                null,
-      institutionLanguage:  null,
+      institutionLanguages: null,
       activeConversationId: null,
       conversations:        [],
       _hasHydrated:         false,
@@ -80,8 +80,8 @@ export const useSessionStore = create<SessionState>()(
       incrementVideo:          ()      => set((s) => ({ videoCount: s.videoCount + 1 })),
       incrementQuiz:           ()      => set((s) => ({ quizCount:  s.quizCount  + 1 })),
       setUser:                 (u, t)  => set({ user: u, token: t, msgCount: 0, videoCount: 0, quizCount: 0 }),
-      setInstitutionLanguage:  (lang)  => set({ institutionLanguage: lang }),
-      signOut:                 ()      => set({ user: null, token: null, institutionLanguage: null, activeConversationId: null, conversations: [] }),
+      setInstitutionLanguages: (langs) => set({ institutionLanguages: langs }),
+      signOut:                 ()      => set({ user: null, token: null, institutionLanguages: null, activeConversationId: null, conversations: [] }),
       setActiveConversationId: (id)    => set({ activeConversationId: id }),
       setConversations:        (convs) => set({ conversations: convs }),
       prependConversation:     (conv)  => set((s) => ({
@@ -101,7 +101,7 @@ export const useSessionStore = create<SessionState>()(
         quizCount:            s.quizCount,
         user:                 s.user,
         token:                s.token,
-        institutionLanguage:  s.institutionLanguage,
+        institutionLanguages: s.institutionLanguages,
         activeConversationId: s.activeConversationId,
       }),
       onRehydrateStorage: () => (state) => {

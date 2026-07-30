@@ -562,6 +562,8 @@ async def lifespan(app: FastAPI):
             "CREATE INDEX IF NOT EXISTS idx_video_feedback_video ON video_feedback(video_id)",
             # ── Institution language setting ────────────────────────────────────
             "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS language TEXT DEFAULT NULL",
+            # ── Institution multi-language selection ────────────────────────────
+            "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS languages TEXT[] DEFAULT NULL",
         ]:
             try:
                 await db.execute(sql)
