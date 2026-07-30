@@ -2804,8 +2804,12 @@ ANIMATION QUALITY CHECKLIST — check each item:
 1. OBJECT MOTION: Does the main object physically MOVE at least once?
    Fix: Add MoveAlongPath or .animate.move_to() for the main object
 
-2. FORCE ARROWS: Are force arrows revealed with GrowArrow() (not Create())?
-   Fix: Replace Create(arrow) → GrowArrow(arrow) for ALL force/vector arrows
+2. FORCE ARROWS:
+   a) Native Manim Arrow() objects (created with Arrow(start, end, ...)): use GrowArrow() NOT Create()
+      Fix: Replace Create(arrow) → GrowArrow(arrow) for native Arrow() objects
+   b) SVGMobjects from get_svg(): use FadeIn() NOT GrowArrow()
+      GrowArrow() on an SVGMobject CRASHES: "Cannot call Mobject.get_start for a Mobject with no points"
+      Fix: If a variable assigned via `= get_svg(...)` is passed to GrowArrow(), replace with FadeIn(var, shift=RIGHT*0.2)
 
 3. ARROWS FOLLOW OBJECT: When the object moves, do ALL its force arrows shift() in the SAME play() call?
    Fix: Group arrows into VGroup(...) and add .animate.shift(delta) to the motion play()

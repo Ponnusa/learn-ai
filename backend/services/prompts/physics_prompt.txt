@@ -403,7 +403,8 @@ class BicycleForces(VoiceoverScene):
 KEY RULES from this example:
 - hill uses Polygon() with fill_opacity — NOT set_points_as_corners on VMobject
 - bicycle = get_svg(...) — NEVER Dot(radius=0.01)
-- force arrows: GrowArrow() — NEVER Create()
+- force arrows created as Arrow(start, end, ...): GrowArrow() — NEVER Create()
+- force arrows that are SVGMobjects from get_svg(): FadeIn() or Create() — NEVER GrowArrow() (will crash)
 - motion: bicycle + arrows all shift() together in ONE play() call
 - formulas on RIGHT, diagram on LEFT — no overlap
 - DrawBorderThenFill() for the hill polygon

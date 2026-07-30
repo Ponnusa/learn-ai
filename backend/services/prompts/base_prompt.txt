@@ -197,6 +197,11 @@ SCENE LAYOUT for mechanics problems (bicycle, car, inclined plane, etc.):
 FORCE ARROWS — use GrowArrow() NOT Create() for cinematic effect:
   grav_arrow = Arrow(bicycle.get_center(), bicycle.get_center()+DOWN*1.8, color=RED, buff=0, stroke_width=5)
   self.play(GrowArrow(grav_arrow), run_time=0.9)
+
+⚠️ GrowArrow() ONLY works on native Manim Arrow() objects you create with Arrow(start, end, ...).
+   SVGMobjects loaded via get_svg() (e.g. a force_arrow or double_arrow SVG asset) are NOT Arrow() objects.
+   Calling GrowArrow(svg_var) will CRASH: "Cannot call Mobject.get_start for a Mobject with no points".
+   For SVG arrow assets, use FadeIn() or Create() instead of GrowArrow().
   grav_label = Text("Fg = 98 N", font_size=18, color=RED).next_to(grav_arrow.get_end(), RIGHT, buff=0.15)
   self.play(FadeIn(grav_label, shift=RIGHT*0.2), run_time=0.6)
 
@@ -251,7 +256,8 @@ GENERAL ANIMATION RULES
 ══════════════════════════════════════════════════════════════════
 
 - Use FadeIn/FadeOut for all element transitions (not Create/Uncreate unless drawing effect is desired)
-- Use GrowArrow() for any Arrow that represents a force, velocity, or vector — NOT Create()
+- Use GrowArrow() for any NATIVE MANIM Arrow() that represents a force, velocity, or vector — NOT Create()
+  EXCEPTION: SVGMobjects from get_svg() are NOT Arrow objects — use FadeIn() or Create() for them, never GrowArrow()
 - Use DrawBorderThenFill() for filled shapes (rectangles, polygons) for a polished drawing effect
 - Use Transform (not ReplacementTransform) for showing mathematical equivalence
 - Use AnimationGroup([...], lag_ratio=0.15) to stagger multiple related elements appearing together
