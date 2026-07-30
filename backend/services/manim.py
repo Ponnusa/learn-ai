@@ -312,7 +312,7 @@ CODE:
     try:
         response = claude_with_retry(
             _claude_sync.messages.create,
-            model=_CLAUDE_MODEL_FAST,  # mechanical name-fix insertion — Haiku is sufficient
+            model=_CLAUDE_MODEL,
             max_tokens=16000,
             messages=[{"role": "user", "content": fix_prompt}],
         )
@@ -1665,7 +1665,7 @@ def plan_svg_assets(verified_solution: str, subject: str) -> list:
     if remaining_slots > 0:
         try:
             msg = _claude_sync.messages.create(
-                model=_CLAUDE_MODEL_FAST,  # simple JSON list — Haiku is sufficient
+                model=_CLAUDE_MODEL,
                 max_tokens=150,
                 system=(
                     "You are planning SVG visual assets for an educational Manim animation.\n"
@@ -1753,7 +1753,7 @@ def call_claude_svg(asset_name: str) -> str:
         user_content += f"\nShape description: {hint}"
     user_content += "\nRemember: white strokes only, fill=none, no text, valid XML, centered in viewBox."
     msg = _claude_sync.messages.create(
-        model=_CLAUDE_MODEL_FAST,  # simple SVG shapes — Haiku is sufficient
+        model=_CLAUDE_MODEL,
         max_tokens=1000,
         system=SVG_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
@@ -2650,7 +2650,7 @@ MANDATORY RULES:
 
         storyboard_response = claude_with_retry(
             _claude_sync.messages.create,
-            model=_CLAUDE_MODEL_FAST,  # beat list planning — Haiku is sufficient
+            model=_CLAUDE_MODEL,
             max_tokens=2000,
             messages=[{"role": "user", "content": storyboard_prompt}]
         )
