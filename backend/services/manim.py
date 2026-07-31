@@ -2448,7 +2448,7 @@ LAST LINE MUST BE EXACTLY (8 spaces indent):
         try:
             with _claude_sync.messages.stream(
                 model=_CLAUDE_MODEL,
-                max_tokens=8000,
+                max_tokens=16000,
                 system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": prompt}]
             ) as stream:
