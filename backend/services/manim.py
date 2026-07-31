@@ -2875,6 +2875,26 @@ ANIMATION QUALITY CHECKLIST — check each item:
     Fix: Insert a SETUP BLOCK at the top of construct() (after set_speech_service)
     that assigns ALL missing objects before the first voiceover block.
 
+13. EQUATION/FORMULA OVERLAP (CRITICAL — applies to ALL subjects: math, physics, chemistry):
+    Find every pair of MathTex/Tex/Text objects defined at the SAME screen position (same .move_to() coordinates).
+    If object B is shown (FadeIn/Write/Create) AFTER object A at the same position,
+    object A MUST be removed (FadeOut or ReplacementTransform) in the same or immediately preceding play() call.
+
+    ❌ WRONG — stacking at same position:
+       self.play(FadeIn(eq_step_1, ...))
+       ...
+       self.play(FadeIn(eq_step_2, ...))   # eq_step_1 still on screen → overlap
+
+    ✅ CORRECT — fade out first:
+       self.play(FadeOut(eq_step_1), FadeIn(eq_step_2, ...), ...)
+    ✅ CORRECT — replacement transform:
+       self.play(ReplacementTransform(eq_step_1, eq_step_2), ...)
+
+    Fix: For every equation/formula shown after another at the same position, add FadeOut(prev_eq)
+    to the same play() call as FadeIn(new_eq), or use ReplacementTransform(prev_eq, new_eq).
+    This applies to: algebraic step equations (math), formula transitions and law text (physics),
+    reaction equations and molecular formula updates (chemistry).
+
 IMPORTANT: Only fix real problems. Do NOT restructure. Return ONLY the corrected Python code (no markdown fences).
 If the code passes ALL checks above with no issues, output exactly: NO_CHANGES_NEEDED"""
 
