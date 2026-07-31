@@ -123,8 +123,10 @@ _MANIM_GLOBALS: frozenset = frozenset({
     'GOLD','GOLD_A','GOLD_B','GOLD_C','GOLD_D','GOLD_E',
     'MAROON','MAROON_A','MAROON_B','MAROON_C','MAROON_D','MAROON_E',
     'PURPLE_A','PURPLE_B','PURPLE_C',
+    # color utilities
+    'ManimColor','color_gradient','interpolate_color',
     # math
-    'PI','TAU','DEGREES','INF',
+    'PI','TAU','DEGREES','INF','config',
     'np',
     # Manim mobjects
     'Text','MathTex','Tex','MarkupText','Paragraph','BulletedList',
@@ -328,11 +330,27 @@ CODE:
             logger.warning(f"⚠️  Fix pass produced invalid syntax — keeping original: {e}")
             return code
         if len(fixed) > 200:
+            # Guard: remove any `X = X` self-assignments the model may have
+            # generated (e.g. `ManimColor = ManimColor`).  These crash with
+            # UnboundLocalError because Python treats the LHS as a new local
+            # before evaluating the RHS.
+            fixed = _remove_self_assignments(fixed)
             logger.info(f"✅ Fix pass applied ({len(fixed)} chars)")
             return fixed
     except Exception as e:
         logger.warning(f"⚠️  Fix pass failed (non-fatal): {e}")
     return code
+
+
+def _remove_self_assignments(code: str) -> str:
+    """Remove lines of the form `X = X` that cause UnboundLocalError."""
+    import re
+    cleaned = re.sub(r'^\s*(\w+)\s*=\s*\1\s*$', '', code, flags=re.MULTILINE)
+    if cleaned != code:
+        # Collapse any blank lines left behind (max 1 consecutive blank)
+        cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+        logger.info("🧹 Removed self-assignment(s) from fix pass output")
+    return cleaned
 
 
 def claude_with_retry(fn, *args, max_retries=4, **kwargs):
