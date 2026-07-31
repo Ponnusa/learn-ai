@@ -1582,7 +1582,7 @@ SVG_ASSET_HINTS = {
     "lens_concave":     "Two inward-curved arcs forming a concave lens. Square viewBox.",
     "prism":            "Equilateral triangle. Square viewBox.",
     "magnet_bar":       "Rectangle outline with N and L regions implied by a center dividing line. Wide viewBox.",
-    "atom":             "A nucleus dot with 2–3 elliptical orbits around it. Square viewBox.",
+    # "atom" intentionally omitted — use draw_bohr_atom() helper instead
     "force_arrow":      "A bold arrow with a clear thick shaft, suitable for force diagrams. Square viewBox.",
     "wave_packet":      "A localized oscillation — sine wave that grows then shrinks. Wide viewBox.",
     "electric_field":   "Several parallel horizontal arrows with field lines. Wide viewBox.",
@@ -1600,7 +1600,7 @@ SVG_ASSET_HINTS = {
     "mirror_concave":   "A thick concave arc (opening to the right) with a flat back. Square viewBox.",
     "mirror_convex":    "A thick convex arc (bulging to the right) with a flat back. Square viewBox.",
     "eye_diagram":      "An almond/eye outline shape with iris circle and pupil dot inside. Square viewBox.",
-    "nucleus":          "A dense cluster of small circles (protons/neutrons) packed together. Square viewBox.",
+    # "nucleus" intentionally omitted — use draw_bohr_atom() helper instead
     "rocket":           "A rocket: pointed nose cone, cylindrical body, two delta fins at base. Square viewBox.",
     "planet_orbit":     "A large circle (star) at center, elliptical orbit path, small planet dot on orbit. Square viewBox.",
     "human_figure":     "A stick figure: circle head, line body, two arm lines, two leg lines. Square viewBox.",
@@ -1640,7 +1640,7 @@ KEYWORD_SVG_MAP = {
     "concave mirror": "mirror_concave", "convex mirror": "mirror_convex", "eye": "eye_diagram",
     "transverse wave": "wave_transverse", "longitudinal wave": "wave_longitudinal",
     "sine wave": "sine_wave",
-    "atom": "atom", "nucleus": "nucleus", "planet": "planet_orbit", "orbit": "planet_orbit",
+    "planet": "planet_orbit", "orbit": "planet_orbit",
     "person": "human_figure", "human": "human_figure", "student": "human_figure",
     "walking": "person_standing", "running": "person_running", "runner": "person_running",
     "athlete": "person_running",
