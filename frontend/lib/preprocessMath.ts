@@ -9,6 +9,10 @@
  * KaTeX doesn't get confused by indented equations.
  */
 export function preprocessMath(content: string): string {
+  // Strip \ce{...} chemistry notation wrappers — KaTeX mhchem may not load
+  // reliably in all render contexts. The content (Na+, Cl-, H2O) is kept as-is.
+  content = content.replace(/\\ce\{([^}]*)\}/g, '$1');
+
   // \[ ... \]  →  $$\n...\n$$  (display / block math)
   content = content.replace(
     /\\\[\s*([\s\S]*?)\s*\\\]/g,
