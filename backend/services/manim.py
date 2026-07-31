@@ -162,6 +162,8 @@ _MANIM_GLOBALS: frozenset = frozenset({
     'isinstance','hasattr','getattr','setattr','type','any','all',
     # common scene helpers
     'get_svg','show_subtitle','tracker','sub',
+    # Bohr atom helper (injected for chemistry videos)
+    'draw_bohr_atom','ATOM_CONFIGS',
     'np','textwrap','os','math','tempfile',
     # short loop vars
     'i','j','k','x','y','z','n','t','r','_',
@@ -1880,6 +1882,77 @@ def _load_helpers_code() -> str:
     return _HELPERS_CODE_CACHE
 
 
+# ── Bohr atom helper code — injected into chemistry videos at Cloud Run dispatch time ──
+_ATOM_BOHR_CODE: str = '''
+ATOM_CONFIGS = {
+    "H":  ([1],             "#DDDDDD"),
+    "He": ([2],             "#C8E8FF"),
+    "Li": ([2, 1],          "#CC3333"),
+    "Be": ([2, 2],          "#228844"),
+    "B":  ([2, 3],          "#DD7700"),
+    "C":  ([2, 4],          "#888888"),
+    "N":  ([2, 5],          "#4477EE"),
+    "O":  ([2, 6],          "#EE3333"),
+    "F":  ([2, 7],          "#33BB77"),
+    "Ne": ([2, 8],          "#99CCFF"),
+    "Na": ([2, 8, 1],       "#FFCC22"),
+    "Mg": ([2, 8, 2],       "#22AA55"),
+    "Al": ([2, 8, 3],       "#AAAAAA"),
+    "Si": ([2, 8, 4],       "#BBBBBB"),
+    "P":  ([2, 8, 5],       "#FF7722"),
+    "S":  ([2, 8, 6],       "#FFDD00"),
+    "Cl": ([2, 8, 7],       "#44CC44"),
+    "Ar": ([2, 8, 8],       "#AABBFF"),
+    "K":  ([2, 8, 8, 1],    "#BB44AA"),
+    "Ca": ([2, 8, 8, 2],    "#22AA44"),
+}
+
+
+def draw_bohr_atom(symbol, position=ORIGIN, scale=1.0, electron_color=YELLOW, shell_color=GRAY):
+    """Draw a Bohr-model atom; returns a VGroup (nucleus + shell rings + electron dots)."""
+    import math as _m
+    shells, nuc_hex = ATOM_CONFIGS[symbol]
+    group = VGroup()
+
+    nuc_r = 0.28 * scale
+    nucleus  = Circle(radius=nuc_r, fill_color=ManimColor(nuc_hex), fill_opacity=1,
+                      stroke_color=WHITE, stroke_width=1.5)
+    sym_text = Text(symbol, font_size=int(16 * scale), color=WHITE)
+    nuc_group = VGroup(nucleus, sym_text)
+    nuc_group.move_to(position)
+    group.add(nuc_group)
+
+    base_radii = [0.62, 1.08, 1.54, 2.00]
+    for i, count in enumerate(shells):
+        r = base_radii[i] * scale
+        ring = Circle(radius=r, stroke_color=shell_color, stroke_width=1.2,
+                      fill_opacity=0, stroke_opacity=0.55).move_to(position)
+        group.add(ring)
+        for j in range(count):
+            angle = (2 * _m.pi * j / count) - _m.pi / 2
+            ex = position[0] + r * _m.cos(angle)
+            ey = position[1] + r * _m.sin(angle)
+            group.add(Dot(radius=0.072 * scale, color=electron_color).move_to([ex, ey, 0]))
+
+    return group
+'''
+
+
+def inject_atom_helper(code: str, subject: str) -> str:
+    """Prepend ATOM_CONFIGS + draw_bohr_atom() before the class if the code uses it."""
+    if subject != "chemistry":
+        return code
+    if "draw_bohr_atom" not in code:
+        return code
+    if "ATOM_CONFIGS" in code:
+        return code
+    match = re.search(r'^class\s+\w+', code, re.MULTILINE)
+    if not match:
+        return code
+    insert_pos = match.start()
+    return code[:insert_pos] + _ATOM_BOHR_CODE.strip() + "\n\n\n" + code[insert_pos:]
+
+
 def inject_helpers_inline(code: str) -> str:
     if "from helpers import" not in code and "import helpers" not in code:
         return code
@@ -2968,6 +3041,7 @@ If the code passes ALL checks above with no issues, output exactly: NO_CHANGES_N
 
     # Inject helpers inline (after critic so critic sees compact code)
     code = inject_helpers_inline(code)
+    code = inject_atom_helper(code, subject)
 
     # Syntax validation
     try:

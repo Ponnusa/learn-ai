@@ -52,6 +52,8 @@ If you need to show a microscope, flask stand, graduated cylinder, syringe, or
 any apparatus not in the list above — draw it with Manim primitives or skip it.
 Calling get_svg() with an unrecognised name returns an empty URL and crashes the render.
 
+IMPORTANT: NEVER use get_svg("atom") — atoms are now drawn with draw_bohr_atom() (see METHOD 3 below).
+
 ══════════════════════════════════════════════════════════════════
 CHEMISTRY NAMING RULE (MANDATORY)
 ══════════════════════════════════════════════════════════════════
@@ -122,6 +124,7 @@ self.play(Create(dipole))
 ──────────────────────────────────────────────────────────────────
 METHOD 2: RDKIT SMILES HELPER (Organic & Complex Molecules)
 ──────────────────────────────────────────────────────────────────
+
 
 USE FOR:
 ✓ ALL organic chemistry (methane, benzene, ethanol, etc.)
@@ -198,6 +201,55 @@ ethanol = create_molecule_from_smiles(
 self.play(FadeIn(ethanol))
 ```
 
+──────────────────────────────────────────────────────────────────
+METHOD 3: BOHR ATOM HELPER (Atom Structure & Electron Configuration)
+──────────────────────────────────────────────────────────────────
+
+USE FOR:
+✓ Explaining electron shells / electron configuration (e.g. "show the structure of a sodium atom")
+✓ Ionization (atom → ion: remove/add outer electrons)
+✓ Periodic table trends (atomic radius, electronegativity, comparing atoms)
+✓ Any video where the ATOM ITSELF (not the molecule) is the subject
+
+SUPPORTED ELEMENTS (H through Ca, covers all high-school chemistry):
+H, He, Li, Be, B, C, N, O, F, Ne, Na, Mg, Al, Si, P, S, Cl, Ar, K, Ca
+
+DO NOT use this for:
+✗ Molecular geometry / bonding visualization → use METHOD 1 or 2
+✗ Transition metals or elements beyond Ca — Bohr model breaks down
+
+CALL SYNTAX (no import needed — function is injected by the backend):
+```python
+atom = draw_bohr_atom(
+    symbol,           # e.g. "O", "Na", "Cl"
+    position=ORIGIN,  # screen position (np.array)
+    scale=1.0,        # 0.8 for small, 1.5 for large feature atom
+    electron_color=YELLOW,  # default YELLOW
+    shell_color=GRAY,       # default GRAY
+)
+# Returns a VGroup — use Create(), FadeIn(), etc.
+self.play(Create(atom))
+```
+
+COMMON PATTERNS:
+```python
+# Single atom, large
+oxygen = draw_bohr_atom("O", position=LEFT * 2, scale=1.4)
+self.play(Create(oxygen), run_time=1.5)
+
+# Side-by-side comparison (two atoms)
+sodium = draw_bohr_atom("Na", position=LEFT * 3, scale=1.0)
+chlorine = draw_bohr_atom("Cl", position=RIGHT * 3, scale=1.0)
+self.play(Create(sodium), Create(chlorine), run_time=1.5)
+
+# Ion formation: show atom, then FadeOut the outermost electron dot
+# (The last child of the VGroup is the outermost electron)
+na_atom = draw_bohr_atom("Na", position=ORIGIN, scale=1.2)
+self.play(Create(na_atom))
+outer_electron = na_atom[-1]   # last added Dot = outermost electron
+self.play(FadeOut(outer_electron, shift=RIGHT * 0.5))
+```
+
 ══════════════════════════════════════════════════════════════════
 MANUAL BENZENE RING (16:9 LEFT-PANEL EXAMPLE)
 ══════════════════════════════════════════════════════════════════
@@ -245,6 +297,12 @@ DECISION FLOWCHART (USE THIS TO DECIDE)
 
 Question: [User's chemistry query]
 
+0️⃣ Is the topic about an ATOM's structure, electron shells, or electron configuration?
+   → YES → Use Bohr atom helper (Method 3)
+   Keywords: "electron configuration", "atomic structure", "shells", "ionization", "ion formation",
+             "periodic trends", "show the atom", "draw a sodium atom", "valence electrons"
+   Supported: H, He, Li, Be, B, C, N, O, F, Ne, Na, Mg, Al, Si, P, S, Cl, Ar, K, Ca
+
 1️⃣ Does it involve organic chemistry or carbon chains?
    → YES → Use SMILES helper (Method 2)
    Keywords: "organic", "hydrocarbon", "benzene", "alkane", "functional group", "methane", "ethanol"
@@ -272,6 +330,15 @@ Question: [User's chemistry query]
 ══════════════════════════════════════════════════════════════════
 EXAMPLES (DECISION GUIDE)
 ══════════════════════════════════════════════════════════════════
+
+PROMPT: "Show the electron configuration of sodium"
+→ Bohr atom helper: draw_bohr_atom("Na", ...) — atom structure is the topic
+
+PROMPT: "How does sodium become a sodium ion?"
+→ Bohr atom helper: draw_bohr_atom("Na"), then FadeOut the outer electron
+
+PROMPT: "Compare atomic structure of Na and Cl"
+→ Bohr atom helper: draw_bohr_atom("Na", LEFT*3), draw_bohr_atom("Cl", RIGHT*3)
 
 PROMPT: "Explain why water is polar"
 → Manual construction (3 atoms, teaching geometry, polarity lesson)
