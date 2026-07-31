@@ -131,7 +131,7 @@ _MANIM_GLOBALS: frozenset = frozenset({
     # Manim mobjects
     'Text','MathTex','Tex','MarkupText','Paragraph','BulletedList',
     'Circle','Rectangle','Square','Ellipse','Triangle','Polygon','RoundedRectangle',
-    'Line','DashedLine','Arrow','DoubleArrow','CurvedArrow','TangentLine',
+    'Line','DashedLine','DashedVMobject','Arrow','DoubleArrow','CurvedArrow','TangentLine',
     'Arc','AnnularSector','Sector','Annulus','ArcBetweenPoints','CubicBezier',
     'ParametricFunction','FunctionGraph',
     'Dot','LabeledDot','SmallDot',
@@ -347,7 +347,7 @@ CODE:
 def _remove_self_assignments(code: str) -> str:
     """Remove lines of the form `X = X` that cause UnboundLocalError."""
     import re
-    cleaned = re.sub(r'^\s*(\w+)\s*=\s*\1\s*$', '', code, flags=re.MULTILINE)
+    cleaned = re.sub(r'^\s*(\w+)\s*=\s*\1\s*(?:#.*)?$', '', code, flags=re.MULTILINE)
     if cleaned != code:
         # Collapse any blank lines left behind (max 1 consecutive blank)
         cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
