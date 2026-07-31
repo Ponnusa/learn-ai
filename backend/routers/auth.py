@@ -60,7 +60,7 @@ def _user_response(row, jwt_token: str) -> dict:
             "name":         row["name"],
             "tier":         row["tier"],
             "theme":        row["theme"]        if "theme"        in keys else "dark",
-            "language":     row["language"]     if "language"     in keys else "en",
+            "language":     (row["language"] or "en") if "language" in keys else "en",
             "account_type": row["account_type"] if "account_type" in keys else "student",
         },
     }

@@ -19,7 +19,7 @@ import json
 from database import get_db
 from services.ai_router import openai_client, get_model
 
-_SUMMARIZER_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
+_SUMMARIZER_LANGUAGE_NAMES = {'en': 'English', 'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
 
 KEEP_RECENT        = 6    # messages kept verbatim (3 user+assistant pairs)
 COMPRESS_THRESHOLD = 10   # don't summarise until we have at least this many
