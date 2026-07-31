@@ -1908,10 +1908,17 @@ ATOM_CONFIGS = {
 }
 
 
-def draw_bohr_atom(symbol, position=ORIGIN, scale=1.0, electron_color=YELLOW, shell_color=GRAY):
-    """Draw a Bohr-model atom; returns a VGroup (nucleus + shell rings + electron dots)."""
+def draw_bohr_atom(symbol, position=ORIGIN, scale=1.0, electron_color=YELLOW, shell_color=GRAY, shells=None, color=None):
+    """Draw a Bohr-model atom; returns a VGroup (nucleus + shell rings + electron dots).
+    shells: override electron counts per shell (e.g. [2,8] for Na+ ion). If None, uses ATOM_CONFIGS.
+    color: alias for electron_color (backwards compat).
+    """
     import math as _m
-    shells, nuc_hex = ATOM_CONFIGS[symbol]
+    if color is not None:
+        electron_color = color
+    cfg_shells, nuc_hex = ATOM_CONFIGS.get(symbol, ([1], "#888888"))
+    if shells is None:
+        shells = cfg_shells
     group = VGroup()
 
     nuc_r = 0.28 * scale
@@ -1938,14 +1945,38 @@ def draw_bohr_atom(symbol, position=ORIGIN, scale=1.0, electron_color=YELLOW, sh
 '''
 
 
+def _strip_llm_atom_definitions(code: str) -> str:
+    """Remove any LLM-written draw_bohr_atom() / ATOM_CONFIGS definitions using AST."""
+    import ast as _ast
+    try:
+        tree = _ast.parse(code)
+    except SyntaxError:
+        return code
+    lines = code.splitlines(keepends=True)
+    to_remove: set = set()
+    for node in tree.body:
+        if isinstance(node, _ast.FunctionDef) and node.name == 'draw_bohr_atom':
+            for ln in range(node.lineno, node.end_lineno + 1):
+                to_remove.add(ln)
+        elif isinstance(node, _ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, _ast.Name) and tgt.id == 'ATOM_CONFIGS':
+                    for ln in range(node.lineno, node.end_lineno + 1):
+                        to_remove.add(ln)
+    if not to_remove:
+        return code
+    result = ''.join(line for i, line in enumerate(lines, 1) if i not in to_remove)
+    return re.sub(r'\n{3,}', '\n\n', result)
+
+
 def inject_atom_helper(code: str, subject: str) -> str:
-    """Prepend ATOM_CONFIGS + draw_bohr_atom() before the class if the code uses it."""
+    """Strip any LLM-written draw_bohr_atom/ATOM_CONFIGS, then inject the canonical version."""
     if subject != "chemistry":
         return code
     if "draw_bohr_atom" not in code:
         return code
-    if "ATOM_CONFIGS" in code:
-        return code
+    # Always strip LLM's version(s) — they may have wrong signature or be copied from prompt
+    code = _strip_llm_atom_definitions(code)
     match = re.search(r'^class\s+\w+', code, re.MULTILINE)
     if not match:
         return code
