@@ -317,7 +317,7 @@ CODE:
         response = claude_with_retry(
             _claude_sync.messages.create,
             model=_CLAUDE_MODEL,
-            max_tokens=16000,
+            max_tokens=32000,
             messages=[{"role": "user", "content": fix_prompt}],
         )
         fixed = _first_text(response).strip()
@@ -2467,7 +2467,7 @@ LAST LINE MUST BE EXACTLY (8 spaces indent):
         try:
             with _claude_sync.messages.stream(
                 model=_CLAUDE_MODEL,
-                max_tokens=16000,
+                max_tokens=32000,
                 system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": prompt}]
             ) as stream:
@@ -2593,7 +2593,7 @@ No markdown fences. No imports. No class. No setup code.
         try:
             with _claude_sync.messages.stream(
                 model=_CLAUDE_MODEL,
-                max_tokens=16000,
+                max_tokens=32000,
                 system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
                 messages=[{"role": "user", "content": prompt}]
             ) as stream:
@@ -2794,7 +2794,7 @@ MANDATORY RULES:
         storyboard_response = claude_with_retry(
             _claude_sync.messages.create,
             model=_CLAUDE_MODEL,
-            max_tokens=4000,
+            max_tokens=8000,
             messages=[{"role": "user", "content": storyboard_prompt}]
         )
         storyboard_text = _first_text(storyboard_response).strip()
@@ -3034,7 +3034,7 @@ If the code passes ALL checks above with no issues, output exactly: NO_CHANGES_N
         critic_response = claude_with_retry(
             _claude_sync.messages.create,
             model=_CLAUDE_MODEL,
-            max_tokens=16000,
+            max_tokens=32000,
             system=[{"type": "text", "text": _CRITIC_SYSTEM, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": critic_user}]
         )
@@ -3253,7 +3253,7 @@ Return ONLY the improved Python code with no markdown fences."""
     message = claude_with_retry(
         _claude_sync.messages.create,
         model=_CLAUDE_MODEL,
-        max_tokens=16000,
+        max_tokens=32000,
         system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}]
     )
@@ -3342,7 +3342,7 @@ Return ONLY the corrected Python code with no markdown fences."""
     message = claude_with_retry(
         _claude_sync.messages.create,
         model=_CLAUDE_MODEL,
-        max_tokens=16000,
+        max_tokens=32000,
         system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
