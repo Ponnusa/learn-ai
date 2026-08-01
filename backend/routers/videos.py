@@ -492,12 +492,21 @@ async def _generate_video_bg(
         # Catches Exception AND asyncio.CancelledError (BaseException subclass in Python 3.8+)
         # so Railway SIGTERM / event-loop shutdown never leaves a video stuck at transcript_ready.
         _log.error(f"[pipeline] video {video_id}: Phase 2 failed — {type(e).__name__}: {e}", exc_info=True)
+        # Try to salvage any partial code from the exception so retry-manim can work
+        partial_code: str | None = getattr(e, "partial_code", None)
         try:
             async with get_db() as db:
-                await db.execute("""
-                    UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
-                    WHERE id = $2
-                """, f"Manim code generation failed: {type(e).__name__}: {e}", video_id)
+                if partial_code:
+                    await db.execute("""
+                        UPDATE videos SET status = 'failed', error_message = $1,
+                            generated_code = $2, updated_at = NOW()
+                        WHERE id = $3
+                    """, f"Manim code generation failed: {type(e).__name__}: {e}", partial_code, video_id)
+                else:
+                    await db.execute("""
+                        UPDATE videos SET status = 'failed', error_message = $1, updated_at = NOW()
+                        WHERE id = $2
+                    """, f"Manim code generation failed: {type(e).__name__}: {e}", video_id)
         except Exception as _db_err:
             _log.error(f"[pipeline] video {video_id}: also failed to write Phase 2 error — {_db_err}")
         if isinstance(e, asyncio.CancelledError):

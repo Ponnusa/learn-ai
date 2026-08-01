@@ -3074,11 +3074,19 @@ If the code passes ALL checks above with no issues, output exactly: NO_CHANGES_N
     code = inject_helpers_inline(code)
     code = inject_atom_helper(code, subject)
 
-    # Syntax validation
+    # Syntax validation — try tab→space normalisation before giving up
     try:
         compile(code, "<generated>", "exec")
-    except SyntaxError as syn_err:
-        raise ValueError(f"Generated code has a syntax error (likely truncated): {syn_err}")
+    except SyntaxError:
+        normalised = code.expandtabs(4)
+        try:
+            compile(normalised, "<generated>", "exec")
+            logger.warning("⚠️  Syntax fixed by tab→space normalisation")
+            code = normalised
+        except SyntaxError as syn_err:
+            err = ValueError(f"Generated code has a syntax error (likely truncated): {syn_err}")
+            err.partial_code = code  # type: ignore[attr-defined]
+            raise err
 
     scene_name = extract_scene_name(code)
     logger.info(f"✅ Generated code: {len(code)} chars | scene: {scene_name} | subject: {subject}")
