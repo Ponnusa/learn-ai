@@ -91,7 +91,7 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
     # ── 4. Run pipeline in background (Phase 1 → Phase 2) ───────────────────
     bg.add_task(
         _generate_video_bg,
-        video_id, req.prompt, req.user_id, subject, req.language, req.aspect_ratio
+        video_id, req.prompt, req.user_id, subject, req.language, req.aspect_ratio, max_secs
     )
 
     return {"supported": True, "video_id": video_id, "status": "pending"}
@@ -166,11 +166,12 @@ async def regenerate_video(video_id: int, bg: BackgroundTasks):
             WHERE id = $1
         """, video_id)
 
-    prompt = row["prompt"] or ""
-    uid    = str(row["user_id"]) if row["user_id"] else None
+    prompt  = row["prompt"] or ""
+    uid     = str(row["user_id"]) if row["user_id"] else None
+    max_dur = row["max_duration"] or 180
     bg.add_task(
         _generate_video_bg, video_id, prompt, uid,
-        row["subject"], row["language"] or "en", row["aspect_ratio"] or "16:9",
+        row["subject"], row["language"] or "en", row["aspect_ratio"] or "16:9", max_dur,
     )
     return {"status": "pending", "video_id": video_id}
 
@@ -412,6 +413,7 @@ async def _generate_video_bg(
     subject: str | None,
     language: str,
     aspect_ratio: str,
+    max_secs: int = 180,
 ):
     """
     Two-phase pipeline:
@@ -420,12 +422,12 @@ async def _generate_video_bg(
     If Phase 2 fails, video is 'failed' but transcript is already in the DB.
     """
     _log = logging.getLogger(__name__)
-    _log.info(f"[pipeline] video {video_id}: starting full pipeline (Phase 1 + 2)")
+    _log.info(f"[pipeline] video {video_id}: starting full pipeline (Phase 1 + 2), duration={max_secs}s")
 
     # ── Phase 1: solution + transcript ──────────────────────────────────────
     try:
         teaching_prompt = await build_video_prompt(prompt, user_id, subject, language)
-        solution_data   = await generate_solution_only(teaching_prompt, language, 60)
+        solution_data   = await generate_solution_only(teaching_prompt, language, max_secs)
 
         async with get_db() as db:
             await db.execute("""
@@ -454,7 +456,7 @@ async def _generate_video_bg(
     _log.info(f"[pipeline] video {video_id}: starting Phase 2 (Manim generation)")
     try:
         code_data = await asyncio.wait_for(
-            generate_manim_from_solution(solution_data, language, 60, aspect_ratio),
+            generate_manim_from_solution(solution_data, language, max_secs, aspect_ratio),
             timeout=900,
         )
         code     = fix_manim_colors(code_data["code"])

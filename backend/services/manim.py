@@ -1105,8 +1105,11 @@ SLOPE GEOMETRY (MANDATORY FOR PHYSICS):
 DURATION GUIDELINES
 ══════════════════════════════════════════════════════════════════
 
-- Each voiceover block ≈ 5–8 seconds
-- 30s → 2–3 blocks  |  1 min → 4–5 blocks  |  2 min → 7–9 blocks  |  3 min → 10–12 blocks
+- Each voiceover block ≈ 20–35 seconds (hook + animations + wait)
+- 90s  → 3 beats  |  2 min → 4–5 beats  |  3 min → 6–7 beats  |  4–6 min → 8–10 beats
+- NEVER rush beats — fewer longer beats beat many rushed ones
+- Every beat must have at least one clear visual movement or reveal
+- Voiceover text per beat: 2–4 sentences, spoken naturally in 15–25 seconds
 
 CLASS NAMING RULE: Scene class name MUST be in English; screen titles in TARGET_LANGUAGE.
 
@@ -2760,7 +2763,7 @@ MANDATORY PHYSICS RULES:
 - Normal force perpendicular to surface: normal_dir = [sin θ, cos θ, 0]
 - Gravity always straight DOWN: direction=[0,-1,0]"""
         else:
-            num_scenes = max(2, min(duration // 15, 12))
+            num_scenes = max(3, min(duration // 25, 10))
             svg_binding_scratch = ""
             if svg_urls:
                 svg_binding_scratch = "\nSVG ASSET BINDING (MANDATORY):\n"
