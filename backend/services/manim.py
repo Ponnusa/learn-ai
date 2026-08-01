@@ -160,6 +160,7 @@ def _call_gemini_generation(system_prompt: str, user_prompt: str, max_tokens: in
             return response.text.strip()
         except Exception as _exc:
             last_exc = _exc
+            logger.error(f"Gemini error ({pass_name} attempt {_attempt}/4): {type(_exc).__name__}: {_exc}")
             if _attempt >= 4:
                 break
     raise RuntimeError(f"{pass_name} (Gemini) failed after all retries: {last_exc}")
