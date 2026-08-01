@@ -49,7 +49,7 @@ _openai_sync = _openai_module.OpenAI(
 
 # ── Models for Manim pipeline ────────────────────────────────────────────────────────
 # Heavy passes (setup block, beats, improve, auto-fix) — need top quality
-_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-sonnet-5")
+_CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-5")
 # Light passes (SVG planner, SVG generator, storyboard, AST fix) — fast + cheap
 # Change CLAUDE_MODEL_FAST to swap all light calls at once without touching heavy ones
 _CLAUDE_MODEL_FAST = os.getenv("CLAUDE_MODEL_FAST", "claude-sonnet-5")
