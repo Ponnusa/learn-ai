@@ -48,9 +48,9 @@ _openai_sync = _openai_module.OpenAI(
 )
 
 # ── Models for Manim pipeline ────────────────────────────────────────────────────────
-# Heavy passes (setup block, beats) — Opus for narrative quality and SVG richness
+# All generation passes (storyboard, SVG, setup block, beats) — Opus for quality
 _CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-5")
-# Light passes (SVG planner, SVG generator, storyboard, critic, fix, improve) — Sonnet
+# Repair passes only (critic, fix, improve) — Sonnet at 64K to avoid truncation
 _CLAUDE_MODEL_FAST = os.getenv("CLAUDE_MODEL_FAST", "claude-sonnet-5")
 
 
@@ -1703,7 +1703,7 @@ def plan_svg_assets(verified_solution: str, subject: str) -> list:
     if remaining_slots > 0:
         try:
             msg = _claude_sync.messages.create(
-                model=_CLAUDE_MODEL_FAST,
+                model=_CLAUDE_MODEL,
                 max_tokens=150,
                 system=(
                     "You are planning SVG visual assets for an educational Manim animation.\n"
@@ -1791,7 +1791,7 @@ def call_claude_svg(asset_name: str) -> str:
         user_content += f"\nShape description: {hint}"
     user_content += "\nRemember: white strokes only, fill=none, no text, valid XML, centered in viewBox."
     msg = _claude_sync.messages.create(
-        model=_CLAUDE_MODEL_FAST,
+        model=_CLAUDE_MODEL,
         max_tokens=1000,
         system=SVG_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
@@ -2798,7 +2798,7 @@ MANDATORY RULES:
 
         storyboard_response = claude_with_retry(
             _claude_sync.messages.create,
-            model=_CLAUDE_MODEL_FAST,
+            model=_CLAUDE_MODEL,
             max_tokens=8000,
             messages=[{"role": "user", "content": storyboard_prompt}]
         )
