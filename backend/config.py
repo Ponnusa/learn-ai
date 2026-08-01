@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     EXTRA_ALLOWED_ORIGINS: str = ""
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
+    GEMINI_API_KEY: str = ""
+    VIDEO_MODEL_PROVIDER: str = "claude"   # "claude" | "gemini"
+    GEMINI_MODEL_NAME: str = "gemini-2.5-pro"
 
     class Config:
         env_file = ".env"

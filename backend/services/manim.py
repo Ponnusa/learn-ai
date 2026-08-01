@@ -53,6 +53,24 @@ _CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-5")
 # Repair passes only (critic, fix, improve) — Sonnet at 64K to avoid truncation
 _CLAUDE_MODEL_FAST = os.getenv("CLAUDE_MODEL_FAST", "claude-sonnet-5")
 
+# ── Alternate video generation provider ──────────────────────────────────────────────
+# Set VIDEO_MODEL_PROVIDER=gemini + GEMINI_API_KEY to route setup block + beats to Gemini.
+# All other passes (storyboard, SVG, critic, fix) remain on Claude regardless.
+_VIDEO_MODEL_PROVIDER = settings.VIDEO_MODEL_PROVIDER  # "claude" | "gemini"
+_GEMINI_MODEL_NAME    = settings.GEMINI_MODEL_NAME      # default: "gemini-2.5-pro"
+_gemini_genai = None
+if _VIDEO_MODEL_PROVIDER == "gemini":
+    try:
+        import google.generativeai as _gai_module
+        _gai_module.configure(api_key=settings.GEMINI_API_KEY)
+        _gemini_genai = _gai_module
+        logger.info(f"[video] Generation provider: Gemini — model={_GEMINI_MODEL_NAME}")
+    except Exception as _gemini_init_err:
+        logger.error(f"Gemini init failed ({_gemini_init_err}) — falling back to Claude")
+        _VIDEO_MODEL_PROVIDER = "claude"
+else:
+    logger.info(f"[video] Generation provider: Claude — model={_CLAUDE_MODEL}")
+
 
 def _first_text(message) -> str:
     """Return text from the first TextBlock, skipping ThinkingBlocks (claude-sonnet-5+)."""
@@ -60,6 +78,91 @@ def _first_text(message) -> str:
         if getattr(block, "text", None) is not None:
             return block.text
     return ""
+
+
+def _call_generation_pass(system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str) -> str:
+    """
+    Route a heavy generation pass (setup block, beats) to Claude or Gemini
+    based on VIDEO_MODEL_PROVIDER. Returns raw text (no fence stripping).
+    """
+    if _VIDEO_MODEL_PROVIDER == "gemini" and _gemini_genai is not None:
+        return _call_gemini_generation(system_prompt, user_prompt, max_tokens, pass_name)
+    return _call_claude_generation(system_prompt, user_prompt, max_tokens, pass_name)
+
+
+def _call_claude_generation(system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str) -> str:
+    """Claude streaming generation with exponential-backoff retry."""
+    _stream_delays = [5, 15, 45, 135]
+    message = None
+    for _attempt, _delay in enumerate(_stream_delays[:4], 1):
+        try:
+            with _claude_sync.messages.stream(
+                model=_CLAUDE_MODEL,
+                max_tokens=max_tokens,
+                system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": user_prompt}]
+            ) as stream:
+                message = stream.get_final_message()
+            _cu = getattr(message, "usage", None)
+            if _cu:
+                logger.info(
+                    f"[cache] {pass_name} — "
+                    f"write={getattr(_cu,'cache_creation_input_tokens',0)} "
+                    f"read={getattr(_cu,'cache_read_input_tokens',0)}"
+                )
+            break
+        except Exception as _exc:
+            _err = str(_exc)
+            if ("overloaded_error" in _err or "overloaded" in _err.lower() or "529" in _err) and _attempt < 4:
+                logger.warning(f"Claude overloaded ({pass_name} attempt {_attempt}/4) — retrying in {_delay}s")
+                time.sleep(_delay)
+            else:
+                raise
+    if message is None:
+        raise RuntimeError(f"{pass_name} (Claude) failed after all retries")
+    if message.stop_reason == "max_tokens":
+        logger.warning(f"⚠️  {pass_name} hit max_tokens — output may be incomplete")
+    return _first_text(message).strip()
+
+
+def _call_gemini_generation(system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str) -> str:
+    """Gemini generation with retry. max_tokens capped at 65536 (Gemini limit)."""
+    _retry_delays = [5, 15, 45]
+    last_exc = None
+    for _attempt, _delay in enumerate([0] + _retry_delays, 1):
+        if _attempt > 1:
+            logger.warning(f"Gemini retry ({pass_name} attempt {_attempt}/4) in {_delay}s")
+            time.sleep(_delay)
+        try:
+            model = _gemini_genai.GenerativeModel(
+                model_name=_GEMINI_MODEL_NAME,
+                system_instruction=system_prompt,
+            )
+            response = model.generate_content(
+                user_prompt,
+                generation_config=_gemini_genai.GenerationConfig(
+                    max_output_tokens=min(max_tokens, 65536),
+                    temperature=1.0,
+                ),
+            )
+            candidate = response.candidates[0]
+            finish = getattr(candidate.finish_reason, "name", str(candidate.finish_reason))
+            if finish == "MAX_TOKENS":
+                logger.warning(f"⚠️  {pass_name} (Gemini) hit MAX_TOKENS — output may be incomplete")
+            usage = getattr(response, "usage_metadata", None)
+            if usage:
+                logger.info(
+                    f"[gemini] {pass_name} — "
+                    f"in={getattr(usage,'prompt_token_count',0)} "
+                    f"out={getattr(usage,'candidates_token_count',0)} "
+                    f"finish={finish}"
+                )
+            return response.text.strip()
+        except Exception as _exc:
+            last_exc = _exc
+            if _attempt >= 4:
+                break
+    raise RuntimeError(f"{pass_name} (Gemini) failed after all retries: {last_exc}")
 
 # ── R2 / Cloudflare config (mirrors AnimLearn naming for verbatim function copy) ──────
 R2_BUCKET_NAME = settings.R2_BUCKET_NAME
@@ -2472,35 +2575,7 @@ LAST LINE MUST BE EXACTLY (8 spaces indent):
         {_PHASE2_SENTINEL}
 """
 
-    _stream_delays = [5, 15, 45, 135]
-    message = None
-    for _attempt, _delay in enumerate(_stream_delays[:4], 1):
-        try:
-            with _claude_sync.messages.stream(
-                model=_CLAUDE_MODEL,
-                max_tokens=32000,
-                system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": prompt}]
-            ) as stream:
-                message = stream.get_final_message()
-            _cu = getattr(message, "usage", None)
-            if _cu:
-                logger.info(f"[cache] setup pass — write={getattr(_cu,'cache_creation_input_tokens',0)} read={getattr(_cu,'cache_read_input_tokens',0)}")
-            break
-        except Exception as _exc:
-            _err = str(_exc)
-            if ("overloaded_error" in _err or "overloaded" in _err.lower() or "529" in _err) and _attempt < 4:
-                logger.warning(f"Claude overloaded (setup block attempt {_attempt}/4) — retrying in {_delay}s")
-                time.sleep(_delay)
-            else:
-                raise
-    if message is None:
-        raise RuntimeError("Setup block generation failed after all retries")
-
-    if message.stop_reason == "max_tokens":
-        logger.warning("⚠️  Setup block hit max_tokens — object definitions may be incomplete")
-
-    setup_code = _first_text(message).strip()
+    setup_code = _call_generation_pass(system_prompt, prompt, 32000, "setup block")
     for fence in ("```python", "```"):
         if setup_code.startswith(fence):
             setup_code = setup_code[len(fence):].strip()
@@ -2601,35 +2676,7 @@ Start directly with: `        with self.voiceover(`
 No markdown fences. No imports. No class. No setup code.
 """
 
-    _stream_delays = [5, 15, 45, 135]
-    message = None
-    for _attempt, _delay in enumerate(_stream_delays[:4], 1):
-        try:
-            with _claude_sync.messages.stream(
-                model=_CLAUDE_MODEL,
-                max_tokens=32000,
-                system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": prompt}]
-            ) as stream:
-                message = stream.get_final_message()
-            _cu = getattr(message, "usage", None)
-            if _cu:
-                logger.info(f"[cache] beats pass — write={getattr(_cu,'cache_creation_input_tokens',0)} read={getattr(_cu,'cache_read_input_tokens',0)}")
-            break
-        except Exception as _exc:
-            _err = str(_exc)
-            if ("overloaded_error" in _err or "overloaded" in _err.lower() or "529" in _err) and _attempt < 4:
-                logger.warning(f"Claude overloaded (animation beats attempt {_attempt}/4) — retrying in {_delay}s")
-                time.sleep(_delay)
-            else:
-                raise
-    if message is None:
-        raise RuntimeError("Animation beats generation failed after all retries")
-
-    if message.stop_reason == "max_tokens":
-        logger.warning("⚠️  Animation beats hit max_tokens — response may be truncated")
-
-    beats_code = _first_text(message).strip()
+    beats_code = _call_generation_pass(system_prompt, prompt, 32000, "animation beats")
     for fence in ("```python", "```"):
         if beats_code.startswith(fence):
             beats_code = beats_code[len(fence):].strip()
