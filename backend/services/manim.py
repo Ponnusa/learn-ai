@@ -160,7 +160,12 @@ def _call_gemini_generation(system_prompt: str, user_prompt: str, max_tokens: in
             return response.text.strip()
         except Exception as _exc:
             last_exc = _exc
-            logger.error(f"Gemini error ({pass_name} attempt {_attempt}/4): {type(_exc).__name__}: {_exc}")
+            _exc_str = str(_exc)
+            logger.error(f"Gemini error ({pass_name} attempt {_attempt}/4): {type(_exc).__name__}: {_exc_str[:300]}")
+            # Don't retry billing/auth errors — they won't resolve themselves
+            if any(code in _exc_str for code in ("RESOURCE_EXHAUSTED", "prepayment", "API_KEY_INVALID", "PERMISSION_DENIED")):
+                logger.error(f"Gemini fatal error — not retrying: {_exc_str[:200]}")
+                break
             if _attempt >= 4:
                 break
     raise RuntimeError(f"{pass_name} (Gemini) failed after all retries: {last_exc}")
