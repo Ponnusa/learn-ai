@@ -376,19 +376,32 @@ def find_undefined_in_construct(code: str) -> list:
                 _collect_assigned(stmt.body)
                 _collect_assigned(stmt.orelse)
                 _collect_assigned(stmt.finalbody if stmt.finalbody else [])
+            elif isinstance(stmt, _ast_module.FunctionDef):
+                # Nested helper function — add its name to assigned so call sites resolve.
+                # Do NOT recurse: its args/locals are scoped to that function, not construct().
+                assigned.add(stmt.name)
 
     _collect_assigned(construct_node.body)
 
-    # Find all Load-context names that are not in assigned set
+    # Find all Load-context names not in assigned set.
+    # Custom walker so we skip nested function bodies — their args/locals
+    # are scoped to that function, not construct(), and must not be flagged.
     undefined = []
     seen: set = set()
-    for node in _ast_module.walk(construct_node):
+
+    def _walk_for_loads(node):
+        """Recursively yield Name(Load) nodes, skipping nested FunctionDef bodies."""
+        if isinstance(node, _ast_module.FunctionDef) and node is not construct_node:
+            return  # don't descend into nested helpers
         if isinstance(node, _ast_module.Name) and isinstance(node.ctx, _ast_module.Load):
             name = node.id
             if name not in assigned and name not in seen and len(name) >= 2:
                 undefined.append(name)
                 seen.add(name)
+        for child in _ast_module.iter_child_nodes(node):
+            _walk_for_loads(child)
 
+    _walk_for_loads(construct_node)
     return sorted(undefined)
 
 
@@ -2560,6 +2573,7 @@ DO NOT INCLUDE:
 - Any `with self.voiceover(text=...):` blocks
 - Any `self.play()` calls — not even FadeOut, not even "to pre-hide" an object
 - Any animation logic of any kind
+- Any helper functions (`def make_card(...)`, `def make_panel(...)`, etc.) — define every object inline as a plain variable assignment, never as a function call to a function you define here
 
 ⚠️ SILENT GLITCH TRAP — the most common setup block mistake:
   ❌ WRONG (causes silent flashes at video start):
