@@ -68,14 +68,11 @@ if _VIDEO_MODEL_PROVIDER == "gemini":
         _gemini_types  = _google_genai_types
         # List available models so the right GEMINI_MODEL_NAME can be chosen
         try:
-            _available = [
-                m.name for m in _gemini_client.models.list()
-                if "generateContent" in (getattr(m, "supported_actions", None) or [])
-                and "gemini" in m.name.lower()
-            ]
-            logger.info(f"[gemini] Available models for this API key: {_available}")
+            _all_models = list(_gemini_client.models.list())
+            _model_names = [getattr(m, "name", str(m)) for m in _all_models]
+            logger.info(f"[gemini] Available models ({len(_model_names)} total): {_model_names}")
         except Exception as _list_err:
-            logger.warning(f"[gemini] Could not list models: {_list_err}")
+            logger.warning(f"[gemini] Could not list models: {type(_list_err).__name__}: {_list_err}")
         logger.info(f"[video] Generation provider: Gemini — model={_GEMINI_MODEL_NAME}")
     except Exception as _gemini_init_err:
         logger.error(f"Gemini init failed ({_gemini_init_err}) — falling back to Claude")
