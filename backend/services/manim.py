@@ -58,12 +58,14 @@ _CLAUDE_MODEL_FAST = os.getenv("CLAUDE_MODEL_FAST", "claude-sonnet-5")
 # All other passes (storyboard, SVG, critic, fix) remain on Claude regardless.
 _VIDEO_MODEL_PROVIDER = settings.VIDEO_MODEL_PROVIDER  # "claude" | "gemini"
 _GEMINI_MODEL_NAME    = settings.GEMINI_MODEL_NAME      # default: "gemini-2.5-pro"
-_gemini_genai = None
+_gemini_client = None       # google.genai.Client instance, set below if provider=gemini
+_gemini_types  = None       # google.genai.types module reference
 if _VIDEO_MODEL_PROVIDER == "gemini":
     try:
-        import google.generativeai as _gai_module
-        _gai_module.configure(api_key=settings.GEMINI_API_KEY)
-        _gemini_genai = _gai_module
+        from google import genai as _google_genai_mod
+        from google.genai import types as _google_genai_types
+        _gemini_client = _google_genai_mod.Client(api_key=settings.GEMINI_API_KEY)
+        _gemini_types  = _google_genai_types
         logger.info(f"[video] Generation provider: Gemini — model={_GEMINI_MODEL_NAME}")
     except Exception as _gemini_init_err:
         logger.error(f"Gemini init failed ({_gemini_init_err}) — falling back to Claude")
@@ -85,7 +87,7 @@ def _call_generation_pass(system_prompt: str, user_prompt: str, max_tokens: int,
     Route a heavy generation pass (setup block, beats) to Claude or Gemini
     based on VIDEO_MODEL_PROVIDER. Returns raw text (no fence stripping).
     """
-    if _VIDEO_MODEL_PROVIDER == "gemini" and _gemini_genai is not None:
+    if _VIDEO_MODEL_PROVIDER == "gemini" and _gemini_client is not None:
         return _call_gemini_generation(system_prompt, user_prompt, max_tokens, pass_name)
     return _call_claude_generation(system_prompt, user_prompt, max_tokens, pass_name)
 
@@ -126,7 +128,7 @@ def _call_claude_generation(system_prompt: str, user_prompt: str, max_tokens: in
 
 
 def _call_gemini_generation(system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str) -> str:
-    """Gemini generation with retry. max_tokens capped at 65536 (Gemini limit)."""
+    """Gemini generation via google-genai SDK with retry."""
     _retry_delays = [5, 15, 45]
     last_exc = None
     for _attempt, _delay in enumerate([0] + _retry_delays, 1):
@@ -134,13 +136,11 @@ def _call_gemini_generation(system_prompt: str, user_prompt: str, max_tokens: in
             logger.warning(f"Gemini retry ({pass_name} attempt {_attempt}/4) in {_delay}s")
             time.sleep(_delay)
         try:
-            model = _gemini_genai.GenerativeModel(
-                model_name=_GEMINI_MODEL_NAME,
-                system_instruction=system_prompt,
-            )
-            response = model.generate_content(
-                user_prompt,
-                generation_config=_gemini_genai.GenerationConfig(
+            response = _gemini_client.models.generate_content(
+                model=_GEMINI_MODEL_NAME,
+                contents=user_prompt,
+                config=_gemini_types.GenerateContentConfig(
+                    system_instruction=system_prompt,
                     max_output_tokens=min(max_tokens, 65536),
                     temperature=1.0,
                 ),
