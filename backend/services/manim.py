@@ -316,8 +316,8 @@ CODE:
     try:
         response = claude_with_retry(
             _claude_sync.messages.create,
-            model=_CLAUDE_MODEL,
-            max_tokens=32000,
+            model=_CLAUDE_MODEL_FAST,
+            max_tokens=64000,
             messages=[{"role": "user", "content": fix_prompt}],
         )
         fixed = _first_text(response).strip()
@@ -2456,6 +2456,9 @@ ASPECT RATIO: {aspect_ratio}  |  LANGUAGE: {language}  |  DURATION: {duration}s 
 VERIFIED SOLUTION (formula values and variable names — use these exactly):
 {verified_solution[:700]}
 
+CODE LENGTH BUDGET: Target 150-250 lines total. Use short but descriptive variable names.
+No in-code comments unless absolutely necessary for correctness.
+
 Output ONLY valid Python code. No markdown fences. No explanation.
 LAST LINE MUST BE EXACTLY (8 spaces indent):
         {_PHASE2_SENTINEL}
@@ -2581,6 +2584,9 @@ VERIFIED SOLUTION (use values AS-IS — do not change any number):
 {verified_solution[:500]}
 
 ASPECT RATIO: {aspect_ratio}  |  LANGUAGE: {language}  |  DURATION: {duration}s  |  SUBJECT: {subject}
+
+CODE LENGTH BUDGET: 10-20 lines per beat. No in-code comments. Be concise.
+Total beats output should be under 300 lines.
 
 Output ONLY animation beats, indented 8 spaces.
 Start directly with: `        with self.voiceover(`
@@ -3033,8 +3039,8 @@ If the code passes ALL checks above with no issues, output exactly: NO_CHANGES_N
 
         critic_response = claude_with_retry(
             _claude_sync.messages.create,
-            model=_CLAUDE_MODEL,
-            max_tokens=32000,
+            model=_CLAUDE_MODEL_FAST,
+            max_tokens=64000,
             system=[{"type": "text", "text": _CRITIC_SYSTEM, "cache_control": {"type": "ephemeral"}}],
             messages=[{"role": "user", "content": critic_user}]
         )
@@ -3252,8 +3258,8 @@ Return ONLY the improved Python code with no markdown fences."""
 
     message = claude_with_retry(
         _claude_sync.messages.create,
-        model=_CLAUDE_MODEL,
-        max_tokens=32000,
+        model=_CLAUDE_MODEL_FAST,
+        max_tokens=64000,
         system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}]
     )
@@ -3341,8 +3347,8 @@ Return ONLY the corrected Python code with no markdown fences."""
 
     message = claude_with_retry(
         _claude_sync.messages.create,
-        model=_CLAUDE_MODEL,
-        max_tokens=32000,
+        model=_CLAUDE_MODEL_FAST,
+        max_tokens=64000,
         system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": prompt}],
     )
