@@ -183,6 +183,7 @@ export const generateVideo = (data: {
   subject?: string;
   language?: string;
   aspect_ratio?: string;
+  grade_level?: string;
 }, token?: string) => post<{ supported: boolean; video_id?: number; status?: string; message?: string }>(
   '/api/videos/generate', data, token
 );

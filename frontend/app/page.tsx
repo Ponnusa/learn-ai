@@ -16,9 +16,11 @@ const PDFViewerModal = dynamic(
 import { SignupModal } from '@/components/gates/SignupModal';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLanguageStore } from '@/store/languageStore';
+import { useGradeStore } from '@/store/gradeStore';
 import { useSessionStore } from '@/store/sessionStore';
 import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, getStudentProfile, uploadRegionImage } from '@/lib/api';
 import { ProfileNudgeCard } from '@/components/profile/ProfileNudgeCard';
+import { GradePrompt } from '@/components/chat/GradePrompt';
 import { HomeTour } from '@/components/onboarding/HomeTour';
 
 interface Message {
@@ -52,6 +54,9 @@ export default function HomePage() {
   const router    = useRouter();
   const { t }        = useTranslation();
   const { language } = useLanguageStore();
+  const { grade, setGrade } = useGradeStore();
+  // true once the user picks a grade OR skips — hides the prompt for this session
+  const [gradePromptDone, setGradePromptDone] = useState(() => grade !== null);
   const {
     sessionId, setSessionId, msgCount, user, token, incrementMsg,
     activeConversationId, setActiveConversationId,
@@ -305,11 +310,12 @@ export default function HomePage() {
       const res = await generateVideo({
         prompt:          content,
         conversation_id: conversationId ?? undefined,
-        message_id:      messageId,          // ← link video to the AI message in DB
+        message_id:      messageId,
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
         subject:         subject ?? currentSubject?.subject,
         language,
+        grade_level:     grade ?? undefined,
       }, token ?? undefined);
 
       if (!res.supported) {
@@ -587,6 +593,17 @@ export default function HomePage() {
             onDismiss={() => { setShowNudge(false); try { localStorage.setItem('profile_nudge_dismissed', '1'); } catch {} }}
           />
         )}
+
+        {/* Grade prompt — shown once for any user who hasn't set grade yet */}
+        {messages.length === 0 && !gradePromptDone && (
+          <GradePrompt
+            onSelect={(g) => {
+              if (g) setGrade(g);
+              setGradePromptDone(true);
+            }}
+          />
+        )}
+
         <InputBar onSend={handleSend} onPdfOpen={f => setPdfFile(f)} loading={loading} />
       </main>
 

@@ -323,22 +323,37 @@ async def build_studyset_prompt(
     return prompt + personalisation
 
 
+_GRADE_DEPTH: dict[str, str] = {
+    "Grade 6–8":      "introductory — everyday analogies, no algebra, simple visuals and clear labels",
+    "Grade 9–10":     "intermediate — algebra and geometry OK, connect to classroom context",
+    "Grade 11–12":    "upper-secondary — pre-calculus OK, connect to exam topics and deeper mechanism",
+    "Undergrad Y1–2": "undergraduate introductory — assume standard prerequisites, derive from first principles",
+    "Undergrad Y3–4": "advanced undergraduate — go deep on mechanism and derivation, peer-level language",
+    "Graduate":       "graduate — research-level connections, nuance, open questions",
+    "Self-learner":   "intermediate — clear intuition first, examples before formulas, no assumed curriculum",
+}
+
+
 async def build_video_prompt(
     concept_text: str,
     user_id: str | None,
     subject: str | None,
     language: str = "en",
+    grade_level: str | None = None,
 ) -> str:
     """
     Frames the concept for the Manim pipeline.
-    Adjusts depth hint based on student score — the pipeline itself is unchanged.
+    Depth hint comes from (in priority order):
+      1. Student skill score (logged-in users with profile)
+      2. grade_level passed from frontend (all users including anonymous)
+      3. Default intermediate fallback
     """
     depth = "intermediate — balance visual intuition with key equations"
 
     if user_id:
         async with get_db() as db:
             profile = await db.fetchrow(
-                "SELECT skill_scores FROM student_profiles WHERE user_id = $1", user_id
+                "SELECT skill_scores, grade FROM student_profiles WHERE user_id = $1", user_id
             )
         if profile:
             score = (profile["skill_scores"] or {}).get(subject or "General", 50)
@@ -346,8 +361,19 @@ async def build_video_prompt(
                 depth = "introductory — use simple visuals, minimal notation, clear labels"
             elif score >= 65:
                 depth = "advanced — include full derivation steps and precise notation"
+            # Fill grade_level from profile if not supplied by frontend
+            if not grade_level and profile["grade"]:
+                grade_level = profile["grade"]
+
+    # Grade-level depth overrides the default but not the skill-score-derived depth
+    # (skill score is more precise; grade is a fallback for anonymous/new users)
+    if grade_level and depth == "intermediate — balance visual intuition with key equations":
+        depth = _GRADE_DEPTH.get(grade_level, depth)
 
     prompt = VIDEO_TEACHING_PROMPT_TEMPLATE.format(concept=concept_text[:2000])
+    prompt += f"\n\nTarget depth: {depth}."
+    if grade_level:
+        prompt += f"\nStudent level: {grade_level}."
     lang_name = _LANGUAGE_NAMES.get(language)
     if lang_name:
         prompt += f"\n\nWrite ALL narration text and labels in {lang_name}."

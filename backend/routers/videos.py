@@ -43,6 +43,7 @@ class VideoRequest(BaseModel):
     subject: str | None = None
     language: str = "en"
     aspect_ratio: str = "16:9"
+    grade_level: str | None = None
 
 
 @router.post("/generate")
@@ -91,7 +92,8 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
     # ── 4. Run pipeline in background (Phase 1 → Phase 2) ───────────────────
     bg.add_task(
         _generate_video_bg,
-        video_id, req.prompt, req.user_id, subject, req.language, req.aspect_ratio, max_secs
+        video_id, req.prompt, req.user_id, subject, req.language, req.aspect_ratio, max_secs,
+        req.grade_level,
     )
 
     return {"supported": True, "video_id": video_id, "status": "pending"}
@@ -414,6 +416,7 @@ async def _generate_video_bg(
     language: str,
     aspect_ratio: str,
     max_secs: int = 180,
+    grade_level: str | None = None,
 ):
     """
     Two-phase pipeline:
@@ -426,7 +429,7 @@ async def _generate_video_bg(
 
     # ── Phase 1: solution + transcript ──────────────────────────────────────
     try:
-        teaching_prompt = await build_video_prompt(prompt, user_id, subject, language)
+        teaching_prompt = await build_video_prompt(prompt, user_id, subject, language, grade_level)
         solution_data   = await generate_solution_only(teaching_prompt, language, max_secs)
 
         async with get_db() as db:
