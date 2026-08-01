@@ -2794,7 +2794,7 @@ MANDATORY RULES:
         storyboard_response = claude_with_retry(
             _claude_sync.messages.create,
             model=_CLAUDE_MODEL,
-            max_tokens=2000,
+            max_tokens=4000,
             messages=[{"role": "user", "content": storyboard_prompt}]
         )
         storyboard_text = _first_text(storyboard_response).strip()
