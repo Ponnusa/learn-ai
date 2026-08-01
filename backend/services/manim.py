@@ -2442,8 +2442,17 @@ CRITICAL SETUP RULES:
 
 DO NOT INCLUDE:
 - Any `with self.voiceover(text=...):` blocks
-- Any `self.play()` calls (only `self.add()` for initial scene setup is OK)
+- Any `self.play()` calls — not even FadeOut, not even "to pre-hide" an object
 - Any animation logic of any kind
+
+⚠️ SILENT GLITCH TRAP — the most common setup block mistake:
+  ❌ WRONG (causes silent flashes at video start):
+      obj = Text("hello")
+      self.play(FadeOut(obj))   ← DO NOT do this in setup
+  ✅ CORRECT (object is invisible until a beat shows it):
+      obj = Text("hello")       ← just define it, nothing else
+  Objects defined in setup are NOT on screen until a beat calls self.play(FadeIn(obj)).
+  Never call self.play() in setup to "hide" or "pre-position" anything.
 
 STORYBOARD (read EVERY scene — define EVERY object mentioned):
 {storyboard_text}
