@@ -52,7 +52,7 @@ _openai_sync = _openai_module.OpenAI(
 _CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-sonnet-5")
 # Light passes (SVG planner, SVG generator, storyboard, AST fix) — fast + cheap
 # Change CLAUDE_MODEL_FAST to swap all light calls at once without touching heavy ones
-_CLAUDE_MODEL_FAST = os.getenv("CLAUDE_MODEL_FAST", "claude-haiku-4-5-20251001")
+_CLAUDE_MODEL_FAST = os.getenv("CLAUDE_MODEL_FAST", "claude-sonnet-5")
 
 
 def _first_text(message) -> str:
@@ -398,7 +398,7 @@ def get_tts_prompt_blocks() -> tuple[str, str]:
 - NOTE: GTTSService requires no API keys"""
     else:
         tts_import = "from manim_voiceover.services.azure import AzureService"
-        tts_block = """self.set_speech_service(AzureService(voice="VOICE_NAME", global_speed=0.90))
+        tts_block = """self.set_speech_service(AzureService(voice="VOICE_NAME", global_speed=1.0))
 - Choose voice based on the language of the narration:
   - Finnish  → fi-FI-NooraNeural
   - Swedish  → sv-SE-SofieNeural
@@ -543,6 +543,19 @@ students don't remember facts; they remember the MOMENT something clicked.
 Your narration is designed to manufacture that moment.
 
 ────────────────────────────────────────────────────────────
+EXPLANATION DEPTH — FIRST PRINCIPLES (MANDATORY)
+────────────────────────────────────────────────────────────
+- Always explain WHY, not just WHAT — trace every concept back to the underlying principle
+- Lead with a concrete real-world example or analogy BEFORE introducing any formula
+- Address the "but why does that work?" question a curious student would ask
+- If grade/level is provided, calibrate vocabulary and assumed prior knowledge:
+  - Grade 6–8: everyday analogies, no algebra required
+  - Grade 9–10: algebra/geometry OK, link to classroom context
+  - Grade 11–12: pre-calculus OK, connect to exam topics and deeper mechanism
+  - University: assume prerequisites, go deeper on mechanism and derivation
+- Keep narration energetic and pacy — no long pauses, no filler phrases like "So, as we can see..."
+
+────────────────────────────────────────────────────────────
 THE SINGLE MOST IMPORTANT RULE: OPEN A QUESTION LOOP
 ────────────────────────────────────────────────────────────
 The human brain cannot rest with an open question. Exploit this.
@@ -668,8 +681,8 @@ EVERY construct() MUST follow this exact two-phase structure:
         with self.voiceover(text="...") as tracker:
             sub = self.show_subtitle("...")
             self.play(FadeIn(title))        # safe — title defined above
-            self.wait(max(0.1, tracker.duration - 0.5))
-        self.play(FadeOut(sub))
+            self.wait(max(0.1, tracker.duration - 0.9))
+            self.play(FadeOut(sub), run_time=0.4)  # INSIDE block — no silence gap
 
 WHAT KILLS THE RENDER (NameError — do NOT do these):
 ❌  self.add(background, grid_lines)           # background never assigned
@@ -745,14 +758,15 @@ USAGE PATTERN:
 with self.voiceover(text="...") as tracker:
     sub = self.show_subtitle("Same text as voiceover")
     # ... animations ...
-    self.wait(max(0.1, tracker.duration - 0.5))
-self.play(FadeOut(sub))
+    self.wait(max(0.1, tracker.duration - 0.9))
+    self.play(FadeOut(sub), run_time=0.4)  # INSIDE the block — no silence gap between beats
 
 SUBTITLE RULES:
 - show_subtitle MUST be a class method, NEVER a nested function inside construct()
 - Every voiceover block MUST have a matching subtitle
 - Call as self.show_subtitle(...), NEVER as show_subtitle(self, ...)
-- Remove subtitle (FadeOut) before starting the next voiceover block
+- FadeOut(sub) MUST be INSIDE the voiceover block — the last two lines before the block ends
+- NEVER call self.play(FadeOut(sub)) OUTSIDE the voiceover block — it creates dead silence
 - Never stack subtitles — only one visible at a time
 
 ══════════════════════════════════════════════════════════════════
@@ -936,6 +950,8 @@ a) ZERO-LENGTH DashedLine / Line:
 
 b) NEGATIVE self.wait() duration:
    RULE: Use self.wait(max(0.1, tracker.duration - X)) everywhere.
+   X must account for ALL animations in the beat including the FadeOut(sub) at the end.
+   Minimum X = 0.9 (0.5s show_subtitle FadeIn + 0.4s FadeOut). Add more for extra animations.
 
 COLOR CODING (consistent):
 - Titles: WHITE  |  Equations: YELLOW  |  Highlights: RED
@@ -960,8 +976,8 @@ construct() MUST follow this two-phase structure:
         with self.voiceover(text="...") as tracker:
             sub = self.show_subtitle("...")
             self.play(FadeIn(title))
-            self.wait(max(0.1, tracker.duration - 0.5))
-        self.play(FadeOut(sub))
+            self.wait(max(0.1, tracker.duration - 0.9))
+            self.play(FadeOut(sub), run_time=0.4)  # INSIDE block — no silence gap
         ...
 
 CRITICAL RULES FOR THE SETUP BLOCK:
@@ -2538,8 +2554,10 @@ BEAT STRUCTURE — every voiceover block MUST have all of these:
 1. `        with self.voiceover(text="...") as tracker:`
 2. `            sub = self.show_subtitle("Same narration text")`
 3. `            self.play(...)` — at least one real animation (not just self.wait)
-4. `            self.wait(max(0.1, tracker.duration - 0.5))`
-5. After the `with` block: `        self.play(FadeOut(sub))`
+4. `            self.wait(max(0.1, tracker.duration - 0.9))`
+5. `            self.play(FadeOut(sub), run_time=0.4)` ← INSIDE the block, last line
+
+⚠️ FadeOut(sub) MUST be inside the `with` block. Placing it outside creates silence between beats.
 
 VARIABLE RULES:
 ✅ Use pre-defined variables by name — they exist and are already positioned
