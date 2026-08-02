@@ -2529,6 +2529,7 @@ def _generate_setup_block_pass(
     aspect_ratio: str,
     svg_urls: dict,
     system_prompt: str,
+    quality_tier: str = "premium",
 ) -> str:
     """
     Pass 2a: Generate ONLY the setup block — imports, class definition,
@@ -2640,6 +2641,7 @@ def _generate_animation_beats_pass(
     aspect_ratio: str,
     svg_urls: dict,
     system_prompt: str,
+    quality_tier: str = "premium",
 ) -> str:
     """
     Pass 2b: Generate ONLY the animation beats (with self.voiceover(): blocks).
@@ -2920,6 +2922,7 @@ MANDATORY RULES:
         aspect_ratio=aspect_ratio,
         svg_urls=svg_urls,
         system_prompt=system_prompt,
+        quality_tier=quality_tier,
     )
 
     logger.info("[pipeline] Stage 2b: Generating animation beats")
@@ -2934,6 +2937,7 @@ MANDATORY RULES:
         aspect_ratio=aspect_ratio,
         svg_urls=svg_urls,
         system_prompt=system_prompt,
+        quality_tier=quality_tier,
     )
 
     response_text = _assemble_two_pass_code(setup_code, beats_code)
