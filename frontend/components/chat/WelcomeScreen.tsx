@@ -1,7 +1,9 @@
 'use client';
 import { useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { HelpCircle } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { QualityBadge } from '@/components/video/QualityBadge';
 
 interface User {
   id: string;
@@ -54,7 +56,8 @@ function getFirstName(user: User): string {
 }
 
 export function WelcomeScreen({ user, onSend }: Props) {
-  const { t } = useTranslation();
+  const { t }  = useTranslation();
+  const router = useRouter();
 
   const h = new Date().getHours();
   const greetText =
@@ -111,6 +114,16 @@ export function WelcomeScreen({ user, onSend }: Props) {
           <p className="text-[var(--tx6)] text-sm mt-2">
             {t.chat.welcomeTutorReady}
           </p>
+          <div className="mt-3 flex items-center justify-center gap-2 text-xs">
+            <QualityBadge tier="standard" />
+            <span className="text-[var(--tx7)]">·</span>
+            <button
+              onClick={() => router.push('/login')}
+              className="text-purple-400 hover:text-purple-300 underline underline-offset-2 transition-colors"
+            >
+              Sign in for Enhanced quality →
+            </button>
+          </div>
         </div>
       )}
 
