@@ -34,6 +34,19 @@ from services.manim import (
 router = APIRouter(prefix="/api/videos", tags=["videos"])
 
 
+def _resolve_quality_tier(tier: str, total_video_count: int) -> str:
+    """
+    anonymous          → standard  (Gemini Flash Lite)
+    pro                → premium   (Claude Opus, always)
+    free / learner     → premium   on first video, enhanced thereafter
+    """
+    if tier == "anonymous":
+        return "standard"
+    if tier == "pro":
+        return "premium"
+    return "premium" if total_video_count == 0 else "enhanced"
+
+
 class VideoRequest(BaseModel):
     prompt: str
     conversation_id: str | None = None
@@ -66,12 +79,18 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
             "message": f"Video generation for {subject_label} is coming soon. We currently support Mathematics, Physics, and Chemistry.",
         }
 
-    # ── 2. Credit check ──────────────────────────────────────────────────────
+    # ── 2. Credit check + quality tier resolution ────────────────────────────
     tier = "anonymous"
+    quality_tier = "standard"
     if req.user_id:
         async with get_db() as db:
             user = await db.fetchrow("SELECT tier FROM users WHERE id = $1::uuid", req.user_id)
+            total_video_count = await db.fetchval("""
+                SELECT COUNT(*) FROM usage_events
+                WHERE user_id = $1::uuid AND event_type = 'video_generated'
+            """, req.user_id) or 0
         tier = user["tier"] if user else "free"
+        quality_tier = _resolve_quality_tier(tier, total_video_count)
 
     max_secs = await get_limit(tier, "video_max_secs")
     await _check_video_credit(req.user_id, req.session_id, tier)
@@ -81,11 +100,11 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
         video = await db.fetchrow("""
             INSERT INTO videos
               (user_id, session_id, conversation_id, message_id,
-               prompt, status, max_duration, language, aspect_ratio, subject)
-            VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,'pending',$6,$7,$8,$9)
+               prompt, status, max_duration, language, aspect_ratio, subject, quality_tier)
+            VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5,'pending',$6,$7,$8,$9,$10)
             RETURNING id
         """, req.user_id, req.session_id, req.conversation_id, req.message_id,
-            req.prompt, max_secs, req.language, req.aspect_ratio, subject)
+            req.prompt, max_secs, req.language, req.aspect_ratio, subject, quality_tier)
 
     video_id = video["id"]
 
@@ -93,7 +112,7 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
     bg.add_task(
         _generate_video_bg,
         video_id, req.prompt, req.user_id, subject, req.language, req.aspect_ratio, max_secs,
-        req.grade_level,
+        req.grade_level, quality_tier,
     )
 
     return {"supported": True, "video_id": video_id, "status": "pending"}
@@ -109,7 +128,7 @@ async def retry_video_manim(video_id: int, bg: BackgroundTasks):
     async with get_db() as db:
         row = await db.fetchrow("""
             SELECT verified_solution, transcript_markdown, language, aspect_ratio,
-                   max_duration, prompt, user_id, subject
+                   max_duration, prompt, user_id, subject, quality_tier
             FROM videos WHERE id = $1
         """, video_id)
 
@@ -125,9 +144,10 @@ async def retry_video_manim(video_id: int, bg: BackgroundTasks):
             WHERE id = $1
         """, video_id)
 
-    lang        = row["language"]     or "en"
-    ar          = row["aspect_ratio"] or "16:9"
-    max_dur     = row["max_duration"] or 60
+    lang         = row["language"]     or "en"
+    ar           = row["aspect_ratio"] or "16:9"
+    max_dur      = row["max_duration"] or 60
+    qt           = row["quality_tier"] or "premium"
 
     if row["verified_solution"]:
         # Fast path — skip GPT-4o
@@ -135,15 +155,15 @@ async def retry_video_manim(video_id: int, bg: BackgroundTasks):
             "verified_solution":   row["verified_solution"],
             "transcript_markdown": row["transcript_markdown"] or "",
             "video_script":        row["transcript_markdown"] or "",
-            "subject":             row["subject"] or "general",   # use real subject, not "general"
+            "subject":             row["subject"] or "general",
             "tags":                [],
         }
-        bg.add_task(_retry_manim_bg, video_id, solution_data, lang, ar, max_dur)
+        bg.add_task(_retry_manim_bg, video_id, solution_data, lang, ar, max_dur, qt)
     else:
         # No transcript yet — run the full pipeline from the saved prompt
         prompt = row["prompt"] or ""
         uid    = str(row["user_id"]) if row["user_id"] else None
-        bg.add_task(_generate_video_bg, video_id, prompt, uid, row["subject"], lang, ar)
+        bg.add_task(_generate_video_bg, video_id, prompt, uid, row["subject"], lang, ar, max_dur, None, qt)
 
     return {"status": "pending", "video_id": video_id}
 
@@ -153,7 +173,7 @@ async def regenerate_video(video_id: int, bg: BackgroundTasks):
     """Full regeneration — clears cached transcript/solution and reruns the entire pipeline."""
     async with get_db() as db:
         row = await db.fetchrow("""
-            SELECT prompt, user_id, subject, language, aspect_ratio
+            SELECT prompt, user_id, subject, language, aspect_ratio, quality_tier
             FROM videos WHERE id = $1
         """, video_id)
     if not row:
@@ -171,9 +191,10 @@ async def regenerate_video(video_id: int, bg: BackgroundTasks):
     prompt  = row["prompt"] or ""
     uid     = str(row["user_id"]) if row["user_id"] else None
     max_dur = row["max_duration"] or 180
+    qt      = row["quality_tier"] or "premium"
     bg.add_task(
         _generate_video_bg, video_id, prompt, uid,
-        row["subject"], row["language"] or "en", row["aspect_ratio"] or "16:9", max_dur,
+        row["subject"], row["language"] or "en", row["aspect_ratio"] or "16:9", max_dur, None, qt,
     )
     return {"status": "pending", "video_id": video_id}
 
@@ -359,7 +380,7 @@ async def get_video_status(video_id: int):
         row = await db.fetchrow("""
             SELECT id, status, video_url, thumbnail_url, error_message,
                    duration_secs, max_duration, created_at,
-                   transcript_markdown, verified_solution, prompt
+                   transcript_markdown, verified_solution, prompt, quality_tier
             FROM videos WHERE id = $1
         """, video_id)
     if not row:
@@ -417,6 +438,7 @@ async def _generate_video_bg(
     aspect_ratio: str,
     max_secs: int = 180,
     grade_level: str | None = None,
+    quality_tier: str = "premium",
 ):
     """
     Two-phase pipeline:
@@ -459,7 +481,7 @@ async def _generate_video_bg(
     _log.info(f"[pipeline] video {video_id}: starting Phase 2 (Manim generation)")
     try:
         code_data = await asyncio.wait_for(
-            generate_manim_from_solution(solution_data, language, max_secs, aspect_ratio),
+            generate_manim_from_solution(solution_data, language, max_secs, aspect_ratio, quality_tier),
             timeout=900,
         )
         code     = fix_manim_colors(code_data["code"])
@@ -524,6 +546,7 @@ async def _retry_manim_bg(
     language: str,
     aspect_ratio: str,
     duration: int,
+    quality_tier: str = "premium",
 ):
     """Phase 2 only — used by the retry endpoint."""
     _log = logging.getLogger(__name__)
@@ -544,7 +567,7 @@ async def _retry_manim_bg(
         # Hard 15-minute deadline — each Claude call has a 120 s SDK timeout,
         # so 5 calls × 2 min = 10 min worst case; 15 min gives extra headroom.
         code_data = await asyncio.wait_for(
-            generate_manim_from_solution(solution_data, language, duration, aspect_ratio),
+            generate_manim_from_solution(solution_data, language, duration, aspect_ratio, quality_tier),
             timeout=900,
         )
         code     = fix_manim_colors(code_data["code"])

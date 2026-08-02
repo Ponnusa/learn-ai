@@ -446,6 +446,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS chapter_id UUID REFERENCES course_chapters(id) ON DELETE CASCADE",
             # ── Videos: link to concept (1-to-many) ──────────────────────────
             "ALTER TABLE videos ADD COLUMN IF NOT EXISTS concept_id UUID REFERENCES course_concepts(id) ON DELETE SET NULL",
+            "ALTER TABLE videos ADD COLUMN IF NOT EXISTS quality_tier TEXT NOT NULL DEFAULT 'premium'",
             "CREATE INDEX IF NOT EXISTS idx_videos_concept ON videos(concept_id)",
             # ── Concept textbook content blocks (ordered, typed) ──────────────
             """

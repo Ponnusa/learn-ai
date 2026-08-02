@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str = ""
     GEMINI_API_KEY: str = ""
     VIDEO_MODEL_PROVIDER: str = "claude"   # "claude" | "gemini"
-    GEMINI_MODEL_NAME: str = "gemini-2.5-flash"
+    GEMINI_MODEL_NAME: str = "gemini-2.5-flash"       # enhanced tier (students)
+    GEMINI_MODEL_NAME_LITE: str = "gemini-3.5-flash-lite"  # standard tier (anonymous)
 
     class Config:
         env_file = ".env"

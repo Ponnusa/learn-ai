@@ -56,8 +56,9 @@ _CLAUDE_MODEL_FAST = os.getenv("CLAUDE_MODEL_FAST", "claude-sonnet-5")
 # ── Alternate video generation provider ──────────────────────────────────────────────
 # Set VIDEO_MODEL_PROVIDER=gemini + GEMINI_API_KEY to route setup block + beats to Gemini.
 # All other passes (storyboard, SVG, critic, fix) remain on Claude regardless.
-_VIDEO_MODEL_PROVIDER = settings.VIDEO_MODEL_PROVIDER  # "claude" | "gemini"
-_GEMINI_MODEL_NAME    = settings.GEMINI_MODEL_NAME      # default: "gemini-2.5-pro"
+_VIDEO_MODEL_PROVIDER    = settings.VIDEO_MODEL_PROVIDER   # "claude" | "gemini"
+_GEMINI_MODEL_NAME       = settings.GEMINI_MODEL_NAME      # enhanced tier (students)
+_GEMINI_MODEL_NAME_LITE  = settings.GEMINI_MODEL_NAME_LITE # standard tier (anonymous)
 _gemini_client = None       # google.genai.Client instance, set below if provider=gemini
 _gemini_types  = None       # google.genai.types module reference
 if _VIDEO_MODEL_PROVIDER == "gemini":
@@ -89,14 +90,20 @@ def _first_text(message) -> str:
     return ""
 
 
-def _call_generation_pass(system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str) -> str:
+def _call_generation_pass(
+    system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str,
+    quality_tier: str = "premium",
+) -> str:
     """
-    Route a heavy generation pass (setup block, beats) to Claude or Gemini
-    based on VIDEO_MODEL_PROVIDER. Returns raw text (no fence stripping).
+    Route setup block / beats to Claude or Gemini based on quality_tier.
+    premium  → always Claude (Opus)
+    enhanced → Gemini Flash  (if configured, else Claude)
+    standard → Gemini Flash Lite (if configured, else Claude)
     """
-    if _VIDEO_MODEL_PROVIDER == "gemini" and _gemini_client is not None:
-        return _call_gemini_generation(system_prompt, user_prompt, max_tokens, pass_name)
-    return _call_claude_generation(system_prompt, user_prompt, max_tokens, pass_name)
+    if quality_tier == "premium" or _VIDEO_MODEL_PROVIDER != "gemini" or _gemini_client is None:
+        return _call_claude_generation(system_prompt, user_prompt, max_tokens, pass_name)
+    model = _GEMINI_MODEL_NAME_LITE if quality_tier == "standard" else _GEMINI_MODEL_NAME
+    return _call_gemini_generation(system_prompt, user_prompt, max_tokens, pass_name, model=model)
 
 
 def _call_claude_generation(system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str) -> str:
@@ -134,8 +141,12 @@ def _call_claude_generation(system_prompt: str, user_prompt: str, max_tokens: in
     return _first_text(message).strip()
 
 
-def _call_gemini_generation(system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str) -> str:
+def _call_gemini_generation(
+    system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str,
+    model: str | None = None,
+) -> str:
     """Gemini generation via google-genai SDK with retry."""
+    _model = model or _GEMINI_MODEL_NAME
     _retry_delays = [5, 15, 45]
     last_exc = None
     for _attempt, _delay in enumerate([0] + _retry_delays, 1):
@@ -144,7 +155,7 @@ def _call_gemini_generation(system_prompt: str, user_prompt: str, max_tokens: in
             time.sleep(_delay)
         try:
             response = _gemini_client.models.generate_content(
-                model=_GEMINI_MODEL_NAME,
+                model=_model,
                 contents=user_prompt,
                 config=_gemini_types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -2602,7 +2613,7 @@ LAST LINE MUST BE EXACTLY (8 spaces indent):
         {_PHASE2_SENTINEL}
 """
 
-    setup_code = _call_generation_pass(system_prompt, prompt, 32000, "setup block")
+    setup_code = _call_generation_pass(system_prompt, prompt, 32000, "setup block", quality_tier)
     for fence in ("```python", "```"):
         if setup_code.startswith(fence):
             setup_code = setup_code[len(fence):].strip()
@@ -2703,7 +2714,7 @@ Start directly with: `        with self.voiceover(`
 No markdown fences. No imports. No class. No setup code.
 """
 
-    beats_code = _call_generation_pass(system_prompt, prompt, 32000, "animation beats")
+    beats_code = _call_generation_pass(system_prompt, prompt, 32000, "animation beats", quality_tier)
     for fence in ("```python", "```"):
         if beats_code.startswith(fence):
             beats_code = beats_code[len(fence):].strip()
@@ -2769,6 +2780,7 @@ def _generate_manim_code_enhanced_sync(
     duration: int = 60,
     aspect_ratio: str = "16:9",
     _solution_data: Optional[dict] = None,   # injected for retry path (skips Stage 1)
+    quality_tier: str = "premium",
 ) -> dict:
     """
     Full AnimLearn pipeline (synchronous):
@@ -3279,6 +3291,7 @@ async def generate_manim_from_solution(
     language: str = "en",
     duration: int = 60,
     aspect_ratio: str = "16:9",
+    quality_tier: str = "premium",
 ) -> dict:
     """
     Async wrapper for Stage 2+ only (SVG → storyboard → Manim → critic → AST fix).
@@ -3288,7 +3301,7 @@ async def generate_manim_from_solution(
         _generate_manim_code_enhanced_sync,
         "",            # prompt unused when _solution_data is provided
         language, duration, aspect_ratio,
-        solution_data,
+        solution_data, quality_tier,
     )
 
 

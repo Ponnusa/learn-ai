@@ -648,6 +648,25 @@ function TranscriptButton({ onClick }: { onClick: () => void }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Quality tier badge
+// ─────────────────────────────────────────────────────────────────────────────
+
+const QUALITY_TIER_CONFIG: Record<string, { label: string; cls: string }> = {
+  premium:  { label: 'Premium quality',  cls: 'bg-purple-500/15 text-purple-400 border-purple-500/20' },
+  enhanced: { label: 'Enhanced quality', cls: 'bg-blue-500/15 text-blue-400 border-blue-500/20' },
+  standard: { label: 'Standard quality', cls: 'bg-[var(--ov3)] text-[var(--tx5)] border-[var(--bd)]' },
+};
+
+function QualityBadge({ tier }: { tier: string }) {
+  const cfg = QUALITY_TIER_CONFIG[tier] ?? QUALITY_TIER_CONFIG.premium;
+  return (
+    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${cfg.cls}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main content
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -669,11 +688,12 @@ function VideosContent() {
   ];
 
   // Current video (detail view)
-  const [status,     setStatus]     = useState('pending');
-  const [videoUrl,   setVideoUrl]   = useState<string | null>(null);
-  const [error,      setError]      = useState<string | null>(null);
-  const [stepIdx,    setStepIdx]    = useState(0);
-  const [transcript, setTranscript] = useState<string | null>(null);
+  const [status,      setStatus]      = useState('pending');
+  const [videoUrl,    setVideoUrl]    = useState<string | null>(null);
+  const [error,       setError]       = useState<string | null>(null);
+  const [stepIdx,     setStepIdx]     = useState(0);
+  const [transcript,  setTranscript]  = useState<string | null>(null);
+  const [qualityTier, setQualityTier] = useState<string | null>(null);
   const [retrying,        setRetrying]        = useState(false);
   const [showModal,       setShowModal]       = useState(false);
   const [modalText,       setModalText]       = useState<string>('');
@@ -713,6 +733,7 @@ function VideosContent() {
         if (stopped) return;
         setStatus(data.status);
         if (data.transcript_markdown) setTranscript(data.transcript_markdown);
+        if (data.quality_tier) setQualityTier(data.quality_tier);
 
         if (DONE_STATUSES.has(data.status)) { setVideoUrl(data.video_url ?? null); return; }
         if (data.status === 'failed')       { setError(data.error_message ?? t.errors.videoFailed); return; }
@@ -903,6 +924,40 @@ function VideosContent() {
                   ))}
                 </div>
 
+                {/* Quality tier hint */}
+                {(() => {
+                  const hasCompleted = videos.some(v =>
+                    v.status === 'complete' || v.status === 'completed'
+                  );
+                  if (!user) return (
+                    <div className="flex items-center gap-2 text-xs">
+                      <QualityBadge tier="standard" />
+                      <button
+                        onClick={() => router.push('/login')}
+                        className="text-purple-400 hover:text-purple-300 underline underline-offset-2 transition-colors"
+                      >
+                        Sign in for Enhanced quality →
+                      </button>
+                    </div>
+                  );
+                  if (user.tier === 'pro') return (
+                    <div className="flex items-center gap-2 text-xs">
+                      <QualityBadge tier="premium" />
+                    </div>
+                  );
+                  if (!hasCompleted) return (
+                    <div className="flex items-center gap-2 text-xs">
+                      <QualityBadge tier="premium" />
+                      <span className="text-[var(--tx7)]">First video gift</span>
+                    </div>
+                  );
+                  return (
+                    <div className="flex items-center gap-2 text-xs">
+                      <QualityBadge tier="enhanced" />
+                    </div>
+                  );
+                })()}
+
                 {/* Error */}
                 {genError && (
                   <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">
@@ -1009,7 +1064,10 @@ function VideosContent() {
                     <video src={videoUrl} controls autoPlay className="w-full h-full" />
                   </div>
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-[var(--tx5)] text-sm min-w-0 truncate">✅ {t.video.ready}</p>
+                    <p className="text-[var(--tx5)] text-sm min-w-0 flex items-center gap-2 truncate">
+                      ✅ {t.video.ready}
+                      {qualityTier && <QualityBadge tier={qualityTier} />}
+                    </p>
                     <div className="flex items-center gap-2 shrink-0">
                       {transcript && (
                         <button
