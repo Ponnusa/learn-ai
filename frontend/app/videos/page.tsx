@@ -19,6 +19,7 @@ import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import { VideosTour } from '@/components/onboarding/VideosTour';
 import { HelpCircle } from 'lucide-react';
+import { QualityBadge, QualityBanner } from '@/components/video/QualityBadge';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -647,24 +648,6 @@ function TranscriptButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Quality tier badge
-// ─────────────────────────────────────────────────────────────────────────────
-
-const QUALITY_TIER_CONFIG: Record<string, { label: string; cls: string }> = {
-  premium:  { label: 'Premium quality',  cls: 'bg-purple-500/15 text-purple-400 border-purple-500/20' },
-  enhanced: { label: 'Enhanced quality', cls: 'bg-blue-500/15 text-blue-400 border-blue-500/20' },
-  standard: { label: 'Standard quality', cls: 'bg-[var(--ov3)] text-[var(--tx5)] border-[var(--bd)]' },
-};
-
-function QualityBadge({ tier }: { tier: string }) {
-  const cfg = QUALITY_TIER_CONFIG[tier] ?? QUALITY_TIER_CONFIG.premium;
-  return (
-    <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${cfg.cls}`}>
-      {cfg.label}
-    </span>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main content
@@ -1027,7 +1010,12 @@ function VideosContent() {
                     </div>
                   </div>
                   <h2 className="text-[var(--tx1)] text-xl font-semibold mb-2">{t.video.generating}</h2>
-                  <p className="text-[var(--tx5)] text-sm mb-8">{t.video.generatingDesc}</p>
+                  <p className="text-[var(--tx5)] text-sm mb-4">{t.video.generatingDesc}</p>
+                  {qualityTier && (
+                    <div className="mb-6 text-left">
+                      <QualityBanner tier={qualityTier} />
+                    </div>
+                  )}
                   <div className="space-y-3 text-left">
                     {STEPS.map((step, i) => {
                       const done = i < stepIdx, active = i === stepIdx;

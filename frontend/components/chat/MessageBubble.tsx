@@ -5,14 +5,15 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
-import { Copy, Check, CheckCircle, Loader, Play, XCircle, X, FileText, RefreshCw, ImageIcon, Trash2, ZoomIn, Volume2, Square } from 'lucide-react';
+import { Copy, Check, CheckCircle, Loader, Play, XCircle, X, FileText, RefreshCw, ImageIcon, Trash2, ZoomIn, Volume2, Square, ThumbsDown } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
 import { SmilesBlock } from './SmilesBlock';
-import { getQuiz, getVideoStatus, retryVideo, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage, getChatMessageAudio } from '@/lib/api';
+import { getQuiz, getVideoStatus, retryVideo, regenerateVideo, deleteVideo, getEduImageJob, retryEduImage, deleteEduImage, getChatMessageAudio, improveVideo } from '@/lib/api';
+import { QualityBadge, QualityBanner } from '@/components/video/QualityBadge';
 import { getSavedAudioSpeed } from '@/components/ui/AudioPlayer';
 
 function decodeHtml(s: string): string {
@@ -227,10 +228,14 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
   const [transcript,    setTranscript]    = useState<string | null>(null);
   const [solution,      setSolution]      = useState<string | null>(null);
   const [showModal,     setShowModal]     = useState(false);
-  const [retrying,      setRetrying]      = useState(false);
-  const [regenerating,  setRegenerating]  = useState(false);
-  const [deleting,      setDeleting]      = useState(false);
-  const [retryTick,     setRetryTick]     = useState(0);
+  const [retrying,        setRetrying]        = useState(false);
+  const [regenerating,    setRegenerating]    = useState(false);
+  const [deleting,        setDeleting]        = useState(false);
+  const [retryTick,       setRetryTick]       = useState(0);
+  const [showFeedback,    setShowFeedback]    = useState(false);
+  const [feedbackText,    setFeedbackText]    = useState('');
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [qualityTier,     setQualityTier]     = useState<string | null>(null);
 
   const closeModal = useCallback(() => setShowModal(false), []);
 
@@ -244,6 +249,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
         setStatus(data.status);
         if (data.transcript_markdown) setTranscript(data.transcript_markdown);
         if (data.verified_solution)   setSolution(data.verified_solution);
+        if (data.quality_tier)        setQualityTier(data.quality_tier);
 
         if (data.status === 'complete' || data.status === 'completed') {
           setVideoUrl(data.video_url ?? null);
@@ -303,6 +309,26 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
     }
   }
 
+  async function handleImprove() {
+    if (!feedbackText.trim() || feedbackLoading) return;
+    setFeedbackLoading(true);
+    try {
+      await improveVideo(videoId, feedbackText, token);
+      setShowFeedback(false);
+      setFeedbackText('');
+      setStatus('pending');
+      setStepIdx(0);
+      setVideoUrl(null);
+      setTranscript(null);
+      setSolution(null);
+      setRetryTick(n => n + 1);
+    } catch {
+      setShowFeedback(false);
+    } finally {
+      setFeedbackLoading(false);
+    }
+  }
+
   const isDone   = status === 'complete' || status === 'completed';
   const isFailed = status === 'failed';
 
@@ -331,7 +357,10 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
                 <Play size={14} className="text-[var(--purple)] ml-0.5" />
               </div>
               <div>
-                <p className="text-[var(--tx2)] text-sm font-semibold">{t.video.videoReady}</p>
+                <p className="text-[var(--tx2)] text-sm font-semibold flex items-center gap-1.5">
+                  {t.video.videoReady}
+                  {qualityTier && <QualityBadge tier={qualityTier} />}
+                </p>
                 <p className="text-[var(--tx7)] text-[10px]">{t.video.animationGenerated}</p>
               </div>
             </div>
@@ -446,6 +475,11 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
           <p className="text-[var(--tx2)] text-sm font-semibold">{t.video.generatingVideo}</p>
           <span className="ml-auto text-[var(--tx8)] text-[10px]">{t.video.generatingTime}</span>
         </div>
+        {qualityTier && (
+          <div className="mb-3">
+            <QualityBanner tier={qualityTier} />
+          </div>
+        )}
 
         {/* Steps */}
         <div className="space-y-1.5 ml-1">
