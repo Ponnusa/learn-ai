@@ -197,6 +197,7 @@ export const getVideoStatus = (videoId: number, token?: string) =>
     transcript_markdown?: string;
     verified_solution?: string;
     prompt?: string;
+    quality_tier?: string;
   }>(`/api/videos/${videoId}/status`, token);
 
 export const retryVideo = (videoId: number, token?: string) =>
