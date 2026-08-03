@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     GEMINI_MODEL_NAME: str = "gemini-2.5-flash"       # enhanced tier (students)
     GEMINI_MODEL_NAME_LITE: str = "gemini-3.5-flash-lite"  # standard tier (anonymous)
 
+    # ── Azure OpenAI (EU routing) ─────────────────────────────────────────────
+    USE_AZURE_OPENAI: bool = False
+    AZURE_OPENAI_ENDPOINT: str = ""
+    AZURE_OPENAI_API_KEY: str = ""
+    AZURE_OPENAI_API_VERSION: str = "2025-01-01-preview"
+
+    # ── Vertex AI / Gemini EU routing ────────────────────────────────────────
+    USE_VERTEX_GEMINI: bool = False
+    GCP_PROJECT_ID: str = "oppiai-481215"
+    VERTEX_REGION: str = "europe-west4"
+    GOOGLE_APPLICATION_CREDENTIALS_JSON: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"

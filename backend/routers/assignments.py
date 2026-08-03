@@ -1,13 +1,13 @@
-"""
-Differentiated, per-student assignments — quiz / flashcards / study set / video
+﻿"""
+Differentiated, per-student assignments â€” quiz / flashcards / study set / video
 targeted at one struggling student instead of the whole classroom. Reuses the
 existing generation pipelines (courses.py's quiz/flashcard prompt builders, the
 Manim concept-video pipeline) rather than duplicating them.
 
-  POST /api/assignments                     — teacher creates one (kicks off generation)
-  GET  /api/assignments/student/{id}         — teacher: list a student's assignments
-  GET  /api/assignments/mine                  — student: list my assignments
-  GET  /api/assignments/{id}                  — fetch one (lazily syncs video status)
+  POST /api/assignments                     â€” teacher creates one (kicks off generation)
+  GET  /api/assignments/student/{id}         â€” teacher: list a student's assignments
+  GET  /api/assignments/mine                  â€” student: list my assignments
+  GET  /api/assignments/{id}                  â€” fetch one (lazily syncs video status)
 """
 import asyncio
 import json
@@ -16,6 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Header
 from pydantic import BaseModel
 
 from database import get_db
+from services.ai_router import openai_client, get_model
 from routers.classrooms import _get_user
 from routers.courses import (
     _get_student, build_quiz_prompt, build_flashcard_prompt,
@@ -118,7 +119,7 @@ async def get_assignment(assignment_id: str, authorization: str = Header(...)):
     status, error_message, video_stage, video_url = a["status"], a["error_message"], None, None
 
     # Video assignments render asynchronously on Cloud Run, which writes directly
-    # to `videos` — sync that result here, same lazy pattern as get_concept_assets.
+    # to `videos` â€” sync that result here, same lazy pattern as get_concept_assets.
     if a["kind"] == "video" and a["video_job_id"] and status == "generating":
         async with get_db() as db:
             video = await db.fetchrow(
@@ -159,7 +160,7 @@ async def get_assignment(assignment_id: str, authorization: str = Header(...)):
     }
 
 
-# ── Background generation ────────────────────────────────────────────────────
+# â”€â”€ Background generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, student_id: str):
     try:
@@ -199,11 +200,9 @@ async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, 
 
 
 async def _generate_assignment_quiz(assignment_id: str, title: str, subject: str, source: str, extra: str, language: str = 'en'):
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-
+    client = openai_client
     response = await client.chat.completions.create(
-        model="gpt-4o",
+        model=get_model("chat_response"),
         messages=[{"role": "user", "content": build_quiz_prompt(title, subject, source, extra, language=language)}],
         response_format={"type": "json_object"},
         max_tokens=3000,
@@ -219,11 +218,9 @@ async def _generate_assignment_quiz(assignment_id: str, title: str, subject: str
 
 
 async def _generate_assignment_flashcards(assignment_id: str, title: str, source: str, extra: str, language: str = 'en'):
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-
+    client = openai_client
     response = await client.chat.completions.create(
-        model="gpt-4o",
+        model=get_model("chat_response"),
         messages=[{"role": "user", "content": build_flashcard_prompt(title, source, extra, language=language)}],
         response_format={"type": "json_object"},
         max_tokens=2500,
@@ -248,7 +245,7 @@ async def _generate_assignment_studyset(assignment_id: str, student_id: str, con
         study_set_id = study_set["id"]
 
         # Auto-seed with the concept's source material so the student can chat
-        # into it immediately — no PDF upload step needed.
+        # into it immediately â€” no PDF upload step needed.
         await db.execute("""
             INSERT INTO study_materials (study_set_id, filename, raw_text, char_count, status)
             VALUES ($1::uuid, $2, $3, $4, 'ready')
@@ -269,7 +266,7 @@ async def _generate_assignment_video(assignment_id: str, concept: dict, subject:
     manim_subject = _map_manim_subject(subject)
     script        = concept["ai_transcript"] or concept["ai_summary"] or concept["title"]
     duration      = max(45, min(180, len(script) // 12))
-    remedial_note = f"\n{extra}Keep it simpler and more remedial than a standard lesson — this student needs extra reinforcement.\n"
+    remedial_note = f"\n{extra}Keep it simpler and more remedial than a standard lesson â€” this student needs extra reinforcement.\n"
     prompt        = _build_concept_video_prompt(concept["title"], concept["source_text"], script, remedial_note)
 
     async with get_db() as db:
@@ -308,4 +305,5 @@ async def _generate_assignment_video(assignment_id: str, concept: dict, subject:
 
     logger.info("[assignment] %s: Manim code ready, triggering Cloud Run render (video %s)", assignment_id, video_id)
     _trigger_video_generation(video_id, svg_urls)
-    # student_assignments.status stays 'generating' — GET /{id} lazily syncs from `videos`.
+    # student_assignments.status stays 'generating' â€” GET /{id} lazily syncs from `videos`.
+

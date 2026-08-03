@@ -17,6 +17,7 @@ Public entry point: process_image_job()
 import base64
 import json
 import logging
+from services.ai_router import openai_client, get_model
 
 logger = logging.getLogger(__name__)
 
@@ -120,9 +121,7 @@ async def run_vision_critic(
     Send the generated PNG to GPT-4o for scientific accuracy review.
     Returns a critic report dict with score, issues, and correction_prompt.
     """
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-
+    client = openai_client
     b64           = base64.b64encode(image_bytes).decode("utf-8")
     learning_goal = knowledge_model.get("learning_goal", "")
     must_show     = knowledge_model.get("must_show", [])
@@ -156,7 +155,7 @@ Return ONLY valid JSON:
 
     try:
         response = await client.chat.completions.create(
-            model="gpt-4o",
+            model=get_model("chat_response_vision"),
             max_tokens=600,
             messages=[{
                 "role": "user",
@@ -190,9 +189,7 @@ async def generate_with_critic(
     Generate image → critic → regenerate once if score < threshold.
     Returns (final_image_bytes, critic_report, final_prompt_used).
     """
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-
+    client = openai_client
     critic_feedback = ""
     if validation_issues:
         critic_feedback = "Pre-generation issues to fix: " + "; ".join(validation_issues)
