@@ -1,8 +1,16 @@
 'use client';
 import { useRef, useState, KeyboardEvent } from 'react';
-import { Send, Paperclip, X, Mic, Square, AlertCircle } from 'lucide-react';
+import { Send, Paperclip, X, Mic, Square, AlertCircle, Globe } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { transcribeAudio } from '@/lib/api';
+
+const LANG_OPTIONS: { code: string; flag: string; label: string }[] = [
+  { code: 'en', flag: '🇬🇧', label: 'English' },
+  { code: 'fi', flag: '🇫🇮', label: 'Finnish' },
+  { code: 'sv', flag: '🇸🇪', label: 'Swedish' },
+  { code: 'es', flag: '🇪🇸', label: 'Spanish' },
+  { code: 'fr', flag: '🇫🇷', label: 'French' },
+];
 
 interface InputBarProps {
   onSend: (text: string, file?: File) => void;
@@ -10,15 +18,28 @@ interface InputBarProps {
   loading?: boolean;
   hasFile?: boolean;
   disabled?: boolean;
+  courseLang?: string;
+  explanationLang?: string | null;
+  onExplainLangChange?: (lang: string | null) => void;
 }
 
-export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, disabled = false }: InputBarProps) {
+export function InputBar({
+  onSend,
+  onPdfOpen,
+  loading = false,
+  hasFile = false,
+  disabled = false,
+  courseLang,
+  explanationLang,
+  onExplainLangChange,
+}: InputBarProps) {
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState(false);
+  const [showLangPicker, setShowLangPicker] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -116,6 +137,10 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
     setRecording(false);
   }
 
+  const courseOpt = LANG_OPTIONS.find(l => l.code === (courseLang ?? language));
+  const explainOpt = LANG_OPTIONS.find(l => l.code === explanationLang);
+  const showBilingualControls = !!onExplainLangChange;
+
   return (
     <div className="px-4 pb-4 pt-2">
       {/* File preview */}
@@ -205,12 +230,73 @@ export function InputBar({ onSend, onPdfOpen, loading = false, hasFile = false, 
         </button>
       </div>
 
+      {/* Bilingual mode controls */}
+      {showBilingualControls && (
+        <div className="mt-1.5 flex items-center justify-center min-h-[22px]">
+          {explanationLang ? (
+            /* Active pill */
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/25 text-[11px] text-blue-400">
+              <span>{courseOpt?.flag} {courseOpt?.label}</span>
+              <span className="text-blue-500/60">→</span>
+              <span>{explainOpt?.flag} {explainOpt?.label}</span>
+              <button
+                onClick={() => { onExplainLangChange(null); setShowLangPicker(false); }}
+                className="ml-0.5 text-blue-500/60 hover:text-blue-300 transition-colors"
+                title="Disable bilingual mode"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ) : showLangPicker ? (
+            /* Language picker row */
+            <div className="flex items-center gap-1 flex-wrap justify-center">
+              <span className="text-[var(--tx7)] text-[10px] mr-1">Explain in:</span>
+              {LANG_OPTIONS.filter(l => l.code !== (courseLang ?? language)).map(l => (
+                <button
+                  key={l.code}
+                  onClick={() => { onExplainLangChange(l.code); setShowLangPicker(false); }}
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px]
+                             bg-[var(--surface)] border border-[var(--bd)] hover:border-blue-400/50
+                             text-[var(--tx4)] hover:text-blue-400 transition-colors"
+                >
+                  {l.flag} {l.label}
+                </button>
+              ))}
+              <button
+                onClick={() => setShowLangPicker(false)}
+                className="px-1.5 py-0.5 text-[var(--tx7)] hover:text-[var(--tx3)] transition-colors"
+                title="Cancel"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          ) : (
+            /* Inactive button */
+            <button
+              onClick={() => setShowLangPicker(true)}
+              className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px]
+                         text-[var(--tx8)] hover:text-[var(--tx5)]
+                         border border-transparent hover:border-[var(--bd)]
+                         transition-colors"
+            >
+              <Globe size={11} />
+              Bilingual mode
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Error hint — shown below the bar */}
       {micError && !recording && !transcribing && (
         <p className="text-amber-400 text-[10px] mt-1 text-center">{t.chat.micError}</p>
       )}
-      {!micError && (
+      {!micError && !showBilingualControls && (
         <p className="text-center text-[var(--txa)] text-[10px] mt-2">
+          {t.chat.disclaimer}
+        </p>
+      )}
+      {!micError && showBilingualControls && (
+        <p className="text-center text-[var(--txa)] text-[10px] mt-1">
           {t.chat.disclaimer}
         </p>
       )}

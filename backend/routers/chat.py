@@ -57,6 +57,7 @@ class ChatRequest(BaseModel):
     user_id: str | None = None
     session_id: str | None = None
     language: str = "en"
+    explanation_language: str | None = None
 
 
 class ConversationCreateRequest(BaseModel):
@@ -166,7 +167,7 @@ async def debug_prompt(req: ChatRequest):
             """, conv_id)
             history = list(reversed(rows))
 
-    system_prompt = await build_chat_prompt(req.user_id, subject, req.language)
+    system_prompt = await build_chat_prompt(req.user_id, subject, req.language, req.explanation_language)
     system_prompt = inject_conversation_context(system_prompt, conv_summary, topics_covered)
 
     task   = "chat_response_vision" if req.image_url else "chat_response"
@@ -251,7 +252,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
             """, req.session_id)
 
     # ── 4. Build system prompt + detect subject in parallel ──────────────────
-    system_prompt_task = build_chat_prompt(req.user_id, subject, req.language)
+    system_prompt_task = build_chat_prompt(req.user_id, subject, req.language, req.explanation_language)
     subject_task = (
         detect_subject(text=req.message, image_url=req.image_url)
         if is_first_message or not subject

@@ -154,6 +154,7 @@ async def build_chat_prompt(
     user_id: str | None,
     subject: str | None,
     language: str = "en",
+    explanation_language: str | None = None,
 ) -> str:
     """
     Returns the full system prompt for a chat response.
@@ -162,13 +163,27 @@ async def build_chat_prompt(
     """
     prompt = CHAT_SYSTEM_PROMPT
 
-    lang_name = _LANGUAGE_NAMES.get(language)
-    if lang_name:
+    if explanation_language and explanation_language != language:
+        # Bilingual mode: course in one language, explanations in another
+        course_lang = _LANGUAGE_NAMES.get(language, language)
+        explain_lang = _LANGUAGE_NAMES.get(explanation_language, explanation_language)
         prompt += (
-            f"\n\nRespond entirely in {lang_name}. "
-            "Use direct UTF-8 characters for all accented letters and special characters "
-            "(write é not &eacute;, write ¿ not &#191;) — never use HTML entities."
+            f"\n\nBILINGUAL MODE: The student's course materials are in {course_lang}, "
+            f"but they want explanations in {explain_lang}. "
+            f"Always respond in {explain_lang}. "
+            f"When mentioning subject-specific terms, include the {course_lang} term in "
+            f"parentheses so the student can match it to their textbook "
+            f"(e.g. 'the integral (integraali) represents...'). "
+            "Use direct UTF-8 characters, never HTML entities."
         )
+    else:
+        lang_name = _LANGUAGE_NAMES.get(language)
+        if lang_name:
+            prompt += (
+                f"\n\nRespond entirely in {lang_name}. "
+                "Use direct UTF-8 characters for all accented letters and special characters "
+                "(write é not &eacute;, write ¿ not &#191;) — never use HTML entities."
+            )
 
     if not user_id:
         return prompt  # anonymous: base only, full quality

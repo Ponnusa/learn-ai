@@ -49,7 +49,8 @@ export default function HomePage() {
   const [videoByMsgId, setVideoByMsgId]     = useState<Record<string, number>>({});
   /** Maps message ID → image job ID for inline diagram cards */
   const [imageByMsgId, setImageByMsgId]     = useState<Record<string, string>>({});
-  const [showNudge,    setShowNudge]         = useState(false);
+  const [showNudge,      setShowNudge]        = useState(false);
+  const [explanationLang, setExplanationLang] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }        = useTranslation();
@@ -136,6 +137,7 @@ export default function HomePage() {
     setMessages([]);
     setVideoByMsgId({});
     setImageByMsgId({});
+    setExplanationLang(null);
     try {
       const [rows, videos, images] = await Promise.all([
         getMessages(id, token ?? undefined),
@@ -255,6 +257,7 @@ export default function HomePage() {
         session_id: sessionId ?? undefined,
         language,
         image_url: imageUrl,
+        explanation_language: explanationLang ?? undefined,
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);
@@ -537,7 +540,7 @@ export default function HomePage() {
       <HomeTour />
       <Sidebar
         selectedConversationId={conversationId ?? undefined}
-        onNewChat={() => { setMessages([]); setConversationId(null); setActiveConversationId(null); }}
+        onNewChat={() => { setMessages([]); setConversationId(null); setActiveConversationId(null); setExplanationLang(null); }}
         onConversationSelect={handleConversationSelect}
       />
 
@@ -604,7 +607,14 @@ export default function HomePage() {
           />
         )}
 
-        <InputBar onSend={handleSend} onPdfOpen={f => setPdfFile(f)} loading={loading} />
+        <InputBar
+          onSend={handleSend}
+          onPdfOpen={f => setPdfFile(f)}
+          loading={loading}
+          courseLang={language}
+          explanationLang={explanationLang}
+          onExplainLangChange={setExplanationLang}
+        />
       </main>
 
       {pdfFile && (

@@ -146,6 +146,7 @@ export const sendMessage = (data: {
   user_id?: string;
   session_id?: string;
   language?: string;
+  explanation_language?: string;
 }, token?: string) => post<{
   conversation_id: string;
   message_id: string;
