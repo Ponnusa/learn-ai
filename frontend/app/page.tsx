@@ -3,6 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
+import { ChatLanguageBar } from '@/components/chat/ChatLanguageBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
@@ -545,6 +546,11 @@ export default function HomePage() {
       />
 
       <main className="flex-1 flex flex-col min-w-0 bg-[var(--bg)]">
+        <ChatLanguageBar
+          courseLang={language}
+          explanationLang={explanationLang}
+          onExplainLangChange={setExplanationLang}
+        />
         <div className="flex-1 chat-scroll">
           <MobileTopBar />
           <div className="px-4 pb-6 md:py-6">
