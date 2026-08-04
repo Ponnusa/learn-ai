@@ -1132,7 +1132,7 @@ Keep each suggestion under 8 words. Do not mention this block in your visible re
             {"type": "text", "text": req.message},
         ]
     ai_messages.append({"role": "user", "content": user_content})
-import json as _json
+    import json as _json
     import re as _re
     client = openai_client
     response = await client.chat.completions.create(
@@ -4383,7 +4383,7 @@ async def generate_quiz_from_chat(
         concept["title"], concept["subject"] or "General", source,
         difficulty=req.difficulty, style=req.style, count=req.count, language=language,
     )
-import json as _json
+    import json as _json
     client = openai_client
     user_content: object = prompt
     if req.image_data_urls:
@@ -4465,7 +4465,7 @@ async def generate_flashcards_from_chat(
     prompt   = build_flashcard_prompt_studio(
         concept["title"], source, count=req.count, focus=req.focus, language=language,
     )
-import json as _json
+    import json as _json
     client = openai_client
     user_content: object = prompt
     if req.image_data_urls:
@@ -5373,6 +5373,7 @@ def _fmt_course(r):
         "status":      r["status"],
         "created_at":  r["created_at"].isoformat() if r.get("created_at") else None,
     }
+
 
 
 
