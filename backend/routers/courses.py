@@ -24,7 +24,7 @@ _LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'Fre
 
 async def _summarize_one_concept(concept_id: str, course: dict | None):
     """Generate AI summary + transcript for a single concept ('Generate explanation')."""
-client = openai_client
+    client = openai_client
 
     try:
         async with get_db() as db:
@@ -1638,7 +1638,7 @@ async def retry_block_video(
 
 async def _generate_block_audio_bg(concept_id: str, block_id: str):
     """Background: TTS via OpenAI â€” converts a content block's body to MP3 and stores as bytea."""
-client = openai_client
+    client = openai_client
     try:
         async with get_db() as db:
             block = await db.fetchrow(
@@ -1800,7 +1800,7 @@ For conversational questions or partial feedback, just respond naturally â€�
         except Exception:
             pass
     messages.append({"role": "user", "content": user_content})
-client = openai_client
+    client = openai_client
     response = await client.chat.completions.create(
         model=get_model("chat_response"),
         messages=messages,
@@ -2884,7 +2884,7 @@ async def create_concept_from_region(
     region_lang_note = ""
     if region_language in _LANGUAGE_NAMES:
         region_lang_note = f"\n\nWrite the title in {_LANGUAGE_NAMES[region_language]}. The source_text must remain verbatim from the image."
-client = openai_client
+    client = openai_client
     vision_prompt = f"""This is a cropped region of a textbook page, selected by a teacher to become one
 learning concept. Transcribe the text in this image verbatim (preserve numbers, symbols and
 equations exactly as shown). If the image is mostly a diagram/illustration with little or no
@@ -2970,7 +2970,7 @@ async def check_chapter_coverage(chapter_id: str, authorization: str = Header(..
     coverage_lang_note = ""
     if (coverage_lang or 'en') in _LANGUAGE_NAMES:
         coverage_lang_note = f"\n\nWrite your answer in {_LANGUAGE_NAMES[coverage_lang]}."
-client = openai_client
+    client = openai_client
     prompt = f"""Here is the full text of a textbook chapter, and a list of concepts a teacher has
 already created from it (title + excerpt each).
 
@@ -3195,7 +3195,7 @@ async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
     if not toc_chunks:
         return []
     contents_page_text = "\n\n".join(toc_chunks)
-client = openai_client
+    client = openai_client
     try:
         response = await client.chat.completions.create(
             model=get_model("title_generation"),
@@ -3294,7 +3294,7 @@ async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages:
 
     target_lang = _LANGUAGE_NAMES.get(language, 'English')
     try:
-client = openai_client
+        client = openai_client
         response = await client.chat.completions.create(
             model=get_model("title_generation"),
             messages=[{"role": "user", "content": (
@@ -4640,7 +4640,7 @@ async def update_quiz_mode(
 
 async def _generate_quiz_bg(concept_id: str, course_id: str):
     """Background: generate quiz questions via GPT-4o, store in concept_quiz_questions."""
-client = openai_client
+    client = openai_client
 
     try:
         async with get_db() as db:
@@ -4694,7 +4694,7 @@ client = openai_client
 
 async def _generate_flashcards_bg(concept_id: str, course_id: str):
     """Background: generate flashcard pairs via GPT-4o."""
-client = openai_client
+    client = openai_client
 
     try:
         async with get_db() as db:
@@ -5373,5 +5373,6 @@ def _fmt_course(r):
         "status":      r["status"],
         "created_at":  r["created_at"].isoformat() if r.get("created_at") else None,
     }
+
 
 
