@@ -34,7 +34,7 @@ async def transcribe_audio(file: UploadFile, language: str = "en"):
         buf = io.BytesIO(audio_bytes)
         buf.name = filename
         result = await openai_client.audio.transcriptions.create(
-            model=get_model("whisper"),
+            model="whisper-1",
             file=buf,
             language=lang,
         )
@@ -439,7 +439,7 @@ async def get_message_audio(message_id: str, language: str = "en"):
     lang_name = _TTS_LANG_NAMES.get(language, "English")
 
     clean_resp = await openai_client.chat.completions.create(
-        model=get_model("title_generation"),
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": _TTS_SYSTEM.format(lang=lang_name)},
             {"role": "user", "content": row["content"][:3000]},
@@ -450,7 +450,7 @@ async def get_message_audio(message_id: str, language: str = "en"):
     spoken = clean_resp.choices[0].message.content.strip()
 
     audio_resp = await openai_client.audio.speech.create(
-        model=get_model("tts"), voice="nova", input=spoken[:4096],
+        model="tts-1", voice="nova", input=spoken[:4096],
     )
     audio_bytes = audio_resp.content
 
