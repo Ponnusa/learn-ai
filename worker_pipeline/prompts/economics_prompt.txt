@@ -1,0 +1,280 @@
+══════════════════════════════════════════════════════════════════
+ECONOMICS-SPECIFIC RULES
+══════════════════════════════════════════════════════════════════
+
+══════════════════════════════════════════════════════════════════
+CORE PRINCIPLE FOR ECONOMICS ANIMATIONS
+══════════════════════════════════════════════════════════════════
+
+Economics animations are CHART-FIRST.
+Every economics problem has a diagram — draw it first, then derive from it.
+Do NOT show formulas alone without a supporting visual.
+
+Primary visual types by topic:
+  Supply/Demand      → Axes + two crossing lines + equilibrium point
+  Elasticity         → Supply/demand with shifted curves + area shading
+  GDP / Growth       → Bar chart or line graph over time
+  Cost curves        → Multiple curves on same axes (MC, AC, AVC)
+  Budget constraint  → Downward-sloping line with indifference curve
+  Market structures  → Labelled diagram (monopoly deadweight loss, etc.)
+  Trade / PPF        → Production Possibility Frontier curve
+  IS-LM / AD-AS      → Two-curve intersection diagrams
+  Multiplier         → Step bar chart growing each round
+  Inflation / CPI    → Line graph or bar chart over time periods
+
+══════════════════════════════════════════════════════════════════
+AXES — MANDATORY PATTERN FOR ALL ECONOMICS DIAGRAMS
+══════════════════════════════════════════════════════════════════
+
+Always build axes manually with labeled lines — do NOT use Axes() from Manim
+as it often misaligns with economic convention (Price on Y, Quantity on X).
+
+```python
+# Standard economics axes
+origin = LEFT * 3 + DOWN * 2
+
+x_axis = Arrow(origin, origin + RIGHT * 6, color=WHITE, buff=0, stroke_width=3)
+y_axis = Arrow(origin, origin + UP * 5,    color=WHITE, buff=0, stroke_width=3)
+
+x_label = Text("Quantity (Q)", font_size=24, color=WHITE)
+x_label.next_to(x_axis.get_end(), RIGHT, buff=0.1)
+
+y_label = Text("Price (P)", font_size=24, color=WHITE)
+y_label.next_to(y_axis.get_end(), UP, buff=0.1)
+```
+
+Add tick marks and values using short lines + Text labels.
+
+══════════════════════════════════════════════════════════════════
+SUPPLY & DEMAND DIAGRAMS
+══════════════════════════════════════════════════════════════════
+
+Draw curves as straight lines (standard micro intro style):
+
+```python
+# Demand curve — downward sloping (top-left to bottom-right)
+demand = Line(
+    origin + RIGHT * 0.5 + UP * 4.2,
+    origin + RIGHT * 5.5 + UP * 0.3,
+    color=BLUE, stroke_width=4
+)
+demand_label = Text("D", font_size=26, color=BLUE)
+demand_label.next_to(demand.get_end(), RIGHT, buff=0.1)
+
+# Supply curve — upward sloping (bottom-left to top-right)
+supply = Line(
+    origin + RIGHT * 0.5 + UP * 0.3,
+    origin + RIGHT * 5.5 + UP * 4.2,
+    color=RED, stroke_width=4
+)
+supply_label = Text("S", font_size=26, color=RED)
+supply_label.next_to(supply.get_end(), RIGHT, buff=0.1)
+```
+
+Equilibrium point — where curves cross:
+```python
+eq_point = Dot(origin + RIGHT * 3 + UP * 2.3, color=YELLOW, radius=0.1)
+eq_label = Text("E", font_size=22, color=YELLOW)
+eq_label.next_to(eq_point, UR, buff=0.1)
+
+# Dashed lines to axes
+eq_to_x = DashedLine(eq_point.get_center(), origin + RIGHT * 3, color=GRAY)
+eq_to_y = DashedLine(eq_point.get_center(), origin + UP * 2.3,  color=GRAY)
+
+p_star = Text("P*", font_size=22, color=YELLOW)
+p_star.next_to(origin + UP * 2.3, LEFT, buff=0.1)
+
+q_star = Text("Q*", font_size=22, color=YELLOW)
+q_star.next_to(origin + RIGHT * 3, DOWN, buff=0.1)
+```
+
+Curve shifts — animate with Transform or animate.shift():
+```python
+# Demand increases — shift curve right
+demand_new = demand.copy().shift(RIGHT * 1.2)
+demand_new.set_color(BLUE_B)
+self.play(Transform(demand.copy(), demand_new), run_time=1.5)
+```
+
+══════════════════════════════════════════════════════════════════
+BAR CHARTS (GDP, CPI, OUTPUT)
+══════════════════════════════════════════════════════════════════
+
+Build bars as Rectangles from a baseline:
+
+```python
+baseline = DOWN * 2.5
+bar_width = 0.8
+gap = 0.3
+values = [2.1, 3.4, 2.8, 4.1, 3.6]   # e.g. GDP growth %
+labels  = ["2019", "2020", "2021", "2022", "2023"]
+colors  = [GREEN, RED, GREEN, GREEN, GREEN]   # red for recession year
+
+bars = VGroup()
+for i, (val, lbl, col) in enumerate(zip(values, labels, colors)):
+    height = val * 0.6   # scale to screen units
+    bar = Rectangle(
+        width=bar_width, height=height,
+        color=col, fill_opacity=0.8, stroke_width=0
+    )
+    bar.move_to(baseline + RIGHT * (i * (bar_width + gap)) + UP * (height / 2))
+
+    val_label = Text(f"{val}%", font_size=20, color=WHITE)
+    val_label.next_to(bar, UP, buff=0.05)
+
+    yr_label = Text(lbl, font_size=20, color=GRAY)
+    yr_label.next_to(bar, DOWN, buff=0.1)
+
+    bars.add(VGroup(bar, val_label, yr_label))
+
+bars.move_to(ORIGIN)
+self.play(LaggedStart(*[FadeIn(b, shift=UP * 0.3) for b in bars], lag_ratio=0.15))
+```
+
+══════════════════════════════════════════════════════════════════
+LINE GRAPHS (TIME SERIES — INFLATION, INTEREST RATES)
+══════════════════════════════════════════════════════════════════
+
+```python
+import numpy as np
+
+# Data points as (x_position, y_position) in scene units
+data = [(0, 0.5), (1, 1.2), (2, 2.1), (3, 1.8), (4, 2.6), (5, 3.0)]
+origin = LEFT * 3 + DOWN * 2
+
+points = [origin + RIGHT * x + UP * y for x, y in data]
+
+# Draw line segments between points
+graph_lines = VGroup(*[
+    Line(points[i], points[i+1], color=YELLOW, stroke_width=3)
+    for i in range(len(points) - 1)
+])
+dots = VGroup(*[Dot(p, color=YELLOW, radius=0.07) for p in points])
+
+self.play(Create(graph_lines), run_time=2)
+self.play(FadeIn(dots))
+```
+
+══════════════════════════════════════════════════════════════════
+COST CURVES (MC, AC, AVC)
+══════════════════════════════════════════════════════════════════
+
+Use VMobject with set_points_smoothly for U-shaped curves:
+
+```python
+import numpy as np
+
+def make_u_curve(x_vals, scale_x, scale_y, origin, color, shift_y=0):
+    points = [
+        origin + RIGHT * (x * scale_x) + UP * ((x - 3)**2 * scale_y + shift_y)
+        for x in x_vals
+    ]
+    curve = VMobject(color=color, stroke_width=3)
+    curve.set_points_smoothly(points)
+    return curve
+
+x_range = np.linspace(0.5, 5.5, 30)
+origin = LEFT * 3 + DOWN * 2.5
+
+mc  = make_u_curve(x_range, 0.9, 0.18, origin, RED,    shift_y=0.3)
+ac  = make_u_curve(x_range, 0.9, 0.14, origin, BLUE,   shift_y=0.8)
+avc = make_u_curve(x_range, 0.9, 0.12, origin, GREEN,  shift_y=0.2)
+
+mc_lbl  = Text("MC",  font_size=22, color=RED)  .next_to(mc.get_end(),  RIGHT, buff=0.1)
+ac_lbl  = Text("AC",  font_size=22, color=BLUE) .next_to(ac.get_end(),  RIGHT, buff=0.1)
+avc_lbl = Text("AVC", font_size=22, color=GREEN).next_to(avc.get_end(), RIGHT, buff=0.1)
+
+self.play(Create(mc), Create(ac), Create(avc))
+self.play(Write(mc_lbl), Write(ac_lbl), Write(avc_lbl))
+```
+
+══════════════════════════════════════════════════════════════════
+DEADWEIGHT LOSS / SURPLUS SHADING
+══════════════════════════════════════════════════════════════════
+
+Use Polygon to shade triangular areas:
+
+```python
+# Consumer surplus triangle
+cs_triangle = Polygon(
+    eq_point.get_center(),          # equilibrium
+    origin + UP * 4.2,              # top of demand curve (P-axis intercept)
+    origin + UP * 2.3,              # P* on y-axis
+    color=BLUE, fill_opacity=0.3, stroke_width=0
+)
+cs_label = Text("CS", font_size=22, color=BLUE)
+cs_label.move_to(cs_triangle.get_center())
+
+# Producer surplus triangle
+ps_triangle = Polygon(
+    eq_point.get_center(),
+    origin + RIGHT * 3,             # Q* on x-axis
+    origin + UP * 0.3,              # supply curve base
+    color=RED, fill_opacity=0.3, stroke_width=0
+)
+ps_label = Text("PS", font_size=22, color=RED)
+ps_label.move_to(ps_triangle.get_center())
+
+self.play(FadeIn(cs_triangle), Write(cs_label))
+self.play(FadeIn(ps_triangle), Write(ps_label))
+```
+
+══════════════════════════════════════════════════════════════════
+FORMULA STYLE FOR ECONOMICS
+══════════════════════════════════════════════════════════════════
+
+Economics mixes text and math — use MathTex for equations:
+
+```python
+# Equilibrium condition
+eq_formula = MathTex(r"Q_D = Q_S", font_size=44, color=YELLOW)
+
+# Elasticity
+elas = MathTex(
+    r"E_d = \frac{\% \Delta Q_D}{\% \Delta P}",
+    font_size=42, color=WHITE
+)
+
+# GDP components
+gdp = MathTex(r"Y = C + I + G + (X - M)", font_size=40, color=WHITE)
+
+# Multiplier
+mult = MathTex(r"k = \frac{1}{1 - MPC}", font_size=42, color=WHITE)
+```
+
+Use Text() for descriptive labels like "Consumer Surplus", "Price Floor", etc.
+
+══════════════════════════════════════════════════════════════════
+ANIMATION FLOW FOR ECONOMICS
+══════════════════════════════════════════════════════════════════
+
+Recommended scene structure:
+1. Draw axes + labels
+2. Draw initial curve(s)
+3. Mark equilibrium with dashed lines + labels
+4. Show formula relevant to the diagram
+5. Apply shock (shift curve, add price floor/ceiling, etc.)
+6. Show new equilibrium or outcome
+7. Highlight surplus/loss area
+8. Display numerical result
+
+KEY ANIMATION TIPS:
+- Reveal curves with Create() not FadeIn — shows the drawing motion
+- Use Transform() to show curve shifts — visually clear
+- Animate dashed lines after the equilibrium dot appears
+- Shade surplus/deadweight areas with FadeIn + fill_opacity
+- Use LaggedStart for bar chart entry (staggered bars look professional)
+
+══════════════════════════════════════════════════════════════════
+ECONOMICS SELF-VALIDATION
+══════════════════════════════════════════════════════════════════
+
+Before outputting, verify:
+✔ Diagram drawn before formulas introduced
+✔ Axes have labels (Price/Quantity, or appropriate variables)
+✔ Equilibrium marked with dashed lines to both axes
+✔ Curve labels (D, S, MC, AC...) placed at curve ends
+✔ Surplus/loss areas shaded if relevant to the problem
+✔ MathTex used for all equations
+✔ Each screen cleared before next phase
+✔ Numerical answer shown in final screen with answer box

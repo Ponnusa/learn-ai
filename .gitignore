@@ -6,6 +6,10 @@ backend/*.pyc
 backend/venv/
 backend/.venv/
 
+# Worker pipeline (repo root, sibling to worker.py)
+worker_pipeline/__pycache__/
+worker_pipeline/**/__pycache__/
+
 # Frontend
 frontend/.env.local
 frontend/node_modules/

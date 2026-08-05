@@ -1,0 +1,21 @@
+# Dependencies for learnai/worker.py, running on the GCP render VM.
+# There was no tracked requirements file for this process before the Sprint 6
+# multi-segment pipeline port — its Python environment has been maintained
+# ad hoc on the VM. This file documents what's needed now; existing packages
+# listed first (inferred from worker.py's own imports), new ones below.
+
+# Existing (already installed on the VM, listed here for a complete picture)
+psycopg2-binary
+boto3
+python-dotenv
+requests
+urllib3
+
+# New — required by worker_pipeline/ (Sprint 6: Manim/Nano Banana/Veo segment
+# rendering + retry/degrade orchestration). Only needed for jobs that have
+# video_segments rows; the existing single-scene path above doesn't touch any
+# of these, so they can be installed without affecting anything currently running.
+pydantic>=2.0.0
+anthropic>=0.40.0
+google-genai>=1.0.0
+azure-cognitiveservices-speech>=1.38.0
