@@ -1314,6 +1314,7 @@ _SUBJECT_PROMPT_FILES: dict = {
     "chemistry":   "chemistry_prompt.txt",
     "mathematics": "mathematics_prompt.txt",
     "economics":   "economics_prompt.txt",
+    "science":     "science_prompt.txt",
 }
 
 _prompt_file_cache: dict = {}

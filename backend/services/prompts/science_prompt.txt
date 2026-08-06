@@ -1,0 +1,411 @@
+══════════════════════════════════════════════════════════════════
+SCIENCE-SPECIFIC RULES (6th–8th Grade Physical Science)
+══════════════════════════════════════════════════════════════════
+
+These rules apply for inquiry-based science units: thermal energy,
+states of matter, energy transfer, waves, forces. The audience is
+middle school students — keep visuals conceptual and NO complex
+LaTeX equations. Use diagrams, particle animations, and color to
+tell the story.
+
+══════════════════════════════════════════════════════════════════
+CORE VISUAL LANGUAGE
+══════════════════════════════════════════════════════════════════
+
+Color coding — apply consistently across ALL beats:
+  HOT / high energy  → RED / ORANGE particles (#FF6B35 or #FF4444)
+  COLD / low energy  → BLUE / CYAN particles (#4FC3F7 or #2196F3)
+  Neutral / medium   → YELLOW (#FFD700) or WHITE
+  Insulating layer   → GRAY (#546E7A) fill with low opacity
+  Air gap            → near-transparent (#90CAF9 at opacity 0.08)
+  Energy arrows      → ORANGE (#FF9800) — always animated (GrowArrow)
+  Container wall     → GRAY rectangle with stroke
+
+NO LaTeX math equations for science scenes. Use Text() labels only.
+Exception: simple units like "°C" or "J" may appear as Text labels.
+
+══════════════════════════════════════════════════════════════════
+1. PARTICLE MODEL — MANDATORY PATTERN
+══════════════════════════════════════════════════════════════════
+
+Use small Dot() objects (radius 0.08–0.12) to represent particles.
+Arrange them in a grid or random scatter within a rectangular region.
+
+HOT particles — vibrate rapidly (large amplitude):
+```python
+import numpy as np
+
+def make_particles(n, region_center, region_w, region_h, color):
+    """Place n particles randomly inside a rectangle."""
+    particles = VGroup()
+    for _ in range(n):
+        x = region_center[0] + np.random.uniform(-region_w/2, region_w/2)
+        y = region_center[1] + np.random.uniform(-region_h/2, region_h/2)
+        p = Dot(radius=0.10, color=color, fill_opacity=0.9)
+        p.move_to([x, y, 0])
+        particles.add(p)
+    return particles
+
+def animate_particles(scene, particles, amplitude, duration=2.0):
+    """Vibrate particles to show energy level."""
+    animations = []
+    for p in particles:
+        dx = np.random.uniform(-amplitude, amplitude)
+        dy = np.random.uniform(-amplitude, amplitude)
+        animations.append(
+            p.animate.shift(np.array([dx, dy, 0]))
+        )
+    scene.play(*animations, run_time=duration, rate_func=there_and_back)
+```
+
+HOT → amplitude = 0.15–0.25 (large, fast)
+COLD → amplitude = 0.03–0.06 (small, slow)
+NEUTRAL/ROOM TEMP → amplitude = 0.08–0.12
+
+VIBRATION LOOP — show energy level changing over time:
+```python
+# Show particles vibrating — call twice for a visible effect
+animate_particles(self, hot_particles, amplitude=0.20, duration=1.0)
+animate_particles(self, hot_particles, amplitude=0.20, duration=1.0)
+```
+
+══════════════════════════════════════════════════════════════════
+2. CONDUCTION — PARTICLE-TO-PARTICLE ENERGY TRANSFER
+══════════════════════════════════════════════════════════════════
+
+Conduction: a chain of particles from HOT end to COLD end.
+Energy travels left→right or top→bottom as a wave of vibration.
+
+```python
+# Conduction chain — particles lined up
+n_particles = 8
+chain = VGroup()
+for i in range(n_particles):
+    frac = i / (n_particles - 1)
+    # Color gradient: hot (left) → cold (right)
+    color = interpolate_color(RED, BLUE, frac)
+    p = Dot(radius=0.15, color=color, fill_opacity=0.9)
+    p.move_to(LEFT * 3 + RIGHT * i * 0.75)
+    chain.add(p)
+
+# Energy pulse: animate one particle at a time, left→right
+for i in range(len(chain)):
+    self.play(
+        chain[i].animate.scale(1.4),
+        run_time=0.25,
+    )
+    self.play(
+        chain[i].animate.scale(1/1.4),
+        run_time=0.2,
+    )
+```
+
+Label the ends clearly:
+```python
+hot_label  = Text("Hot", font_size=22, color=RED).next_to(chain[0],  LEFT,  buff=0.3)
+cold_label = Text("Cold", font_size=22, color=BLUE).next_to(chain[-1], RIGHT, buff=0.3)
+```
+
+══════════════════════════════════════════════════════════════════
+3. CONVECTION — CIRCULATING CURRENT ARROWS
+══════════════════════════════════════════════════════════════════
+
+Convection: fluid particles rise when hot, sink when cold.
+Show as a circular/oval arrow loop inside a container.
+
+```python
+# Convection loop — counterclockwise arrow
+convection_loop = CurvedArrow(
+    start_point=DOWN * 1.0 + LEFT * 0.5,
+    end_point=UP * 1.0 + LEFT * 0.5,
+    angle=-TAU / 3,
+    color=ORANGE,
+    stroke_width=4,
+)
+# Pair of arrows for full loop
+convection_loop2 = CurvedArrow(
+    start_point=UP * 1.0 + RIGHT * 0.5,
+    end_point=DOWN * 1.0 + RIGHT * 0.5,
+    angle=-TAU / 3,
+    color=ORANGE,
+    stroke_width=4,
+)
+
+rise_label = Text("Hot air rises", font_size=18, color=ORANGE).next_to(convection_loop, LEFT, buff=0.1)
+sink_label = Text("Cool air sinks", font_size=18, color=BLUE).next_to(convection_loop2, RIGHT, buff=0.1)
+```
+
+══════════════════════════════════════════════════════════════════
+4. RADIATION — ENERGY WAVES FROM A HEAT SOURCE
+══════════════════════════════════════════════════════════════════
+
+Radiation: energy travels as waves (no particles needed).
+Use concentric arcs or diagonal arrows emanating from a source.
+
+```python
+# Radiation arrows from a heat source (e.g. the Sun or a hot object)
+source = Circle(radius=0.4, color=ORANGE, fill_opacity=0.9)
+source.move_to(LEFT * 3)
+
+radiation_arrows = VGroup()
+for angle in np.linspace(-PI/3, PI/3, 5):
+    direction = np.array([np.cos(angle), np.sin(angle), 0])
+    arrow = Arrow(
+        source.get_right(),
+        source.get_right() + direction * 1.5,
+        color=ORANGE,
+        buff=0,
+        stroke_width=3,
+        max_tip_length_to_length_ratio=0.2,
+    )
+    radiation_arrows.add(arrow)
+
+self.play(FadeIn(source), run_time=0.5)
+self.play(LaggedStart(*[GrowArrow(a) for a in radiation_arrows], lag_ratio=0.15), run_time=1.2)
+```
+
+══════════════════════════════════════════════════════════════════
+5. CONTAINER CROSS-SECTION — INSULATION LAYERS
+══════════════════════════════════════════════════════════════════
+
+Show a cup/container as a vertical cross-section with labeled layers.
+This is the GOLD STANDARD for thermal energy container questions.
+
+```python
+# Outer wall
+outer_wall = Rectangle(
+    width=2.5, height=4.0,
+    fill_color="#546E7A", fill_opacity=0.5,
+    stroke_color=WHITE, stroke_width=2,
+)
+
+# Air gap inside outer wall (insulating layer)
+air_gap = Rectangle(
+    width=2.0, height=3.5,
+    fill_color="#90CAF9", fill_opacity=0.08,
+    stroke_color="#4FC3F7", stroke_width=1, stroke_opacity=0.4,
+)
+
+# Inner wall
+inner_wall = Rectangle(
+    width=1.5, height=3.0,
+    fill_color="#546E7A", fill_opacity=0.7,
+    stroke_color=WHITE, stroke_width=2,
+)
+
+# Liquid inside
+liquid = Rectangle(
+    width=1.3, height=2.6,
+    fill_color="#2196F3", fill_opacity=0.5,
+    stroke_color=BLUE_B, stroke_width=1,
+)
+
+# Stack layers (all centered)
+container = VGroup(outer_wall, air_gap, inner_wall, liquid)
+
+# Labels
+wall_label   = Text("Wall", font_size=16, color=LIGHT_GRAY).next_to(outer_wall, LEFT, buff=0.2)
+air_label    = Text("Air gap\n(insulator)", font_size=14, color="#4FC3F7", line_spacing=1.2)
+air_label.next_to(outer_wall, RIGHT, buff=0.3)
+liquid_label = Text("Cold\nliquid", font_size=16, color=BLUE_B, line_spacing=1.2)
+liquid_label.move_to(liquid.get_center())
+```
+
+ALWAYS show the air gap as a key feature for insulation.
+ALWAYS label "Air gap (insulator)" — this is the key idea students discover.
+
+══════════════════════════════════════════════════════════════════
+6. TEMPERATURE COMPARISON — SIDE BY SIDE
+══════════════════════════════════════════════════════════════════
+
+When comparing hot vs cold, use a split-screen with particle panels:
+
+```python
+# LEFT: cold object (slow blue particles)
+cold_box = Rectangle(width=3, height=2.5, fill_color="#1A237E", fill_opacity=0.2,
+                     stroke_color=BLUE, stroke_width=2).move_to(LEFT * 3.5)
+cold_label = Text("Cold", font_size=22, color=BLUE).next_to(cold_box, UP, buff=0.2)
+cold_particles = make_particles(12, cold_box.get_center(), 2.6, 2.2, color=BLUE)
+
+# RIGHT: hot object (fast orange/red particles)
+hot_box = Rectangle(width=3, height=2.5, fill_color="#4A0000", fill_opacity=0.2,
+                    stroke_color=RED, stroke_width=2).move_to(RIGHT * 3.5)
+hot_label = Text("Hot", font_size=22, color=RED).next_to(hot_box, UP, buff=0.2)
+hot_particles = make_particles(12, hot_box.get_center(), 2.6, 2.2, color=RED)
+
+# Then animate vibration difference
+animate_particles(self, cold_particles, amplitude=0.04, duration=1.5)
+animate_particles(self, hot_particles,  amplitude=0.22, duration=1.5)
+```
+
+══════════════════════════════════════════════════════════════════
+7. ENERGY TRANSFER ARROW — SHOW HEAT FLOW
+══════════════════════════════════════════════════════════════════
+
+Use a thick animated arrow to show energy flowing from hot to cold.
+ALWAYS pair it with a Text label. NEVER leave it unlabeled.
+
+```python
+# Energy transfer arrow (hot → cold)
+heat_arrow = Arrow(
+    hot_box.get_right(),
+    cold_box.get_left(),
+    color=ORANGE,
+    stroke_width=6,
+    buff=0.1,
+    max_tip_length_to_length_ratio=0.15,
+)
+heat_label = Text("Energy transfer", font_size=18, color=ORANGE)
+heat_label.next_to(heat_arrow, UP, buff=0.15)
+
+self.play(GrowArrow(heat_arrow), run_time=1.0)
+self.play(FadeIn(heat_label, shift=UP * 0.1), run_time=0.5)
+```
+
+══════════════════════════════════════════════════════════════════
+8. SCIENCE SCENE LAYOUT (16:9)
+══════════════════════════════════════════════════════════════════
+
+For 16:9 science animations:
+  LEFT panel  (x: -6.5 to 0)  → physical diagram (particles, container, object)
+  RIGHT panel (x:  0 to +6.5) → concept labels, key idea text, vocab terms
+  TOP         (y > 2.5)        → title (Text, font_size=28–32, color=WHITE)
+  BOTTOM      (y < -2.5)       → subtitle only
+
+Use a vertical divider line between panels:
+```python
+divider = Line(UP * 3.0, DOWN * 2.5, color=GRAY, stroke_width=1, stroke_opacity=0.3)
+self.add(divider)
+```
+
+KEY IDEA BOX — always show the key idea in the right panel:
+```python
+key_idea_box = RoundedRectangle(
+    corner_radius=0.2, width=5.5, height=1.2,
+    fill_color="#1A237E", fill_opacity=0.3,
+    stroke_color="#3F51B5", stroke_width=1.5,
+).move_to(RIGHT * 3.0 + DOWN * 1.5)
+key_idea_text = Text(
+    "Energy moves from\nwarm → cool areas",
+    font_size=20, color=WHITE, line_spacing=1.3,
+).move_to(key_idea_box.get_center())
+```
+
+══════════════════════════════════════════════════════════════════
+9. WHAT NOT TO DO (SCIENCE SCENES)
+══════════════════════════════════════════════════════════════════
+
+✗ NO complex LaTeX equations — this is 6th grade conceptual science
+✗ NO Axes() or NumberPlane() unless explicitly graphing data
+✗ NO formulas like Q = mcΔT unless the lesson specifically requires it
+✗ NEVER leave particles as plain colored dots with no motion — always animate
+✗ NEVER show a container without labeling its key features (wall, gap, liquid)
+✗ DO NOT mix physics helper functions (create_energy_bars, create_force_diagram)
+  into science scenes — these are for high school physics problems
+
+══════════════════════════════════════════════════════════════════
+10. REFERENCE SCENE — THERMAL ENERGY TRANSFER (FOLLOW THIS PATTERN)
+══════════════════════════════════════════════════════════════════
+
+This is the GOLD STANDARD for a thermal energy explanation. Adapt it.
+
+```python
+from manim import *
+from manim_voiceover import VoiceoverScene
+from manim_voiceover.services.azure import AzureService
+import numpy as np
+
+class ThermalEnergyTransfer(VoiceoverScene):
+    def show_subtitle(self, text, duration=None): ...  # injected by backend
+
+    def make_particles(self, n, center, w, h, color):
+        particles = VGroup()
+        for _ in range(n):
+            x = center[0] + np.random.uniform(-w/2, w/2)
+            y = center[1] + np.random.uniform(-h/2, h/2)
+            p = Dot(radius=0.10, color=color, fill_opacity=0.9)
+            p.move_to([x, y, 0])
+            particles.add(p)
+        return particles
+
+    def vibrate(self, particles, amplitude, duration=1.2):
+        anims = []
+        for p in particles:
+            dx = np.random.uniform(-amplitude, amplitude)
+            dy = np.random.uniform(-amplitude, amplitude)
+            anims.append(p.animate.shift(np.array([dx, dy, 0])))
+        self.play(*anims, run_time=duration, rate_func=there_and_back)
+
+    def construct(self):
+        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=1.0))
+        self.camera.background_color = ManimColor("#0D1117")
+
+        TEXT_CENTER = RIGHT * 3.2
+        divider = Line(UP * 3.0, DOWN * 2.5, color=GRAY, stroke_width=1, stroke_opacity=0.3)
+        title = Text("Thermal Energy Transfer", font_size=30, color=WHITE, weight=BOLD)
+        title.to_edge(UP, buff=0.3)
+
+        # LEFT panel: two boxes of particles
+        hot_box = Rectangle(width=2.8, height=2.2, fill_color="#4A0000", fill_opacity=0.2,
+                            stroke_color=RED, stroke_width=2).move_to(LEFT * 3.5 + UP * 0.5)
+        cold_box = Rectangle(width=2.8, height=2.2, fill_color="#0D1B4A", fill_opacity=0.2,
+                             stroke_color=BLUE, stroke_width=2).move_to(LEFT * 3.5 + DOWN * 2.0)
+
+        hot_label  = Text("Hot object",  font_size=20, color=RED ).next_to(hot_box,  UP,   buff=0.2)
+        cold_label = Text("Cold object", font_size=20, color=BLUE).next_to(cold_box, DOWN, buff=0.2)
+
+        hot_pts  = self.make_particles(10, hot_box.get_center(),  2.4, 1.8, color=RED)
+        cold_pts = self.make_particles(10, cold_box.get_center(), 2.4, 1.8, color=BLUE)
+
+        # RIGHT panel: key idea box
+        key_box = RoundedRectangle(corner_radius=0.2, width=5.2, height=1.3,
+                                   fill_color="#1A237E", fill_opacity=0.3,
+                                   stroke_color="#3F51B5", stroke_width=1.5
+                                   ).move_to(TEXT_CENTER + DOWN * 1.5)
+        key_text = Text("Energy moves from\nwarm → cool areas",
+                        font_size=20, color=WHITE, line_spacing=1.3
+                        ).move_to(key_box.get_center())
+
+        self.add(divider, title)
+
+        # BEAT 1: show the two objects
+        with self.voiceover(text="When two objects are in contact, the hotter one has particles moving much faster.") as tracker:
+            sub = self.show_subtitle("Hot particles move faster than cold ones.")
+            self.play(Create(hot_box), Create(cold_box), run_time=0.8)
+            self.play(FadeIn(hot_label), FadeIn(cold_label), FadeIn(hot_pts), FadeIn(cold_pts))
+            self.vibrate(hot_pts, 0.20, 1.0)
+            self.vibrate(cold_pts, 0.04, 1.0)
+            self.wait(max(0.1, tracker.duration - 3.5))
+        self.play(FadeOut(sub), run_time=0.4)
+
+        # BEAT 2: energy transfer arrow
+        with self.voiceover(text="Energy is transferred from the hot object to the cold one through particle collisions.") as tracker:
+            sub = self.show_subtitle("Particle collisions transfer energy hot → cold.")
+            heat_arrow = Arrow(hot_box.get_bottom(), cold_box.get_top(),
+                               color=ORANGE, stroke_width=6, buff=0.05,
+                               max_tip_length_to_length_ratio=0.15)
+            heat_lbl = Text("Energy transfer", font_size=18, color=ORANGE)
+            heat_lbl.next_to(heat_arrow, RIGHT, buff=0.2)
+            self.play(GrowArrow(heat_arrow), run_time=1.0)
+            self.play(FadeIn(heat_lbl), run_time=0.5)
+            # Cold particles speed up slightly
+            self.vibrate(cold_pts, 0.10, 1.0)
+            self.wait(max(0.1, tracker.duration - 3.0))
+        self.play(FadeOut(sub), run_time=0.4)
+
+        # BEAT 3: key idea
+        with self.voiceover(text="This is always the direction energy flows — from warm areas to cooler areas, until they reach the same temperature.") as tracker:
+            sub = self.show_subtitle("Energy always flows warm → cool.")
+            self.play(FadeIn(key_box), FadeIn(key_text), run_time=0.8)
+            self.play(Indicate(key_box, color=ORANGE, scale_factor=1.05), run_time=0.8)
+            self.wait(max(0.1, tracker.duration - 2.0))
+        self.play(FadeOut(sub), run_time=0.4)
+```
+
+KEY RULES from this reference:
+- show_subtitle is a CLASS METHOD (not nested inside construct)
+- vibrate() is a helper method on the scene class
+- Hot particles: amplitude 0.18–0.25 | Cold: amplitude 0.03–0.06
+- Energy arrow uses GrowArrow(), not Create()
+- Key idea box always shown on RIGHT panel
+- All FadeOut subs before next beat

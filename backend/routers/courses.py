@@ -4977,6 +4977,7 @@ _MANIM_SUBJECTS = {
     "physics": "physics", "chemistry": "chemistry",
     "mathematics": "mathematics", "math": "mathematics", "maths": "mathematics",
     "economics": "economics", "biology": "biology",
+    "science": "science",
 }
 
 
@@ -5056,6 +5057,12 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
         # ── Phase 1: GPT-4o structured solution + cinematic script ───────────
         logger.info("[video] concept %s: Phase 1 (GPT-4o solution) starting (video %s)", concept_id, video_id)
         solution_data = await generate_solution_only(prompt, "en", duration)
+
+        # For science courses, force subject = "science" so Phase 2 uses the
+        # science_prompt.txt (particle animations, no equations) instead of
+        # whatever GPT-4o auto-detected (usually "physics" for thermal energy).
+        if subject == "science":
+            solution_data = {**solution_data, "subject": "science"}
 
         async with get_db() as db:
             await db.execute("""
