@@ -720,6 +720,8 @@ export const fi: Translation = {
       { label: 'Tee lyhyemmäksi',         text: 'Tee selityksestä tiiviimpi menettämättä keskeisiä ideoita.' },
       { label: 'Lisää yhteenveto',        text: 'Lisää 2 lauseen yhteenveto loppuun.' },
     ],
+    studioSuggestedLabel: 'Suggested for this lesson',
+    studioRefreshSuggestions: 'Refresh',
     quizDifficulty:             'Vaikeustaso',
     quizDiff_easy:              'Helppo',
     quizDiff_medium:            'Keskitaso',

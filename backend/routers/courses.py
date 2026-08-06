@@ -138,6 +138,74 @@ Return ONLY valid JSON:
             )
 
 
+async def _generate_suggested_prompts_bg(concept_id: str) -> None:
+    """
+    Background: generate 5-6 teaching prompt suggestions for the teacher studio chat.
+    Uses GPT-4o-mini and stores results in suggested_prompts JSONB on the concept.
+    Called automatically after summarisation and via the manual endpoint.
+    Silently skips if no source_text is available.
+    """
+    from openai import AsyncOpenAI
+    try:
+        async with get_db() as db:
+            row = await db.fetchrow("""
+                SELECT cc.title, cc.source_text, c.subject
+                FROM course_concepts cc
+                JOIN course_units cu ON cu.id = cc.unit_id
+                JOIN courses c       ON c.id  = cu.course_id
+                WHERE cc.id = $1::uuid
+            """, concept_id)
+        if not row or not row["source_text"]:
+            return
+
+        title   = row["title"]
+        subject = row["subject"] or "General"
+        source  = (row["source_text"] or "")[:1500]
+
+        client = AsyncOpenAI()
+        resp = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "system",
+                "content": (
+                    "You generate ready-to-use teacher prompt suggestions for an AI teacher studio chat. "
+                    "The teacher can click one to instantly send it to the AI. "
+                    "Generate exactly 6 prompts covering different teaching needs. "
+                    "Each prompt should be a complete question or instruction the teacher sends to the AI, "
+                    "10-20 words, specific to this concept. "
+                    "Cover these angles: (1) class discussion questions, (2) student misconceptions, "
+                    "(3) formative check questions, (4) hands-on activity or lab idea, "
+                    "(5) real-world connection or analogy, (6) vocabulary/key terms emphasis. "
+                    "Return ONLY a JSON array of 6 strings, no explanations."
+                ),
+            }, {
+                "role": "user",
+                "content": f"Concept: {title}\nSubject: {subject}\n\nSource excerpt:\n{source}",
+            }],
+            response_format={"type": "json_object"},
+            max_tokens=400,
+            temperature=0.4,
+        )
+        data = json.loads(resp.choices[0].message.content)
+        # Accept array at top level or under any key
+        if isinstance(data, list):
+            prompts = data
+        else:
+            prompts = next((v for v in data.values() if isinstance(v, list)), [])
+
+        prompts = [str(p).strip() for p in prompts if str(p).strip()][:6]
+        if not prompts:
+            return
+
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET suggested_prompts = $1::jsonb WHERE id = $2::uuid",
+                json.dumps(prompts), concept_id,
+            )
+    except Exception as exc:
+        logger.warning("[prompts] concept %s suggestion generation failed: %s", concept_id, exc)
+
+
 async def _summarize_concepts_bg(concept_ids: list[str], course_id: str):
     """Background: generate AI summary + transcript per concept, one at a time."""
     async with get_db() as db:
@@ -146,6 +214,11 @@ async def _summarize_concepts_bg(concept_ids: list[str], course_id: str):
         )
     for concept_id in concept_ids:
         await _summarize_one_concept(concept_id, dict(course) if course else None)
+        # Generate teaching prompt suggestions after summarisation (fire-and-forget)
+        try:
+            await _generate_suggested_prompts_bg(concept_id)
+        except Exception:
+            pass  # never fail the pipeline over suggestion generation
 
 
 async def _require_teacher(authorization: str):
@@ -853,6 +926,19 @@ async def delete_concept(concept_id: str, authorization: str = Header(...)):
     async with get_db() as db:
         await db.execute("DELETE FROM course_concepts WHERE id = $1::uuid", concept_id)
     return {"ok": True}
+
+
+@router.post("/concepts/{concept_id}/generate-suggested-prompts")
+async def generate_suggested_prompts(
+    concept_id: str, bg: BackgroundTasks, authorization: str = Header(...)
+):
+    """
+    Teacher endpoint: (re)generate AI teaching prompt suggestions for a concept.
+    Returns immediately; generation runs in the background.
+    """
+    await _require_teacher(authorization)
+    bg.add_task(_generate_suggested_prompts_bg, concept_id)
+    return {"ok": True, "message": "Generating suggestions in background"}
 
 
 @router.post("/concepts/{concept_id}/summarize")
@@ -3762,7 +3848,7 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
                    cc.study_set_id, cc.source_text, cc.ai_summary,
                    cc.ai_transcript, cc.pipeline_status, cc.approved_at,
                    cc.quiz_status, cc.flashcard_status, cc.audio_status, cc.video_status,
-                   cc.chapter_ref, cc.page_start,
+                   cc.chapter_ref, cc.page_start, cc.suggested_prompts,
                    (cc.audio_data IS NOT NULL) AS has_audio,
                    (cc.video_url IS NOT NULL) AS has_video,
                    cu.course_id
@@ -3805,10 +3891,11 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
         "flashcard_status": concept["flashcard_status"],
         "audio_status":     concept["audio_status"],
         "video_status":     concept["video_status"],
-        "has_audio":        bool(concept["has_audio"]),
-        "has_video":        bool(concept["has_video"]),
-        "audio_url":        f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
-        "video_url":        f"/api/courses/concepts/{concept_id}/video" if concept["has_video"] else None,
+        "has_audio":          bool(concept["has_audio"]),
+        "has_video":          bool(concept["has_video"]),
+        "audio_url":          f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
+        "video_url":          f"/api/courses/concepts/{concept_id}/video" if concept["has_video"] else None,
+        "suggested_prompts":  list(concept["suggested_prompts"]) if concept["suggested_prompts"] else [],
         "images": [
             {
                 "id":       str(img["id"]),

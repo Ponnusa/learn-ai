@@ -720,6 +720,8 @@ export const es: Translation = {
       { label: 'Hacerlo más corto',             text: 'Haz la explicación más concisa sin perder las ideas clave.' },
       { label: 'Agregar un resumen',            text: 'Agrega un resumen de 2 oraciones al final.' },
     ],
+    studioSuggestedLabel: 'Suggested for this lesson',
+    studioRefreshSuggestions: 'Refresh',
     quizDifficulty:             'Dificultad',
     quizDiff_easy:              'Fácil',
     quizDiff_medium:            'Medio',

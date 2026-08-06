@@ -67,6 +67,7 @@ interface ConceptDetail {
   has_audio: boolean; has_video: boolean;
   audio_url?: string; video_url?: string;
   images: ConceptImage[];
+  suggested_prompts?: string[];
 }
 
 interface Assets {
@@ -180,6 +181,10 @@ export default function ConceptEditorPage() {
   const [chatLoaded,  setChatLoaded]  = useState(false);
   const [chatInput,   setChatInput]   = useState('');
   const [chatSending, setChatSending] = useState(false);
+
+  // Concept-specific suggested prompts (Tier 2)
+  const [suggestedPrompts,     setSuggestedPrompts]     = useState<string[]>([]);
+  const [refreshingPrompts,    setRefreshingPrompts]    = useState(false);
   const chatEndRef      = useRef<HTMLDivElement>(null);
   const chatSendingRef  = useRef(false);
   const rightPanelRef   = useRef<HTMLDivElement>(null);
@@ -318,6 +323,24 @@ export default function ConceptEditorPage() {
       }
       return urls;
     } catch { return []; }
+  }
+
+  async function refreshSuggestedPrompts() {
+    setRefreshingPrompts(true);
+    try {
+      await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/generate-suggested-prompts`, {
+        method: 'POST', headers: jsonH,
+      });
+      // Poll once after 8s for the result
+      await new Promise(r => setTimeout(r, 8000));
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, { headers: authH });
+      if (res.ok) {
+        const d: ConceptDetail = await res.json();
+        if (d.suggested_prompts && d.suggested_prompts.length > 0) {
+          setSuggestedPrompts(d.suggested_prompts);
+        }
+      }
+    } finally { setRefreshingPrompts(false); }
   }
 
   async function sendChatMessage(override?: string) {
@@ -625,6 +648,9 @@ export default function ConceptEditorPage() {
       if (res.ok) {
         const d: ConceptDetail = await res.json();
         setConcept(d);
+        if (d.suggested_prompts && d.suggested_prompts.length > 0) {
+          setSuggestedPrompts(d.suggested_prompts);
+        }
         loadPdf(d.chapter_ref);
       }
       setLoading(false);
@@ -1529,6 +1555,44 @@ export default function ConceptEditorPage() {
                   )}
                   <div ref={chatEndRef} />
                 </div>
+
+                {/* Concept-specific suggested prompts (Tier 2) */}
+                {(suggestedPrompts.length > 0 || concept?.source_text) && (
+                  <div className="border-t border-[var(--bd)] px-3 pt-2.5 pb-1">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-400">
+                        {t.teacher.studioSuggestedLabel}
+                      </span>
+                      <button
+                        onClick={refreshSuggestedPrompts}
+                        disabled={refreshingPrompts}
+                        title="Regenerate suggestions from lesson content"
+                        className="flex items-center gap-1 text-[10px] text-[var(--tx7)] hover:text-purple-400 transition-colors disabled:opacity-40">
+                        {refreshingPrompts
+                          ? <Loader2 size={10} className="animate-spin" />
+                          : <RefreshCw size={10} />}
+                        {t.teacher.studioRefreshSuggestions}
+                      </button>
+                    </div>
+                    {suggestedPrompts.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {suggestedPrompts.map((p, i) => (
+                          <button key={i} onClick={() => sendChatMessage(p)} disabled={chatSending}
+                            className="text-[11px] px-2.5 py-1 rounded-full border border-purple-500/30
+                                       bg-purple-500/5 text-purple-300
+                                       hover:border-purple-500/60 hover:bg-purple-500/10
+                                       transition-colors disabled:opacity-40 text-left">
+                            {p}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-[var(--tx8)] italic">
+                        {refreshingPrompts ? 'Generating suggestions…' : 'Click refresh to generate lesson-specific prompts'}
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Marquee prompt chips — two rows, opposite directions, pause on hover */}
                 <style>{`

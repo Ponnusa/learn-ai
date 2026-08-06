@@ -720,6 +720,8 @@ export const fr: Translation = {
       { label: 'Raccourcir',                 text: 'Rends l\'explication plus concise sans perdre les idées clés.' },
       { label: 'Ajouter un résumé',          text: 'Ajoute un résumé de 2 phrases à la fin.' },
     ],
+    studioSuggestedLabel: 'Suggested for this lesson',
+    studioRefreshSuggestions: 'Refresh',
     quizDifficulty:             'Difficulté',
     quizDiff_easy:              'Facile',
     quizDiff_medium:            'Moyen',

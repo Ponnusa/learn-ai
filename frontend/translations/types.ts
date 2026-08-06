@@ -684,6 +684,8 @@ export interface Translation {
     viewInTextbook: string;
     addToTextbook: string;
     studioPrompts: { label: string; text: string }[];
+    studioSuggestedLabel: string;
+    studioRefreshSuggestions: string;
     quizDifficulty: string;
     quizDiff_easy: string;
     quizDiff_medium: string;

@@ -720,6 +720,8 @@ export const sv: Translation = {
       { label: 'Gör det kortare',      text: 'Gör förklaringen mer kortfattad utan att förlora de viktigaste idéerna.' },
       { label: 'Lägg till sammanfattning', text: 'Lägg till en 2-menings sammanfattning i slutet.' },
     ],
+    studioSuggestedLabel: 'Suggested for this lesson',
+    studioRefreshSuggestions: 'Refresh',
     quizDifficulty:             'Svårighetsgrad',
     quizDiff_easy:              'Lätt',
     quizDiff_medium:            'Medel',
