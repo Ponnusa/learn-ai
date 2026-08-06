@@ -1,4 +1,5 @@
 'use client';
+export const dynamic = 'force-dynamic';
 import { Suspense, useState, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { KeyRound, User, Lock, Eye, EyeOff, Loader2, CheckCircle2, ArrowRight } from 'lucide-react';
