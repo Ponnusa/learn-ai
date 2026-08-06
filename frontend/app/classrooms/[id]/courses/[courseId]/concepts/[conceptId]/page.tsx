@@ -107,16 +107,24 @@ export default function StudentConceptDetailPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [conceptRes, assetsRes, currRes] = await Promise.all([
+      const [conceptRes, assetsRes, currRes, labRes] = await Promise.all([
         fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, { headers: authH }),
         fetch(`${API_BASE}/api/courses/concepts/${conceptId}/assets`, { headers: authH }),
         fetch(`${API_BASE}/api/courses/${courseId}/curriculum-context`),
+        fetch(`${API_BASE}/api/lab-sheets/${conceptId}`, { headers: authH }),
       ]);
       if (conceptRes.ok) setConcept(await conceptRes.json());
       if (assetsRes.ok)  setAssets(await assetsRes.json());
       if (currRes.ok) {
         const ctx = await currRes.json();
         if (ctx.driving_question) setCurriculum(ctx);
+      }
+      if (labRes.ok) {
+        const lab = await labRes.json();
+        if (lab.status === 'published' && lab.content) {
+          setLabContent2(lab.content);
+          setLabLoaded2(true);
+        }
       }
     } finally { setLoading(false); }
   }
@@ -341,7 +349,7 @@ export default function StudentConceptDetailPage() {
     { key: 'learn',     label: t.concept.tabLearn,     icon: <BookOpen size={13} /> },
     ...(hasResources ? [{ key: 'materials', label: t.concept.tabMaterials, icon: <FileText size={13} /> }] : []),
     ...(hasPractice  ? [{ key: 'practice',  label: t.concept.tabPractice,  icon: <Dumbbell size={13} /> }] : []),
-    { key: 'lab', label: 'Lab', icon: <FlaskConical size={13} /> },
+    ...(labContent ? [{ key: 'lab', label: 'Lab', icon: <FlaskConical size={13} /> }] : []),
   ];
 
   return (
