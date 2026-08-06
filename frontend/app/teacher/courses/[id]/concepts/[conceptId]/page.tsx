@@ -688,7 +688,7 @@ export default function ConceptEditorPage() {
 
   async function loadLabSheet() {
     try {
-      const res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}`, { headers });
+      const res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}`, { headers: authH });
       if (res.ok) {
         const d = await res.json();
         setLabStatus(d.status as 'none'|'draft'|'published');
@@ -704,7 +704,7 @@ export default function ConceptEditorPage() {
       if (labPdfFile) form.append('lab_pdf', labPdfFile);
       const res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}/generate`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authH,
         body: form,
       });
       if (res.ok) {
@@ -721,7 +721,7 @@ export default function ConceptEditorPage() {
     setLabSaving(true);
     try {
       await fetch(`${API_BASE}/api/lab-sheets/${conceptId}`, {
-        method: 'PUT', headers,
+        method: 'PUT', headers: jsonH,
         body: JSON.stringify({ content: labContent }),
       });
     } finally { setLabSaving(false); }
@@ -730,7 +730,7 @@ export default function ConceptEditorPage() {
   async function toggleLabPublish() {
     setLabPublishing(true);
     try {
-      const res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}/publish`, { method: 'POST', headers });
+      const res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}/publish`, { method: 'POST', headers: authH });
       if (res.ok) {
         const d = await res.json();
         setLabStatus(d.status);
