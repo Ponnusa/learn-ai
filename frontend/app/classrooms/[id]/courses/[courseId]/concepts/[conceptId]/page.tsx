@@ -187,7 +187,7 @@ export default function StudentConceptDetailPage() {
 
   useEffect(() => {
     if (activeTab === 'lab' && !labLoaded2) {
-      fetch(`${API_BASE}/api/lab-sheets/${conceptId}`, { headers })
+      fetch(`${API_BASE}/api/lab-sheets/${conceptId}`, { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : null)
         .then(d => { if (d?.content) setLabContent2(d.content); })
         .finally(() => setLabLoaded2(true));
