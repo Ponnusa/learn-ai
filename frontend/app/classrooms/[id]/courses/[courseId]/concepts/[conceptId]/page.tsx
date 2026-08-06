@@ -69,6 +69,14 @@ export default function StudentConceptDetailPage() {
   const legacyMaxWatchRef  = useRef(0);
   const lastActivityRef    = useRef(Date.now()); // updated on any user interaction
 
+  // Curriculum context (TEKS banner) — null means no context for this course
+  const [curriculum, setCurriculum] = useState<{
+    driving_question?: string;
+    teks_codes?: string[];
+    active_lesson?: number;
+    lesson_count?: number;
+  } | null>(null);
+
   // Quiz state
   const [quizAnswers, setQuizAnswers]   = useState<Record<number, number>>({});
   const [scoreSubmitted, setScoreSubmitted] = useState(false);
@@ -94,12 +102,17 @@ export default function StudentConceptDetailPage() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [conceptRes, assetsRes] = await Promise.all([
+      const [conceptRes, assetsRes, currRes] = await Promise.all([
         fetch(`${API_BASE}/api/courses/concepts/${conceptId}/detail`, { headers: authH }),
         fetch(`${API_BASE}/api/courses/concepts/${conceptId}/assets`, { headers: authH }),
+        fetch(`${API_BASE}/api/courses/${courseId}/curriculum-context`),
       ]);
-      if (conceptRes.ok)  setConcept(await conceptRes.json());
-      if (assetsRes.ok)   setAssets(await assetsRes.json());
+      if (conceptRes.ok) setConcept(await conceptRes.json());
+      if (assetsRes.ok)  setAssets(await assetsRes.json());
+      if (currRes.ok) {
+        const ctx = await currRes.json();
+        if (ctx.driving_question) setCurriculum(ctx);
+      }
     } finally { setLoading(false); }
   }
 
@@ -324,6 +337,33 @@ export default function StudentConceptDetailPage() {
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-4 transition-colors">
         <ArrowLeft size={15} /> {t.concept.backToCourse}
       </button>
+
+      {/* Driving Question Banner — only shown for TEKS-aligned courses */}
+      {curriculum?.driving_question && (
+        <div className="mb-4 rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-3">
+          <div className="flex items-start gap-2.5">
+            <span className="text-green-400 text-xs font-semibold uppercase tracking-wider mt-0.5 shrink-0">
+              Driving Question
+            </span>
+            <p className="text-[var(--tx2)] text-sm leading-snug">{curriculum.driving_question}</p>
+          </div>
+          {curriculum.teks_codes && curriculum.teks_codes.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {curriculum.teks_codes.map(code => (
+                <span key={code}
+                  className="text-xs px-2 py-0.5 rounded-md bg-green-500/10 text-green-400 border border-green-500/20 font-mono">
+                  {code}
+                </span>
+              ))}
+              {curriculum.active_lesson && curriculum.lesson_count && (
+                <span className="text-xs px-2 py-0.5 rounded-md bg-[var(--ov2)] text-[var(--tx7)] border border-[var(--bd)]">
+                  Lesson {curriculum.active_lesson}/{curriculum.lesson_count}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Title */}
       <h1 className="text-[var(--tx1)] text-2xl font-bold mb-1">{concept.title}</h1>

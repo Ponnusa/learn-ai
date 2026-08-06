@@ -146,12 +146,21 @@ export default function CourseDetailPage() {
   const [wandSkip,  setWandSkip]  = useState(true);
   const [wandBusy,  setWandBusy]  = useState<string | null>(null);
 
+  // Curriculum context (TEKS alignment)
+  type CurriculumCtx = { id: string; name: string; driving_question?: string; grade_level?: string; subject?: string; teks_codes?: string[]; active_lesson?: number; lesson_count?: number; };
+  const [availableContexts, setAvailableContexts] = useState<CurriculumCtx[]>([]);
+  const [linkedContext,     setLinkedContext]      = useState<CurriculumCtx | null>(null);
+  const [curriculumOpen,    setCurriculumOpen]     = useState(false);
+  const [savingCurriculum,  setSavingCurriculum]   = useState(false);
+  const [selectedContextId, setSelectedContextId]  = useState<string>('');
+
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   useEffect(() => {
     if (!user) { router.replace('/auth/teacher'); return; }
     load();
     loadClassrooms();
+    loadCurriculumData();
   }, [user, courseId]);
 
 
@@ -187,6 +196,41 @@ export default function CourseDetailPage() {
   async function loadClassrooms() {
     const res = await fetch(`${API_BASE}/api/classrooms/teaching`, { headers });
     if (res.ok) setMyClassrooms(await res.json());
+  }
+
+  async function loadCurriculumData() {
+    const [availRes, linkedRes] = await Promise.all([
+      fetch(`${API_BASE}/api/courses/all-curriculum-contexts`, { headers }),
+      fetch(`${API_BASE}/api/courses/${courseId}/curriculum-context`),
+    ]);
+    if (availRes.ok) setAvailableContexts(await availRes.json());
+    if (linkedRes.ok) {
+      const ctx = await linkedRes.json();
+      if (ctx.driving_question) setLinkedContext(ctx);
+    }
+  }
+
+  async function saveCurriculumLink() {
+    setSavingCurriculum(true);
+    try {
+      await fetch(`${API_BASE}/api/courses/${courseId}/curriculum-context`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ curriculum_context_id: selectedContextId || null }),
+      });
+      await loadCurriculumData();
+      setCurriculumOpen(false);
+    } finally { setSavingCurriculum(false); }
+  }
+
+  async function updateActiveLesson(delta: number) {
+    if (!linkedContext) return;
+    const next = Math.max(1, Math.min(linkedContext.lesson_count ?? 1, (linkedContext.active_lesson ?? 1) + delta));
+    await fetch(`${API_BASE}/api/courses/${courseId}/curriculum-context`, {
+      method: 'PATCH', headers,
+      body: JSON.stringify({ active_lesson: next }),
+    });
+    setLinkedContext(prev => prev ? { ...prev, active_lesson: next } : prev);
   }
 
   // Silent course refresh used during polling — only updates concept/unit data
@@ -976,6 +1020,113 @@ export default function CourseDetailPage() {
           </div>
         );
       })()}
+
+      {/* Curriculum Context (TEKS alignment) */}
+      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mt-6">
+        <button
+          onClick={() => setCurriculumOpen(o => !o)}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors">
+          <div className="flex items-center gap-2">
+            <BookOpen size={15} className="text-green-400" />
+            <span className="text-[var(--tx1)] text-sm font-semibold">Curriculum Context</span>
+            {linkedContext
+              ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">Linked</span>
+              : <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--ov1)] text-[var(--tx7)]">Not set</span>}
+          </div>
+          {curriculumOpen ? <ChevronDown size={15} className="text-[var(--tx7)]" /> : <ChevronRight size={15} className="text-[var(--tx7)]" />}
+        </button>
+
+        {curriculumOpen && (
+          <div className="border-t border-[var(--bd)] p-5 space-y-4">
+            {linkedContext ? (
+              <>
+                {/* Active context summary */}
+                <div className="rounded-xl border border-green-500/20 bg-green-500/5 p-4">
+                  <p className="text-green-400 text-xs font-semibold uppercase tracking-wider mb-1">
+                    {linkedContext.grade_level} {linkedContext.subject}
+                  </p>
+                  <p className="text-[var(--tx1)] text-sm font-medium mb-1">{linkedContext.name}</p>
+                  {linkedContext.driving_question && (
+                    <p className="text-[var(--tx6)] text-xs italic">"{linkedContext.driving_question}"</p>
+                  )}
+                  {linkedContext.teks_codes && linkedContext.teks_codes.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {linkedContext.teks_codes.map(c => (
+                        <span key={c} className="text-xs px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 font-mono">{c}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Active lesson control */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[var(--tx2)] text-sm font-medium">Active Lesson</p>
+                    <p className="text-[var(--tx7)] text-xs">Students see this lesson's TEKS context in chat</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => updateActiveLesson(-1)} disabled={(linkedContext.active_lesson ?? 1) <= 1}
+                      className="w-8 h-8 rounded-lg border border-[var(--bd)] text-[var(--tx2)] hover:bg-[var(--ov1)] disabled:opacity-30 transition-colors flex items-center justify-center text-lg">
+                      −
+                    </button>
+                    <span className="text-[var(--tx1)] text-sm font-mono w-16 text-center">
+                      {linkedContext.active_lesson ?? 1} / {linkedContext.lesson_count ?? '?'}
+                    </span>
+                    <button onClick={() => updateActiveLesson(1)} disabled={(linkedContext.active_lesson ?? 1) >= (linkedContext.lesson_count ?? 1)}
+                      className="w-8 h-8 rounded-lg border border-[var(--bd)] text-[var(--tx2)] hover:bg-[var(--ov1)] disabled:opacity-30 transition-colors flex items-center justify-center text-lg">
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* Unlink button */}
+                <button onClick={() => { setSelectedContextId(''); saveCurriculumLink(); }}
+                  className="text-xs text-[var(--tx7)] hover:text-red-400 transition-colors">
+                  Remove curriculum context
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-[var(--tx6)] text-sm">
+                  Link a curriculum context to make the AI aware of TEKS standards, the unit driving question,
+                  and inquiry-based pedagogy guardrails for this course.
+                </p>
+                {availableContexts.length === 0 ? (
+                  <p className="text-[var(--tx7)] text-xs italic">No curriculum contexts available yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    <select
+                      value={selectedContextId}
+                      onChange={e => setSelectedContextId(e.target.value)}
+                      className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] focus:outline-none focus:border-purple-500">
+                      <option value="">Select a curriculum context…</option>
+                      {availableContexts.map(ctx => (
+                        <option key={ctx.id} value={ctx.id}>{ctx.name}</option>
+                      ))}
+                    </select>
+                    {selectedContextId && (() => {
+                      const ctx = availableContexts.find(c => c.id === selectedContextId);
+                      return ctx ? (
+                        <div className="rounded-lg border border-[var(--bd)] bg-[var(--ov1)] p-3 text-xs text-[var(--tx6)]">
+                          {ctx.driving_question && <p className="italic mb-1">"{ctx.driving_question}"</p>}
+                          {ctx.teks_codes && ctx.teks_codes.length > 0 && (
+                            <p className="font-mono text-green-400">{ctx.teks_codes.join(', ')}</p>
+                          )}
+                        </div>
+                      ) : null;
+                    })()}
+                    <button onClick={saveCurriculumLink} disabled={!selectedContextId || savingCurriculum}
+                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40">
+                      {savingCurriculum ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                      Link curriculum context
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       {cropTarget && (
         <PDFViewerModal

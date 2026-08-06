@@ -2003,6 +2003,108 @@ async def _get_student(authorization: str):
     return str(row["id"])
 
 
+@router.get("/{course_id}/curriculum-context")
+async def get_course_curriculum_context(course_id: str):
+    """
+    Returns curriculum context for a course (public — UUID is scoped to the course).
+    Returns {} when no curriculum context is linked (zero effect for non-pilot courses).
+    """
+    from services.curriculum import get_curriculum_context
+    ctx = await get_curriculum_context(course_id)
+    if not ctx:
+        return {}
+    return {
+        "driving_question": ctx.get("driving_question"),
+        "teks_codes":       ctx.get("teks_codes") or [],
+        "grade_level":      ctx.get("grade_level"),
+        "subject":          ctx.get("subject"),
+        "active_lesson":    ctx.get("active_lesson"),
+        "lesson_count":     ctx.get("lesson_count"),
+        "unit_start_date":  ctx.get("unit_start_date").isoformat() if ctx.get("unit_start_date") else None,
+        "unit_end_date":    ctx.get("unit_end_date").isoformat() if ctx.get("unit_end_date") else None,
+    }
+
+
+@router.patch("/{course_id}/curriculum-context")
+async def patch_course_curriculum_context(
+    course_id: str,
+    body: dict,
+    authorization: str = Header(...),
+):
+    """
+    Teacher endpoint: link/unlink a curriculum_context to a course, or update active_lesson.
+    Body: { curriculum_context_id?: str | null, active_lesson?: int }
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT id FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+    if not course:
+        raise HTTPException(404, "Course not found")
+
+    updates = []
+    params: list = []
+
+    if "curriculum_context_id" in body:
+        ctx_id = body["curriculum_context_id"]
+        updates.append(f"curriculum_context_id = ${len(params)+1}")
+        params.append(ctx_id)  # None = unlink
+
+    if "active_lesson" in body:
+        lesson = int(body["active_lesson"])
+        # Update active_lesson on the curriculum_contexts row via the course FK
+        async with get_db() as db:
+            await db.execute("""
+                UPDATE curriculum_contexts cc
+                SET active_lesson = $1
+                FROM courses c
+                WHERE c.curriculum_context_id = cc.id
+                  AND c.id = $2::uuid
+                  AND c.teacher_id = $3::uuid
+            """, lesson, course_id, teacher_id)
+
+    if updates:
+        params.append(course_id)
+        async with get_db() as db:
+            await db.execute(
+                f"UPDATE courses SET {', '.join(updates)} WHERE id = ${len(params)}::uuid",
+                *params,
+            )
+
+    return {"ok": True}
+
+
+@router.get("/all-curriculum-contexts")
+async def list_curriculum_contexts(authorization: str = Header(...)):
+    """
+    Returns all available curriculum contexts (for teacher dropdown).
+    Path uses 'all-' prefix to avoid conflicting with /{course_id} route.
+    """
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT id, name, driving_question, grade_level, subject,
+                   active_lesson, lesson_count, teks_codes
+            FROM curriculum_contexts
+            ORDER BY grade_level, name
+        """)
+    return [
+        {
+            "id":               str(r["id"]),
+            "name":             r["name"],
+            "driving_question": r["driving_question"],
+            "grade_level":      r["grade_level"],
+            "subject":          r["subject"],
+            "active_lesson":    r["active_lesson"],
+            "lesson_count":     r["lesson_count"],
+            "teks_codes":       r["teks_codes"] or [],
+        }
+        for r in rows
+    ]
+
+
 @router.get("/{course_id}/student")
 async def get_course_student_view(course_id: str, authorization: str = Header(...)):
     """
@@ -4030,7 +4132,7 @@ async def post_student_chat(
     async with get_db() as db:
         concept = await db.fetchrow("""
             SELECT cc.id, cc.title, cc.source_text, cc.study_set_id,
-                   cc.chapter_ref, c.subject
+                   cc.chapter_ref, c.subject, c.id as course_id
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
             JOIN courses c       ON c.id  = cu.course_id
@@ -4153,6 +4255,14 @@ async def post_student_chat(
         f"and answer from your general knowledge where safe to do so.\n\n"
         f"{grounding[:12000]}{lang_note}"
     )
+
+    # Inject TEKS curriculum context when the course has one (zero effect otherwise)
+    if concept.get("course_id"):
+        from services.curriculum import get_curriculum_context, build_curriculum_block
+        curriculum = await get_curriculum_context(str(concept["course_id"]))
+        if curriculum:
+            system_prompt += build_curriculum_block(curriculum)
+
     if image_b64_url:
         system_prompt += (
             "\n\nThe student has shared an image from the concept material. "

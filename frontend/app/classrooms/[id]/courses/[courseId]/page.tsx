@@ -46,9 +46,15 @@ export default function StudentCoursePage() {
   const { user, token } = useSessionStore();
 
   const { t, tF } = useTranslation();
-  const [course,    setCourse]    = useState<Course | null>(null);
-  const [loading,   setLoading]   = useState(true);
-  const [expanded,  setExpanded]  = useState<Set<string>>(new Set());
+  const [course,      setCourse]    = useState<Course | null>(null);
+  const [loading,     setLoading]   = useState(true);
+  const [expanded,    setExpanded]  = useState<Set<string>>(new Set());
+  const [curriculum,  setCurriculum] = useState<{
+    driving_question?: string;
+    teks_codes?: string[];
+    active_lesson?: number;
+    lesson_count?: number;
+  } | null>(null);
   // concepts navigate to detail page — no activating state needed here
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -61,12 +67,18 @@ export default function StudentCoursePage() {
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/courses/${courseId}/student`, { headers });
-      if (!res.ok) { router.push(`/classrooms/${classroomId}`); return; }
-      const data: Course = await res.json();
+      const [courseRes, currRes] = await Promise.all([
+        fetch(`${API_BASE}/api/courses/${courseId}/student`, { headers }),
+        fetch(`${API_BASE}/api/courses/${courseId}/curriculum-context`),
+      ]);
+      if (!courseRes.ok) { router.push(`/classrooms/${classroomId}`); return; }
+      const data: Course = await courseRes.json();
       setCourse(data);
-      // Expand first unit by default
       if (data.units.length > 0) setExpanded(new Set([data.units[0].id]));
+      if (currRes.ok) {
+        const ctx = await currRes.json();
+        if (ctx.driving_question) setCurriculum(ctx);
+      }
     } finally { setLoading(false); }
   }
 
@@ -114,6 +126,24 @@ export default function StudentCoursePage() {
           <span><BookOpen size={10} className="inline mr-0.5" />{tF(t.classrooms.unitsCount, { n: course.units.length })}</span>
         </div>
       </div>
+
+      {/* Driving Question Banner */}
+      {curriculum?.driving_question && (
+        <div className="mb-4 rounded-xl border border-green-500/20 bg-green-500/5 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-green-400 mb-1">Driving Question</p>
+          <p className="text-[var(--tx2)] text-sm leading-snug">{curriculum.driving_question}</p>
+          {curriculum.teks_codes && curriculum.teks_codes.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {curriculum.teks_codes.map(code => (
+                <span key={code}
+                  className="text-xs px-2 py-0.5 rounded-md bg-green-500/10 text-green-400 border border-green-500/20 font-mono">
+                  {code}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Progress bar */}
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4 mb-6">
