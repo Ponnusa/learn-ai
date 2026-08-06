@@ -400,6 +400,35 @@ async def get_students_overview(authorization: str = Header(...)):
     return result
 
 
+@router.get("/all-curriculum-contexts")
+async def list_curriculum_contexts_top(authorization: str = Header(...)):
+    """
+    Returns all available curriculum contexts for the teacher dropdown.
+    Declared before /{course_id} so FastAPI matches it correctly.
+    """
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT id, name, driving_question, grade_level, subject,
+                   active_lesson, lesson_count, teks_codes
+            FROM curriculum_contexts
+            ORDER BY grade_level, name
+        """)
+    return [
+        {
+            "id":               str(r["id"]),
+            "name":             r["name"],
+            "driving_question": r["driving_question"],
+            "grade_level":      r["grade_level"],
+            "subject":          r["subject"],
+            "active_lesson":    r["active_lesson"],
+            "lesson_count":     r["lesson_count"],
+            "teks_codes":       r["teks_codes"] or [],
+        }
+        for r in rows
+    ]
+
+
 @router.get("/{course_id}")
 async def get_course(course_id: str, authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)
@@ -2074,35 +2103,6 @@ async def patch_course_curriculum_context(
             )
 
     return {"ok": True}
-
-
-@router.get("/all-curriculum-contexts")
-async def list_curriculum_contexts(authorization: str = Header(...)):
-    """
-    Returns all available curriculum contexts (for teacher dropdown).
-    Path uses 'all-' prefix to avoid conflicting with /{course_id} route.
-    """
-    await _require_teacher(authorization)
-    async with get_db() as db:
-        rows = await db.fetch("""
-            SELECT id, name, driving_question, grade_level, subject,
-                   active_lesson, lesson_count, teks_codes
-            FROM curriculum_contexts
-            ORDER BY grade_level, name
-        """)
-    return [
-        {
-            "id":               str(r["id"]),
-            "name":             r["name"],
-            "driving_question": r["driving_question"],
-            "grade_level":      r["grade_level"],
-            "subject":          r["subject"],
-            "active_lesson":    r["active_lesson"],
-            "lesson_count":     r["lesson_count"],
-            "teks_codes":       r["teks_codes"] or [],
-        }
-        for r in rows
-    ]
 
 
 @router.get("/{course_id}/student")
