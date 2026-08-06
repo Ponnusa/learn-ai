@@ -222,6 +222,71 @@ async def login_password(req: PasswordLoginRequest):
     return _user_response(user, create_jwt(str(user["id"])))
 
 
+# ── Student class-code join (COPPA-safe, no email required) ──────────────────
+
+class StudentJoinRequest(BaseModel):
+    join_code: str
+    name: str
+    password: str
+
+
+@router.post("/student-join")
+async def student_join(req: StudentJoinRequest):
+    import re, logging
+    log = logging.getLogger(__name__)
+
+    name = req.name.strip()
+    if not name or len(name) > 50:
+        raise HTTPException(400, "Name must be 1–50 characters")
+    if len(req.password) < 6:
+        raise HTTPException(400, "Password must be at least 6 characters")
+
+    code = req.join_code.strip().upper()
+    if len(code) != 6:
+        raise HTTPException(400, "Class code must be 6 characters")
+
+    async with get_db() as db:
+        classroom = await db.fetchrow(
+            "SELECT id, name, is_active FROM classrooms WHERE join_code = $1", code
+        )
+        if not classroom or not classroom["is_active"]:
+            raise HTTPException(404, "Class code not found — check with your teacher")
+
+        # Generate a unique synthetic email (retry up to 5 times on collision)
+        slug = re.sub(r"[^a-z0-9]", "", name.lower())[:20] or "student"
+        email = None
+        for _ in range(5):
+            suffix = secrets.token_hex(3)
+            candidate = f"{slug}_{suffix}@student.learnxai.app"
+            exists = await db.fetchval("SELECT 1 FROM users WHERE email = $1", candidate)
+            if not exists:
+                email = candidate
+                break
+        if not email:
+            raise HTTPException(500, "Could not generate a unique account — please try again")
+
+        hashed = _hash_password(req.password)
+        user = await db.fetchrow("""
+            INSERT INTO users (email, name, password_hash, account_type, knowledge_level)
+            VALUES ($1, $2, $3, 'student', 'intermediate')
+            RETURNING id, email, name, tier, theme, language, account_type
+        """, email, name, hashed)
+
+        await db.execute("""
+            INSERT INTO classroom_students (classroom_id, student_id)
+            VALUES ($1, $2) ON CONFLICT DO NOTHING
+        """, classroom["id"], user["id"])
+
+    try:
+        await init_profile(str(user["id"]), "intermediate")
+    except Exception as exc:
+        log.warning("init_profile failed for student %s (non-fatal): %s", user["id"], exc)
+
+    resp = _user_response(user, create_jwt(str(user["id"])))
+    resp["classroom"] = {"id": str(classroom["id"]), "name": classroom["name"]}
+    return resp
+
+
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 
 GOOGLE_AUTH_URL  = "https://accounts.google.com/o/oauth2/v2/auth"

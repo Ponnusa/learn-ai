@@ -139,11 +139,14 @@ export default function LoginPage() {
           {t.auth.termsNote}
         </p>
 
-        <p className="text-center text-xs mt-4">
-          <a href="/auth/teacher" className="text-[var(--tx7)] hover:text-[var(--purple)] transition-colors">
-            For teachers &amp; schools →
+        <div className="flex items-center justify-center gap-4 mt-4 text-xs">
+          <a href="/join" className="text-purple-400 hover:text-purple-300 font-medium transition-colors">
+            Student? Join with class code →
           </a>
-        </p>
+          <a href="/auth/teacher" className="text-[var(--tx7)] hover:text-[var(--purple)] transition-colors">
+            For teachers →
+          </a>
+        </div>
       </div>
     </div>
   );

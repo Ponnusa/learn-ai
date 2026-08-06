@@ -273,7 +273,10 @@ export default function ClassroomDetailPage() {
             </button>
           </div>
           <p className="text-[var(--tx8)] text-xs mt-3">
-            Students go to the app → Classrooms → Enter code <strong className="text-[var(--tx6)]">{cls.join_code}</strong>
+            Students go to{' '}
+            <span className="text-[var(--tx5)] font-mono">learnx-ai.com/join</span>
+            {' '}and enter code{' '}
+            <strong className="text-[var(--tx6)] font-mono">{cls.join_code}</strong>
           </p>
         </div>
 

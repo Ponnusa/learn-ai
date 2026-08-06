@@ -108,6 +108,20 @@ async def join_classroom(req: JoinClassroomRequest, authorization: str = Header(
     return {"message": f"Joined {cls['name']}", "classroom": _fmt_classroom(cls, 0)}
 
 
+# ── Public: validate a join code (no auth — used by /join onboarding page) ───
+
+@router.get("/by-code/{code}")
+async def get_classroom_by_code(code: str):
+    async with get_db() as db:
+        cls = await db.fetchrow(
+            "SELECT id, name, subject, grade FROM classrooms WHERE join_code = $1 AND is_active = TRUE",
+            code.upper().strip(),
+        )
+    if not cls:
+        raise HTTPException(404, "Class code not found — check with your teacher")
+    return {"id": str(cls["id"]), "name": cls["name"], "subject": cls["subject"], "grade": cls["grade"]}
+
+
 # ── Student: list joined classrooms ──────────────────────────────────────────
 
 @router.get("/enrolled")
