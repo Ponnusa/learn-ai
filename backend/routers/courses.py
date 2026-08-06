@@ -4250,20 +4250,40 @@ async def post_student_chat(
         lang_name = _LANGUAGE_NAMES[req.language]
         lang_note = f"\n\nRespond entirely in {lang_name}."
 
-    system_prompt = (
-        f"You are a helpful AI tutor helping a student understand \"{concept['title']}\" "
-        f"({concept['subject'] or 'General'}).\n\n"
-        f"Answer primarily from the material below. If a topic isn't covered, say so briefly "
-        f"and answer from your general knowledge where safe to do so.\n\n"
-        f"{grounding[:12000]}{lang_note}"
-    )
-
-    # Inject TEKS curriculum context when the course has one (zero effect otherwise)
+    # Fetch curriculum context first — it determines the entire prompt structure
+    curriculum = None
     if concept.get("course_id"):
         from services.curriculum import get_curriculum_context, build_curriculum_block
         curriculum = await get_curriculum_context(str(concept["course_id"]))
-        if curriculum:
-            system_prompt += build_curriculum_block(curriculum)
+
+    if curriculum:
+        # Inquiry-first: pedagogy rules lead the prompt; grounding follows as reference only.
+        grade = curriculum.get("grade_level", "6th grade")
+        system_prompt = (
+            f"You are an inquiry-based science tutor for a {grade} classroom. "
+            f"Students discover science principles through hands-on experiments and discussion — NOT through direct instruction.\n\n"
+            f"CRITICAL INSTRUCTION — INQUIRY PEDAGOGY:\n"
+            f"NEVER directly explain scientific concepts or state key ideas as facts. "
+            f"When a student asks a factual question, respond with a guiding question that helps them reason it out. "
+            f"Examples of good responses:\n"
+            f"  • \"What did you notice when you tried that in your experiment?\"\n"
+            f"  • \"Why do you think one cup kept things colder than the other?\"\n"
+            f"  • \"What do you think causes that to happen?\"\n"
+            f"  • \"How does that connect to what you observed in class?\"\n"
+            f"Use unit vocabulary naturally in your questions. Guide students toward the ideas — never lecture or give away the answer.\n"
+        )
+        system_prompt += build_curriculum_block(curriculum)
+        system_prompt += f"\n\n--- LESSON CONTENT (background context — do not recite as answers) ---\n{grounding[:8000]}"
+        if lang_note:
+            system_prompt += lang_note
+    else:
+        system_prompt = (
+            f"You are a helpful AI tutor helping a student understand \"{concept['title']}\" "
+            f"({concept['subject'] or 'General'}).\n\n"
+            f"Answer primarily from the material below. If a topic isn't covered, say so briefly "
+            f"and answer from your general knowledge where safe to do so.\n\n"
+            f"{grounding[:12000]}{lang_note}"
+        )
 
     if image_b64_url:
         system_prompt += (
