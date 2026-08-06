@@ -700,18 +700,27 @@ export default function ConceptEditorPage() {
   async function generateLabSheet() {
     setLabGenerating(true);
     try {
-      const form = new FormData();
-      if (labPdfFile) form.append('lab_pdf', labPdfFile);
-      const res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}/generate`, {
-        method: 'POST',
-        headers: authH,
-        body: form,
-      });
+      let res: Response;
+      if (labPdfFile) {
+        const form = new FormData();
+        form.append('lab_pdf', labPdfFile);
+        res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}/generate`, {
+          method: 'POST', headers: authH, body: form,
+        });
+      } else {
+        // No file — send plain POST, no body (avoids empty-multipart boundary error)
+        res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}/generate`, {
+          method: 'POST', headers: authH,
+        });
+      }
       if (res.ok) {
         const d = await res.json();
         setLabStatus(d.status);
         setLabContent(d.content);
         setLabPdfFile(null);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error('Lab generate failed:', err);
       }
     } finally { setLabGenerating(false); }
   }

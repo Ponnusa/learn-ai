@@ -20,7 +20,7 @@ import json
 import logging
 
 import fitz  # PyMuPDF
-from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Header, HTTPException, UploadFile, File, Request
 from pydantic import BaseModel
 
 from database import get_db
@@ -86,9 +86,9 @@ async def get_lab_sheet(concept_id: str, authorization: str = Header(...)):
 
 @router.post("/{concept_id}/generate")
 async def generate_lab_sheet(
-    concept_id:  str,
+    concept_id:    str,
+    request:       Request,
     authorization: str = Header(...),
-    lab_pdf:     UploadFile | None = File(None),
 ):
     async with get_db() as db:
         await _assert_teacher(authorization, concept_id, db)
@@ -109,11 +109,15 @@ async def generate_lab_sheet(
 
     # Extract text from uploaded lab manual PDF (optional)
     lab_text = ""
-    if lab_pdf and lab_pdf.filename:
+    content_type = request.headers.get("content-type", "")
+    if "multipart" in content_type:
         try:
-            pdf_bytes = await lab_pdf.read()
-            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-            lab_text = "\n".join(page.get_text() for page in doc)[:6000]
+            form = await request.form()
+            lab_pdf = form.get("lab_pdf")
+            if lab_pdf and hasattr(lab_pdf, "read"):
+                pdf_bytes = await lab_pdf.read()
+                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                lab_text = "\n".join(page.get_text() for page in doc)[:6000]
         except Exception as e:
             log.warning("Lab PDF parse failed: %s", e)
 
