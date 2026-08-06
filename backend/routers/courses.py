@@ -2043,6 +2043,8 @@ async def get_course_curriculum_context(course_id: str):
     if not ctx:
         return {}
     return {
+        "id":               str(ctx.get("id")) if ctx.get("id") else None,
+        "name":             ctx.get("name"),
         "driving_question": ctx.get("driving_question"),
         "teks_codes":       ctx.get("teks_codes") or [],
         "grade_level":      ctx.get("grade_level"),

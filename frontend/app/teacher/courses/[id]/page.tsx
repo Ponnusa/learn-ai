@@ -206,7 +206,7 @@ export default function CourseDetailPage() {
     if (availRes.ok) setAvailableContexts(await availRes.json());
     if (linkedRes.ok) {
       const ctx = await linkedRes.json();
-      if (ctx.driving_question) setLinkedContext(ctx);
+      if (ctx.id || ctx.driving_question) setLinkedContext(ctx);
     }
   }
 
