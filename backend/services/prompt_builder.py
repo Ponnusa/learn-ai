@@ -155,11 +155,13 @@ async def build_chat_prompt(
     subject: str | None,
     language: str = "en",
     explanation_language: str | None = None,
+    course_id: str | None = None,
 ) -> str:
     """
     Returns the full system prompt for a chat response.
     Always starts with the unchanged AnimLearn base.
     Personalisation is appended — never replaces the base.
+    course_id is optional: non-nil only for TEKS-aligned courses.
     """
     prompt = CHAT_SYSTEM_PROMPT
 
@@ -185,8 +187,15 @@ async def build_chat_prompt(
                 "(write é not &eacute;, write ¿ not &#191;) — never use HTML entities."
             )
 
+    # ── Curriculum context (TEKS-aligned courses only) ─────────────────────
+    if course_id:
+        from services.curriculum import get_curriculum_context, build_curriculum_block
+        curriculum = await get_curriculum_context(course_id)
+        if curriculum:
+            prompt += build_curriculum_block(curriculum)
+
     if not user_id:
-        return prompt  # anonymous: base only, full quality
+        return prompt  # anonymous: base + language + curriculum only
 
     async with get_db() as db:
         profile = await db.fetchrow(
@@ -194,7 +203,7 @@ async def build_chat_prompt(
         )
 
     if not profile:
-        return prompt  # new registered user, no profile yet
+        return prompt  # new registered user: base + language + curriculum only
 
     # ── Score-based level instruction ──────────────────────────────────────
     score = (profile["skill_scores"] or {}).get(subject or "General", 50)
