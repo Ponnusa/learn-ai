@@ -1,12 +1,12 @@
 'use client';
-import { useState, useRef, useEffect } from 'react';
+import { Suspense, useState, useRef, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { KeyRound, User, Lock, Eye, EyeOff, Loader2, CheckCircle2, ArrowRight } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-export default function JoinPage() {
+function JoinForm() {
   const router       = useRouter();
   const params       = useSearchParams();
   const { setUser }  = useSessionStore();
@@ -206,5 +206,13 @@ export default function JoinPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function JoinPage() {
+  return (
+    <Suspense>
+      <JoinForm />
+    </Suspense>
   );
 }
