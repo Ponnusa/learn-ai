@@ -154,6 +154,12 @@ export default function CourseDetailPage() {
   const [savingCurriculum,  setSavingCurriculum]   = useState(false);
   const [selectedContextId, setSelectedContextId]  = useState<string>('');
 
+  // Unit inline rename
+  const [editingUnitId,    setEditingUnitId]    = useState<string | null>(null);
+  const [editingUnitTitle, setEditingUnitTitle] = useState('');
+  // Concept auto-rename
+  const [renamingCourse,   setRenamingCourse]   = useState(false);
+
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   useEffect(() => {
@@ -496,6 +502,43 @@ export default function CourseDetailPage() {
     setCourse(prev => prev ? { ...prev, units: prev.units.filter(u => u.id !== unitId) } : prev);
   }
 
+  async function saveUnitTitle(unitId: string) {
+    const title = editingUnitTitle.trim();
+    if (!title) { setEditingUnitId(null); return; }
+    await fetch(`${API_BASE}/api/courses/units/${unitId}`, {
+      method: 'PATCH', headers,
+      body: JSON.stringify({ title }),
+    });
+    setCourse(prev => prev ? {
+      ...prev,
+      units: prev.units.map(u => u.id === unitId ? { ...u, title } : u),
+    } : prev);
+    setEditingUnitId(null);
+  }
+
+  async function autoRenameConcepts() {
+    if (!confirm('AI will generate lesson-question titles from each concept\'s extracted text. Continue?')) return;
+    setRenamingCourse(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/${courseId}/auto-rename-concepts`, {
+        method: 'POST', headers,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // Patch titles in local state
+        const titleMap: Record<string, string> = {};
+        for (const c of data.concepts ?? []) titleMap[c.id] = c.new_title;
+        setCourse(prev => prev ? {
+          ...prev,
+          units: prev.units.map(u => ({
+            ...u,
+            concepts: u.concepts.map(c => titleMap[c.id] ? { ...c, title: titleMap[c.id] } : c),
+          })),
+        } : prev);
+      }
+    } finally { setRenamingCourse(false); }
+  }
+
   // ── Concepts ───────────────────────────────────────────────────────────────
 
   async function addConcept(unitId: string, e: React.FormEvent) {
@@ -750,10 +793,25 @@ export default function CourseDetailPage() {
               })} className="text-[var(--tx6)] hover:text-[var(--tx2)] transition-colors">
                 {expanded.has(unit.id) ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               </button>
-              <div className="flex-1">
-                <p className="text-[var(--tx1)] font-semibold text-sm">
-                  Unit {ui + 1}: {unit.title}
-                </p>
+              <div className="flex-1 min-w-0">
+                {editingUnitId === unit.id ? (
+                  <input
+                    autoFocus
+                    value={editingUnitTitle}
+                    onChange={e => setEditingUnitTitle(e.target.value)}
+                    onBlur={() => saveUnitTitle(unit.id)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveUnitTitle(unit.id); if (e.key === 'Escape') setEditingUnitId(null); }}
+                    className="w-full bg-[var(--ov2)] border border-purple-500/50 rounded-lg px-2 py-0.5 text-sm text-[var(--tx1)] font-semibold focus:outline-none"
+                  />
+                ) : (
+                  <p
+                    className="text-[var(--tx1)] font-semibold text-sm cursor-text hover:text-purple-400 transition-colors"
+                    onDoubleClick={() => { setEditingUnitId(unit.id); setEditingUnitTitle(unit.title); }}
+                    title="Double-click to rename"
+                  >
+                    Unit {ui + 1}: {unit.title}
+                  </p>
+                )}
                 <p className="text-[var(--tx7)] text-xs mt-0.5">{unit.concepts.length} concept{unit.concepts.length !== 1 ? 's' : ''}</p>
               </div>
               {unit.chapter_ref && (
@@ -785,6 +843,18 @@ export default function CourseDetailPage() {
                     </button>
                   </div>
                 </div>
+              )}
+              {unit.concepts.length > 0 && (
+                <button
+                  onClick={autoRenameConcepts}
+                  disabled={renamingCourse}
+                  title="AI-rename all concepts in this course from extracted text"
+                  className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg border border-[var(--bd)]
+                             text-[var(--tx7)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
+                  {renamingCourse
+                    ? <Loader2 size={11} className="animate-spin" />
+                    : <Sparkles size={11} />}
+                </button>
               )}
               <button onClick={() => deleteUnit(unit.id)}
                 className="text-[var(--tx8)] hover:text-red-400 transition-colors p-1">

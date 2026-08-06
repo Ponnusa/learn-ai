@@ -2107,6 +2107,81 @@ async def patch_course_curriculum_context(
     return {"ok": True}
 
 
+@router.post("/{course_id}/auto-rename-concepts")
+async def auto_rename_concepts(course_id: str, authorization: str = Header(...)):
+    """
+    Teacher endpoint: uses AI to generate proper lesson-question titles for all
+    concepts that still have placeholder names (e.g. 'LESSON 1', 'LESSON 2').
+    Concepts without extracted source_text are skipped.
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT id FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+    if not course:
+        raise HTTPException(404, "Course not found")
+
+    async with get_db() as db:
+        concepts = await db.fetch("""
+            SELECT cc.id, cc.title, cc.source_text
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid
+              AND cc.source_text IS NOT NULL
+              AND length(trim(cc.source_text)) > 20
+            ORDER BY cu.position, cc.position
+        """, course_id)
+
+    if not concepts:
+        return {"renamed": 0, "concepts": []}
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI()
+
+    updates = []
+    for concept in concepts:
+        try:
+            resp = await client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You generate concise inquiry-style lesson titles for a science course. "
+                            "Given a lesson's content, produce a single question title (8–14 words) that captures "
+                            "what students will investigate — the kind of question a student would ask. "
+                            "Return ONLY the title, no quotes, no explanation, no period at the end."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Current placeholder title: {concept['title']}\n\n"
+                            f"Lesson content (excerpt):\n{concept['source_text'][:600]}"
+                        ),
+                    },
+                ],
+                max_tokens=40,
+                temperature=0.3,
+            )
+            new_title = resp.choices[0].message.content.strip().strip('"').strip("'")
+            if new_title:
+                updates.append({"id": str(concept["id"]), "old_title": concept["title"], "new_title": new_title})
+        except Exception:
+            pass  # skip on failure, don't break the whole batch
+
+    async with get_db() as db:
+        for u in updates:
+            await db.execute(
+                "UPDATE course_concepts SET title = $1 WHERE id = $2::uuid",
+                u["new_title"], u["id"],
+            )
+
+    return {"renamed": len(updates), "concepts": updates}
+
+
 @router.get("/{course_id}/student")
 async def get_course_student_view(course_id: str, authorization: str = Header(...)):
     """
