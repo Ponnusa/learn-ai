@@ -12,6 +12,7 @@ import {
   CheckCircle, Zap, HelpCircle, Layers,
   RefreshCw, Volume2, Video, Send, LayoutList, Wand2, X, FileImage, Scissors,
   ChevronUp, ChevronDown, Shuffle, AlignJustify, Star, Paperclip, ThumbsDown,
+  FlaskConical, Printer,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { AudioPlayer } from '@/components/ui/AudioPlayer';
@@ -25,7 +26,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-type Tab            = 'studio' | 'textbook' | 'resources' | 'assets';
+type Tab            = 'studio' | 'textbook' | 'resources' | 'assets' | 'lab';
 type ResourceType   = 'image' | 'pdf' | 'video';
 interface Resource  { id: string; type: ResourceType; title: string; mime_type?: string; video_url?: string; file_url?: string; position: number; text_extracted?: boolean; }
 type PipelineStatus = 'draft' | 'summarizing' | 'ready' | 'approved' | 'failed';
@@ -169,6 +170,21 @@ export default function ConceptEditorPage() {
   const [flashcardFocus,       setFlashcardFocus]       = useState<'definitions'|'examples'|'mixed'>('mixed');
   const [generatingStudioQuiz, setGeneratingStudioQuiz] = useState(false);
   const [generatingStudioCards,setGeneratingStudioCards]= useState(false);
+
+  // Lab sheet state
+  interface LabContent {
+    objective: string; materials: string[]; safety: string[];
+    procedure: string[];
+    data_table: { title: string; headers: string[]; rows: number };
+    analysis_questions: string[]; conclusion_prompt: string;
+  }
+  const [labStatus,      setLabStatus]      = useState<'none'|'draft'|'published'>('none');
+  const [labContent,     setLabContent]     = useState<LabContent | null>(null);
+  const [labGenerating,  setLabGenerating]  = useState(false);
+  const [labSaving,      setLabSaving]      = useState(false);
+  const [labPublishing,  setLabPublishing]  = useState(false);
+  const [labPdfFile,     setLabPdfFile]     = useState<File | null>(null);
+  const labPdfRef        = useRef<HTMLInputElement>(null);
 
   const [assetPolling,    setAssetPolling]    = useState(false);
   const [quizItemBusy,   setQuizItemBusy]   = useState<Set<string>>(new Set());
@@ -664,6 +680,64 @@ export default function ConceptEditorPage() {
     if (activeTab === 'assets' && !assetsLoaded) loadAssets();
   }, [activeTab, assetsLoaded]);
 
+  // Load lab sheet when Lab tab first opens
+  const [labLoaded, setLabLoaded] = useState(false);
+  useEffect(() => {
+    if (activeTab === 'lab' && !labLoaded) loadLabSheet();
+  }, [activeTab, labLoaded]);
+
+  async function loadLabSheet() {
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}`, { headers });
+      if (res.ok) {
+        const d = await res.json();
+        setLabStatus(d.status as 'none'|'draft'|'published');
+        if (d.content) setLabContent(d.content);
+      }
+    } finally { setLabLoaded(true); }
+  }
+
+  async function generateLabSheet() {
+    setLabGenerating(true);
+    try {
+      const form = new FormData();
+      if (labPdfFile) form.append('lab_pdf', labPdfFile);
+      const res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}/generate`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form,
+      });
+      if (res.ok) {
+        const d = await res.json();
+        setLabStatus(d.status);
+        setLabContent(d.content);
+        setLabPdfFile(null);
+      }
+    } finally { setLabGenerating(false); }
+  }
+
+  async function saveLabSheet() {
+    if (!labContent) return;
+    setLabSaving(true);
+    try {
+      await fetch(`${API_BASE}/api/lab-sheets/${conceptId}`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ content: labContent }),
+      });
+    } finally { setLabSaving(false); }
+  }
+
+  async function toggleLabPublish() {
+    setLabPublishing(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/lab-sheets/${conceptId}/publish`, { method: 'POST', headers });
+      if (res.ok) {
+        const d = await res.json();
+        setLabStatus(d.status);
+      }
+    } finally { setLabPublishing(false); }
+  }
+
   // Load resources when Resources tab first opens
   useEffect(() => {
     if (activeTab === 'resources' && !resourcesLoaded) loadResources();
@@ -1013,6 +1087,7 @@ export default function ConceptEditorPage() {
               ['textbook',  'Textbook',               LayoutList],
               ['resources', t.teacher.tabResources,   ImageIcon],
               ['assets',    t.teacher.tabAssets,      Zap],
+              ['lab',       'Lab Sheet',              FlaskConical],
             ] as [Tab, string, React.ComponentType<{ size: number }>][]).map(([tabId, label, Icon]) => (
               <button key={tabId} onClick={() => setActiveTab(tabId)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px whitespace-nowrap transition-colors ${
@@ -2203,6 +2278,230 @@ export default function ConceptEditorPage() {
                 token={token!}
                 editable
               />
+            </div>
+          )}
+
+          {/* ── Lab Sheet ── */}
+          {activeTab === 'lab' && (
+            <div className="space-y-5">
+
+              {/* Generate card */}
+              <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <FlaskConical size={15} className="text-purple-400" />
+                    <span className="text-[var(--tx1)] text-sm font-semibold">AI Lab Sheet Draft</span>
+                    {labStatus !== 'none' && (
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        labStatus === 'published'
+                          ? 'bg-green-500/15 text-green-400'
+                          : 'bg-amber-500/15 text-amber-400'
+                      }`}>{labStatus}</span>
+                    )}
+                  </div>
+                  {labStatus !== 'none' && (
+                    <div className="flex items-center gap-2">
+                      <button onClick={saveLabSheet} disabled={labSaving}
+                        className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-[var(--bd)] rounded-lg text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-40">
+                        {labSaving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Save
+                      </button>
+                      <button onClick={toggleLabPublish} disabled={labPublishing}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg font-medium transition-all disabled:opacity-40 ${
+                          labStatus === 'published'
+                            ? 'bg-green-500/15 text-green-400 border border-green-500/30 hover:bg-green-500/25'
+                            : 'bg-purple-600 text-white hover:bg-purple-500'
+                        }`}>
+                        {labPublishing ? <Loader2 size={11} className="animate-spin" /> : null}
+                        {labStatus === 'published' ? 'Unpublish' : 'Publish to students'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Optional lab manual PDF upload */}
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex-1">
+                    <p className="text-xs text-[var(--tx6)] mb-1">Optional: upload lab manual PDF for better accuracy</p>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => labPdfRef.current?.click()}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-[var(--bd)] rounded-lg text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
+                        <Upload size={11} /> {labPdfFile ? labPdfFile.name : 'Upload lab manual PDF'}
+                      </button>
+                      {labPdfFile && (
+                        <button onClick={() => setLabPdfFile(null)} className="text-[var(--tx8)] hover:text-red-400 transition-colors">
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                    <input ref={labPdfRef} type="file" accept=".pdf" className="hidden"
+                      onChange={e => setLabPdfFile(e.target.files?.[0] || null)} />
+                  </div>
+                  <button onClick={generateLabSheet} disabled={labGenerating}
+                    className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40">
+                    {labGenerating ? <><Loader2 size={13} className="animate-spin" /> Generating…</> : <><FlaskConical size={13} /> {labStatus === 'none' ? 'Generate' : 'Regenerate'}</>}
+                  </button>
+                </div>
+                {labStatus === 'none' && !labGenerating && (
+                  <p className="text-[var(--tx8)] text-xs">AI will draft from the lesson content. Upload the lab manual PDF if you have it for more accurate materials and steps.</p>
+                )}
+              </div>
+
+              {/* Editable lab sheet */}
+              {labContent && (
+                <div className="space-y-4">
+
+                  {/* Objective */}
+                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                    <p className="text-xs font-semibold text-purple-400 uppercase tracking-wider mb-2">Objective</p>
+                    <textarea
+                      value={labContent.objective}
+                      onChange={e => setLabContent(c => c ? { ...c, objective: e.target.value } : c)}
+                      rows={2}
+                      className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] resize-none focus:outline-none focus:border-purple-500/50"
+                    />
+                  </div>
+
+                  {/* Materials + Safety side by side */}
+                  <div className="grid grid-cols-2 gap-4">
+                    {(['materials','safety'] as const).map(field => (
+                      <div key={field} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                        <p className="text-xs font-semibold text-purple-400 uppercase tracking-wider mb-2">
+                          {field === 'materials' ? 'Materials' : 'Safety'}
+                        </p>
+                        {labContent[field].map((item, i) => (
+                          <div key={i} className="flex items-center gap-1.5 mb-1.5">
+                            <span className="text-[var(--tx8)] text-xs shrink-0">•</span>
+                            <input
+                              value={item}
+                              onChange={e => setLabContent(c => {
+                                if (!c) return c;
+                                const arr = [...c[field]]; arr[i] = e.target.value;
+                                return { ...c, [field]: arr };
+                              })}
+                              className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1 text-xs text-[var(--tx1)] focus:outline-none focus:border-purple-500/50"
+                            />
+                            <button onClick={() => setLabContent(c => c ? { ...c, [field]: c[field].filter((_, j) => j !== i) } : c)}
+                              className="text-[var(--tx8)] hover:text-red-400 transition-colors shrink-0"><X size={11} /></button>
+                          </div>
+                        ))}
+                        <button onClick={() => setLabContent(c => c ? { ...c, [field]: [...c[field], ''] } : c)}
+                          className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors mt-1">
+                          <Plus size={10} /> Add item
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Procedure */}
+                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                    <p className="text-xs font-semibold text-purple-400 uppercase tracking-wider mb-2">Procedure</p>
+                    {labContent.procedure.map((step, i) => (
+                      <div key={i} className="flex items-start gap-2 mb-2">
+                        <span className="text-[var(--tx7)] text-xs font-mono shrink-0 mt-1.5">{i + 1}.</span>
+                        <textarea
+                          value={step}
+                          onChange={e => setLabContent(c => {
+                            if (!c) return c;
+                            const arr = [...c.procedure]; arr[i] = e.target.value;
+                            return { ...c, procedure: arr };
+                          })}
+                          rows={2}
+                          className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1.5 text-xs text-[var(--tx1)] resize-none focus:outline-none focus:border-purple-500/50"
+                        />
+                        <button onClick={() => setLabContent(c => c ? { ...c, procedure: c.procedure.filter((_, j) => j !== i) } : c)}
+                          className="text-[var(--tx8)] hover:text-red-400 transition-colors shrink-0 mt-1"><X size={11} /></button>
+                      </div>
+                    ))}
+                    <button onClick={() => setLabContent(c => c ? { ...c, procedure: [...c.procedure, ''] } : c)}
+                      className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors mt-1">
+                      <Plus size={10} /> Add step
+                    </button>
+                  </div>
+
+                  {/* Data table */}
+                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                    <p className="text-xs font-semibold text-purple-400 uppercase tracking-wider mb-2">Data Table</p>
+                    <div className="flex items-center gap-3 mb-3">
+                      <input
+                        value={labContent.data_table.title}
+                        onChange={e => setLabContent(c => c ? { ...c, data_table: { ...c.data_table, title: e.target.value } } : c)}
+                        placeholder="Table title"
+                        className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--tx1)] focus:outline-none focus:border-purple-500/50"
+                      />
+                      <label className="text-xs text-[var(--tx7)] flex items-center gap-1.5">
+                        Rows:
+                        <input type="number" min={2} max={20}
+                          value={labContent.data_table.rows}
+                          onChange={e => setLabContent(c => c ? { ...c, data_table: { ...c.data_table, rows: parseInt(e.target.value) || 6 } } : c)}
+                          className="w-14 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1 text-xs text-[var(--tx1)] text-center focus:outline-none"
+                        />
+                      </label>
+                    </div>
+                    <p className="text-[10px] text-[var(--tx7)] mb-1.5">Column headers:</p>
+                    <div className="flex flex-wrap gap-2">
+                      {labContent.data_table.headers.map((h, i) => (
+                        <div key={i} className="flex items-center gap-1">
+                          <input value={h}
+                            onChange={e => setLabContent(c => {
+                              if (!c) return c;
+                              const headers = [...c.data_table.headers]; headers[i] = e.target.value;
+                              return { ...c, data_table: { ...c.data_table, headers } };
+                            })}
+                            className="bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1 text-xs text-[var(--tx1)] w-28 focus:outline-none focus:border-purple-500/50"
+                          />
+                          <button onClick={() => setLabContent(c => c ? { ...c, data_table: { ...c.data_table, headers: c.data_table.headers.filter((_, j) => j !== i) } } : c)}
+                            className="text-[var(--tx8)] hover:text-red-400 transition-colors"><X size={10} /></button>
+                        </div>
+                      ))}
+                      <button onClick={() => setLabContent(c => c ? { ...c, data_table: { ...c.data_table, headers: [...c.data_table.headers, ''] } } : c)}
+                        className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors px-2 py-1 border border-dashed border-[var(--bd)] rounded-lg">
+                        <Plus size={10} /> Column
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Analysis questions */}
+                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                    <p className="text-xs font-semibold text-purple-400 uppercase tracking-wider mb-2">Analysis Questions</p>
+                    {labContent.analysis_questions.map((q, i) => (
+                      <div key={i} className="flex items-start gap-2 mb-2">
+                        <span className="text-[var(--tx7)] text-xs font-mono shrink-0 mt-1.5">{i + 1}.</span>
+                        <textarea value={q}
+                          onChange={e => setLabContent(c => {
+                            if (!c) return c;
+                            const arr = [...c.analysis_questions]; arr[i] = e.target.value;
+                            return { ...c, analysis_questions: arr };
+                          })}
+                          rows={2}
+                          className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1.5 text-xs text-[var(--tx1)] resize-none focus:outline-none focus:border-purple-500/50"
+                        />
+                        <button onClick={() => setLabContent(c => c ? { ...c, analysis_questions: c.analysis_questions.filter((_, j) => j !== i) } : c)}
+                          className="text-[var(--tx8)] hover:text-red-400 transition-colors shrink-0 mt-1"><X size={11} /></button>
+                      </div>
+                    ))}
+                    <button onClick={() => setLabContent(c => c ? { ...c, analysis_questions: [...c.analysis_questions, ''] } : c)}
+                      className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors mt-1">
+                      <Plus size={10} /> Add question
+                    </button>
+                  </div>
+
+                  {/* Conclusion */}
+                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                    <p className="text-xs font-semibold text-purple-400 uppercase tracking-wider mb-2">Conclusion Prompt</p>
+                    <textarea value={labContent.conclusion_prompt}
+                      onChange={e => setLabContent(c => c ? { ...c, conclusion_prompt: e.target.value } : c)}
+                      rows={3}
+                      className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] resize-none focus:outline-none focus:border-purple-500/50"
+                    />
+                  </div>
+
+                  {/* Print preview note */}
+                  <div className="flex items-center gap-2 text-xs text-[var(--tx7)] px-1">
+                    <Printer size={12} />
+                    <span>Students see this on the concept page and can print it. Publish when ready.</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

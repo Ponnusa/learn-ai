@@ -11,7 +11,7 @@ import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, MessageSquare, Loader2, ImageIcon,
   HelpCircle, Layers, Video, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, Send, FileText, Dumbbell,
+  CheckCircle2, XCircle, Send, FileText, Dumbbell, FlaskConical, Printer,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { useSessionStore } from '@/store/sessionStore';
@@ -54,7 +54,12 @@ export default function StudentConceptDetailPage() {
   const [loading,    setLoading]    = useState(true);
   const [activating,     setActivating]     = useState(false);
   const [hasBlocks,      setHasBlocks]      = useState(false);
-  const [activeTab,      setActiveTab]      = useState<'learn' | 'materials' | 'practice'>('learn');
+  const [activeTab,      setActiveTab]      = useState<'learn' | 'materials' | 'practice' | 'lab'>('learn');
+
+  // Lab sheet
+  interface LabContent { objective: string; materials: string[]; safety: string[]; procedure: string[]; data_table: { title: string; headers: string[]; rows: number }; analysis_questions: string[]; conclusion_prompt: string; }
+  const [labContent,  setLabContent2]  = useState<LabContent | null>(null);
+  const [labLoaded2,  setLabLoaded2]   = useState(false);
 
   // Chat Q&A state
   type ChatMsg = { role: 'user' | 'assistant'; content: string };
@@ -179,6 +184,15 @@ export default function StudentConceptDetailPage() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMsgs]);
+
+  useEffect(() => {
+    if (activeTab === 'lab' && !labLoaded2) {
+      fetch(`${API_BASE}/api/lab-sheets/${conceptId}`, { headers })
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.content) setLabContent2(d.content); })
+        .finally(() => setLabLoaded2(true));
+    }
+  }, [activeTab, labLoaded2]);
 
   async function openChat(resource?: { id: string; title: string; type: string }) {
     if (chatOpen && !resource) { setChatOpen(false); return; }
@@ -327,7 +341,8 @@ export default function StudentConceptDetailPage() {
     { key: 'learn',     label: t.concept.tabLearn,     icon: <BookOpen size={13} /> },
     ...(hasResources ? [{ key: 'materials', label: t.concept.tabMaterials, icon: <FileText size={13} /> }] : []),
     ...(hasPractice  ? [{ key: 'practice',  label: t.concept.tabPractice,  icon: <Dumbbell size={13} /> }] : []),
-  ] as const;
+    { key: 'lab', label: 'Lab', icon: <FlaskConical size={13} /> },
+  ];
 
   return (
     <div className="p-6 max-w-2xl mx-auto pb-16">
@@ -662,7 +677,124 @@ export default function StudentConceptDetailPage() {
       <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden mt-6">
         <button onClick={() => openChat()} disabled={activating}
           className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors disabled:opacity-50">
-          <span className="flex items-center gap-2 text-[var(--tx1)] font-semibold text-sm">
+          {/* ── Lab Sheet tab content ── */}
+        {activeTab === 'lab' && (
+          <div className="mb-6">
+            {!labLoaded2 ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 size={20} className="text-purple-400 animate-spin" />
+              </div>
+            ) : !labContent ? (
+              <div className="text-center py-12 bg-[var(--surface)] border border-[var(--bd)] rounded-2xl">
+                <FlaskConical size={28} className="text-[var(--tx8)] mx-auto mb-2" />
+                <p className="text-[var(--tx6)] text-sm">No lab sheet available yet.</p>
+                <p className="text-[var(--tx8)] text-xs mt-1">Your teacher will publish one when it's ready.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 print:space-y-3">
+                {/* Print button */}
+                <div className="flex justify-end print:hidden">
+                  <button onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--bd)] rounded-xl text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
+                    <Printer size={12} /> Print lab sheet
+                  </button>
+                </div>
+
+                {/* Objective */}
+                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">Objective</p>
+                  <p className="text-[var(--tx2)] text-sm">{labContent.objective}</p>
+                </div>
+
+                {/* Materials + Safety */}
+                <div className="grid grid-cols-2 gap-3">
+                  {([['materials','Materials'],['safety','Safety']] as const).map(([field, label]) => (
+                    <div key={field} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                      <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">{label}</p>
+                      <ul className="space-y-0.5">
+                        {labContent[field].map((item, i) => (
+                          <li key={i} className="text-[var(--tx2)] text-xs flex items-start gap-1.5">
+                            <span className="text-[var(--tx7)] shrink-0 mt-0.5">•</span>{item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Procedure */}
+                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Procedure</p>
+                  <ol className="space-y-2">
+                    {labContent.procedure.map((step, i) => (
+                      <li key={i} className="flex items-start gap-2.5">
+                        <span className="text-purple-400 font-bold text-xs shrink-0 w-5 text-right mt-0.5">{i + 1}.</span>
+                        <p className="text-[var(--tx2)] text-sm">{step}</p>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+
+                {/* Data Table */}
+                {labContent.data_table.headers.length > 0 && (
+                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                    <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">
+                      {labContent.data_table.title || 'Data Table'}
+                    </p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs border-collapse">
+                        <thead>
+                          <tr>
+                            {labContent.data_table.headers.map((h, i) => (
+                              <th key={i} className="border border-[var(--bd)] px-3 py-2 text-left text-[var(--tx3)] font-semibold bg-[var(--ov1)]">{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Array.from({ length: labContent.data_table.rows }).map((_, r) => (
+                            <tr key={r}>
+                              {labContent.data_table.headers.map((_, c) => (
+                                <td key={c} className="border border-[var(--bd)] px-3 py-4 text-[var(--tx8)]" />
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Analysis Questions */}
+                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Analysis Questions</p>
+                  <ol className="space-y-4">
+                    {labContent.analysis_questions.map((q, i) => (
+                      <li key={i} className="flex items-start gap-2.5">
+                        <span className="text-purple-400 font-bold text-xs shrink-0 w-5 text-right mt-0.5">{i + 1}.</span>
+                        <div className="flex-1">
+                          <p className="text-[var(--tx2)] text-sm mb-2">{q}</p>
+                          <div className="border-b border-[var(--bd)] mt-6" />
+                          <div className="border-b border-[var(--bd)] mt-6" />
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+
+                {/* Conclusion */}
+                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">Conclusion</p>
+                  <p className="text-[var(--tx2)] text-sm mb-4">{labContent.conclusion_prompt}</p>
+                  <div className="border-b border-[var(--bd)] mt-6" />
+                  <div className="border-b border-[var(--bd)] mt-6" />
+                  <div className="border-b border-[var(--bd)] mt-6" />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <span className="flex items-center gap-2 text-[var(--tx1)] font-semibold text-sm">
             {activating
               ? <Loader2 size={16} className="animate-spin text-purple-400" />
               : <MessageSquare size={16} className="text-purple-400" />}

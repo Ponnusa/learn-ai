@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from database import init_pool, close_pool
 from config import settings
 from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
-from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments, dqb
+from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments, dqb, lab_sheets
 
 
 @asynccontextmanager
@@ -584,6 +584,17 @@ async def lifespan(app: FastAPI):
             """,
             "CREATE INDEX IF NOT EXISTS idx_dqb_classroom_course ON dqb_questions(classroom_id, course_id)",
             "CREATE INDEX IF NOT EXISTS idx_dqb_student ON dqb_questions(student_id)",
+            # ── Lab sheets ──────────────────────────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS lab_sheets (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                concept_id  UUID NOT NULL UNIQUE REFERENCES course_concepts(id) ON DELETE CASCADE,
+                status      TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','published')),
+                content     JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                updated_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
         ]:
             try:
                 await db.execute(sql)
@@ -630,6 +641,7 @@ app.include_router(students.router)
 app.include_router(messages.router)
 app.include_router(assignments.router)
 app.include_router(dqb.router)
+app.include_router(lab_sheets.router)
 
 
 @app.get("/health")
