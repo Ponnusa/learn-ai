@@ -5,6 +5,7 @@ import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
   Upload, Loader2, Check, BookOpen, Users,
   CheckCircle, Globe, Zap, Circle, Crop, Sparkles, Wand2, GripVertical, HelpCircle,
+  MessageSquare,
 } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -160,6 +161,13 @@ export default function CourseDetailPage() {
   // Concept auto-rename
   const [renamingCourse,   setRenamingCourse]   = useState(false);
 
+  // DQB (teacher view)
+  interface DqbQ { id: string; question: string; status: string; student_name: string; student_id: string; is_own: boolean; }
+  const [dqbClassroomId, setDqbClassroomId] = useState<string>('');
+  const [dqbQuestions,   setDqbQuestions]   = useState<DqbQ[]>([]);
+  const [dqbLoading,     setDqbLoading]     = useState(false);
+  const [deletingDqbId,  setDeletingDqbId]  = useState<string | null>(null);
+
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   useEffect(() => {
@@ -178,6 +186,11 @@ export default function CourseDetailPage() {
       const data = await res.json();
       setCourse(data);
       setExpanded(new Set(data.units.map((u: Unit) => u.id)));
+      if (data.classrooms?.length > 0) {
+        const firstCid = data.classrooms[0].id;
+        setDqbClassroomId(firstCid);
+        loadTeacherDqb(firstCid);
+      }
 
       // Auto-resume polling if background processing is still running
       // (handles page refresh mid-upload without losing progress).
@@ -202,6 +215,23 @@ export default function CourseDetailPage() {
   async function loadClassrooms() {
     const res = await fetch(`${API_BASE}/api/classrooms/teaching`, { headers });
     if (res.ok) setMyClassrooms(await res.json());
+  }
+
+  async function loadTeacherDqb(classroomId: string) {
+    if (!classroomId) return;
+    setDqbLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/dqb/${classroomId}/${courseId}`, { headers });
+      if (res.ok) setDqbQuestions(await res.json());
+    } finally { setDqbLoading(false); }
+  }
+
+  async function deleteDqbQuestion(questionId: string) {
+    setDeletingDqbId(questionId);
+    try {
+      const res = await fetch(`${API_BASE}/api/dqb/questions/${questionId}`, { method: 'DELETE', headers });
+      if (res.ok) setDqbQuestions(prev => prev.filter(q => q.id !== questionId));
+    } finally { setDeletingDqbId(null); }
   }
 
   async function loadCurriculumData() {
@@ -1197,6 +1227,81 @@ export default function CourseDetailPage() {
           </div>
         )}
       </div>
+
+      {/* Driving Question Board — teacher view */}
+      {course.classrooms.length > 0 && (
+        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mt-6">
+          <div className="px-5 py-4 border-b border-[var(--bd)] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <MessageSquare size={15} className="text-purple-400" />
+              <span className="text-[var(--tx1)] text-sm font-semibold">Question Board</span>
+              <span className="text-xs text-[var(--tx7)] px-2 py-0.5 rounded-full bg-[var(--ov1)]">
+                {dqbQuestions.length} question{dqbQuestions.length !== 1 ? 's' : ''}
+              </span>
+            </div>
+            {course.classrooms.length > 1 && (
+              <select
+                value={dqbClassroomId}
+                onChange={e => { setDqbClassroomId(e.target.value); loadTeacherDqb(e.target.value); }}
+                className="text-xs bg-[var(--ov1)] border border-[var(--bd)] rounded-lg px-2 py-1 text-[var(--tx3)] focus:outline-none">
+                {course.classrooms.map(cl => (
+                  <option key={cl.id} value={cl.id}>{cl.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {dqbLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={18} className="text-purple-400 animate-spin" />
+            </div>
+          ) : dqbQuestions.length === 0 ? (
+            <div className="px-5 py-8 text-center">
+              <MessageSquare size={24} className="text-[var(--tx8)] mx-auto mb-2" />
+              <p className="text-[var(--tx7)] text-sm">No student questions yet.</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--bd)]">
+              {dqbQuestions.map(q => {
+                const statusCls =
+                  q.status === 'understood'   ? 'bg-green-500/15 text-green-400 border-green-500/25' :
+                  q.status === 'getting_there' ? 'bg-blue-500/15 text-blue-400 border-blue-500/25'  :
+                                                'bg-amber-500/15 text-amber-400 border-amber-500/25';
+                const statusLabel =
+                  q.status === 'understood'   ? '✓✓' :
+                  q.status === 'getting_there' ? '✓'  : '?';
+                return (
+                  <div key={q.id} className="flex items-start gap-3 px-5 py-3.5">
+                    <span className={`shrink-0 mt-0.5 min-w-[2rem] text-center px-1.5 py-0.5 rounded border text-xs font-bold ${statusCls}`}>
+                      {statusLabel}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[var(--tx2)] text-sm leading-snug">{q.question}</p>
+                      <p className="text-[var(--tx8)] text-xs mt-0.5">{q.student_name}</p>
+                    </div>
+                    <button
+                      onClick={() => deleteDqbQuestion(q.id)}
+                      disabled={deletingDqbId === q.id}
+                      className="shrink-0 p-1 text-[var(--tx8)] hover:text-red-400 transition-colors disabled:opacity-40">
+                      {deletingDqbId === q.id
+                        ? <Loader2 size={13} className="animate-spin" />
+                        : <Trash2 size={13} />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {dqbQuestions.length > 0 && (
+            <div className="px-5 py-2.5 border-t border-[var(--bd)] flex gap-4 text-xs text-[var(--tx8)]">
+              <span><span className="text-amber-400 font-bold">?</span> {dqbQuestions.filter(q => q.status === 'wondering').length} wondering</span>
+              <span><span className="text-blue-400 font-bold">✓</span> {dqbQuestions.filter(q => q.status === 'getting_there').length} getting there</span>
+              <span><span className="text-green-400 font-bold">✓✓</span> {dqbQuestions.filter(q => q.status === 'understood').length} understood</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {cropTarget && (
         <PDFViewerModal

@@ -4,6 +4,7 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, ChevronDown, ChevronRight,
   CheckCircle2, Circle, Loader2, BookOpen, Zap,
+  MessageSquare, Send,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -38,6 +39,34 @@ interface Course {
   units: Unit[];
 }
 
+interface DqbQuestion {
+  id: string;
+  question: string;
+  status: 'wondering' | 'getting_there' | 'understood';
+  student_name: string;
+  student_id: string;
+  is_own: boolean;
+  created_at: string;
+}
+
+const STATUS_NEXT: Record<string, string> = {
+  wondering:    'getting_there',
+  getting_there: 'understood',
+  understood:   'wondering',
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  wondering:    '?',
+  getting_there: '✓',
+  understood:   '✓✓',
+};
+
+const STATUS_CLASSES: Record<string, string> = {
+  wondering:    'bg-amber-500/15 text-amber-400 border-amber-500/25',
+  getting_there: 'bg-blue-500/15 text-blue-400 border-blue-500/25',
+  understood:   'bg-green-500/15 text-green-400 border-green-500/25',
+};
+
 export default function StudentCoursePage() {
   const router      = useRouter();
   const params      = useParams();
@@ -55,7 +84,13 @@ export default function StudentCoursePage() {
     active_lesson?: number;
     lesson_count?: number;
   } | null>(null);
-  // concepts navigate to detail page — no activating state needed here
+
+  // DQB state
+  const [dqbQuestions, setDqbQuestions] = useState<DqbQuestion[]>([]);
+  const [dqbInput,     setDqbInput]     = useState('');
+  const [dqbPosting,   setDqbPosting]   = useState(false);
+  const [dqbLoading,   setDqbLoading]   = useState(false);
+  const [updatingId,   setUpdatingId]   = useState<string | null>(null);
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -80,6 +115,53 @@ export default function StudentCoursePage() {
         if (ctx.driving_question) setCurriculum(ctx);
       }
     } finally { setLoading(false); }
+    loadDqb();
+  }
+
+  async function loadDqb() {
+    setDqbLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/dqb/${classroomId}/${courseId}`, { headers });
+      if (res.ok) setDqbQuestions(await res.json());
+    } finally { setDqbLoading(false); }
+  }
+
+  async function postDqbQuestion() {
+    const q = dqbInput.trim();
+    if (!q || dqbPosting) return;
+    setDqbPosting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/dqb/${classroomId}/${courseId}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ question: q }),
+      });
+      if (res.ok) {
+        const newQ = await res.json();
+        setDqbQuestions(prev => [...prev, {
+          ...newQ,
+          student_name: user?.name?.split(' ')[0] || 'Me',
+          is_own: true,
+        }]);
+        setDqbInput('');
+      }
+    } finally { setDqbPosting(false); }
+  }
+
+  async function cycleStatus(q: DqbQuestion) {
+    if (!q.is_own || updatingId) return;
+    const nextStatus = STATUS_NEXT[q.status];
+    setUpdatingId(q.id);
+    try {
+      const res = await fetch(`${API_BASE}/api/dqb/questions/${q.id}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      if (res.ok) {
+        setDqbQuestions(prev => prev.map(x => x.id === q.id ? { ...x, status: nextStatus as DqbQuestion['status'] } : x));
+      }
+    } finally { setUpdatingId(null); }
   }
 
   function toggleUnit(id: string) {
@@ -105,6 +187,10 @@ export default function StudentCoursePage() {
   const pct = course.progress.total > 0
     ? Math.round((course.progress.visited / course.progress.total) * 100)
     : 0;
+
+  const wonderingCount    = dqbQuestions.filter(q => q.status === 'wondering').length;
+  const gettingThereCount = dqbQuestions.filter(q => q.status === 'getting_there').length;
+  const understoodCount   = dqbQuestions.filter(q => q.status === 'understood').length;
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -161,7 +247,7 @@ export default function StudentCoursePage() {
       </div>
 
       {/* Units accordion */}
-      <div className="space-y-2">
+      <div className="space-y-2 mb-8">
         {course.units.map((unit, idx) => {
           const open       = expanded.has(unit.id);
           const unitVisited = unit.concepts.filter(c => c.visited).length;
@@ -228,6 +314,97 @@ export default function StudentCoursePage() {
             </div>
           );
         })}
+      </div>
+
+      {/* Driving Question Board */}
+      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-[var(--bd)] flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MessageSquare size={16} className="text-purple-400" />
+            <span className="text-[var(--tx1)] font-semibold text-sm">Question Board</span>
+          </div>
+          {dqbQuestions.length > 0 && (
+            <div className="flex items-center gap-2 text-xs text-[var(--tx7)]">
+              {wonderingCount    > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400">{wonderingCount} ?</span>}
+              {gettingThereCount > 0 && <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">{gettingThereCount} ✓</span>}
+              {understoodCount   > 0 && <span className="px-1.5 py-0.5 rounded bg-green-500/10 text-green-400">{understoodCount} ✓✓</span>}
+            </div>
+          )}
+        </div>
+
+        {/* Post a question */}
+        <div className="px-5 py-3 border-b border-[var(--bd)]">
+          <div className="flex gap-2">
+            <input
+              value={dqbInput}
+              onChange={e => setDqbInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && postDqbQuestion()}
+              maxLength={500}
+              placeholder="What are you still wondering about?"
+              className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2
+                         text-sm text-[var(--tx1)] placeholder:text-[var(--tx8)]
+                         focus:outline-none focus:border-purple-500/50"
+            />
+            <button
+              onClick={postDqbQuestion}
+              disabled={!dqbInput.trim() || dqbPosting}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-purple-600 text-white text-sm
+                         font-medium hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              {dqbPosting
+                ? <Loader2 size={14} className="animate-spin" />
+                : <Send size={14} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Questions list */}
+        <div className="divide-y divide-[var(--bd)]">
+          {dqbLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={20} className="text-purple-400 animate-spin" />
+            </div>
+          ) : dqbQuestions.length === 0 ? (
+            <div className="px-5 py-8 text-center">
+              <MessageSquare size={28} className="text-[var(--tx8)] mx-auto mb-2" />
+              <p className="text-[var(--tx7)] text-sm">No questions yet. Be the first to wonder!</p>
+            </div>
+          ) : dqbQuestions.map(q => (
+            <div key={q.id} className="flex items-start gap-3 px-5 py-3.5">
+              {/* Status badge — clickable if own question */}
+              <button
+                onClick={() => cycleStatus(q)}
+                disabled={!q.is_own || updatingId === q.id}
+                title={q.is_own ? 'Tap to update your understanding' : undefined}
+                className={`shrink-0 mt-0.5 min-w-[2rem] text-center px-1.5 py-0.5 rounded border text-xs font-bold
+                            ${STATUS_CLASSES[q.status]}
+                            ${q.is_own ? 'cursor-pointer hover:opacity-80 transition-opacity' : 'cursor-default'}
+                            ${updatingId === q.id ? 'opacity-50' : ''}`}>
+                {updatingId === q.id
+                  ? <Loader2 size={10} className="animate-spin inline" />
+                  : STATUS_LABEL[q.status]}
+              </button>
+
+              {/* Question text + name */}
+              <div className="flex-1 min-w-0">
+                <p className="text-[var(--tx2)] text-sm leading-snug">{q.question}</p>
+                <p className="text-[var(--tx8)] text-xs mt-0.5">
+                  {q.is_own ? 'You' : q.student_name}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Legend */}
+        {dqbQuestions.length > 0 && (
+          <div className="px-5 py-2.5 border-t border-[var(--bd)] flex items-center gap-4 text-xs text-[var(--tx8)]">
+            <span><span className="text-amber-400 font-bold">?</span> Still wondering</span>
+            <span><span className="text-blue-400 font-bold">✓</span> Getting there</span>
+            <span><span className="text-green-400 font-bold">✓✓</span> Understood</span>
+            <span className="ml-auto italic">Tap your badge to update</span>
+          </div>
+        )}
       </div>
     </div>
   );

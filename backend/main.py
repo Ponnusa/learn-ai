@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from database import init_pool, close_pool
 from config import settings
 from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
-from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments
+from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments, dqb
 
 
 @asynccontextmanager
@@ -566,6 +566,24 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS language TEXT DEFAULT NULL",
             # ── Institution multi-language selection ────────────────────────────
             "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS languages TEXT[] DEFAULT NULL",
+            # ── Concept suggested prompts (Tier 2 studio chips) ────────────────
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS suggested_prompts JSONB DEFAULT '[]'",
+            # ── Driving Question Board ──────────────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS dqb_questions (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                classroom_id UUID NOT NULL REFERENCES classrooms(id) ON DELETE CASCADE,
+                course_id    UUID NOT NULL REFERENCES courses(id)    ON DELETE CASCADE,
+                student_id   UUID NOT NULL REFERENCES users(id)      ON DELETE CASCADE,
+                question     TEXT NOT NULL,
+                status       TEXT NOT NULL DEFAULT 'wondering'
+                               CHECK (status IN ('wondering', 'getting_there', 'understood')),
+                created_at   TIMESTAMPTZ DEFAULT NOW(),
+                updated_at   TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_dqb_classroom_course ON dqb_questions(classroom_id, course_id)",
+            "CREATE INDEX IF NOT EXISTS idx_dqb_student ON dqb_questions(student_id)",
         ]:
             try:
                 await db.execute(sql)
@@ -611,6 +629,7 @@ app.include_router(courses.router)
 app.include_router(students.router)
 app.include_router(messages.router)
 app.include_router(assignments.router)
+app.include_router(dqb.router)
 
 
 @app.get("/health")
