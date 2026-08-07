@@ -160,6 +160,7 @@ export default function ConceptEditorPage() {
   const [videoImprove,        setVideoImprove]        = useState<{ vidId: string; text: string } | null>(null);
   const [improvingVideoMsgs,  setImprovingVideoMsgs]  = useState<Set<string>>(new Set());
   const [showDraftPrompt,   setShowDraftPrompt]   = useState(false);
+  const [generatingConceptVideo, setGeneratingConceptVideo] = useState(false);
 
   // Studio quiz/flashcard generation config
   const [quizConfigOpen,       setQuizConfigOpen]       = useState(false);
@@ -915,6 +916,28 @@ export default function ConceptEditorPage() {
     const statusKey = type === 'flashcards' ? 'flashcard_status' : `${type}_status`;
     setAssets(prev => prev ? { ...prev, [statusKey]: 'approved' as AssetStatus } : prev);
     setApprovingA(prev => ({ ...prev, [type]: false }));
+  }
+
+  async function generateConceptVideo() {
+    if (!concept?.ai_transcript && !concept?.ai_summary) {
+      alert('Generate and approve a summary first — the video is built from it');
+      return;
+    }
+    setGeneratingConceptVideo(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/generate/video`, {
+        method: 'POST', headers: authH,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Failed to start' }));
+        alert(err.detail || 'Could not start video generation');
+        return;
+      }
+      setAssets(prev => prev ? { ...prev, video_status: 'generating', video_error: undefined, video_url: undefined } : prev);
+      setAssetPolling(true);
+    } finally {
+      setGeneratingConceptVideo(false);
+    }
   }
 
   // ── Resource → Textbook ──────────────────────────────────────────────────
@@ -2319,18 +2342,66 @@ export default function ConceptEditorPage() {
                     )}
                   </AssetSection>
 
-                  <div className="flex items-start gap-3 px-4 py-3 rounded-xl border border-[var(--bd)] bg-[var(--ov1)]">
-                    <Video size={14} className="text-[var(--tx7)] mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-[var(--tx3)] text-sm font-medium mb-0.5">{t.teacher.assetVideo}</p>
-                      <p className="text-[var(--tx7)] text-xs">
-                        Generate animated videos in the{' '}
-                        <button onClick={() => setActiveTab('studio')}
-                          className="text-purple-400 hover:text-purple-300 underline underline-offset-2 transition-colors">
-                          Studio
-                        </button>
-                        {' '}tab — chat with AI, then click "+ Video" on any response.
-                      </p>
+                  {/* ── Concept video ───────────────────────────────────── */}
+                  <div className="rounded-xl border border-[var(--bd)] bg-[var(--ov1)] overflow-hidden">
+                    <div className="flex items-center gap-2 px-4 py-3">
+                      <Video size={13} className="text-[var(--tx7)] shrink-0" />
+                      <span className="text-[var(--tx3)] text-sm font-medium">{t.teacher.assetVideo}</span>
+                      {assets?.video_status === 'generating' && (
+                        <span className="ml-auto text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
+                          {assets.video_stage ? VIDEO_STAGE_LABEL[assets.video_stage] ?? 'Generating…' : 'Generating…'}
+                        </span>
+                      )}
+                      {assets?.video_status === 'ready' || assets?.video_status === 'approved' ? (
+                        <span className="ml-auto text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">Ready</span>
+                      ) : null}
+                      {assets?.video_status === 'failed' && (
+                        <span className="ml-auto text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">Failed</span>
+                      )}
+                    </div>
+
+                    {/* Video player */}
+                    {assets?.video_url && (
+                      <video
+                        src={`${API_BASE}${assets.video_url}`}
+                        controls
+                        className="w-full bg-black"
+                        preload="metadata"
+                      />
+                    )}
+
+                    {/* Generating progress */}
+                    {assets?.video_status === 'generating' && !assets?.video_url && (
+                      <div className="flex items-center gap-2 px-4 pb-3 text-xs text-[var(--tx7)]">
+                        <Loader2 size={12} className="animate-spin text-blue-400 shrink-0" />
+                        {assets.video_stage === 'transcript_ready' ? t.teacher.videoProgressBuildingAnimation
+                         : assets.video_stage === 'queued' || assets.video_stage === 'rendering' ? t.teacher.videoProgressRendering
+                         : t.teacher.videoProgressWritingScript}
+                      </div>
+                    )}
+
+                    {/* Error */}
+                    {assets?.video_status === 'failed' && assets?.video_error && (
+                      <p className="px-4 pb-3 text-xs text-red-400 break-words">{assets.video_error}</p>
+                    )}
+
+                    {/* Generate / Regenerate button */}
+                    <div className="px-4 pb-3 pt-1 flex items-center gap-2">
+                      <button
+                        onClick={generateConceptVideo}
+                        disabled={generatingConceptVideo || assets?.video_status === 'generating'}
+                        className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg
+                                   bg-purple-600/15 hover:bg-purple-600/25 text-purple-400 border border-purple-500/20
+                                   transition-all disabled:opacity-50 disabled:pointer-events-none">
+                        {generatingConceptVideo || assets?.video_status === 'generating'
+                          ? <><Loader2 size={11} className="animate-spin" /> Generating…</>
+                          : assets?.video_url
+                            ? <><RefreshCw size={11} /> Regenerate</>
+                            : <><Video size={11} /> Generate Video</>}
+                      </button>
+                      {!assets?.video_url && assets?.video_status !== 'generating' && (
+                        <span className="text-[10px] text-[var(--tx8)]">Uses concept summary as script</span>
+                      )}
                     </div>
                   </div>
                 </>
