@@ -1293,16 +1293,29 @@ export default function ConceptEditorPage() {
                                         <Plus size={11} /> {t.teacher.addToTextbook}
                                       </button>
                                     ) : null}
-                                    {vid.videoId && (
+                                    <div className="ml-auto flex items-center gap-2">
                                       <button
-                                        onClick={() => setVideoImprove(
-                                          videoImprove?.vidId === vid.id ? null : { vidId: vid.id, text: '' }
-                                        )}
-                                        className="ml-auto flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-orange-400 transition-colors"
+                                        onClick={generateConceptVideo}
+                                        disabled={generatingConceptVideo || assets?.video_status === 'generating'}
+                                        title="Re-run full video pipeline (grade & TEKS-aware)"
+                                        className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors disabled:opacity-40"
                                       >
-                                        <ThumbsDown size={11} /> Improve
+                                        {generatingConceptVideo || assets?.video_status === 'generating'
+                                          ? <Loader2 size={11} className="animate-spin" />
+                                          : <RefreshCw size={11} />}
+                                        Regenerate
                                       </button>
-                                    )}
+                                      {vid.videoId && (
+                                        <button
+                                          onClick={() => setVideoImprove(
+                                            videoImprove?.vidId === vid.id ? null : { vidId: vid.id, text: '' }
+                                          )}
+                                          className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-orange-400 transition-colors"
+                                        >
+                                          <ThumbsDown size={11} /> Improve
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                   {videoImprove?.vidId === vid.id && vid.videoId && (
                                     <div className="px-3 pb-3 space-y-2 border-t border-[var(--bd)]">
@@ -1333,8 +1346,8 @@ export default function ConceptEditorPage() {
                                                      disabled:opacity-40 transition-colors"
                                         >
                                           {improvingVideoMsgs.has(vid.id)
-                                            ? <><Loader2 size={10} className="animate-spin" /> Regenerating…</>
-                                            : <><RefreshCw size={10} /> Regenerate</>}
+                                            ? <><Loader2 size={10} className="animate-spin" /> Applying…</>
+                                            : <><RefreshCw size={10} /> Apply</>}
                                         </button>
                                       </div>
                                     </div>
@@ -1596,17 +1609,30 @@ export default function ConceptEditorPage() {
                                           <Plus size={11} /> {t.teacher.addToTextbook}
                                         </button>
                                       ) : null}
-                                      {vid.videoId && (
+                                      <div className="ml-auto flex items-center gap-2">
                                         <button
-                                          onClick={() => setVideoImprove(
-                                            videoImprove?.vidId === vid.id ? null : { vidId: vid.id, text: '' }
-                                          )}
-                                          className="ml-auto flex items-center gap-1 text-xs text-[var(--tx7)]
-                                                     hover:text-orange-400 transition-colors"
+                                          onClick={generateConceptVideo}
+                                          disabled={generatingConceptVideo || assets?.video_status === 'generating'}
+                                          title="Re-run full video pipeline (grade & TEKS-aware)"
+                                          className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-purple-400 transition-colors disabled:opacity-40"
                                         >
-                                          <ThumbsDown size={11} /> Improve
+                                          {generatingConceptVideo || assets?.video_status === 'generating'
+                                            ? <Loader2 size={11} className="animate-spin" />
+                                            : <RefreshCw size={11} />}
+                                          Regenerate
                                         </button>
-                                      )}
+                                        {vid.videoId && (
+                                          <button
+                                            onClick={() => setVideoImprove(
+                                              videoImprove?.vidId === vid.id ? null : { vidId: vid.id, text: '' }
+                                            )}
+                                            className="flex items-center gap-1 text-xs text-[var(--tx7)]
+                                                       hover:text-orange-400 transition-colors"
+                                          >
+                                            <ThumbsDown size={11} /> Improve
+                                          </button>
+                                        )}
+                                      </div>
                                     </div>
                                     {videoImprove?.vidId === vid.id && vid.videoId && (
                                       <div className="px-3 pb-3 space-y-2 border-t border-[var(--bd)]">
@@ -1638,8 +1664,8 @@ export default function ConceptEditorPage() {
                                                        disabled:opacity-40 transition-colors"
                                           >
                                             {improvingVideoMsgs.has(vid.id)
-                                              ? <><Loader2 size={10} className="animate-spin" /> Regenerating…</>
-                                              : <><RefreshCw size={10} /> Regenerate</>}
+                                              ? <><Loader2 size={10} className="animate-spin" /> Applying…</>
+                                              : <><RefreshCw size={10} /> Apply</>}
                                           </button>
                                         </div>
                                       </div>
