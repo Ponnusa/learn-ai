@@ -507,6 +507,68 @@ async def list_curriculum_contexts_top(authorization: str = Header(...)):
     ]
 
 
+@router.get("/standards/search")
+async def search_standards(
+    q:       str  = "",
+    grade:   str  = "",
+    subject: str  = "Science",
+    board:   str  = "TEKS",
+    limit:   int  = 20,
+    authorization: str = Header(...),
+):
+    """Search seeded curriculum standards. Returns sub-standards only (has a letter suffix)."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT short_code, case_code, grade, title
+            FROM standards
+            WHERE board = $1
+              AND ($2 = '' OR grade = $2)
+              AND short_code ~ '[A-Z]$'
+              AND ($3 = '' OR title ILIKE '%' || $3 || '%' OR short_code ILIKE $3 || '%')
+            ORDER BY grade, sort_order
+            LIMIT $4
+        """, board, grade, q.strip(), limit)
+    return [
+        {"code": r["short_code"], "case_code": r["case_code"], "grade": r["grade"], "title": r["title"]}
+        for r in rows
+    ]
+
+
+class CreateCurriculumContextRequest(BaseModel):
+    name:             str
+    grade_level:      str
+    subject:          str       = "Science"
+    board:            str       = "TEKS"
+    teks_codes:       list[str] = []
+    driving_question: str | None = None
+    lesson_count:     int        = 1
+
+
+@router.post("/curriculum-contexts")
+async def create_curriculum_context(req: CreateCurriculumContextRequest, authorization: str = Header(...)):
+    """Teacher creates a lightweight curriculum context by picking standards codes."""
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            INSERT INTO curriculum_contexts
+                (name, grade_level, subject, teks_codes, driving_question, lesson_count, active_lesson)
+            VALUES ($1, $2, $3, $4, $5, $6, 1)
+            RETURNING id, name, grade_level, subject, teks_codes, driving_question, lesson_count, active_lesson
+        """, req.name, req.grade_level, req.subject,
+             req.teks_codes or [], req.driving_question, req.lesson_count)
+    return {
+        "id":               str(row["id"]),
+        "name":             row["name"],
+        "grade_level":      row["grade_level"],
+        "subject":          row["subject"],
+        "teks_codes":       row["teks_codes"] or [],
+        "driving_question": row["driving_question"],
+        "lesson_count":     row["lesson_count"],
+        "active_lesson":    row["active_lesson"],
+    }
+
+
 @router.get("/{course_id}")
 async def get_course(course_id: str, authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)

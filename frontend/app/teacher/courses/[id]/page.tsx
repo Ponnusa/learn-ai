@@ -149,11 +149,24 @@ export default function CourseDetailPage() {
 
   // Curriculum context (TEKS alignment)
   type CurriculumCtx = { id: string; name: string; driving_question?: string; grade_level?: string; subject?: string; teks_codes?: string[]; active_lesson?: number; lesson_count?: number; };
+  type StdResult     = { code: string; case_code: string; grade: string; title: string; };
   const [availableContexts, setAvailableContexts] = useState<CurriculumCtx[]>([]);
   const [linkedContext,     setLinkedContext]      = useState<CurriculumCtx | null>(null);
   const [curriculumOpen,    setCurriculumOpen]     = useState(false);
   const [savingCurriculum,  setSavingCurriculum]   = useState(false);
   const [selectedContextId, setSelectedContextId]  = useState<string>('');
+  // Create-new curriculum context
+  const [showCreateCtx,    setShowCreateCtx]    = useState(false);
+  const [newCtxName,       setNewCtxName]       = useState('');
+  const [newCtxGrade,      setNewCtxGrade]      = useState('');
+  const [newCtxSubject,    setNewCtxSubject]    = useState('Science');
+  const [newCtxDrivingQ,   setNewCtxDrivingQ]   = useState('');
+  const [newCtxLessons,    setNewCtxLessons]    = useState('1');
+  const [creatingCtx,      setCreatingCtx]      = useState(false);
+  const [teksSearch,       setTeksSearch]       = useState('');
+  const [teksResults,      setTeksResults]      = useState<StdResult[]>([]);
+  const [teksSearching,    setTeksSearching]    = useState(false);
+  const [pickedCodes,      setPickedCodes]      = useState<StdResult[]>([]);
 
   // Unit inline rename
   const [editingUnitId,    setEditingUnitId]    = useState<string | null>(null);
@@ -257,6 +270,44 @@ export default function CourseDetailPage() {
       await loadCurriculumData();
       setCurriculumOpen(false);
     } finally { setSavingCurriculum(false); }
+  }
+
+  async function searchTeks(q: string, grade: string) {
+    if (!q.trim() && !grade) { setTeksResults([]); return; }
+    setTeksSearching(true);
+    try {
+      const params = new URLSearchParams({ q: q.trim(), grade, limit: '25' });
+      const res = await fetch(`${API_BASE}/api/courses/standards/search?${params}`, { headers });
+      if (res.ok) setTeksResults(await res.json());
+    } finally { setTeksSearching(false); }
+  }
+
+  async function createCurriculumContext() {
+    if (!newCtxName.trim() || !newCtxGrade.trim()) return;
+    setCreatingCtx(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/curriculum-contexts`, {
+        method: 'POST', headers,
+        body: JSON.stringify({
+          name:             newCtxName.trim(),
+          grade_level:      newCtxGrade.trim(),
+          subject:          newCtxSubject.trim() || 'Science',
+          teks_codes:       pickedCodes.map(c => c.code),
+          driving_question: newCtxDrivingQ.trim() || null,
+          lesson_count:     parseInt(newCtxLessons) || 1,
+        }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail); }
+      const created = await res.json();
+      await loadCurriculumData();
+      setSelectedContextId(created.id);
+      setShowCreateCtx(false);
+      // Reset form
+      setNewCtxName(''); setNewCtxGrade(''); setNewCtxSubject('Science');
+      setNewCtxDrivingQ(''); setNewCtxLessons('1'); setPickedCodes([]); setTeksResults([]);
+    } catch (e: any) {
+      alert(e.message);
+    } finally { setCreatingCtx(false); }
   }
 
   async function updateActiveLesson(delta: number) {
@@ -1189,38 +1240,127 @@ export default function CourseDetailPage() {
             ) : (
               <>
                 <p className="text-[var(--tx6)] text-sm">
-                  Link a curriculum context to make the AI aware of TEKS standards, the unit driving question,
-                  and inquiry-based pedagogy guardrails for this course.
+                  Link TEKS standards to make the AI aware of curriculum expectations for this course.
                 </p>
-                {availableContexts.length === 0 ? (
-                  <p className="text-[var(--tx7)] text-xs italic">No curriculum contexts available yet.</p>
-                ) : (
+
+                {/* Pick existing or create new */}
+                {!showCreateCtx ? (
                   <div className="space-y-3">
-                    <select
-                      value={selectedContextId}
-                      onChange={e => setSelectedContextId(e.target.value)}
-                      className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] focus:outline-none focus:border-purple-500">
-                      <option value="">Select a curriculum context…</option>
-                      {availableContexts.map(ctx => (
-                        <option key={ctx.id} value={ctx.id}>{ctx.name}</option>
-                      ))}
-                    </select>
-                    {selectedContextId && (() => {
-                      const ctx = availableContexts.find(c => c.id === selectedContextId);
-                      return ctx ? (
-                        <div className="rounded-lg border border-[var(--bd)] bg-[var(--ov1)] p-3 text-xs text-[var(--tx6)]">
-                          {ctx.driving_question && <p className="italic mb-1">"{ctx.driving_question}"</p>}
-                          {ctx.teks_codes && ctx.teks_codes.length > 0 && (
-                            <p className="font-mono text-green-400">{ctx.teks_codes.join(', ')}</p>
-                          )}
-                        </div>
-                      ) : null;
-                    })()}
-                    <button onClick={saveCurriculumLink} disabled={!selectedContextId || savingCurriculum}
-                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40">
-                      {savingCurriculum ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                      Link curriculum context
+                    {availableContexts.length > 0 && (
+                      <>
+                        <select
+                          value={selectedContextId}
+                          onChange={e => setSelectedContextId(e.target.value)}
+                          className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] focus:outline-none focus:border-purple-500">
+                          <option value="">Select existing…</option>
+                          {availableContexts.map(ctx => (
+                            <option key={ctx.id} value={ctx.id}>
+                              {ctx.grade_level ? `${ctx.grade_level} · ` : ''}{ctx.name}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedContextId && (() => {
+                          const ctx = availableContexts.find(c => c.id === selectedContextId);
+                          return ctx ? (
+                            <div className="rounded-lg border border-[var(--bd)] bg-[var(--ov1)] p-3 text-xs text-[var(--tx6)] space-y-1">
+                              {ctx.driving_question && <p className="italic">"{ctx.driving_question}"</p>}
+                              {ctx.teks_codes && ctx.teks_codes.length > 0 && (
+                                <p className="font-mono text-green-400">{ctx.teks_codes.join(', ')}</p>
+                              )}
+                            </div>
+                          ) : null;
+                        })()}
+                        <button onClick={saveCurriculumLink} disabled={!selectedContextId || savingCurriculum}
+                          className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40">
+                          {savingCurriculum ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                          Link
+                        </button>
+                        <div className="text-[var(--tx7)] text-xs">— or —</div>
+                      </>
+                    )}
+                    <button onClick={() => setShowCreateCtx(true)}
+                      className="flex items-center gap-1.5 text-sm text-purple-400 hover:text-purple-300 transition-colors">
+                      <Plus size={13} /> Create new curriculum context
                     </button>
+                  </div>
+                ) : (
+                  /* ── Create form ── */
+                  <div className="space-y-3 border border-purple-500/20 rounded-xl p-4 bg-purple-500/5">
+                    <p className="text-[var(--tx1)] text-sm font-medium">New curriculum context</p>
+
+                    <input placeholder="Name (e.g. Unit 1: Thermal Energy)"
+                      value={newCtxName} onChange={e => setNewCtxName(e.target.value)}
+                      className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] outline-none focus:border-purple-500" />
+
+                    <div className="flex gap-2">
+                      <input placeholder="Grade (e.g. 6)" value={newCtxGrade}
+                        onChange={e => { setNewCtxGrade(e.target.value); searchTeks(teksSearch, e.target.value); }}
+                        className="w-24 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] outline-none focus:border-purple-500" />
+                      <input placeholder="Subject" value={newCtxSubject}
+                        onChange={e => setNewCtxSubject(e.target.value)}
+                        className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] outline-none focus:border-purple-500" />
+                      <input placeholder="Lessons" type="number" min={1} value={newCtxLessons}
+                        onChange={e => setNewCtxLessons(e.target.value)}
+                        className="w-20 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] outline-none focus:border-purple-500" />
+                    </div>
+
+                    <input placeholder="Driving question (optional)"
+                      value={newCtxDrivingQ} onChange={e => setNewCtxDrivingQ(e.target.value)}
+                      className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] outline-none focus:border-purple-500" />
+
+                    {/* TEKS picker */}
+                    <div>
+                      <p className="text-xs text-[var(--tx6)] mb-1.5">Search TEKS standards</p>
+                      <input placeholder="e.g. thermal energy, conduction…"
+                        value={teksSearch}
+                        onChange={e => { setTeksSearch(e.target.value); searchTeks(e.target.value, newCtxGrade); }}
+                        className="w-full bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm text-[var(--tx1)] outline-none focus:border-purple-500" />
+
+                      {/* Results */}
+                      {teksSearching && <p className="text-xs text-[var(--tx7)] mt-1">Searching…</p>}
+                      {teksResults.length > 0 && (
+                        <div className="mt-1.5 max-h-48 overflow-y-auto rounded-xl border border-[var(--bd)] bg-[var(--ov1)] divide-y divide-[var(--bd)]">
+                          {teksResults.map(r => {
+                            const picked = pickedCodes.some(p => p.code === r.code);
+                            return (
+                              <button key={r.code} onClick={() => {
+                                if (picked) setPickedCodes(prev => prev.filter(p => p.code !== r.code));
+                                else setPickedCodes(prev => [...prev, r]);
+                              }} className={`w-full text-left px-3 py-2 text-xs flex gap-2 items-start hover:bg-purple-500/10 transition-colors ${picked ? 'bg-purple-500/15' : ''}`}>
+                                <span className={`font-mono shrink-0 ${picked ? 'text-purple-400' : 'text-[var(--tx6)]'}`}>{r.code}</span>
+                                <span className="text-[var(--tx6)] line-clamp-2">{r.title}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Picked codes */}
+                      {pickedCodes.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {pickedCodes.map(c => (
+                            <span key={c.code} className="flex items-center gap-1 bg-purple-500/20 text-purple-300 text-xs px-2 py-0.5 rounded-full">
+                              {c.code}
+                              <button onClick={() => setPickedCodes(prev => prev.filter(p => p.code !== c.code))}
+                                className="text-purple-400 hover:text-red-400 transition-colors ml-0.5">×</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={createCurriculumContext}
+                        disabled={!newCtxName.trim() || !newCtxGrade.trim() || creatingCtx}
+                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-all disabled:opacity-40">
+                        {creatingCtx ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                        Create &amp; select
+                      </button>
+                      <button onClick={() => { setShowCreateCtx(false); setPickedCodes([]); setTeksSearch(''); setTeksResults([]); }}
+                        className="px-4 py-2 text-[var(--tx6)] hover:text-[var(--tx2)] text-sm transition-colors">
+                        Cancel
+                      </button>
+                    </div>
                   </div>
                 )}
               </>
