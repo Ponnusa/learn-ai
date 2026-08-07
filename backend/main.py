@@ -597,6 +597,26 @@ async def lifespan(app: FastAPI):
                 updated_at  TIMESTAMPTZ DEFAULT NOW()
             )
             """,
+            # ── TEKS / curriculum standards lookup ───────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS standards (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                board       TEXT NOT NULL DEFAULT 'TEKS',
+                state       TEXT NOT NULL DEFAULT 'TX',
+                grade       TEXT NOT NULL,
+                subject     TEXT NOT NULL DEFAULT 'Science',
+                case_code   TEXT NOT NULL,
+                short_code  TEXT,
+                title       TEXT NOT NULL,
+                description TEXT,
+                sort_order  INT,
+                teks_uuid   TEXT,
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (board, case_code)
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_standards_short_code ON standards (short_code)",
+            "CREATE INDEX IF NOT EXISTS idx_standards_grade      ON standards (grade)",
         ]:
             try:
                 await db.execute(sql)

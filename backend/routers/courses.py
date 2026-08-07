@@ -4425,7 +4425,7 @@ async def post_student_chat(
     # Fetch curriculum context first — it determines the entire prompt structure
     curriculum = None
     if concept.get("course_id"):
-        from services.curriculum import get_curriculum_context, build_curriculum_block
+        from services.curriculum import get_curriculum_context, build_curriculum_block, get_teks_descriptions
         curriculum = await get_curriculum_context(str(concept["course_id"]))
 
     if curriculum:
@@ -4444,7 +4444,8 @@ async def post_student_chat(
             f"  • \"How does that connect to what you observed in class?\"\n"
             f"Use unit vocabulary naturally in your questions. Guide students toward the ideas — never lecture or give away the answer.\n"
         )
-        system_prompt += build_curriculum_block(curriculum)
+        _teks_descs = await get_teks_descriptions(curriculum.get("teks_codes") or [])
+        system_prompt += build_curriculum_block(curriculum, _teks_descs)
         system_prompt += f"\n\n--- LESSON CONTENT (background context — do not recite as answers) ---\n{grounding[:8000]}"
         if lang_note:
             system_prompt += lang_note

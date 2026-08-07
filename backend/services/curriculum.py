@@ -30,10 +30,29 @@ async def get_curriculum_context(course_id: str) -> dict | None:
         return None  # never break chat if curriculum lookup fails
 
 
-def build_curriculum_block(ctx: dict) -> str:
+async def get_teks_descriptions(codes: list[str]) -> dict[str, str]:
+    """
+    Look up full standard descriptions for a list of short TEKS codes (e.g. ['6.8B', '7.8A']).
+    Returns {code: title_text}. Missing codes are silently omitted.
+    """
+    if not codes:
+        return {}
+    try:
+        async with get_db() as db:
+            rows = await db.fetch(
+                "SELECT short_code, title FROM standards WHERE short_code = ANY($1) AND board = 'TEKS'",
+                codes,
+            )
+        return {r["short_code"]: r["title"] for r in rows}
+    except Exception:
+        return {}
+
+
+def build_curriculum_block(ctx: dict, teks_descriptions: dict[str, str] | None = None) -> str:
     """
     Formats a curriculum_context row into a system prompt block.
     Only called when get_curriculum_context returns a non-None value.
+    Pass teks_descriptions (from get_teks_descriptions) to inject full standard text.
     """
     lines = ["\n\n--- CURRICULUM CONTEXT ---"]
 
@@ -44,8 +63,17 @@ def build_curriculum_block(ctx: dict) -> str:
         lines.append(f"Class: {ctx['grade_level']} {ctx['subject']}")
 
     if ctx.get("teks_codes"):
-        codes = ", ".join(ctx["teks_codes"])
-        lines.append(f"TEKS Standards: {codes}")
+        if teks_descriptions:
+            lines.append("TEKS Standards:")
+            for code in ctx["teks_codes"]:
+                desc = teks_descriptions.get(code)
+                if desc:
+                    lines.append(f"  {code}: {desc}")
+                else:
+                    lines.append(f"  {code}")
+        else:
+            codes = ", ".join(ctx["teks_codes"])
+            lines.append(f"TEKS Standards: {codes}")
 
     active = ctx.get("active_lesson", 1)
     total  = ctx.get("lesson_count", 1)

@@ -189,10 +189,11 @@ async def build_chat_prompt(
 
     # ── Curriculum context (TEKS-aligned courses only) ─────────────────────
     if course_id:
-        from services.curriculum import get_curriculum_context, build_curriculum_block
+        from services.curriculum import get_curriculum_context, build_curriculum_block, get_teks_descriptions
         curriculum = await get_curriculum_context(course_id)
         if curriculum:
-            prompt += build_curriculum_block(curriculum)
+            teks_descs = await get_teks_descriptions(curriculum.get("teks_codes") or [])
+            prompt += build_curriculum_block(curriculum, teks_descs)
 
     if not user_id:
         return prompt  # anonymous: base + language + curriculum only
