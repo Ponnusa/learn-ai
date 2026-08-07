@@ -1080,6 +1080,22 @@ async def generate_suggested_prompts(
     return {"ok": True, "message": "Generating suggestions in background"}
 
 
+@router.post("/concepts/{concept_id}/generate-student-questions")
+async def generate_student_questions(concept_id: str, authorization: str = Header(...)):
+    """
+    Teacher endpoint: (re)generate student chat starter questions for a concept.
+    Runs synchronously and returns the questions immediately (~3s).
+    """
+    await _require_teacher(authorization)
+    await _generate_student_questions_bg(concept_id)
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT student_questions FROM course_concepts WHERE id = $1::uuid", concept_id
+        )
+    questions = list(row["student_questions"]) if row and row["student_questions"] else []
+    return {"questions": questions}
+
+
 @router.post("/concepts/{concept_id}/summarize")
 async def summarize_concept(
     concept_id:    str,

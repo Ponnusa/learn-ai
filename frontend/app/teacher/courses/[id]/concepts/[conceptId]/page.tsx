@@ -69,6 +69,7 @@ interface ConceptDetail {
   audio_url?: string; video_url?: string;
   images: ConceptImage[];
   suggested_prompts?: string[];
+  student_questions?: string[];
 }
 
 interface Assets {
@@ -201,6 +202,9 @@ export default function ConceptEditorPage() {
   // Concept-specific suggested prompts (Tier 2)
   const [suggestedPrompts,     setSuggestedPrompts]     = useState<string[]>([]);
   const [refreshingPrompts,    setRefreshingPrompts]    = useState(false);
+  // Student chat starter questions preview
+  const [studentQuestions,     setStudentQuestions]     = useState<string[]>([]);
+  const [generatingStudentQs,  setGeneratingStudentQs]  = useState(false);
   const chatEndRef      = useRef<HTMLDivElement>(null);
   const chatSendingRef  = useRef(false);
   const rightPanelRef   = useRef<HTMLDivElement>(null);
@@ -355,8 +359,24 @@ export default function ConceptEditorPage() {
         if (d.suggested_prompts && d.suggested_prompts.length > 0) {
           setSuggestedPrompts(d.suggested_prompts);
         }
+        if (d.student_questions && d.student_questions.length > 0) {
+          setStudentQuestions(d.student_questions);
+        }
       }
     } finally { setRefreshingPrompts(false); }
+  }
+
+  async function generateStudentQuestions() {
+    setGeneratingStudentQs(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/generate-student-questions`, {
+        method: 'POST', headers: jsonH,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setStudentQuestions(data.questions ?? []);
+      }
+    } finally { setGeneratingStudentQs(false); }
   }
 
   async function sendChatMessage(override?: string) {
@@ -666,6 +686,9 @@ export default function ConceptEditorPage() {
         setConcept(d);
         if (d.suggested_prompts && d.suggested_prompts.length > 0) {
           setSuggestedPrompts(d.suggested_prompts);
+        }
+        if (d.student_questions && d.student_questions.length > 0) {
+          setStudentQuestions(d.student_questions);
         }
         loadPdf(d.chapter_ref);
       }
@@ -1677,6 +1700,45 @@ export default function ConceptEditorPage() {
                     )}
                   </div>
                 )}
+
+                {/* Student chat starter questions — preview + generate */}
+                <div className="border-t border-[var(--bd)] px-3 pt-2.5 pb-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-green-400">
+                      Student chat questions
+                    </span>
+                    <button
+                      onClick={generateStudentQuestions}
+                      disabled={generatingStudentQs}
+                      title="Generate question chips students will see in empty chat"
+                      className="flex items-center gap-1 text-[10px] text-[var(--tx7)] hover:text-green-400 transition-colors disabled:opacity-40">
+                      {generatingStudentQs
+                        ? <Loader2 size={10} className="animate-spin" />
+                        : <RefreshCw size={10} />}
+                      {studentQuestions.length > 0 ? 'Regenerate' : 'Generate'}
+                    </button>
+                  </div>
+                  {generatingStudentQs ? (
+                    <p className="text-[11px] text-[var(--tx8)] italic">Generating questions…</p>
+                  ) : studentQuestions.length > 0 ? (
+                    <div className="space-y-2">
+                      <p className="text-[10px] text-[var(--tx8)]">Students will see these chips in the empty chat:</p>
+                      <div className="flex flex-wrap gap-1.5 p-2.5 rounded-xl bg-[var(--ov1)] border border-[var(--bd)]">
+                        {studentQuestions.map((q, i) => (
+                          <span key={i}
+                            className="text-[11px] px-2.5 py-1 rounded-full border border-purple-500/30
+                                       bg-purple-500/8 text-purple-300 cursor-default">
+                            {q}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-[var(--tx8)] italic">
+                      Click generate to create starter questions for students
+                    </p>
+                  )}
+                </div>
 
                 {/* Marquee prompt chips — two rows, opposite directions, pause on hover */}
                 <style>{`
