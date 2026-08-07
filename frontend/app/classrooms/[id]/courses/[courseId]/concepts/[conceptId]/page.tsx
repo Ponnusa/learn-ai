@@ -30,6 +30,7 @@ interface ConceptDetail {
   ai_summary?: string; pipeline_status?: string;
   quiz_status?: string; flashcard_status?: string; audio_status?: string;
   has_audio?: boolean; audio_url?: string;
+  student_questions?: string[];
   images: ConceptImage[];
   resources: ConceptResource[];
 }
@@ -68,6 +69,7 @@ export default function StudentConceptDetailPage() {
   const [chatMsgs,    setChatMsgs]    = useState<ChatMsg[]>([]);
   const [chatInput,   setChatInput]   = useState('');
   const [chatSending, setChatSending] = useState(false);
+  const [directMode,  setDirectMode]  = useState(false);
   // resource context: when set, next message carries this resource_id for vision/PDF grounding
   const [chatResource, setChatResource] = useState<{ id: string; title: string; type: string } | null>(null);
   const chatEndRef         = useRef<HTMLDivElement>(null);
@@ -219,17 +221,11 @@ export default function StudentConceptDetailPage() {
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   }
 
-  async function sendChatMessage(e: React.FormEvent) {
-    e.preventDefault();
-    const msg = chatInput.trim();
-    if (!msg || chatSending) return;
-    const resource = chatResource;
-    setChatInput('');
-    setChatResource(null);
+  async function _doSendChat(msg: string, resource: typeof chatResource, isDirect: boolean) {
     setChatMsgs(prev => [...prev, { role: 'user', content: msg }]);
     setChatSending(true);
     try {
-      const body: Record<string, string> = { message: msg, language };
+      const body: Record<string, unknown> = { message: msg, language, direct: isDirect };
       if (chatConvId) body.conversation_id = chatConvId;
       if (resource)   body.resource_id     = resource.id;
       const res  = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat`, {
@@ -243,6 +239,21 @@ export default function StudentConceptDetailPage() {
     } catch {
       setChatMsgs(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }]);
     } finally { setChatSending(false); }
+  }
+
+  async function sendChatMessage(e: React.FormEvent) {
+    e.preventDefault();
+    const msg = chatInput.trim();
+    if (!msg || chatSending) return;
+    const resource = chatResource;
+    setChatInput('');
+    setChatResource(null);
+    await _doSendChat(msg, resource, directMode);
+  }
+
+  async function sendQuestion(question: string) {
+    if (chatSending) return;
+    await _doSendChat(question, null, directMode);
   }
 
   function selectAnswer(qi: number, oi: number) {
@@ -815,9 +826,23 @@ export default function StudentConceptDetailPage() {
           <div className="border-t border-[var(--bd)]">
             <div className="px-4 py-3 space-y-3 max-h-80 overflow-y-auto">
               {chatMsgs.length === 0 && (
-                <p className="text-[var(--tx7)] text-sm text-center py-4">
-                  {t.concept.chatAskAnything} <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
-                </p>
+                <div className="py-3 space-y-3">
+                  <p className="text-[var(--tx7)] text-sm text-center">
+                    {t.concept.chatAskAnything} <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
+                  </p>
+                  {concept.student_questions && concept.student_questions.length > 0 && (
+                    <div className="flex flex-wrap gap-2 justify-center pt-1">
+                      {concept.student_questions.map((q, i) => (
+                        <button key={i} onClick={() => sendQuestion(q)} disabled={chatSending}
+                          className="text-xs px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/8
+                                     text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/50
+                                     transition-all disabled:opacity-40 text-left">
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
               {chatMsgs.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -852,6 +877,29 @@ export default function StudentConceptDetailPage() {
                 <button onClick={() => setChatResource(null)} className="ml-auto text-[var(--tx8)] hover:text-[var(--tx3)] text-xs">✕</button>
               </div>
             )}
+
+            {/* Mode toggle */}
+            <div className="flex items-center gap-2 px-4 py-2 border-t border-[var(--bd)]">
+              <button onClick={() => setDirectMode(false)}
+                className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                  !directMode
+                    ? 'border-purple-500/50 bg-purple-500/15 text-purple-300'
+                    : 'border-[var(--bd)] text-[var(--tx8)] hover:text-[var(--tx5)]'
+                }`}>
+                Guided
+              </button>
+              <button onClick={() => setDirectMode(true)}
+                className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                  directMode
+                    ? 'border-amber-500/50 bg-amber-500/15 text-amber-300'
+                    : 'border-[var(--bd)] text-[var(--tx8)] hover:text-[var(--tx5)]'
+                }`}>
+                Just tell me
+              </button>
+              {directMode && (
+                <span className="text-[10px] text-amber-400/60 ml-1">direct answers on</span>
+              )}
+            </div>
 
             <form onSubmit={sendChatMessage} className="flex gap-2 px-4 py-3 border-t border-[var(--bd)]">
               <input value={chatInput} onChange={e => setChatInput(e.target.value)}

@@ -568,6 +568,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE institutions ADD COLUMN IF NOT EXISTS languages TEXT[] DEFAULT NULL",
             # ── Concept suggested prompts (Tier 2 studio chips) ────────────────
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS suggested_prompts JSONB DEFAULT '[]'",
+            # ── Student chat starter questions ──────────────────────────────────
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS student_questions JSONB DEFAULT '[]'",
             # ── Course curriculum board (CBSE, TEKS, AQA, IB, etc.) ────────────
             "ALTER TABLE courses ADD COLUMN IF NOT EXISTS board TEXT DEFAULT NULL",
             # ── Driving Question Board ──────────────────────────────────────────

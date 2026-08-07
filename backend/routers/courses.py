@@ -210,6 +210,65 @@ async def _generate_suggested_prompts_bg(concept_id: str) -> None:
         logger.warning("[prompts] concept %s suggestion generation failed: %s", concept_id, exc)
 
 
+async def _generate_student_questions_bg(concept_id: str) -> None:
+    """
+    Background: generate 4 short starter questions a student might ask about this concept.
+    Uses GPT-4o-mini. Stored in student_questions JSONB on the concept.
+    """
+    from openai import AsyncOpenAI
+    try:
+        async with get_db() as db:
+            row = await db.fetchrow("""
+                SELECT cc.title, cc.source_text, c.subject, c.grade
+                FROM course_concepts cc
+                JOIN course_units cu ON cu.id = cc.unit_id
+                JOIN courses c       ON c.id  = cu.course_id
+                WHERE cc.id = $1::uuid
+            """, concept_id)
+        if not row:
+            return
+
+        title   = row["title"]
+        subject = row["subject"] or "Science"
+        grade   = row["grade"] or "6th grade"
+        source  = (row["source_text"] or title)[:2000]
+
+        client = AsyncOpenAI()
+        resp = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "system",
+                "content": (
+                    f"You write short, curious starter questions that a {grade} {subject} student "
+                    "might genuinely wonder about when starting to explore a new topic. "
+                    "Rules: 8 words or fewer per question, simple everyday language, "
+                    "spark curiosity without giving away answers, feel like something a real student would ask. "
+                    'Return ONLY valid JSON: {"questions": ["q1","q2","q3","q4"]}'
+                ),
+            }, {
+                "role": "user",
+                "content": f"Topic: {title}\n\nContent:\n{source}",
+            }],
+            response_format={"type": "json_object"},
+            max_tokens=200,
+            temperature=0.7,
+        )
+        data = json.loads(resp.choices[0].message.content)
+        questions = data if isinstance(data, list) else next(
+            (v for v in data.values() if isinstance(v, list)), []
+        )
+        questions = [str(q).strip() for q in questions if str(q).strip()][:4]
+        if not questions:
+            return
+        async with get_db() as db:
+            await db.execute(
+                "UPDATE course_concepts SET student_questions = $1::jsonb WHERE id = $2::uuid",
+                json.dumps(questions), concept_id,
+            )
+    except Exception as exc:
+        logger.warning("[questions] concept %s student questions failed: %s", concept_id, exc)
+
+
 async def _summarize_concepts_bg(concept_ids: list[str], course_id: str):
     """Background: generate AI summary + transcript per concept, one at a time."""
     async with get_db() as db:
@@ -218,11 +277,15 @@ async def _summarize_concepts_bg(concept_ids: list[str], course_id: str):
         )
     for concept_id in concept_ids:
         await _summarize_one_concept(concept_id, dict(course) if course else None)
-        # Generate teaching prompt suggestions after summarisation (fire-and-forget)
+        # Generate teaching prompt suggestions + student starter questions (fire-and-forget)
         try:
             await _generate_suggested_prompts_bg(concept_id)
         except Exception:
-            pass  # never fail the pipeline over suggestion generation
+            pass
+        try:
+            await _generate_student_questions_bg(concept_id)
+        except Exception:
+            pass
 
 
 async def _require_teacher(authorization: str):
@@ -3928,7 +3991,7 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
                    cc.study_set_id, cc.source_text, cc.ai_summary,
                    cc.ai_transcript, cc.pipeline_status, cc.approved_at,
                    cc.quiz_status, cc.flashcard_status, cc.audio_status, cc.video_status,
-                   cc.chapter_ref, cc.page_start, cc.suggested_prompts,
+                   cc.chapter_ref, cc.page_start, cc.suggested_prompts, cc.student_questions,
                    (cc.audio_data IS NOT NULL) AS has_audio,
                    (cc.video_url IS NOT NULL) AS has_video,
                    cu.course_id
@@ -3975,7 +4038,8 @@ async def get_concept_detail(concept_id: str, authorization: str = Header(...)):
         "has_video":          bool(concept["has_video"]),
         "audio_url":          f"/api/courses/concepts/{concept_id}/audio" if concept["has_audio"] else None,
         "video_url":          f"/api/courses/concepts/{concept_id}/video" if concept["has_video"] else None,
-        "suggested_prompts":  list(concept["suggested_prompts"]) if concept["suggested_prompts"] else [],
+        "suggested_prompts":   list(concept["suggested_prompts"])   if concept["suggested_prompts"]   else [],
+        "student_questions":   list(concept["student_questions"])   if concept["student_questions"]   else [],
         "images": [
             {
                 "id":       str(img["id"]),
@@ -4324,6 +4388,7 @@ class StudentChatRequest(BaseModel):
     message:         str
     resource_id:     str | None = None  # concept_resources.id to ground/visualise
     conversation_id: str | None = None
+    direct:          bool = False       # True → give direct answer (skip Socratic guidance)
     language:        str = 'en'
 
 
@@ -4376,7 +4441,7 @@ async def post_student_chat(
     async with get_db() as db:
         concept = await db.fetchrow("""
             SELECT cc.id, cc.title, cc.source_text, cc.study_set_id,
-                   cc.chapter_ref, c.subject, c.id as course_id
+                   cc.chapter_ref, c.subject, c.grade, c.id as course_id
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
             JOIN courses c       ON c.id  = cu.course_id
@@ -4498,11 +4563,12 @@ async def post_student_chat(
         from services.curriculum import get_curriculum_context, build_curriculum_block, get_teks_descriptions
         curriculum = await get_curriculum_context(str(concept["course_id"]))
 
-    if curriculum:
+    grade_level = (curriculum.get("grade_level") if curriculum else None) or concept.get("grade") or "6th grade"
+
+    if curriculum and not req.direct:
         # Inquiry-first: pedagogy rules lead the prompt; grounding follows as reference only.
-        grade = curriculum.get("grade_level", "6th grade")
         system_prompt = (
-            f"You are an inquiry-based science tutor for a {grade} classroom. "
+            f"You are an inquiry-based science tutor for a {grade_level} classroom. "
             f"Students discover science principles through hands-on experiments and discussion — NOT through direct instruction.\n\n"
             f"CRITICAL INSTRUCTION — INQUIRY PEDAGOGY:\n"
             f"NEVER directly explain scientific concepts or state key ideas as facts. "
@@ -4519,13 +4585,26 @@ async def post_student_chat(
         system_prompt += f"\n\n--- LESSON CONTENT (background context — do not recite as answers) ---\n{grounding[:8000]}"
         if lang_note:
             system_prompt += lang_note
-    else:
+    elif req.direct:
+        # Student asked for a direct answer — give one, age-appropriately grounded in lesson content.
         system_prompt = (
-            f"You are a helpful AI tutor helping a student understand \"{concept['title']}\" "
+            f"You are a helpful science tutor for {grade_level} students. "
+            f"Give clear, direct, age-appropriate explanations. Be concise (3–5 sentences). "
+            f"Use simple language and a concrete example where helpful. "
+            f"Ground your answer in the lesson content below.\n\n"
+            f"--- LESSON CONTENT ---\n{grounding[:10000]}{lang_note}"
+        )
+    else:
+        # Standard non-curriculum Socratic mode
+        system_prompt = (
+            f"You are a Socratic tutor helping a {grade_level} student explore \"{concept['title']}\" "
             f"({concept['subject'] or 'General'}).\n\n"
-            f"Answer primarily from the material below. If a topic isn't covered, say so briefly "
-            f"and answer from your general knowledge where safe to do so.\n\n"
-            f"{grounding[:12000]}{lang_note}"
+            f"Instead of giving direct answers, guide the student to think it through:\n"
+            f"- Respond to questions with a guiding question\n"
+            f"- Ask what they've noticed, observed, or already know\n"
+            f"- Use 'What do you think...?', 'Why might...?', 'What happens when...?'\n"
+            f"- Keep responses to 2–3 sentences\n\n"
+            f"Lesson content (for background — don't recite as answers):\n{grounding[:10000]}{lang_note}"
         )
 
     if image_b64_url:
