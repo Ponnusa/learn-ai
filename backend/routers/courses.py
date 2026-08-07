@@ -877,6 +877,14 @@ async def update_course(course_id: str, req: UpdateCourseRequest, authorization:
 async def delete_course(course_id: str, authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT status FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+        if not row:
+            raise HTTPException(404, "Course not found")
+        if row["status"] == "published":
+            raise HTTPException(409, "Cannot delete a published course — archive it instead")
         await db.execute(
             "DELETE FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
             course_id, teacher_id,

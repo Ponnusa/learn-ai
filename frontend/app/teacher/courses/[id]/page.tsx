@@ -5,7 +5,7 @@ import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
   Upload, Loader2, Check, BookOpen, Users,
   CheckCircle, Globe, Zap, Circle, Crop, Sparkles, Wand2, GripVertical, HelpCircle,
-  MessageSquare,
+  MessageSquare, Pencil, Archive,
 } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -184,6 +184,13 @@ export default function CourseDetailPage() {
   const [dqbLoading,     setDqbLoading]     = useState(false);
   const [deletingDqbId,  setDeletingDqbId]  = useState<string | null>(null);
 
+  // Course title inline rename
+  const [editingName,    setEditingName]    = useState(false);
+  const [nameInput,      setNameInput]      = useState('');
+  // Course delete / archive
+  const [showDeleteCourse, setShowDeleteCourse] = useState(false);
+  const [deletingCourse,   setDeletingCourse]   = useState(false);
+
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   useEffect(() => {
@@ -248,6 +255,34 @@ export default function CourseDetailPage() {
       const res = await fetch(`${API_BASE}/api/dqb/questions/${questionId}`, { method: 'DELETE', headers });
       if (res.ok) setDqbQuestions(prev => prev.filter(q => q.id !== questionId));
     } finally { setDeletingDqbId(null); }
+  }
+
+  async function renameCourse(newName: string) {
+    const trimmed = newName.trim();
+    setEditingName(false);
+    if (!trimmed || trimmed === course?.name) return;
+    await fetch(`${API_BASE}/api/courses/${courseId}`, {
+      method: 'PATCH', headers,
+      body: JSON.stringify({ name: trimmed }),
+    });
+    setCourse(prev => prev ? { ...prev, name: trimmed } : prev);
+  }
+
+  async function deleteCourse() {
+    setDeletingCourse(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/${courseId}`, { method: 'DELETE', headers });
+      if (!res.ok) { const e = await res.json(); alert(e.detail); return; }
+      router.replace('/teacher/courses');
+    } finally { setDeletingCourse(false); setShowDeleteCourse(false); }
+  }
+
+  async function archiveCourse() {
+    await fetch(`${API_BASE}/api/courses/${courseId}`, {
+      method: 'PATCH', headers,
+      body: JSON.stringify({ status: 'archived' }),
+    });
+    setCourse(prev => prev ? { ...prev, status: 'archived' } : prev);
   }
 
   async function loadCurriculumData() {
@@ -708,14 +743,35 @@ export default function CourseDetailPage() {
 
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-[var(--tx1)] text-2xl font-bold">{course.name}</h1>
+        <div className="min-w-0 flex-1">
+          {editingName ? (
+            <form onSubmit={e => { e.preventDefault(); renameCourse(nameInput); }}>
+              <input
+                autoFocus
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onBlur={() => renameCourse(nameInput)}
+                onKeyDown={e => e.key === 'Escape' && setEditingName(false)}
+                className="text-[var(--tx1)] text-2xl font-bold bg-transparent border-b-2 border-purple-500 outline-none w-full"
+              />
+            </form>
+          ) : (
+            <button
+              onClick={() => { setNameInput(course.name); setEditingName(true); }}
+              className="group flex items-center gap-2 text-left"
+            >
+              <h1 className="text-[var(--tx1)] text-2xl font-bold group-hover:text-purple-400 transition-colors">{course.name}</h1>
+              <Pencil size={14} className="text-purple-400 opacity-0 group-hover:opacity-60 shrink-0 transition-opacity" />
+            </button>
+          )}
           <div className="flex items-center gap-3 mt-1 text-xs text-[var(--tx6)]">
             {course.subject && <span>{course.subject}</span>}
             {course.grade   && <span>{course.grade}</span>}
             {course.board   && <span>{course.board}</span>}
             <span className={`px-2 py-0.5 rounded-full ${
-              course.status === 'published' ? 'bg-green-500/15 text-green-400' : 'bg-[var(--ov1)] text-[var(--tx7)]'
+              course.status === 'published' ? 'bg-green-500/15 text-green-400' :
+              course.status === 'archived'  ? 'bg-amber-500/15 text-amber-400' :
+              'bg-[var(--ov1)] text-[var(--tx7)]'
             }`}>{course.status}</span>
           </div>
         </div>
@@ -737,6 +793,19 @@ export default function CourseDetailPage() {
             }`}>
             {course.status === 'published' ? <><CheckCircle size={14} /> {t.teacher.published}</> : <><Globe size={14} /> {t.teacher.publishBtn}</>}
           </button>
+          {course.status === 'published' ? (
+            <button onClick={archiveCourse}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)] text-[var(--tx6)] hover:border-amber-500/40 hover:text-amber-400 transition-all"
+              title="Archive this course">
+              <Archive size={14} /> Archive
+            </button>
+          ) : (
+            <button onClick={() => setShowDeleteCourse(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)] text-[var(--tx6)] hover:border-red-500/40 hover:text-red-400 transition-all"
+              title="Delete this course">
+              <Trash2 size={14} /> Delete
+            </button>
+          )}
         </div>
       </div>
 
@@ -1487,6 +1556,30 @@ export default function CourseDetailPage() {
           )}
         </div>
       )} {/* end QUESTIONS tab */}
+
+      {showDeleteCourse && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setShowDeleteCourse(false)}>
+          <div className="bg-[var(--bg2)] border border-[var(--bd)] rounded-2xl p-6 w-80 shadow-2xl"
+            onClick={e => e.stopPropagation()}>
+            <p className="text-[var(--tx1)] font-semibold mb-1">Delete course?</p>
+            <p className="text-[var(--tx6)] text-sm mb-5 leading-relaxed">
+              <strong className="text-[var(--tx2)]">{course.name}</strong> and all its units, concepts, and content will be permanently removed.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowDeleteCourse(false)}
+                className="px-4 py-2 text-sm text-[var(--tx6)] hover:text-[var(--tx2)] transition-colors">
+                Cancel
+              </button>
+              <button onClick={deleteCourse} disabled={deletingCourse}
+                className="px-4 py-2 text-sm font-medium bg-red-600 hover:bg-red-500 text-white rounded-xl transition-colors flex items-center gap-2 disabled:opacity-50">
+                {deletingCourse ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                Delete permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {cropTarget && (
         <PDFViewerModal
