@@ -30,7 +30,7 @@ interface Unit    { id: string; title: string; description?: string; position: n
 interface Classroom { id: string; name: string; }
 interface Course  {
   id: string; name: string; description?: string;
-  subject?: string; grade?: string; status: string;
+  subject?: string; grade?: string; board?: string; status: string;
   units: Unit[]; classrooms: Classroom[];
 }
 
@@ -660,6 +660,7 @@ export default function CourseDetailPage() {
           <div className="flex items-center gap-3 mt-1 text-xs text-[var(--tx6)]">
             {course.subject && <span>{course.subject}</span>}
             {course.grade   && <span>{course.grade}</span>}
+            {course.board   && <span>{course.board}</span>}
             <span className={`px-2 py-0.5 rounded-full ${
               course.status === 'published' ? 'bg-green-500/15 text-green-400' : 'bg-[var(--ov1)] text-[var(--tx7)]'
             }`}>{course.status}</span>

@@ -14,6 +14,7 @@ interface Course {
   description?: string;
   subject?: string;
   grade?: string;
+  board?: string;
   status: string;
   unit_count: number;
   concept_count: number;
@@ -33,6 +34,7 @@ export default function TeacherCoursesPage() {
   const [name,      setName]     = useState('');
   const [subject,   setSubject]  = useState('');
   const [grade,     setGrade]    = useState('');
+  const [board,     setBoard]    = useState('');
   const [desc,      setDesc]     = useState('');
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -57,7 +59,7 @@ export default function TeacherCoursesPage() {
     try {
       const res = await fetch(`${API_BASE}/api/courses`, {
         method: 'POST', headers,
-        body: JSON.stringify({ name: name.trim(), description: desc || undefined, subject: subject || undefined, grade: grade || undefined }),
+        body: JSON.stringify({ name: name.trim(), description: desc || undefined, subject: subject || undefined, grade: grade || undefined, board: board || undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail);
@@ -116,6 +118,7 @@ export default function TeacherCoursesPage() {
           <div className="flex gap-2">
             <input placeholder={t.teacher.subjectLabel} value={subject} onChange={e => setSubject(e.target.value)} className={inputCls} />
             <input placeholder={t.teacher.gradeLevelLabel} value={grade} onChange={e => setGrade(e.target.value)} className={inputCls} />
+            <input placeholder="Board (e.g. TEKS, CBSE, AQA)" value={board} onChange={e => setBoard(e.target.value)} className={inputCls} />
           </div>
           <div className="flex gap-2 pt-1">
             <button type="submit" disabled={creating || !name.trim()}
@@ -165,6 +168,7 @@ export default function TeacherCoursesPage() {
                   <div className="flex items-center gap-4 text-xs text-[var(--tx7)]">
                     {c.subject && <span>{c.subject}</span>}
                     {c.grade   && <span>{c.grade}</span>}
+                    {c.board   && <span>{c.board}</span>}
                     <span className="flex items-center gap-1"><Layers size={10} /> {c.unit_count} units</span>
                     <span className="flex items-center gap-1"><FileText size={10} /> {c.concept_count} concepts</span>
                   </div>

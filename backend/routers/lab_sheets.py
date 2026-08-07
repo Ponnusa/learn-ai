@@ -96,7 +96,8 @@ async def generate_lab_sheet(
         concept = await db.fetchrow("""
             SELECT cc.title, cc.source_text, cc.ai_summary,
                    COALESCE(cc.suggested_prompts, '[]'::jsonb) AS suggested_prompts,
-                   cur.teks_codes, cur.driving_question, cur.grade_level
+                   cur.teks_codes, cur.driving_question, cur.grade_level,
+                   c.subject, c.grade, c.board
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
             JOIN courses c ON c.id = cu.course_id
@@ -121,12 +122,17 @@ async def generate_lab_sheet(
         except Exception as e:
             log.warning("Lab PDF parse failed: %s", e)
 
-    source = (concept["ai_summary"] or concept["source_text"] or "")[:5000]
-    teks   = ", ".join(concept["teks_codes"] or []) if concept["teks_codes"] else ""
-    grade  = concept.get("grade_level") or "6th grade"
+    source  = (concept["ai_summary"] or concept["source_text"] or "")[:5000]
+    teks    = ", ".join(concept["teks_codes"] or []) if concept["teks_codes"] else ""
+    grade   = concept.get("grade") or concept.get("grade_level") or "6th grade"
+    subject = concept.get("subject") or "Science"
+    board   = concept.get("board") or ""
+
+    board_note = f" following {board} curriculum standards" if board else ""
+    teks_note  = f" aligned to TEKS {teks}" if teks else ""
 
     system_prompt = (
-        f"You are an expert {grade} science teacher. "
+        f"You are an expert {grade} {subject} teacher{board_note}. "
         f"Generate a concise lab sheet for a hands-on class activity based on the lesson content provided. "
         f"Output ONLY valid JSON matching this exact structure:\n"
         f'{{"objective":"<one sentence>","materials":["<item>",...],"safety":["<rule>",...],'
@@ -134,9 +140,9 @@ async def generate_lab_sheet(
         f'"headers":["<col1>","<col2>",...],"rows":<int 4-8>}},'
         f'"analysis_questions":["<q1>","<q2>","<q3>"],"conclusion_prompt":"<prompt>"}}\n'
         f"Rules:\n"
-        f"- 5-8 numbered procedure steps (clear, imperative, safe for 6th graders)\n"
+        f"- 5-8 numbered procedure steps (clear, imperative, safe for {grade} students)\n"
         f"- 2-4 data table column headers students fill on paper\n"
-        f"- 3-4 analysis questions aligned to TEKS {teks}\n"
+        f"- 3-4 analysis questions{teks_note}\n"
         f"- Safety: 2-3 short rules relevant to this specific activity\n"
         f"- No diagrams, no LaTeX, plain English only\n"
         f"- Output ONLY the JSON object, no markdown, no explanation"

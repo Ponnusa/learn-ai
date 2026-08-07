@@ -47,16 +47,20 @@ async def _summarize_one_concept(concept_id: str, course: dict | None):
         language = lang_val or 'en'
         source = concept["source_text"] or concept["description"] or concept["title"]
         subject = (course["subject"] if course else None) or "General"
+        grade   = (course.get("grade") if course else None) or ""
+        board   = (course.get("board") if course else None) or ""
 
         lang_instruction = ""
         if language in _LANGUAGE_NAMES:
             lang_name = _LANGUAGE_NAMES[language]
             lang_instruction = f'\n\nIMPORTANT: Write ALL content in {lang_name}. Do not use English.'
 
+        grade_line = f"\nGrade: {grade}" if grade else ""
+        board_line = f"\nCurriculum Board: {board}" if board else ""
         prompt = f"""You are an expert educator creating study material for students.
 
 Concept: {concept['title']}
-Subject: {subject}
+Subject: {subject}{grade_line}{board_line}
 
 Source material (from the chapter):
 ---
@@ -210,7 +214,7 @@ async def _summarize_concepts_bg(concept_ids: list[str], course_id: str):
     """Background: generate AI summary + transcript per concept, one at a time."""
     async with get_db() as db:
         course = await db.fetchrow(
-            "SELECT name, subject FROM courses WHERE id = $1::uuid", course_id
+            "SELECT name, subject, grade, board FROM courses WHERE id = $1::uuid", course_id
         )
     for concept_id in concept_ids:
         await _summarize_one_concept(concept_id, dict(course) if course else None)
@@ -241,6 +245,7 @@ class CreateCourseRequest(BaseModel):
     description: str | None = None
     subject:     str | None = None
     grade:       str | None = None
+    board:       str | None = None
 
 
 @router.post("")
@@ -248,10 +253,10 @@ async def create_course(req: CreateCourseRequest, authorization: str = Header(..
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         row = await db.fetchrow("""
-            INSERT INTO courses (teacher_id, name, description, subject, grade)
-            VALUES ($1::uuid, $2, $3, $4, $5)
-            RETURNING id, name, description, subject, grade, status, created_at
-        """, teacher_id, req.name, req.description, req.subject, req.grade)
+            INSERT INTO courses (teacher_id, name, description, subject, grade, board)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6)
+            RETURNING id, name, description, subject, grade, board, status, created_at
+        """, teacher_id, req.name, req.description, req.subject, req.grade, req.board)
     return _fmt_course(row)
 
 
@@ -260,7 +265,7 @@ async def list_my_courses(authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         rows = await db.fetch("""
-            SELECT c.id, c.name, c.description, c.subject, c.grade, c.status, c.created_at,
+            SELECT c.id, c.name, c.description, c.subject, c.grade, c.board, c.status, c.created_at,
                    COUNT(DISTINCT cu.id) AS unit_count,
                    COUNT(DISTINCT cc.id) AS concept_count,
                    COUNT(DISTINCT cc.id) FILTER (
@@ -785,6 +790,7 @@ class UpdateCourseRequest(BaseModel):
     description: str | None = None
     subject:     str | None = None
     grade:       str | None = None
+    board:       str | None = None
     status:      str | None = None
 
 
@@ -1947,7 +1953,7 @@ async def import_syllabus(
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         course = await db.fetchrow(
-            "SELECT id, name, subject FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            "SELECT id, name, subject, grade, board FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
             course_id, teacher_id,
         )
         teacher_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
@@ -1974,10 +1980,12 @@ async def import_syllabus(
         syllabus_lang_note = f"\nIMPORTANT: Write ALL titles and descriptions in {_LANGUAGE_NAMES[teacher_language]}."
 
     client = AsyncOpenAI()
+    _syl_grade = f"\nGrade: {course['grade']}" if course.get("grade") else ""
+    _syl_board = f"\nCurriculum Board: {course['board']}" if course.get("board") else ""
     prompt = f"""You are an expert curriculum designer. Analyze the syllabus/textbook below and extract a structured course outline.
 
 Course name: {course["name"]}
-Subject: {course["subject"] or "General"}
+Subject: {course["subject"] or "General"}{_syl_grade}{_syl_board}
 
 Return ONLY valid JSON — no prose, no markdown fences:
 {{
@@ -2711,10 +2719,12 @@ async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: d
         concept_lang_note = f"\nIMPORTANT: Write ALL titles and descriptions in {_LANGUAGE_NAMES[language]}. The source_text must remain verbatim from the document (strip any '--- Page N ---' markers from it)."
 
     client = AsyncOpenAI()
+    _ext_grade = f"\nGrade: {course['grade']}" if course.get("grade") else ""
+    _ext_board = f"\nCurriculum Board: {course['board']}" if course.get("board") else ""
     extract_prompt = f"""You are an expert educator. Analyze this chapter and extract the key concepts students must learn.
 
 Course: {course['name']}
-Subject: {course['subject'] or 'General'}
+Subject: {course['subject'] or 'General'}{_ext_grade}{_ext_board}
 
 The text below is divided by page markers like "--- Page 3 ---". Use these markers to record which page each concept starts on.
 
@@ -2863,7 +2873,7 @@ async def upload_chapter(
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         course = await db.fetchrow(
-            "SELECT id, name, subject FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            "SELECT id, name, subject, grade, board FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
             course_id, teacher_id,
         )
     if not course:
@@ -2889,7 +2899,7 @@ async def suggest_concepts(
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         chapter = await db.fetchrow("""
-            SELECT ch.id, ch.pdf_data, ch.course_id, cu.id AS unit_id, c.name, c.subject
+            SELECT ch.id, ch.pdf_data, ch.course_id, cu.id AS unit_id, c.name, c.subject, c.grade, c.board
             FROM course_chapters ch
             JOIN course_units cu ON cu.chapter_ref = ch.id
             JOIN courses c       ON c.id = ch.course_id AND c.teacher_id = $2::uuid
@@ -2899,7 +2909,7 @@ async def suggest_concepts(
     if not chapter or not chapter["pdf_data"]:
         raise HTTPException(404, "Chapter not found")
 
-    course = {"name": chapter["name"], "subject": chapter["subject"]}
+    course = {"name": chapter["name"], "subject": chapter["subject"], "grade": chapter["grade"], "board": chapter["board"]}
     concept_ids = await _extract_concepts_for_chapter(
         chapter_id, str(chapter["unit_id"]), course, bytes(chapter["pdf_data"]), suggest_lang or 'en',
     )
@@ -3624,7 +3634,7 @@ async def bulk_split_chapters(
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         course = await db.fetchrow(
-            "SELECT id, name, subject FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            "SELECT id, name, subject, grade, board FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
             course_id, teacher_id,
         )
         bulk_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
@@ -4535,16 +4545,18 @@ def _shuffle_quiz_options(questions: list) -> list:
     return out
 
 
-def build_quiz_prompt(title: str, subject: str, source: str, extra: str = "", language: str = 'en') -> str:
+def build_quiz_prompt(title: str, subject: str, source: str, extra: str = "", language: str = 'en', grade: str = "", board: str = "") -> str:
     """Shared by the per-concept quiz generator and the per-student assignment generator."""
     lang_instruction = ""
     if language in _LANGUAGE_NAMES:
         lang_name = _LANGUAGE_NAMES[language]
         lang_instruction = f"\nIMPORTANT: Generate ALL questions, answer options, and explanations in {lang_name}. Do not use English."
+    grade_line = f"\nGrade: {grade}" if grade else ""
+    board_line = f"\nCurriculum Board: {board}" if board else ""
     return f"""You are an expert educator. Create 6 multiple-choice quiz questions to test student understanding.
 
 Concept: {title}
-Subject: {subject}
+Subject: {subject}{grade_line}{board_line}
 {extra}
 Source material:
 ---
@@ -4589,7 +4601,7 @@ Return ONLY valid JSON:
 def build_quiz_prompt_studio(
     title: str, subject: str, source: str,
     difficulty: str = 'mixed', style: str = 'multiple_choice', count: int = 5,
-    language: str = 'en',
+    language: str = 'en', grade: str = "", board: str = "",
 ) -> str:
     difficulty_instruction = {
         'easy':  'All questions should be straightforward recall or simple comprehension.',
@@ -4606,10 +4618,12 @@ def build_quiz_prompt_studio(
     if language in _LANGUAGE_NAMES:
         lang_note = f'\nIMPORTANT: Generate ALL content in {_LANGUAGE_NAMES[language]}. Do not use English.'
     diff_field = ', "difficulty": "easy|medium|hard"' if difficulty == 'mixed' else ''
+    _sq_grade = f"\nGrade: {grade}" if grade else ""
+    _sq_board = f"\nCurriculum Board: {board}" if board else ""
     return f"""You are an expert educator. {style_instruction}
 
 Concept: {title}
-Subject: {subject}
+Subject: {subject}{_sq_grade}{_sq_board}
 {difficulty_instruction}
 
 Source material:
@@ -4678,7 +4692,7 @@ async def generate_quiz_from_chat(
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         concept = await db.fetchrow("""
-            SELECT cc.title, cc.source_text, cc.ai_summary, cc.chapter_ref, c.subject
+            SELECT cc.title, cc.source_text, cc.ai_summary, cc.chapter_ref, c.subject, c.grade, c.board
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
             JOIN courses c       ON c.id  = cu.course_id
@@ -4693,6 +4707,7 @@ async def generate_quiz_from_chat(
     prompt   = build_quiz_prompt_studio(
         concept["title"], concept["subject"] or "General", source,
         difficulty=req.difficulty, style=req.style, count=req.count, language=language,
+        grade=concept.get("grade") or "", board=concept.get("board") or "",
     )
 
     from openai import AsyncOpenAI
@@ -4964,7 +4979,7 @@ async def _generate_quiz_bg(concept_id: str, course_id: str):
                 "SELECT title, ai_summary, source_text FROM course_concepts WHERE id = $1::uuid",
                 concept_id,
             )
-            course = await db.fetchrow("SELECT subject, teacher_id FROM courses WHERE id = $1::uuid", course_id)
+            course = await db.fetchrow("SELECT subject, grade, board, teacher_id FROM courses WHERE id = $1::uuid", course_id)
             lang_val = None
             if course and course["teacher_id"]:
                 lang_val = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", course["teacher_id"])
@@ -4972,8 +4987,10 @@ async def _generate_quiz_bg(concept_id: str, course_id: str):
         source   = (concept["source_text"] or concept["ai_summary"] or concept["title"])
         subject  = (course["subject"] if course else None) or "General"
         language = lang_val or 'en'
+        grade    = (course.get("grade") if course else None) or ""
+        board    = (course.get("board") if course else None) or ""
 
-        prompt = build_quiz_prompt(concept["title"], subject, source, language=language)
+        prompt = build_quiz_prompt(concept["title"], subject, source, language=language, grade=grade, board=board)
 
         response = await client.chat.completions.create(
             model="gpt-4o",
@@ -5119,7 +5136,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                 "SELECT title, ai_summary, ai_transcript, source_text FROM course_concepts WHERE id = $1::uuid",
                 concept_id,
             )
-            course = await db.fetchrow("SELECT subject FROM courses WHERE id = $1::uuid", course_id)
+            course = await db.fetchrow("SELECT subject, grade FROM courses WHERE id = $1::uuid", course_id)
 
         if not concept or not (concept["ai_transcript"] or concept["ai_summary"]):
             raise ValueError("No transcript or summary — generate and approve a summary first")
@@ -5694,6 +5711,7 @@ def _fmt_course(r):
         "description": r["description"],
         "subject":     r["subject"],
         "grade":       r["grade"],
+        "board":       r.get("board"),
         "status":      r["status"],
         "created_at":  r["created_at"].isoformat() if r.get("created_at") else None,
     }
