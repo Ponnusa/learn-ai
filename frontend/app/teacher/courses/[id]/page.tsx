@@ -187,6 +187,9 @@ export default function CourseDetailPage() {
   // Course title inline rename
   const [editingName,    setEditingName]    = useState(false);
   const [nameInput,      setNameInput]      = useState('');
+  // Inline edit for subject / grade / board
+  const [editingField,   setEditingField]   = useState<'subject' | 'grade' | 'board' | null>(null);
+  const [fieldInput,     setFieldInput]     = useState('');
   // Course delete / archive
   const [showDeleteCourse, setShowDeleteCourse] = useState(false);
   const [deletingCourse,   setDeletingCourse]   = useState(false);
@@ -255,6 +258,17 @@ export default function CourseDetailPage() {
       const res = await fetch(`${API_BASE}/api/dqb/questions/${questionId}`, { method: 'DELETE', headers });
       if (res.ok) setDqbQuestions(prev => prev.filter(q => q.id !== questionId));
     } finally { setDeletingDqbId(null); }
+  }
+
+  async function saveField(field: 'subject' | 'grade' | 'board', value: string) {
+    setEditingField(null);
+    const trimmed = value.trim();
+    if (trimmed === (course?.[field] || '')) return;
+    await fetch(`${API_BASE}/api/courses/${courseId}`, {
+      method: 'PATCH', headers,
+      body: JSON.stringify({ [field]: trimmed || null }),
+    });
+    setCourse(prev => prev ? { ...prev, [field]: trimmed || undefined } : prev);
   }
 
   async function renameCourse(newName: string) {
@@ -764,10 +778,28 @@ export default function CourseDetailPage() {
               <Pencil size={14} className="text-purple-400 opacity-0 group-hover:opacity-60 shrink-0 transition-opacity" />
             </button>
           )}
-          <div className="flex items-center gap-3 mt-1 text-xs text-[var(--tx6)]">
-            {course.subject && <span>{course.subject}</span>}
-            {course.grade   && <span>{course.grade}</span>}
-            {course.board   && <span>{course.board}</span>}
+          <div className="flex items-center gap-3 mt-1.5 text-xs text-[var(--tx6)] flex-wrap">
+            {(['subject', 'grade', 'board'] as const).map(field => (
+              editingField === field ? (
+                <form key={field} onSubmit={e => { e.preventDefault(); saveField(field, fieldInput); }}>
+                  <input autoFocus value={fieldInput}
+                    onChange={e => setFieldInput(e.target.value)}
+                    onBlur={() => saveField(field, fieldInput)}
+                    onKeyDown={e => e.key === 'Escape' && setEditingField(null)}
+                    placeholder={field === 'subject' ? 'e.g. Science' : field === 'grade' ? 'e.g. 6th Grade' : 'e.g. TEKS'}
+                    className="bg-transparent border-b border-purple-500 outline-none text-xs text-[var(--tx2)] w-28"
+                  />
+                </form>
+              ) : (
+                <button key={field}
+                  onClick={() => { setEditingField(field); setFieldInput(course[field] || ''); }}
+                  className="hover:text-purple-400 transition-colors">
+                  {course[field]
+                    ? <span>{course[field]}</span>
+                    : <span className="text-[var(--tx8)] italic hover:text-purple-400">+ {field}</span>}
+                </button>
+              )
+            ))}
             <span className={`px-2 py-0.5 rounded-full ${
               course.status === 'published' ? 'bg-green-500/15 text-green-400' :
               course.status === 'archived'  ? 'bg-amber-500/15 text-amber-400' :

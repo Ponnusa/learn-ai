@@ -5302,15 +5302,45 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                 "SELECT title, ai_summary, ai_transcript, source_text FROM course_concepts WHERE id = $1::uuid",
                 concept_id,
             )
-            course = await db.fetchrow("SELECT subject, grade FROM courses WHERE id = $1::uuid", course_id)
+            course = await db.fetchrow(
+                "SELECT subject, grade, board, curriculum_context_id FROM courses WHERE id = $1::uuid", course_id
+            )
 
         if not concept or not (concept["ai_transcript"] or concept["ai_summary"]):
             raise ValueError("No transcript or summary — generate and approve a summary first")
 
         subject  = _map_manim_subject(course["subject"] if course else None)
+        grade    = (course.get("grade") or "") if course else ""
         script   = concept["ai_transcript"] or concept["ai_summary"]
         duration = max(45, min(180, len(script) // 12))
-        prompt   = _build_concept_video_prompt(concept["title"], concept["source_text"], script)
+
+        # ── Build grade + TEKS context for the video prompt ──────────────────
+        extra_parts: list[str] = []
+        if grade:
+            extra_parts.append(
+                f"TARGET AUDIENCE: {grade} students.\n"
+                f"Use simple, everyday language. No algebra. Prefer concrete real-life analogies over abstract definitions. "
+                f"Each narration sentence must be short enough for a {grade} student to follow easily."
+            )
+        ctx_id = course.get("curriculum_context_id") if course else None
+        if ctx_id:
+            from services.curriculum import get_teks_descriptions
+            async with get_db() as db:
+                cc = await db.fetchrow(
+                    "SELECT teks_codes FROM curriculum_contexts WHERE id = $1::uuid", ctx_id
+                )
+            if cc and cc["teks_codes"]:
+                teks_descs = await get_teks_descriptions(list(cc["teks_codes"]))
+                if teks_descs:
+                    extra_parts.append("LEARNING STANDARDS THIS VIDEO MUST COVER:")
+                    for code in cc["teks_codes"]:
+                        desc = teks_descs.get(code)
+                        if desc:
+                            extra_parts.append(f"  • {code}: {desc}")
+                    extra_parts.append("Stay scoped to these standards — do not go beyond them.")
+        extra = "\n\n".join(extra_parts)
+
+        prompt   = _build_concept_video_prompt(concept["title"], concept["source_text"], script, extra=extra)
 
         async with get_db() as db:
             video = await db.fetchrow("""
