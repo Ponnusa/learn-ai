@@ -147,12 +147,15 @@ export default function CourseDetailPage() {
   const [wandSkip,  setWandSkip]  = useState(true);
   const [wandBusy,  setWandBusy]  = useState<string | null>(null);
 
+  // Active tab
+  type CourseTab = 'content' | 'classrooms' | 'standards' | 'questions';
+  const [activeTab, setActiveTab] = useState<CourseTab>('content');
+
   // Curriculum context (TEKS alignment)
   type CurriculumCtx = { id: string; name: string; driving_question?: string; grade_level?: string; subject?: string; teks_codes?: string[]; active_lesson?: number; lesson_count?: number; };
   type StdResult     = { code: string; case_code: string; grade: string; title: string; };
   const [availableContexts, setAvailableContexts] = useState<CurriculumCtx[]>([]);
   const [linkedContext,     setLinkedContext]      = useState<CurriculumCtx | null>(null);
-  const [curriculumOpen,    setCurriculumOpen]     = useState(false);
   const [savingCurriculum,  setSavingCurriculum]   = useState(false);
   const [selectedContextId, setSelectedContextId]  = useState<string>('');
   // Create-new curriculum context
@@ -268,7 +271,6 @@ export default function CourseDetailPage() {
         body: JSON.stringify({ curriculum_context_id: selectedContextId || null }),
       });
       await loadCurriculumData();
-      setCurriculumOpen(false);
     } finally { setSavingCurriculum(false); }
   }
 
@@ -754,6 +756,41 @@ export default function CourseDetailPage() {
         </div>
       )}
 
+      {/* Tab bar */}
+      {(() => {
+        const tabs: { key: CourseTab; label: string; badge?: number }[] = [
+          { key: 'content',    label: 'Content' },
+          { key: 'classrooms', label: 'Classrooms', badge: myClassrooms.length },
+          { key: 'standards',  label: 'Standards', badge: linkedContext ? undefined : undefined },
+          { key: 'questions',  label: 'Questions', badge: dqbQuestions.length || undefined },
+        ];
+        return (
+          <div className="flex gap-1 mb-6 border-b border-[var(--bd)]">
+            {tabs.map(t => (
+              <button key={t.key} onClick={() => setActiveTab(t.key)}
+                className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-all -mb-px ${
+                  activeTab === t.key
+                    ? 'border-purple-500 text-purple-400'
+                    : 'border-transparent text-[var(--tx6)] hover:text-[var(--tx2)]'
+                }`}>
+                {t.label}
+                {t.badge !== undefined && (
+                  <span className={`text-xs px-1.5 py-0.5 rounded-full ${
+                    activeTab === t.key ? 'bg-purple-500/20 text-purple-300' : 'bg-[var(--ov1)] text-[var(--tx7)]'
+                  }`}>{t.badge}</span>
+                )}
+                {t.key === 'standards' && (
+                  <span className={`w-1.5 h-1.5 rounded-full ${linkedContext ? 'bg-green-400' : 'bg-[var(--tx7)]'}`} />
+                )}
+              </button>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* ── CONTENT TAB ─────────────────────────────────────────────────────── */}
+      {activeTab === 'content' && <>
+
       {/* Chapter upload — AI pipeline */}
       <div className="bg-[var(--surface)] border border-purple-500/20 rounded-2xl p-5 mb-6">
         <div className="flex items-start justify-between gap-4">
@@ -1048,8 +1085,12 @@ export default function CourseDetailPage() {
         )}
       </div>
 
-      {/* Assign to classrooms */}
-      {myClassrooms.length > 0 && (
+      </> /* end CONTENT tab */}
+
+      {/* ── CLASSROOMS TAB ──────────────────────────────────────────────────── */}
+      {activeTab === 'classrooms' && <>
+
+      {myClassrooms.length > 0 ? (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
           <div className="flex items-center gap-2 mb-4">
             <Users size={16} className="text-[var(--tx6)]" />
@@ -1077,7 +1118,16 @@ export default function CourseDetailPage() {
             })}
           </div>
         </div>
+      ) : (
+        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 text-center">
+          <Users size={28} className="text-[var(--tx7)] mx-auto mb-3" />
+          <p className="text-[var(--tx2)] text-sm font-medium mb-1">No classrooms yet</p>
+          <p className="text-[var(--tx7)] text-xs">Create a classroom first, then assign this course to it.</p>
+        </div>
       )}
+
+      </> /* end CLASSROOMS tab */}
+
 
       {deleteConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm"
@@ -1173,23 +1223,17 @@ export default function CourseDetailPage() {
         );
       })()}
 
-      {/* Curriculum Context (TEKS alignment) */}
-      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mt-6">
-        <button
-          onClick={() => setCurriculumOpen(o => !o)}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors">
-          <div className="flex items-center gap-2">
+      {/* ── STANDARDS TAB ───────────────────────────────────────────────────── */}
+      {activeTab === 'standards' && (
+        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-[var(--bd)] flex items-center gap-2">
             <BookOpen size={15} className="text-green-400" />
             <span className="text-[var(--tx1)] text-sm font-semibold">Curriculum Context</span>
             {linkedContext
               ? <span className="text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">Linked</span>
               : <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--ov1)] text-[var(--tx7)]">Not set</span>}
           </div>
-          {curriculumOpen ? <ChevronDown size={15} className="text-[var(--tx7)]" /> : <ChevronRight size={15} className="text-[var(--tx7)]" />}
-        </button>
-
-        {curriculumOpen && (
-          <div className="border-t border-[var(--bd)] p-5 space-y-4">
+          <div className="p-5 space-y-4">
             {linkedContext ? (
               <>
                 {/* Active context summary */}
@@ -1366,12 +1410,12 @@ export default function CourseDetailPage() {
               </>
             )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {/* Driving Question Board — teacher view */}
-      {course.classrooms.length > 0 && (
-        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mt-6">
+      {/* ── QUESTIONS TAB ───────────────────────────────────────────────────── */}
+      {activeTab === 'questions' && (
+        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b border-[var(--bd)] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <MessageSquare size={15} className="text-purple-400" />
@@ -1442,7 +1486,7 @@ export default function CourseDetailPage() {
             </div>
           )}
         </div>
-      )}
+      )} {/* end QUESTIONS tab */}
 
       {cropTarget && (
         <PDFViewerModal
