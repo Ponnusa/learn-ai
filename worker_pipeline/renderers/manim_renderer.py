@@ -92,6 +92,14 @@ VOICEOVER TEXT (verbatim, wrap in exactly one `with self.voiceover(text=...)` bl
 SUBJECT: {segment.subject_area}
 TARGET DURATION: {segment.target_duration_seconds:.0f} seconds
 
+TIMING SAFETY (critical — this has caused render failures before):
+Any time you compute a self.wait(...) duration or an animation's run_time by subtracting
+elapsed time from a target duration (e.g. tracker.duration - X, or remaining_time - Y),
+the result can come out zero or negative if your animations already used up the budget.
+Manim crashes on a non-positive wait/run_time. ALWAYS clamp with max(): use
+self.wait(max(0.3, computed_value)) and run_time=max(0.3, computed_value), never the raw
+subtraction. Apply this to EVERY computed wait/run_time in the scene, not just one.
+
 Output ONLY the Python code for the scene (imports + one Scene subclass), no explanation,
 no markdown fences."""
 

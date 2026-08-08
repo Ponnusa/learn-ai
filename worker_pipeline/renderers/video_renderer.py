@@ -50,7 +50,7 @@ from .image_renderer import ImageRenderer
 
 logger = logging.getLogger(__name__)
 
-VEO_MODEL = os.getenv("VEO_MODEL", "veo-3.0-generate-001")
+VEO_MODEL = os.getenv("VEO_MODEL", "veo-3.1-lite-generate-preview")
 VEO_TIMEOUT_SECONDS = int(os.getenv("VEO_TIMEOUT_SECONDS", "180"))
 VEO_POLL_INTERVAL_SECONDS = 10
 

@@ -39,7 +39,7 @@ from .base import Renderer
 logger = logging.getLogger(__name__)
 
 NANO_BANANA_MODEL = os.getenv("NANO_BANANA_MODEL", "gemini-2.5-flash-image")
-GEMINI_CRITIC_MODEL = os.getenv("GEMINI_CRITIC_MODEL", "gemini-2.5-flash")
+GEMINI_CRITIC_MODEL = os.getenv("GEMINI_CRITIC_MODEL", "gemini-3.5-flash-lite")
 
 _RESOLUTIONS = {
     "16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080), "4:5": (1080, 1350),

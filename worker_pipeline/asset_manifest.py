@@ -169,6 +169,11 @@ def check_cache(prompt_hash: str, asset_type: str, segment_id: str, ext: str) ->
     row = _db_get_asset(prompt_hash)
     if row is None:
         return None
+    if row["asset_type"] != asset_type:
+        # Same content hash, different asset type — e.g. a video segment that
+        # previously demoted to image (cached as "image_clip") now being
+        # looked up as "video_clip". NOT a valid hit for the type requested.
+        return None
     r2_key = row["r2_key"]
     if not _r2_object_exists(r2_key):
         logger.warning(f"[asset_manifest] DB row for {prompt_hash} points at a missing R2 object — treating as a miss")
