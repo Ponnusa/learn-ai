@@ -881,7 +881,11 @@ from manim_voiceover import VoiceoverScene
 Add show_subtitle as a CLASS METHOD — defined at the same indentation level as construct(), NOT inside construct():
 
 class YourScene(VoiceoverScene):
+    SHOW_SUBTITLES = False  # set True to burn subtitles into the video
+
     def show_subtitle(self, text, duration=None):
+        if not self.SHOW_SUBTITLES:
+            return VGroup()
         import textwrap
         wrapped = "\n".join(textwrap.wrap(text, width=60))
         subtitle = Text(wrapped, font_size=18, color=WHITE, line_spacing=1.2).to_edge(DOWN, buff=0.3)
