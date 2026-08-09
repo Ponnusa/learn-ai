@@ -5,7 +5,7 @@ import {
   ArrowLeft, Plus, Trash2, ChevronDown, ChevronRight,
   Upload, Loader2, Check, BookOpen, Users,
   CheckCircle, Globe, Zap, Circle, Crop, Sparkles, Wand2, GripVertical, HelpCircle,
-  MessageSquare, Pencil, Archive,
+  MessageSquare, Pencil, Archive, Download,
 } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import type { DragEndEvent } from '@dnd-kit/core';
@@ -722,6 +722,33 @@ export default function CourseDetailPage() {
     } finally { setAssigning(false); }
   }
 
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  async function exportCourse(format: 'html' | 'scorm') {
+    setShowExportMenu(false);
+    setExporting(format);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/courses/${courseId}/export?format=${format}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      const ext  = format === 'scorm' ? 'zip' : 'html';
+      a.href     = url;
+      a.download = `${course?.name || 'course'}_${format}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Export failed: ${e}`);
+    } finally {
+      setExporting(null);
+    }
+  }
+
   async function publish() {
     await fetch(`${API_BASE}/api/courses/${courseId}`, {
       method: 'PATCH', headers,
@@ -817,6 +844,36 @@ export default function CourseDetailPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
             <Users size={14} /> {t.teacher.progressBtn}
           </button>
+          {/* Export dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(v => !v)}
+              disabled={!!exporting}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50"
+              title="Export course materials"
+            >
+              {exporting
+                ? <Loader2 size={14} className="animate-spin" />
+                : <Download size={14} />}
+              Export
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 z-50 bg-[var(--bg)] border border-[var(--bd)] rounded-xl shadow-xl min-w-[160px] py-1 text-sm">
+                <button
+                  onClick={() => exportCourse('html')}
+                  className="w-full text-left px-4 py-2 hover:bg-[var(--ov1)] text-[var(--tx2)] transition-colors"
+                >
+                  📄 HTML file
+                </button>
+                <button
+                  onClick={() => exportCourse('scorm')}
+                  className="w-full text-left px-4 py-2 hover:bg-[var(--ov1)] text-[var(--tx2)] transition-colors"
+                >
+                  📦 SCORM 1.2 (LMS)
+                </button>
+              </div>
+            )}
+          </div>
           <button data-tour="publish-btn" onClick={publish}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all ${
               course.status === 'published'
