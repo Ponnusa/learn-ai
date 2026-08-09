@@ -39,6 +39,8 @@ from .schema import Segment
 
 logger = logging.getLogger(__name__)
 
+FADE_SECONDS = 0.4  # short fade-to-black at each INTERNAL segment join, softens hard cuts
+
 
 def _run_ffmpeg(cmd: List[str], timeout: int) -> subprocess.CompletedProcess:
     try:
@@ -72,7 +74,40 @@ def _probe_video_dims(path: str) -> tuple:
     return int(width_str), int(height_str), max(fps, 1)
 
 
-def concat_clips(clip_paths: List[str], output_path: str) -> None:
+def _probe_duration(path: str) -> float:
+    """ffprobe-based duration lookup, used to compute each clip's own
+    fade-out start time (its own length minus FADE_SECONDS)."""
+    cmd = [
+        "ffprobe", "-v", "error", "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1", path,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+    except FileNotFoundError:
+        raise RuntimeError("ffprobe not found on PATH — required for compositing")
+    if result.returncode != 0 or not result.stdout.strip():
+        raise RuntimeError(f"Failed to probe duration for {path}: {result.stderr}")
+    return float(result.stdout.strip())
+
+
+def extract_last_frame_local(video_path: str, output_path: str) -> None:
+    """Grabs the last frame of a LOCAL video file via ffmpeg, mirroring
+    learnai/worker.py's generate_thumbnail() (-sseof -1 ... -frames:v 1).
+    Shared by orchestrator.py (held-frame degrade, downloads a remote clip
+    first) and video_renderer.py (extending a too-short Veo clip, already
+    has a local file — no download needed)."""
+    cmd = ["ffmpeg", "-y", "-sseof", "-1", "-i", video_path, "-frames:v", "1", output_path]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except FileNotFoundError:
+        raise RuntimeError("ffmpeg not found on PATH — required to extract a frame")
+    if result.returncode != 0:
+        raise RuntimeError(f"Failed to extract last frame:\n{result.stderr[-500:]}")
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        raise RuntimeError("Extracted frame is missing or empty")
+
+
+def concat_clips(clip_paths: List[str], output_path: str, fade: bool = True) -> None:
     """
     Concatenate clip_paths, in the given order, into output_path.
     Raises on failure — never silently produces a partial/empty video.
@@ -81,6 +116,12 @@ def concat_clips(clip_paths: List[str], output_path: str) -> None:
     video (scale/pad to match the first clip's resolution, fixed fps) and
     audio (fixed sample rate/channel layout) before concatenating — see
     module docstring for why a stream-copy fast path isn't safe here.
+
+    fade=False skips the internal-join fade entirely — used when the clips
+    being joined aren't really separate lesson segments (e.g. video_renderer.py
+    appending a held-frame extension onto its own too-short Veo clip), where a
+    visible fade-to-black in the middle of what should read as one continuous
+    clip would look like a mistake, not a transition.
     """
     if not clip_paths:
         raise ValueError("No clips to concatenate")
@@ -94,7 +135,8 @@ def concat_clips(clip_paths: List[str], output_path: str) -> None:
         logger.info("[compositor] single clip — copied directly, no concat needed")
         return
 
-    width, height, fps = _probe_video_dims(clip_paths[0])
+    _, _, fps = _probe_video_dims(clip_paths[0])
+    width, height = 1280, 720  # fixed composite target, not derived from source clips
     logger.info(f"[compositor] normalizing {len(clip_paths)} clips to {width}x{height}@{fps}fps")
 
     temp_output = f"{output_path}.tmp.mp4"
@@ -102,13 +144,27 @@ def concat_clips(clip_paths: List[str], output_path: str) -> None:
         inputs: List[str] = []
         filter_parts: List[str] = []
         concat_refs = ""
+        n = len(clip_paths)
         for i, path in enumerate(clip_paths):
             inputs += ["-i", path]
-            filter_parts.append(
-                f"[{i}:v]scale={width}:{height}:force_original_aspect_ratio=decrease,"
-                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={fps}[v{i}]"
-            )
-            filter_parts.append(f"[{i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a{i}]")
+            v_filters = [
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease",
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+                "setsar=1",
+                f"fps={fps}",
+            ]
+            a_filters = ["aformat=sample_rates=44100:channel_layouts=stereo"]
+            if fade and (i > 0 or i < n - 1):
+                dur = _probe_duration(path)
+                if i > 0:
+                    v_filters.append(f"fade=t=in:st=0:d={FADE_SECONDS}")
+                    a_filters.append(f"afade=t=in:st=0:d={FADE_SECONDS}")
+                if i < n - 1:
+                    out_start = max(0.0, dur - FADE_SECONDS)
+                    v_filters.append(f"fade=t=out:st={out_start}:d={FADE_SECONDS}")
+                    a_filters.append(f"afade=t=out:st={out_start}:d={FADE_SECONDS}")
+            filter_parts.append(f"[{i}:v]" + ",".join(v_filters) + f"[v{i}]")
+            filter_parts.append(f"[{i}:a]" + ",".join(a_filters) + f"[a{i}]")
             concat_refs += f"[v{i}][a{i}]"
         filter_complex = ";".join(filter_parts) + ";" + concat_refs + f"concat=n={len(clip_paths)}:v=1:a=1[outv][outa]"
 

@@ -35,7 +35,6 @@ Retry/degrade policy (formalizes the design discussion from planning):
 """
 import logging
 import os
-import subprocess
 import tempfile
 import uuid
 from typing import Callable, Dict, List, Optional
@@ -44,6 +43,7 @@ import requests
 
 from . import tts
 from .asset_manifest import compute_prompt_hash, register_asset
+from .compositor import extract_last_frame_local
 from .renderers.base import Renderer
 from .renderers.image_renderer import ImageRenderer, make_ken_burns_clip
 from .renderers.manim_renderer import ManimRenderer
@@ -66,23 +66,14 @@ def _build_reference_resolver(storyboard: Storyboard) -> Callable[[str], Optiona
 
 
 def extract_last_frame(clip_url: str, output_path: str, work_dir: str) -> None:
-    """Downloads clip_url and grabs its last frame, mirroring
-    learnai/worker.py's generate_thumbnail() (-sseof -1 ... -frames:v 1)."""
+    """Downloads clip_url and grabs its last frame via compositor.py's shared
+    local-frame helper, mirroring learnai/worker.py's generate_thumbnail()."""
     local_clip = os.path.join(work_dir, f"_ref_{uuid.uuid4().hex}.mp4")
     resp = requests.get(clip_url, timeout=60)
     resp.raise_for_status()
     with open(local_clip, "wb") as f:
         f.write(resp.content)
-
-    cmd = ["ffmpeg", "-y", "-sseof", "-1", "-i", local_clip, "-frames:v", "1", output_path]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except FileNotFoundError:
-        raise RuntimeError("ffmpeg not found on PATH — required to extract a held frame")
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to extract last frame:\n{result.stderr[-500:]}")
-    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        raise RuntimeError("Extracted frame is missing or empty")
+    extract_last_frame_local(local_clip, output_path)
 
 
 def _degrade_to_held_frame(

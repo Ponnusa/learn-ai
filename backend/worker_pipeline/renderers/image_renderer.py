@@ -42,7 +42,7 @@ NANO_BANANA_MODEL = os.getenv("NANO_BANANA_MODEL", "gemini-2.5-flash-image")
 GEMINI_CRITIC_MODEL = os.getenv("GEMINI_CRITIC_MODEL", "gemini-3.5-flash-lite")
 
 _RESOLUTIONS = {
-    "16:9": (1920, 1080), "9:16": (1080, 1920), "1:1": (1080, 1080), "4:5": (1080, 1350),
+    "16:9": (1280, 720), "9:16": (720, 1280), "1:1": (720, 720), "4:5": (720, 900),
 }
 
 _genai_client = None
@@ -62,32 +62,39 @@ def _get_genai_client():
 
 def build_image_prompt(segment: Segment, correction_feedback: str = "") -> str:
     """Wraps the storyboard's art-direction generation_prompt with subject style,
-    forbidden-visuals list, and (on retry) critic correction feedback."""
+    forbidden-visuals list, and (on retry) critic correction feedback.
+
+    Deliberately does NOT force a fixed visual style (e.g. "pure white background,
+    textbook line-art") here anymore — storyboard.py's generation_prompt already
+    dialects each image segment as either a realistic photo or a labeled diagram
+    depending on content, and a hardcoded style override here would fight whichever
+    one it actually asked for (this was the likely cause of a low critic score seen
+    in testing: a realistic-photo brief getting overridden by a forced white
+    background/line-art instruction appended to the same prompt). Only the rules
+    that apply regardless of style — label formatting IF labels are used, forbidden
+    misleading visuals — stay fixed here.
+    """
     style = DOMAIN_STYLES.get(segment.subject_area, DOMAIN_STYLES["general"])
     forbidden = "\n".join(f"  - {b}" for b in BAD_VISUALS)
     correction = (
         f"\n\nCORRECTION (fix these issues from the previous attempt):\n{correction_feedback}"
         if correction_feedback else ""
     )
-    return f"""Educational {segment.subject_area} diagram.
+    return f"""Educational {segment.subject_area} visual.
 
-VISUAL BRIEF: {segment.generation_prompt}
+VISUAL BRIEF (follow this exactly, including whatever style it specifies — realistic photo or diagram):
+{segment.generation_prompt}
 
-STYLE: {style}
+SUBJECT STYLE NOTES (apply only where they don't conflict with the visual brief's own style): {style}
 
-LABELLING RULES (critical):
-- Each drawn element gets a SHORT label directly on or next to it (max 4 words)
+LABELLING RULES (only if the visual brief calls for on-image labels — skip entirely for a pure photo):
+- Each label is SHORT, directly on or next to its element (max 4 words)
 - Labels are identifiers only: element name + unit if applicable
 - NO title text block, NO subtitle, NO paragraph text, NO floating description
 - NO legend boxes with long text
 
 NEVER INCLUDE (scientifically misleading):
-{forbidden}
-
-Image requirements:
-- Pure white background
-- Professional textbook line-art quality
-- No decorative backgrounds, gradients, or artistic flourishes{correction}"""
+{forbidden}{correction}"""
 
 
 # ─────────────────────────────────────────────────────────────────────────────

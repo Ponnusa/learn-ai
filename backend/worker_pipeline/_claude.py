@@ -38,7 +38,10 @@ def call_with_retry(**kwargs) -> str:
     for attempt, delay in enumerate(_RETRY_DELAYS, 1):
         try:
             response = client.messages.create(**kwargs)
-            return response.content[0].text.strip()
+            for block in response.content:
+                if getattr(block, "type", None) == "text":
+                    return block.text.strip()
+            raise RuntimeError("Claude response contained no text block (only thinking/other blocks)")
         except Exception as exc:
             last_exc = exc
             err = str(exc)

@@ -82,9 +82,15 @@ Each segment has exactly one "type":
     pedagogy. generation_prompt must be Manim-direction style: exact object/animation intent
     (e.g. "GrowArrow for the normal force, perpendicular to the incline; ball moves along the
     slope with MoveAlongPath").
-  - "image" -> a precise, static, textbook-style visual: labeled diagrams, structures,
-    comparisons. generation_prompt must be pure art-direction: composition, what to label, style —
-    NO Manim class names, NO code terms, NO camera-motion language.
+  - "image" -> a REALISTIC PHOTOGRAPH by default whenever the segment depicts a real-world
+    object, scene, or scenario (e.g. a cup sweating with condensation, two materials side by
+    side in daylight, someone demonstrating an everyday action). Photorealism is what
+    differentiates an image segment from a manim segment and makes a lesson feel real rather
+    than like a textbook slide. Only use a clean labeled-diagram style instead (structures,
+    cross-sections, comparisons) when the content is inherently abstract/structural with no
+    natural realistic depiction. Either way, generation_prompt must be pure art-direction:
+    composition, what to show/label, lighting/style — NO Manim class names, NO code terms,
+    NO camera-motion language (camera motion is video's job).
   - "video" -> {video_rule}
     generation_prompt (when used) must be cinematography style: camera framing and real-world
     motion — NEVER instruct on-screen text/labels.
@@ -197,8 +203,7 @@ def generate_storyboard(
         )
         raw = _call_claude_with_retry(
             model=_MODEL,
-            max_tokens=4000,
-            temperature=0.3,
+            max_tokens=16000,
             messages=[{"role": "user", "content": prompt}],
         )
 

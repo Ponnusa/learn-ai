@@ -16,16 +16,25 @@ Two genuinely different pieces live here:
 
   2. Docker render (render_code_to_clip) — turns generated code into an
      actual mp4 via `docker run manim-with-voiceover`, matching this same
-     worker's render_video() Docker invocation elsewhere in worker.py — this
-     is the piece that only ever worked on the GCP VM, and now runs for real
-     here as of the Sprint 6 port (dev-repo version could only reach the
-     honest "Docker not available" error, since it had no Docker/manim at
-     all).
+     worker's render_video() Docker invocation elsewhere in worker.py.
 
 PORT NOTE: dev repo resolved _PROMPTS_DIR three levels up from
 backend/pipeline/renderers/ to backend/prompts/. This module now lives at
 worker_pipeline/renderers/, with the copied prompt files at
 worker_pipeline/prompts/ — two levels up, not three.
+
+CACHING: mirrors video_renderer.py's pattern — one hash covering
+generation_prompt + narration_text + subject_area (narration is baked
+directly into the generated code's voiceover block, so a narration-only
+change still needs a fresh render, same as a prompt change), checked BEFORE
+paying for a Claude call + a full Docker render. Previously this renderer
+never checked the cache at all — every rerun regenerated from scratch even
+when nothing had changed.
+
+NO TEMPERATURE OVERRIDE: newer Claude models (claude-sonnet-5 and later)
+reject an explicit `temperature` kwarg outright (`400 - temperature is
+deprecated for this model`) — the API default is used instead, matching how
+this call site should behave regardless of which Claude model is configured.
 """
 import logging
 import os
@@ -37,8 +46,9 @@ from typing import Optional
 from pathlib import Path
 
 from .._claude import MODEL, call_with_retry
-from ..asset_manifest import AssetRef, compute_prompt_hash, register_asset
+from ..asset_manifest import AssetRef, check_cache, compute_prompt_hash, register_asset
 from ..schema import Segment
+from ..tts import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, AZURE_VOICE_NAME
 from .base import Renderer
 
 logger = logging.getLogger(__name__)
@@ -92,6 +102,12 @@ VOICEOVER TEXT (verbatim, wrap in exactly one `with self.voiceover(text=...)` bl
 SUBJECT: {segment.subject_area}
 TARGET DURATION: {segment.target_duration_seconds:.0f} seconds
 
+VOICE (critical — other segments in this same lesson use a fixed narrator voice):
+Call self.set_speech_service(AzureService(voice="{AZURE_VOICE_NAME}")) — use EXACTLY this
+voice name, character for character. Do NOT choose a different voice. Every segment in this
+lesson (Manim, image, video) must sound like the same narrator; picking a different voice
+here breaks that consistency.
+
 TIMING SAFETY (critical — this has caused render failures before):
 Any time you compute a self.wait(...) duration or an animation's run_time by subtracting
 elapsed time from a target duration (e.g. tracker.duration - X, or remaining_time - Y),
@@ -105,8 +121,7 @@ no markdown fences."""
 
     raw = call_with_retry(
         model=MODEL,
-        max_tokens=4000,
-        temperature=0.2,
+        max_tokens=16000,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
     )
@@ -151,6 +166,12 @@ def render_code_to_clip(code: str, segment_id: str, work_dir: str) -> str:
             "can generate code (see generate_manim_code) but cannot render it "
             "locally; full render validation happens at the Sprint 6 port."
         )
+    if not AZURE_SPEECH_KEY:
+        raise RuntimeError(
+            "AZURE_SPEECH_KEY not set — manim_voiceover's AzureService would otherwise "
+            "try to interactively prompt for it inside the container and crash with "
+            "EOFError (no stdin attached to a non-interactive docker run)."
+        )
 
     scene_name = _extract_scene_name(code)
     os.makedirs(work_dir, exist_ok=True)
@@ -166,6 +187,8 @@ def render_code_to_clip(code: str, segment_id: str, work_dir: str) -> str:
         "-v", f"{os.path.abspath(work_dir)}:/manim",
         "-v", f"{os.path.abspath(media_dir)}:/output",
         "-e", "PYTHONPATH=/manim",
+        "-e", f"AZURE_SUBSCRIPTION_KEY={AZURE_SPEECH_KEY}",
+        "-e", f"AZURE_SERVICE_REGION={AZURE_SPEECH_REGION}",
         "--workdir", "/manim",
         "manim-with-voiceover:latest",
         "manim", "-qm", "--media_dir", "/output", "--progress_bar", "none", "--disable_caching",
@@ -189,15 +212,31 @@ class ManimRenderer(Renderer):
     def render(self, segment: Segment) -> AssetRef:
         segment.status = "generating"
         try:
+            # One hash covering prompt + narration + subject — narration is
+            # baked directly into the generated code's voiceover block, so a
+            # narration-only change still needs a fresh render (same
+            # reasoning as video_renderer.py's clip_hash).
+            clip_hash = compute_prompt_hash(
+                f"{segment.generation_prompt}||{segment.narration_text}", "", segment.subject_area,
+            )
+            segment.prompt_hash = clip_hash
+
+            cached = check_cache(clip_hash, "manim_clip", segment.id, ".mp4")
+            if cached:
+                logger.info(f"[manim_renderer] cache hit for segment {segment.id} — skipping Claude+Docker")
+                segment.clip_url = cached.url
+                segment.actual_duration_seconds = segment.target_duration_seconds
+                segment.status = "rendered"
+                segment.error_message = None
+                return cached
+
             code = generate_manim_code(segment)
             segment.generated_code = code
 
             seg_work_dir = os.path.join(self._work_dir, f"manim_{segment.id}")
             clip_path = render_code_to_clip(code, segment.id, seg_work_dir)
 
-            prompt_hash = compute_prompt_hash(segment.generation_prompt, "", segment.subject_area)
-            segment.prompt_hash = prompt_hash
-            clip_ref = register_asset(clip_path, segment.id, "manim_clip", prompt_hash)
+            clip_ref = register_asset(clip_path, segment.id, "manim_clip", clip_hash)
 
             segment.clip_url = clip_ref.url
             segment.actual_duration_seconds = segment.target_duration_seconds

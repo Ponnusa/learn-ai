@@ -44,9 +44,10 @@ from typing import Optional
 
 from .. import tts
 from ..asset_manifest import AssetRef, check_cache, compute_prompt_hash, register_asset
+from ..compositor import concat_clips, extract_last_frame_local
 from ..schema import Segment
 from .base import Renderer
-from .image_renderer import ImageRenderer
+from .image_renderer import ImageRenderer, make_ken_burns_clip
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +153,29 @@ class VideoRenderer(Renderer):
             # part that actually has to be there.
             audio_path = os.path.join(self._work_dir, f"{segment.id}_{clip_hash}_narration.wav")
             tts.generate_narration_audio(segment.narration_text, audio_path)
+
+            # Veo returns clips at a fixed model duration (e.g. 6-8s) with no
+            # relationship to how long the narration actually takes to speak.
+            # mux_audio_onto_video()'s -shortest would otherwise silently
+            # truncate narration mid-sentence if it runs longer than the raw
+            # clip — instead, extend the visual by holding its last frame for
+            # the gap (same trick orchestrator.py's degrade path uses when a
+            # visual comes up short of its narration).
+            narration_duration = tts.get_media_duration(audio_path)
+            video_duration = tts.get_media_duration(raw_clip_path)
+            if narration_duration > video_duration:
+                gap = narration_duration - video_duration
+                frame_path = os.path.join(self._work_dir, f"{segment.id}_last_frame.png")
+                extract_last_frame_local(raw_clip_path, frame_path)
+                hold_path = os.path.join(self._work_dir, f"{segment.id}_hold.mp4")
+                make_ken_burns_clip(frame_path, gap, hold_path, segment.aspect_ratio)
+                extended_path = os.path.join(self._work_dir, f"{segment.id}_extended.mp4")
+                concat_clips([raw_clip_path, hold_path], extended_path, fade=False)
+                raw_clip_path = extended_path
+                logger.info(
+                    f"[video_renderer] segment {segment.id}: narration ({narration_duration:.1f}s) "
+                    f"exceeds Veo clip ({video_duration:.1f}s) — held last frame for {gap:.1f}s"
+                )
 
             clip_path = os.path.join(self._work_dir, f"{segment.id}_{clip_hash}.mp4")
             tts.mux_audio_onto_video(raw_clip_path, audio_path, clip_path)

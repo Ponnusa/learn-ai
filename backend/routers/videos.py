@@ -477,7 +477,63 @@ async def _generate_video_bg(
             _log.error(f"[pipeline] video {video_id}: also failed to write Phase 1 error — {_db_err}")
         return
 
-    # ── Phase 2: Manim code generation ──────────────────────────────────────
+    # ── Phase 1.5: storyboard branch — multimodal_video_enabled users ───────
+    if user_id:
+        async with get_db() as db:
+            _multimodal = await db.fetchval(
+                "SELECT multimodal_video_enabled FROM users WHERE id = $1::uuid", user_id
+            )
+    else:
+        _multimodal = False
+
+    if _multimodal:
+        _log.info(f"[pipeline] video {video_id}: multimodal enabled -> storyboard path")
+        try:
+            from worker_pipeline.storyboard import generate_storyboard
+            storyboard = await asyncio.to_thread(
+                generate_storyboard,
+                lesson_id=str(video_id),
+                topic=prompt,
+                verified_solution=solution_data["verified_solution"],
+                subject_area=subject or "general",
+                target_duration_seconds=max_secs,
+                enable_veo=False,
+                aspect_ratio=aspect_ratio,
+            )
+            async with get_db() as db:
+                await db.executemany("""
+                    INSERT INTO video_segments
+                      (video_id, segment_id, segment_order, type,
+                       target_duration_seconds, subject_area, aspect_ratio,
+                       narration_text, generation_prompt,
+                       style_reference_segment_id, status)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+                """, [
+                    (video_id, s.id, s.order, s.type,
+                     s.target_duration_seconds, s.subject_area, s.aspect_ratio,
+                     s.narration_text, s.generation_prompt,
+                     s.style_reference_segment_id)
+                    for s in storyboard.segments
+                ])
+                await db.execute(
+                    "UPDATE videos SET status='queued', updated_at=NOW() WHERE id=$1",
+                    video_id,
+                )
+            _log.info(f"[pipeline] video {video_id}: {len(storyboard.segments)} segments queued -> triggering render")
+            _trigger_video_generation(video_id, {})
+        except Exception as e:
+            _log.error(f"[pipeline] video {video_id}: storyboard generation failed - {e}", exc_info=True)
+            try:
+                async with get_db() as db:
+                    await db.execute(
+                        "UPDATE videos SET status='failed', error_message=$1, updated_at=NOW() WHERE id=$2",
+                        f"Storyboard generation failed: {e}", video_id,
+                    )
+            except Exception:
+                pass
+        return  # skip Phase 2 regardless — do not fall through to single-scene path
+
+    # ── Phase 2: single-scene Manim code generation ──────────────────────────
     _log.info(f"[pipeline] video {video_id}: starting Phase 2 (Manim generation)")
     try:
         code_data = await asyncio.wait_for(

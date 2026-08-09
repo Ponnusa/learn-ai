@@ -341,8 +341,6 @@ import numpy as np
 def get_svg(name, url, height=0.8): ...  # injected by backend
 
 class BicycleForces(VoiceoverScene):
-    def show_subtitle(self, text, duration=None): ...  # injected by backend
-
     def construct(self):
         self.camera.background_color = ManimColor("#0D1117")
         # ... set_speech_service ...
@@ -351,7 +349,6 @@ class BicycleForces(VoiceoverScene):
         # LEFT zone (-4 to 0): hill + bicycle + force arrows
         # RIGHT zone (1.5 to 4): formulas and labels
         # TOP zone (y > 2.5): title
-        # BOTTOM zone (y < -2.5): subtitle only
 
         # ── HILL (filled polygon) ──────────────────────────────────
         hill = Polygon(
@@ -362,7 +359,6 @@ class BicycleForces(VoiceoverScene):
         ground = Line(LEFT*4+DOWN*2, RIGHT*0.5+DOWN*2, color="#555555", stroke_width=2)
 
         with self.voiceover(text="A 10 kg bicycle rides down a slope...") as tracker:
-            sub = self.show_subtitle("A 10 kg bicycle rides down a slope...")
             title = Text("Forces on a Bicycle", font_size=32, color=WHITE).to_edge(UP, buff=0.3)
             self.play(FadeIn(title, shift=UP*0.3), run_time=0.8)
             self.play(DrawBorderThenFill(hill), Create(ground), run_time=1.5)
@@ -374,12 +370,9 @@ class BicycleForces(VoiceoverScene):
             bicycle.move_to(LEFT*2 + UP*0.3)
             self.play(FadeIn(bicycle, shift=LEFT*0.3), run_time=1.0)
             self.wait(tracker.duration - 3.5)
-        self.play(FadeOut(sub), run_time=0.5)
 
         # ── FORCE ARROWS — use GrowArrow, not Create ───────────────
         with self.voiceover(text="Gravity pulls it straight down with 98 Newtons...") as tracker:
-            sub = self.show_subtitle("Gravity pulls it straight down with 98 Newtons.")
-
             formula = MathTex(r"F_g = mg = 98\,\text{N}", font_size=30, color=YELLOW)
             formula.move_to(RIGHT*3 + UP*2)
             self.play(FadeIn(formula, shift=RIGHT*0.3), run_time=0.8)
@@ -394,11 +387,9 @@ class BicycleForces(VoiceoverScene):
             self.play(FadeIn(grav_label), run_time=0.5)
             self.play(Indicate(formula, color=RED, scale_factor=1.1), run_time=0.8)
             self.wait(tracker.duration - 3.2)
-        self.play(FadeOut(sub), run_time=0.5)
 
         # ── VEHICLE MOTION: move bicycle + arrows together ─────────
         with self.voiceover(text="The bicycle accelerates down the slope...") as tracker:
-            sub = self.show_subtitle("The bicycle accelerates down the slope.")
             shift_vec = RIGHT*2 + DOWN*1.0  # move along slope direction
             self.play(
                 bicycle.animate.shift(shift_vec),
@@ -407,7 +398,6 @@ class BicycleForces(VoiceoverScene):
                 run_time=2.5, rate_func=smooth
             )
             self.wait(tracker.duration - 3.0)
-        self.play(FadeOut(sub), run_time=0.5)
 ```
 
 KEY RULES from this example:
@@ -417,24 +407,6 @@ KEY RULES from this example:
 - motion: bicycle + arrows all shift() together in ONE play() call
 - formulas on RIGHT, diagram on LEFT — no overlap
 - DrawBorderThenFill() for the hill polygon
-
-══════════════════════════════════════════════════════════════════
-SHOW_SUBTITLE REMINDER (PHYSICS)
-══════════════════════════════════════════════════════════════════
-show_subtitle MUST be defined as a CLASS METHOD, not a nested function inside construct().
-
-CORRECT:
-class PhysicsScene(VoiceoverScene):
-    def show_subtitle(self, text, duration=None):   ← class method, 4-space indent
-        ...
-    def construct(self):
-        sub = self.show_subtitle("...")              ← called with self.
-
-WRONG (crashes or silently fails):
-    def construct(self):
-        def show_subtitle(self, text):              ← NEVER nest it here
-            ...
-        sub = show_subtitle(self, "...")            ← NEVER call like this
 
 ══════════════════════════════════════════════════════════════════
 CIRCUIT DIAGRAMS (Manual Construction)

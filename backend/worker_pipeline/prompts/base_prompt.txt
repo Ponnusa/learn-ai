@@ -48,38 +48,6 @@ from manim_voiceover import VoiceoverScene
 3. Voice Service (inside construct):
 {{TTS_SERVICE_BLOCK}}
 
-4. SUBTITLE SYSTEM (MANDATORY)
-
-Add show_subtitle as a CLASS METHOD — defined at the same indentation level as construct(), NOT inside construct():
-
-class YourScene(VoiceoverScene):
-    def show_subtitle(self, text, duration=None):
-        # Display wrapped subtitle at bottom of screen during voiceover.
-        import textwrap
-        wrapped = "\n".join(textwrap.wrap(text, width=60))
-        subtitle = Text(wrapped, font_size=18, color=WHITE, line_spacing=1.2).to_edge(DOWN, buff=0.3)
-        self.play(FadeIn(subtitle))
-        if duration:
-            self.wait(duration)
-        return subtitle
-
-    def construct(self):
-        ...
-
-USAGE PATTERN — call as self.show_subtitle() inside voiceover blocks:
-with self.voiceover(text="...") as tracker:
-    sub = self.show_subtitle("Same text as voiceover")
-    # ... animations ...
-    self.wait(tracker.duration - 0.5)
-self.play(FadeOut(sub))
-
-SUBTITLE RULES:
-- show_subtitle MUST be a class method, NEVER a nested function inside construct()
-- Every voiceover block MUST have a matching subtitle
-- Call as self.show_subtitle(...), NEVER as show_subtitle(self, ...)
-- Remove subtitle (FadeOut) before starting the next voiceover block
-- Never stack subtitles — only one visible at a time
-
 ══════════════════════════════════════════════════════════════════
 LAYOUT RULES (MANDATORY)
 ══════════════════════════════════════════════════════════════════
@@ -87,12 +55,11 @@ LAYOUT RULES (MANDATORY)
 CANVAS ZONES:
 - TOP    (y > 2.5):   Titles and section headers only
 - MIDDLE (-2 < y < 2): Main content — diagrams, equations, text
-- BOTTOM (y < -2.5):  Subtitles ONLY — never place content here
+- BOTTOM (y < -2.5):  Keep clear — safety margin, avoid placing content here
 
 TEXT SIZE LIMITS:
 - Titles:    font_size <= 36
 - Body text: font_size <= 28
-- Subtitles: font_size = 18 (fixed), wraps automatically via set_max_width
 - Labels:    font_size <= 20
 
 ELEMENT LIMITS:
@@ -187,7 +154,7 @@ COLOR CODING (consistent across scenes):
 - Labels:     WHITE or LIGHT_GRAY
 - Arrows:     YELLOW or ORANGE
 
-5. Colors (STRICT)
+4. Colors (STRICT)
 Use ONLY these valid Manim color constants (case-sensitive):
 RED, BLUE, GREEN, YELLOW, ORANGE, PURPLE, PINK, WHITE, BLACK, GRAY, GREY,
 TEAL, GOLD, MAROON, DARK_BLUE, DARK_BROWN, LIGHT_BROWN, LIGHT_GRAY, LIGHT_GREY

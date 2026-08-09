@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY")
 AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION", "swedencentral")
-AZURE_VOICE_NAME = os.getenv("AZURE_VOICE_NAME", "en-US-AndrewMultilingualNeural")
+AZURE_VOICE_NAME = os.getenv("AZURE_VOICE_NAME", "en-US-JennyNeural")
 
 
 def generate_narration_audio(text: str, output_path: str) -> None:
