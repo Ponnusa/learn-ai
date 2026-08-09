@@ -128,10 +128,11 @@ async def list_users(
 
 
 class UpdateUserRequest(BaseModel):
-    is_active:    bool | None = None
-    account_type: str | None = None
-    tier:         str | None = None
-    new_password: str | None = None
+    is_active:                 bool | None = None
+    account_type:              str  | None = None
+    tier:                      str  | None = None
+    new_password:              str  | None = None
+    multimodal_video_enabled:  bool | None = None
 
 
 @router.patch("/users/{user_id}")
@@ -161,6 +162,9 @@ async def update_user(
     if req.new_password is not None:
         params.append(_hash_password(req.new_password))
         sets.append(f"password_hash = ${len(params)}")
+    if req.multimodal_video_enabled is not None:
+        params.append(req.multimodal_video_enabled)
+        sets.append(f"multimodal_video_enabled = ${len(params)}")
 
     if not sets:
         raise HTTPException(400, "Nothing to update")
