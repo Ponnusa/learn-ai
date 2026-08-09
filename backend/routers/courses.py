@@ -5420,6 +5420,46 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                 WHERE id = $3
             """, solution_data["transcript_markdown"], solution_data["verified_solution"], video_id)
 
+        # ── Storyboard branch (multimodal_video_enabled) ─────────────────────
+        _multimodal = False
+        if teacher_id:
+            async with get_db() as db:
+                _multimodal = await db.fetchval(
+                    "SELECT multimodal_video_enabled FROM users WHERE id = $1::uuid", teacher_id
+                )
+        if _multimodal:
+            logger.info("[video] concept %s: multimodal enabled -> storyboard path (video %s)", concept_id, video_id)
+            from worker_pipeline.storyboard import generate_storyboard
+            storyboard = await asyncio.to_thread(
+                generate_storyboard,
+                lesson_id=str(video_id),
+                topic=prompt,
+                verified_solution=solution_data["verified_solution"],
+                subject_area=subject or "general",
+                target_duration_seconds=duration,
+                enable_veo=False,
+                aspect_ratio="16:9",
+            )
+            async with get_db() as db:
+                await db.executemany("""
+                    INSERT INTO video_segments
+                      (video_id, segment_id, segment_order, type,
+                       target_duration_seconds, subject_area, aspect_ratio,
+                       narration_text, generation_prompt,
+                       style_reference_segment_id, status)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+                """, [
+                    (video_id, s.id, s.order, s.type,
+                     s.target_duration_seconds, s.subject_area, s.aspect_ratio,
+                     s.narration_text, s.generation_prompt, s.style_reference_segment_id)
+                    for s in storyboard.segments
+                ])
+                await db.execute(
+                    "UPDATE videos SET status='queued', updated_at=NOW() WHERE id=$1", video_id,
+                )
+            _trigger_video_generation(video_id, {})
+            return
+
         # ── Phase 2: Claude Manim code + SVG assets + critic pass ────────────
         logger.info("[video] concept %s: Phase 2 (Manim code) starting (video %s)", concept_id, video_id)
         code_data = await asyncio.wait_for(
@@ -5840,6 +5880,46 @@ async def _generate_block_video_bg(
                 SET transcript_markdown = $1, verified_solution = $2, status = 'transcript_ready', updated_at = NOW()
                 WHERE id = $3
             """, transcript, solution_data["verified_solution"], video_id)
+
+        # ── Storyboard branch (multimodal_video_enabled) ─────────────────────
+        _multimodal = False
+        if user_id:
+            async with get_db() as db:
+                _multimodal = await db.fetchval(
+                    "SELECT multimodal_video_enabled FROM users WHERE id = $1::uuid", user_id
+                )
+        if _multimodal:
+            logger.info("[block-video] block %s: multimodal enabled -> storyboard path (video %s)", block_id, video_id)
+            from worker_pipeline.storyboard import generate_storyboard
+            storyboard = await asyncio.to_thread(
+                generate_storyboard,
+                lesson_id=str(video_id),
+                topic=gen_prompt,
+                verified_solution=solution_data["verified_solution"],
+                subject_area=manim_subject or "general",
+                target_duration_seconds=duration,
+                enable_veo=False,
+                aspect_ratio="16:9",
+            )
+            async with get_db() as db:
+                await db.executemany("""
+                    INSERT INTO video_segments
+                      (video_id, segment_id, segment_order, type,
+                       target_duration_seconds, subject_area, aspect_ratio,
+                       narration_text, generation_prompt,
+                       style_reference_segment_id, status)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+                """, [
+                    (video_id, s.id, s.order, s.type,
+                     s.target_duration_seconds, s.subject_area, s.aspect_ratio,
+                     s.narration_text, s.generation_prompt, s.style_reference_segment_id)
+                    for s in storyboard.segments
+                ])
+                await db.execute(
+                    "UPDATE videos SET status='queued', updated_at=NOW() WHERE id=$1", video_id,
+                )
+            _trigger_video_generation(video_id, {})
+            return
 
         logger.info("[block-video] block %s: Phase 2 starting (video %s)", block_id, video_id)
         code_data = await asyncio.wait_for(

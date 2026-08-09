@@ -187,7 +187,7 @@ async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, 
         elif kind == "studyset":
             await _generate_assignment_studyset(assignment_id, student_id, concept, subject, source)
         elif kind == "video":
-            await _generate_assignment_video(assignment_id, concept, subject, extra, language)
+            await _generate_assignment_video(assignment_id, concept, subject, extra, language, user_id=student_id)
 
     except Exception as exc:
         logger.error("[assignment] %s (%s) failed: %s", assignment_id, kind, exc, exc_info=True)
@@ -260,7 +260,7 @@ async def _generate_assignment_studyset(assignment_id: str, student_id: str, con
         )
 
 
-async def _generate_assignment_video(assignment_id: str, concept: dict, subject: str, extra: str, language: str = 'en'):
+async def _generate_assignment_video(assignment_id: str, concept: dict, subject: str, extra: str, language: str = 'en', user_id: str | None = None):
     from services.manim import (
         generate_solution_only, generate_manim_from_solution,
         fix_manim_colors, ensure_numpy_import, strip_invalid_tex_weight, _trigger_video_generation,
@@ -290,6 +290,46 @@ async def _generate_assignment_video(assignment_id: str, concept: dict, subject:
                               status = 'transcript_ready', updated_at = NOW()
             WHERE id = $3
         """, solution_data["transcript_markdown"], solution_data["verified_solution"], video_id)
+
+    # ── Storyboard branch (multimodal_video_enabled) ─────────────────────────
+    _multimodal = False
+    if user_id:
+        async with get_db() as db:
+            _multimodal = await db.fetchval(
+                "SELECT multimodal_video_enabled FROM users WHERE id = $1::uuid", user_id
+            )
+    if _multimodal:
+        logger.info("[assignment] %s: multimodal enabled -> storyboard path (video %s)", assignment_id, video_id)
+        from worker_pipeline.storyboard import generate_storyboard
+        storyboard = await asyncio.to_thread(
+            generate_storyboard,
+            lesson_id=str(video_id),
+            topic=prompt,
+            verified_solution=solution_data["verified_solution"],
+            subject_area=manim_subject or "general",
+            target_duration_seconds=duration,
+            enable_veo=False,
+            aspect_ratio="16:9",
+        )
+        async with get_db() as db:
+            await db.executemany("""
+                INSERT INTO video_segments
+                  (video_id, segment_id, segment_order, type,
+                   target_duration_seconds, subject_area, aspect_ratio,
+                   narration_text, generation_prompt,
+                   style_reference_segment_id, status)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+            """, [
+                (video_id, s.id, s.order, s.type,
+                 s.target_duration_seconds, s.subject_area, s.aspect_ratio,
+                 s.narration_text, s.generation_prompt, s.style_reference_segment_id)
+                for s in storyboard.segments
+            ])
+            await db.execute(
+                "UPDATE videos SET status='queued', updated_at=NOW() WHERE id=$1", video_id,
+            )
+        _trigger_video_generation(video_id, {})
+        return
 
     code_data = await asyncio.wait_for(
         generate_manim_from_solution(solution_data, language, duration, "16:9"), timeout=900
