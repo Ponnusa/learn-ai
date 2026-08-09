@@ -223,26 +223,24 @@ self.play(FadeIn(ps_triangle), Write(ps_label))
 FORMULA STYLE FOR ECONOMICS
 ══════════════════════════════════════════════════════════════════
 
-Economics mixes text and math — use MathTex for equations:
+MANDATORY: Use Text() for ALL equations and formulas — NEVER MathTex or Tex.
+Use Unicode characters for subscripts, fractions, and Greek letters.
 
 ```python
 # Equilibrium condition
-eq_formula = MathTex(r"Q_D = Q_S", font_size=44, color=YELLOW)
+eq_formula = Text("Q_D = Q_S", font_size=44, color=YELLOW)
 
-# Elasticity
-elas = MathTex(
-    r"E_d = \frac{\% \Delta Q_D}{\% \Delta P}",
-    font_size=42, color=WHITE
-)
+# Elasticity (use unicode approximation)
+elas = Text("E_d = %ΔQ_D / %ΔP", font_size=38, color=WHITE)
 
 # GDP components
-gdp = MathTex(r"Y = C + I + G + (X - M)", font_size=40, color=WHITE)
+gdp = Text("Y = C + I + G + (X - M)", font_size=40, color=WHITE)
 
 # Multiplier
-mult = MathTex(r"k = \frac{1}{1 - MPC}", font_size=42, color=WHITE)
+mult = Text("k = 1 / (1 - MPC)", font_size=42, color=WHITE)
 ```
 
-Use Text() for descriptive labels like "Consumer Surplus", "Price Floor", etc.
+Use Text() for ALL labels: "Consumer Surplus", "Price Floor", axis values, formulas, etc.
 
 ══════════════════════════════════════════════════════════════════
 ANIMATION FLOW FOR ECONOMICS
@@ -275,6 +273,6 @@ Before outputting, verify:
 ✔ Equilibrium marked with dashed lines to both axes
 ✔ Curve labels (D, S, MC, AC...) placed at curve ends
 ✔ Surplus/loss areas shaded if relevant to the problem
-✔ MathTex used for all equations
+✔ Text() used for all equations (never MathTex/Tex)
 ✔ Each screen cleared before next phase
 ✔ Numerical answer shown in final screen with answer box
