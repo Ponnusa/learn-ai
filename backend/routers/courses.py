@@ -1276,9 +1276,9 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
                         fallback_vid = meta.get("video_id")
                         if fallback_vid:
                             vid_info = fallback_video_map.get(int(fallback_vid), {})
-                        # Signal to frontend that the content block is gone
-                        if vid_info:
-                            video_block_id = ""
+                        # Block is gone regardless of whether fallback was found;
+                        # empty string tells the frontend to skip rendering a video card.
+                        video_block_id = ""
                     video_int_id      = vid_info.get("video_id") or meta.get("video_id")
                     raw_status        = vid_info.get("video_status") or ""
                     # Normalize: videos table uses 'completed', frontend uses 'ready'
