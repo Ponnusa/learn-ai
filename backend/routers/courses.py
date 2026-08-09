@@ -955,6 +955,55 @@ async def delete_course(course_id: str, authorization: str = Header(...)):
     return {"ok": True}
 
 
+# ── Export ────────────────────────────────────────────────────────────────────
+
+@router.get("/{course_id}/export")
+async def export_course(
+    course_id: str,
+    format: str = "html",
+    request: Request = None,
+    authorization: str = Header(...),
+):
+    """
+    Export all student materials for a course.
+
+    ?format=html   → single self-contained HTML file (default)
+    ?format=scorm  → SCORM 1.2 ZIP importable into any LMS
+    """
+    from services.export import export_html, export_scorm
+
+    await _require_teacher(authorization)
+
+    base_url = str(request.base_url).rstrip("/") if request else ""
+
+    if format == "scorm":
+        data = await export_scorm(course_id, base_url)
+        if data is None:
+            raise HTTPException(404, "Course not found")
+        safe_name = re.sub(r"[^a-z0-9_-]", "_", course_id.lower())
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={
+                "Content-Disposition": f'attachment; filename="course_{safe_name}_scorm.zip"',
+                "Content-Length": str(len(data)),
+            },
+        )
+    else:
+        data = await export_html(course_id, base_url)
+        if data is None:
+            raise HTTPException(404, "Course not found")
+        safe_name = re.sub(r"[^a-z0-9_-]", "_", course_id.lower())
+        return Response(
+            content=data,
+            media_type="text/html; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="course_{safe_name}.html"',
+                "Content-Length": str(len(data)),
+            },
+        )
+
+
 # ── Units ─────────────────────────────────────────────────────────────────────
 
 class UnitRequest(BaseModel):
