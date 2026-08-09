@@ -39,7 +39,7 @@ _MAX_PARSE_ATTEMPTS = 2
 
 
 def _segment_budget(target_duration_seconds: int) -> int:
-    return max(2, min(target_duration_seconds // 12, 15))
+    return max(2, min(target_duration_seconds // 20, 10))
 
 
 def _build_prompt(
