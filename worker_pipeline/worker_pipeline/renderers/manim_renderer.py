@@ -45,7 +45,7 @@ from pathlib import Path
 from .._claude import MODEL, call_with_retry
 from ..asset_manifest import AssetRef, check_cache, compute_prompt_hash, register_asset
 from ..schema import Segment
-from ..tts import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, AZURE_VOICE_NAME
+from ..tts import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, AZURE_VOICE_NAME, voice_for_language
 from .base import Renderer
 
 logger = logging.getLogger(__name__)
@@ -117,6 +117,7 @@ def generate_manim_code(segment: Segment) -> str:
     """
     system_prompt = build_system_prompt(segment.subject_area, segment.aspect_ratio)
 
+    seg_voice = voice_for_language(segment.language)
     user_prompt = f"""Implement ONE short Manim scene for a single segment of a longer lesson video.
 This segment is {segment.target_duration_seconds:.0f} seconds long and covers ONLY the direction
 below — do not attempt to cover the whole lesson topic, and do not re-derive or change any values.
@@ -131,7 +132,7 @@ SUBJECT: {segment.subject_area}
 TARGET DURATION: {segment.target_duration_seconds:.0f} seconds
 
 VOICE (critical — other segments in this same lesson use a fixed narrator voice):
-Call self.set_speech_service(AzureService(voice="{AZURE_VOICE_NAME}")) — use EXACTLY this
+Call self.set_speech_service(AzureService(voice="{seg_voice}")) — use EXACTLY this
 voice name, character for character. Do NOT choose a different voice. Every segment in this
 lesson (Manim, image, video) must sound like the same narrator; picking a different voice
 here breaks that consistency.
@@ -180,6 +181,7 @@ def generate_all_manim_code(segments: List[Segment]) -> str:
     """
     subject_area = segments[0].subject_area
     aspect_ratio = segments[0].aspect_ratio
+    unified_voice = voice_for_language(segments[0].language)
     system_prompt = build_system_prompt(subject_area, aspect_ratio)
 
     seg_blocks = []
@@ -209,7 +211,7 @@ STRUCTURE RULES:
 2. Write exactly {n} classes, named EXACTLY as specified in each segment header
    below. Deviating from those names causes the render to crash.
 3. Every class must call:
-   self.set_speech_service(AzureService(voice="{AZURE_VOICE_NAME}"))
+   self.set_speech_service(AzureService(voice="{unified_voice}"))
 4. Every class must contain exactly one voiceover context manager:
    with self.voiceover(text="...") as tracker:
 5. Clamp ALL computed durations:

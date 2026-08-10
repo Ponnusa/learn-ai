@@ -59,6 +59,7 @@ from typing import Callable, Dict, List, Optional
 import requests
 
 from . import tts
+from .tts import voice_for_language
 from .asset_manifest import compute_prompt_hash, register_asset
 from .compositor import extract_last_frame_local
 from .renderers.base import Renderer
@@ -124,7 +125,7 @@ def _degrade_to_held_frame(
     # propagating instead of silently shipping a mute segment.
     prompt_hash = compute_prompt_hash(f"held-frame-from-{reference_segment.id}", "", segment.subject_area)
     audio_path = os.path.join(work_dir, f"{segment.id}_held_narration.wav")
-    tts.generate_narration_audio(segment.narration_text, audio_path)
+    tts.generate_narration_audio(segment.narration_text, audio_path, voice_for_language(segment.language))
     narration_duration = tts.get_media_duration(audio_path)
 
     silent_clip_path = os.path.join(work_dir, f"{segment.id}_held_silent.mp4")

@@ -51,4 +51,5 @@ class Storyboard(BaseModel):
     target_duration_seconds: int
     subject_area: str
     aspect_ratio: str = "16:9"
+    language: str = "en"
     segments: list[Segment] = Field(default_factory=list)
