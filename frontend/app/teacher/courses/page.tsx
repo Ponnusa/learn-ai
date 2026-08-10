@@ -35,6 +35,7 @@ export default function TeacherCoursesPage() {
   const [subject,   setSubject]  = useState('');
   const [grade,     setGrade]    = useState('');
   const [board,     setBoard]    = useState('');
+  const [language,  setLanguage] = useState('en');
   const [desc,      setDesc]     = useState('');
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -59,7 +60,7 @@ export default function TeacherCoursesPage() {
     try {
       const res = await fetch(`${API_BASE}/api/courses`, {
         method: 'POST', headers,
-        body: JSON.stringify({ name: name.trim(), description: desc || undefined, subject: subject || undefined, grade: grade || undefined, board: board || undefined }),
+        body: JSON.stringify({ name: name.trim(), description: desc || undefined, subject: subject || undefined, grade: grade || undefined, board: board || undefined, language }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail);
@@ -119,6 +120,13 @@ export default function TeacherCoursesPage() {
             <input placeholder={t.teacher.subjectLabel} value={subject} onChange={e => setSubject(e.target.value)} className={inputCls} />
             <input placeholder={t.teacher.gradeLevelLabel} value={grade} onChange={e => setGrade(e.target.value)} className={inputCls} />
             <input placeholder="Board (e.g. TEKS, CBSE, AQA)" value={board} onChange={e => setBoard(e.target.value)} className={inputCls} />
+            <select value={language} onChange={e => setLanguage(e.target.value)} className={inputCls}>
+              <option value="en">English</option>
+              <option value="fi">Finnish</option>
+              <option value="sv">Swedish</option>
+              <option value="fr">French</option>
+              <option value="es">Spanish</option>
+            </select>
           </div>
           <div className="flex gap-2 pt-1">
             <button type="submit" disabled={creating || !name.trim()}

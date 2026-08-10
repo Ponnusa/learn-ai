@@ -572,6 +572,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS student_questions JSONB DEFAULT '[]'",
             # ── Course curriculum board (CBSE, TEKS, AQA, IB, etc.) ────────────
             "ALTER TABLE courses ADD COLUMN IF NOT EXISTS board TEXT DEFAULT NULL",
+            "ALTER TABLE courses ADD COLUMN IF NOT EXISTS language VARCHAR(5) NOT NULL DEFAULT 'en'",
             # ── Driving Question Board ──────────────────────────────────────────
             """
             CREATE TABLE IF NOT EXISTS dqb_questions (

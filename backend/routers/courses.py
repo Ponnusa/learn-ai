@@ -32,9 +32,9 @@ async def _summarize_one_concept(concept_id: str, course: dict | None):
                 "SELECT title, description, source_text FROM course_concepts WHERE id = $1::uuid",
                 concept_id,
             )
-            # Look up the teacher's language through the concept → unit → course → teacher chain
+            # Prefer course-level language; fall back to teacher's language preference
             lang_val = await db.fetchval("""
-                SELECT u.language
+                SELECT COALESCE(NULLIF(c.language, 'en'), u.language, 'en')
                 FROM course_concepts cc
                 JOIN course_units cu ON cu.id = cc.unit_id
                 JOIN courses c       ON c.id  = cu.course_id
@@ -153,18 +153,25 @@ async def _generate_suggested_prompts_bg(concept_id: str) -> None:
     try:
         async with get_db() as db:
             row = await db.fetchrow("""
-                SELECT cc.title, cc.source_text, c.subject
+                SELECT cc.title, cc.source_text, c.subject,
+                       COALESCE(NULLIF(c.language, 'en'), u.language, 'en') AS language
                 FROM course_concepts cc
                 JOIN course_units cu ON cu.id = cc.unit_id
                 JOIN courses c       ON c.id  = cu.course_id
+                JOIN users u         ON u.id  = c.teacher_id
                 WHERE cc.id = $1::uuid
             """, concept_id)
         if not row or not row["source_text"]:
             return
 
-        title   = row["title"]
-        subject = row["subject"] or "General"
-        source  = (row["source_text"] or "")[:1500]
+        title    = row["title"]
+        subject  = row["subject"] or "General"
+        source   = (row["source_text"] or "")[:1500]
+        language = row["language"] or 'en'
+        lang_note = (
+            f" Write ALL prompts in {_LANGUAGE_NAMES[language]}. Do not use English."
+            if language in _LANGUAGE_NAMES else ""
+        )
 
         client = AsyncOpenAI()
         resp = await client.chat.completions.create(
@@ -180,7 +187,7 @@ async def _generate_suggested_prompts_bg(concept_id: str) -> None:
                     "Cover these angles: (1) class discussion questions, (2) student misconceptions, "
                     "(3) formative check questions, (4) hands-on activity or lab idea, "
                     "(5) real-world connection or analogy, (6) vocabulary/key terms emphasis. "
-                    "Return ONLY a JSON array of 6 strings, no explanations."
+                    f"Return ONLY a JSON array of 6 strings, no explanations.{lang_note}"
                 ),
             }, {
                 "role": "user",
@@ -219,19 +226,26 @@ async def _generate_student_questions_bg(concept_id: str) -> None:
     try:
         async with get_db() as db:
             row = await db.fetchrow("""
-                SELECT cc.title, cc.source_text, c.subject, c.grade
+                SELECT cc.title, cc.source_text, c.subject, c.grade,
+                       COALESCE(NULLIF(c.language, 'en'), u.language, 'en') AS language
                 FROM course_concepts cc
                 JOIN course_units cu ON cu.id = cc.unit_id
                 JOIN courses c       ON c.id  = cu.course_id
+                JOIN users u         ON u.id  = c.teacher_id
                 WHERE cc.id = $1::uuid
             """, concept_id)
         if not row:
             return
 
-        title   = row["title"]
-        subject = row["subject"] or "Science"
-        grade   = row["grade"] or "6th grade"
-        source  = (row["source_text"] or title)[:2000]
+        title    = row["title"]
+        subject  = row["subject"] or "Science"
+        grade    = row["grade"] or "6th grade"
+        source   = (row["source_text"] or title)[:2000]
+        language = row["language"] or 'en'
+        lang_note = (
+            f" Write ALL questions in {_LANGUAGE_NAMES[language]}. Do not use English."
+            if language in _LANGUAGE_NAMES else ""
+        )
 
         client = AsyncOpenAI()
         resp = await client.chat.completions.create(
@@ -243,7 +257,7 @@ async def _generate_student_questions_bg(concept_id: str) -> None:
                     "might genuinely wonder about when starting to explore a new topic. "
                     "Rules: 8 words or fewer per question, simple everyday language, "
                     "spark curiosity without giving away answers, feel like something a real student would ask. "
-                    'Return ONLY valid JSON: {"questions": ["q1","q2","q3","q4"]}'
+                    f'Return ONLY valid JSON: {{"questions": ["q1","q2","q3","q4"]}}{lang_note}'
                 ),
             }, {
                 "role": "user",
@@ -309,17 +323,19 @@ class CreateCourseRequest(BaseModel):
     subject:     str | None = None
     grade:       str | None = None
     board:       str | None = None
+    language:    str = 'en'
 
 
 @router.post("")
 async def create_course(req: CreateCourseRequest, authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)
+    language = req.language if req.language in _LANGUAGE_NAMES or req.language == 'en' else 'en'
     async with get_db() as db:
         row = await db.fetchrow("""
-            INSERT INTO courses (teacher_id, name, description, subject, grade, board)
-            VALUES ($1::uuid, $2, $3, $4, $5, $6)
-            RETURNING id, name, description, subject, grade, board, status, created_at
-        """, teacher_id, req.name, req.description, req.subject, req.grade, req.board)
+            INSERT INTO courses (teacher_id, name, description, subject, grade, board, language)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7)
+            RETURNING id, name, description, subject, grade, board, status, created_at, language
+        """, teacher_id, req.name, req.description, req.subject, req.grade, req.board, language)
     return _fmt_course(row)
 
 
@@ -4617,9 +4633,20 @@ async def post_student_chat(
 
     grounding = "\n\n".join(grounding_parts) or concept["title"]
 
+    # Use course language; only override if the frontend sent an explicit non-English code
+    async with get_db() as _ldb:
+        course_lang = await _ldb.fetchval(
+            """SELECT COALESCE(NULLIF(c.language,'en'), u.language, 'en')
+               FROM course_concepts cc
+               JOIN course_units cu ON cu.id = cc.unit_id
+               JOIN courses c ON c.id = cu.course_id
+               JOIN users u ON u.id = c.teacher_id
+               WHERE cc.id = $1::uuid""", concept_id
+        ) or 'en'
+    effective_language = req.language if req.language != 'en' else course_lang
     lang_note = ""
-    if req.language in _LANGUAGE_NAMES:
-        lang_name = _LANGUAGE_NAMES[req.language]
+    if effective_language in _LANGUAGE_NAMES:
+        lang_name = _LANGUAGE_NAMES[effective_language]
         lang_note = f"\n\nRespond entirely in {lang_name}."
 
     # Fetch curriculum context first — it determines the entire prompt structure
