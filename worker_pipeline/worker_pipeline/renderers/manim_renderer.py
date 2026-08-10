@@ -1,0 +1,406 @@
+"""
+Manim segment renderer.
+
+Two genuinely different pieces live here:
+
+  1. Codegen — two paths:
+     a. generate_manim_code(segment)  — single-segment path: one Claude call,
+        one Scene class. Used when only one Manim segment needs generation, or
+        as the retry/degrade fallback when unified codegen fails.
+     b. generate_all_manim_code(segments)  — unified path: ONE Claude call for
+        ALL non-cached Manim segments in the lesson, producing a single Python
+        file with shared module-level constants (zone coords, colors, font
+        sizes) and one Scene class per segment. The orchestrator calls this
+        before the main render loop and pre-populates segment.generated_code +
+        segment.generated_class_name so ManimRenderer.render() skips the
+        per-segment Claude call entirely.
+        Benefits: style consistency across segments (shared constants), N→1
+        Claude API calls for a typical 3-segment lesson.
+
+  2. Docker render (render_code_to_clip) — turns generated code into an
+     actual mp4 via `docker run manim-with-voiceover`. Accepts an optional
+     scene_name parameter so the unified path can specify which of the N
+     classes in the shared file to render without re-parsing.
+
+CACHING: per-segment, keyed on generation_prompt + narration_text + subject_area
+(same as before unified codegen). Cache hits bypass BOTH the Claude call and
+the Docker render. The orchestrator skips unified codegen if all Manim
+segments are individually cached; ManimRenderer.render() still checks the
+cache on entry so a segment that hits the cache is never re-rendered even
+if the unified call already ran.
+
+NO TEMPERATURE OVERRIDE: newer Claude models (claude-sonnet-5 and later)
+reject an explicit `temperature` kwarg outright — the API default is used
+instead.
+"""
+import logging
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from typing import List, Optional
+from pathlib import Path
+
+from .._claude import MODEL, call_with_retry
+from ..asset_manifest import AssetRef, check_cache, compute_prompt_hash, register_asset
+from ..schema import Segment
+from ..tts import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, AZURE_VOICE_NAME
+from .base import Renderer
+
+logger = logging.getLogger(__name__)
+
+_PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
+
+_SUBJECT_PROMPT_FILES = {
+    "physics": "physics_prompt.txt",
+    "chemistry": "chemistry_prompt.txt",
+    "mathematics": "mathematics_prompt.txt",
+    "economics": "economics_prompt.txt",
+}
+
+
+def _load_prompt_section(filename: str) -> str:
+    path = _PROMPTS_DIR / filename
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning(f"⚠️ Prompt section not found: {filename}")
+        return ""
+
+
+def build_system_prompt(subject_area: str, aspect_ratio: str) -> str:
+    prompt = _load_prompt_section("base_prompt.txt")
+    subject_file = _SUBJECT_PROMPT_FILES.get(subject_area)
+    if subject_file:
+        prompt += "\n\n" + _load_prompt_section(subject_file)
+    prompt += f"\n\nTARGET_ASPECT_RATIO: {aspect_ratio}\n"
+    return prompt
+
+
+# ── Cache helper ──────────────────────────────────────────────────────────────
+
+def _check_manim_cache(segment: Segment) -> Optional[AssetRef]:
+    """
+    Compute and store the per-segment cache key, then return the cached
+    AssetRef if one exists (None = cache miss). Setting segment.prompt_hash
+    here means ManimRenderer.render() can call register_asset with the same
+    key without recomputing it.
+    """
+    clip_hash = compute_prompt_hash(
+        f"{segment.generation_prompt}||{segment.narration_text}", "", segment.subject_area,
+    )
+    segment.prompt_hash = clip_hash
+    return check_cache(clip_hash, "manim_clip", segment.id, ".mp4")
+
+
+# ── Class name helpers ────────────────────────────────────────────────────────
+
+def _unified_class_name(segment: Segment) -> str:
+    """
+    Deterministic class name for a segment in the unified codegen path.
+    Derived purely from segment.order so neither the orchestrator nor the
+    renderer needs to parse the generated code to know what to render.
+    """
+    return f"Seg{segment.order}_Lesson"
+
+
+# ── Single-segment codegen ────────────────────────────────────────────────────
+
+def generate_manim_code(segment: Segment) -> str:
+    """
+    Single Claude call producing ONE short Manim scene implementing just this
+    segment's storyboard direction — not the whole lesson. Raises on
+    truncated/invalid code (checked via compile()) rather than returning it.
+    Used when only one Manim segment needs generation or as fallback when
+    unified codegen fails.
+    """
+    system_prompt = build_system_prompt(segment.subject_area, segment.aspect_ratio)
+
+    user_prompt = f"""Implement ONE short Manim scene for a single segment of a longer lesson video.
+This segment is {segment.target_duration_seconds:.0f} seconds long and covers ONLY the direction
+below — do not attempt to cover the whole lesson topic, and do not re-derive or change any values.
+
+ANIMATION DIRECTION (from the storyboard — implement exactly this):
+{segment.generation_prompt}
+
+VOICEOVER TEXT (verbatim, wrap in exactly one `with self.voiceover(text=...)` block):
+{segment.narration_text}
+
+SUBJECT: {segment.subject_area}
+TARGET DURATION: {segment.target_duration_seconds:.0f} seconds
+
+VOICE (critical — other segments in this same lesson use a fixed narrator voice):
+Call self.set_speech_service(AzureService(voice="{AZURE_VOICE_NAME}")) — use EXACTLY this
+voice name, character for character. Do NOT choose a different voice. Every segment in this
+lesson (Manim, image, video) must sound like the same narrator; picking a different voice
+here breaks that consistency.
+
+TIMING SAFETY (critical — this has caused render failures before):
+Any time you compute a self.wait(...) duration or an animation's run_time by subtracting
+elapsed time from a target duration (e.g. tracker.duration - X, or remaining_time - Y),
+the result can come out zero or negative if your animations already used up the budget.
+Manim crashes on a non-positive wait/run_time. ALWAYS clamp with max(): use
+self.wait(max(0.3, computed_value)) and run_time=max(0.3, computed_value), never the raw
+subtraction. Apply this to EVERY computed wait/run_time in the scene, not just one.
+
+Output ONLY the Python code for the scene (imports + one Scene subclass), no explanation,
+no markdown fences."""
+
+    raw = call_with_retry(
+        model=MODEL,
+        max_tokens=16000,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    code = _strip_fences(raw)
+
+    try:
+        compile(code, "<generated-segment>", "exec")
+    except SyntaxError as exc:
+        raise ValueError(f"Generated Manim code has a syntax error (likely truncated): {exc}")
+
+    return code
+
+
+# ── Unified multi-segment codegen ─────────────────────────────────────────────
+
+def generate_all_manim_code(segments: List[Segment]) -> str:
+    """
+    One Claude call producing ONE Python file with N scene classes — one per
+    segment — plus shared module-level constants so every class uses the same
+    zone coordinates, colors, and font sizes.
+
+    Class names are deterministic (_unified_class_name) so the orchestrator
+    can pre-populate segment.generated_class_name without parsing the output.
+
+    Raises ValueError if any expected class is absent or the code has a syntax
+    error — callers should catch and fall back to per-segment generation.
+    """
+    subject_area = segments[0].subject_area
+    aspect_ratio = segments[0].aspect_ratio
+    system_prompt = build_system_prompt(subject_area, aspect_ratio)
+
+    seg_blocks = []
+    for seg in segments:
+        class_name = _unified_class_name(seg)
+        seg_blocks.append(
+            f"=== SEGMENT {seg.order} | class name MUST be exactly `{class_name}` "
+            f"| {seg.target_duration_seconds:.0f}s ===\n"
+            f"DIRECTION: {seg.generation_prompt}\n"
+            f"VOICEOVER (verbatim, one self.voiceover block): {seg.narration_text}"
+        )
+
+    segments_text = "\n\n".join(seg_blocks)
+    n = len(segments)
+
+    user_prompt = f"""Generate ONE Python file containing {n} short Manim scene classes for
+consecutive segments of a single lesson video. The segments must look visually consistent —
+a student watching them back-to-back should feel they belong to the same lesson.
+
+STRUCTURE RULES:
+1. Define shared visual constants at module level BEFORE any class definition:
+   - Layout zones  (e.g. LEFT_PANEL = LEFT * 3.0, RIGHT_PANEL = RIGHT * 2.8)
+   - Color palette (e.g. ACCENT = YELLOW, BODY_TEXT = LIGHT_GRAY)
+   - Font sizes    (e.g. TITLE_SIZE = 26, BODY_SIZE = 20)
+   Reference these constants in every class — never repeat the same magic
+   number in two different classes.
+2. Write exactly {n} classes, named EXACTLY as specified in each segment header
+   below. Deviating from those names causes the render to crash.
+3. Every class must call:
+   self.set_speech_service(AzureService(voice="{AZURE_VOICE_NAME}"))
+4. Every class must contain exactly one voiceover context manager:
+   with self.voiceover(text="...") as tracker:
+5. Clamp ALL computed durations:
+   self.wait(max(0.3, value))   run_time=max(0.3, value)
+   Never use a raw subtraction result as a wait or run_time.
+
+SEGMENTS TO IMPLEMENT:
+
+{segments_text}
+
+SUBJECT: {subject_area}
+ASPECT RATIO: {aspect_ratio}
+
+Output ONLY the Python code (imports + module-level constants + {n} classes).
+No explanation, no markdown fences."""
+
+    raw = call_with_retry(
+        model=MODEL,
+        max_tokens=16000,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+
+    code = _strip_fences(raw)
+
+    # Verify every expected class is present before paying for a Docker render
+    missing = [
+        _unified_class_name(s) for s in segments
+        if f"class {_unified_class_name(s)}" not in code
+    ]
+    if missing:
+        raise ValueError(
+            f"Unified codegen response is missing expected classes: {missing}. "
+            "Output was likely truncated — falling back to per-segment generation."
+        )
+
+    try:
+        compile(code, "<generated-lesson>", "exec")
+    except SyntaxError as exc:
+        raise ValueError(f"Unified Manim code has a syntax error: {exc}")
+
+    logger.info(
+        f"[manim_renderer] unified code generated: {n} classes, {len(code)} chars"
+    )
+    return code
+
+
+# ── Shared fence-stripping util ───────────────────────────────────────────────
+
+def _strip_fences(raw: str) -> str:
+    code = raw.strip()
+    if code.startswith("```python"):
+        code = code[len("```python"):].strip()
+    elif code.startswith("```"):
+        code = code[3:].strip()
+    if code.endswith("```"):
+        code = code[:-3].strip()
+    return code
+
+
+# ── Docker render ─────────────────────────────────────────────────────────────
+
+def _docker_available() -> bool:
+    return shutil.which("docker") is not None
+
+
+def _extract_scene_name(code: str) -> str:
+    match = re.search(r"class\s+(\w+)\s*\(.*Scene.*\)\s*:", code)
+    if not match:
+        raise ValueError("Could not find a Scene subclass in generated code")
+    return match.group(1)
+
+
+def render_code_to_clip(
+    code: str,
+    segment_id: str,
+    work_dir: str,
+    scene_name: Optional[str] = None,
+) -> str:
+    """
+    Render generated Manim code to an mp4 via Docker.
+
+    `scene_name` — when provided, renders that specific class from the file
+    (used by the unified path where the file contains multiple classes).
+    When None, falls back to extracting the first Scene subclass from `code`
+    (single-segment path behaviour, unchanged).
+    """
+    if not _docker_available():
+        raise RuntimeError(
+            "Manim rendering requires Docker + the manim-with-voiceover image — "
+            "only available on the GCP worker (learnai/worker.py). This dev repo "
+            "can generate code (see generate_manim_code) but cannot render it "
+            "locally; full render validation happens at the Sprint 6 port."
+        )
+    if not AZURE_SPEECH_KEY:
+        raise RuntimeError(
+            "AZURE_SPEECH_KEY not set — manim_voiceover's AzureService would otherwise "
+            "try to interactively prompt for it inside the container and crash with "
+            "EOFError (no stdin attached to a non-interactive docker run)."
+        )
+
+    resolved_scene = scene_name or _extract_scene_name(code)
+    os.makedirs(work_dir, exist_ok=True)
+    code_file = os.path.join(work_dir, f"{segment_id}.py")
+    with open(code_file, "w", encoding="utf-8") as f:
+        f.write(code)
+
+    media_dir = os.path.join(work_dir, "media")
+    os.makedirs(media_dir, exist_ok=True)
+
+    cmd = [
+        "docker", "run", "--rm", "--init", "--user", "root",
+        "-v", f"{os.path.abspath(work_dir)}:/manim",
+        "-v", f"{os.path.abspath(media_dir)}:/output",
+        "-e", "PYTHONPATH=/manim",
+        "-e", f"AZURE_SUBSCRIPTION_KEY={AZURE_SPEECH_KEY}",
+        "-e", f"AZURE_SERVICE_REGION={AZURE_SPEECH_REGION}",
+        "--workdir", "/manim",
+        "manim-with-voiceover:latest",
+        "manim", "-qm", "--media_dir", "/output", "--progress_bar", "none", "--disable_caching",
+        f"{segment_id}.py", resolved_scene,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    if result.returncode != 0:
+        raise RuntimeError(f"Manim Docker render failed:\n{result.stderr[-1000:]}")
+
+    for root, _dirs, files in os.walk(media_dir):
+        for fname in files:
+            if fname == f"{resolved_scene}.mp4":
+                return os.path.join(root, fname)
+    raise RuntimeError("Manim render completed but output mp4 was not found")
+
+
+# ── Renderer class ────────────────────────────────────────────────────────────
+
+class ManimRenderer(Renderer):
+    def __init__(self, work_dir: Optional[str] = None):
+        self._work_dir = work_dir or tempfile.gettempdir()
+
+    def render(self, segment: Segment) -> AssetRef:
+        segment.status = "generating"
+        try:
+            # Cache check — always runs regardless of whether code was
+            # pre-generated by the orchestrator's unified pass.
+            cached = _check_manim_cache(segment)
+            if cached:
+                logger.info(
+                    f"[manim_renderer] cache hit for segment {segment.id} — skipping render"
+                )
+                segment.clip_url = cached.url
+                segment.actual_duration_seconds = segment.target_duration_seconds
+                segment.status = "rendered"
+                segment.error_message = None
+                return cached
+
+            if segment.generated_code is not None:
+                # Unified path — orchestrator pre-generated all Manim segments
+                # in one Claude call. Use the pre-populated code and class name.
+                code = segment.generated_code
+                scene_name = segment.generated_class_name or _unified_class_name(segment)
+                logger.info(
+                    f"[manim_renderer] rendering pre-generated segment {segment.id} "
+                    f"(class {scene_name})"
+                )
+            else:
+                # Single-segment fallback — generate now (one Claude call).
+                logger.info(
+                    f"[manim_renderer] single-segment codegen for {segment.id}"
+                )
+                code = generate_manim_code(segment)
+                segment.generated_code = code
+                scene_name = None  # render_code_to_clip will extract it
+
+            seg_work_dir = os.path.join(self._work_dir, f"manim_{segment.id}")
+            clip_path = render_code_to_clip(
+                code, segment.id, seg_work_dir, scene_name=scene_name
+            )
+
+            clip_ref = register_asset(
+                clip_path, segment.id, "manim_clip", segment.prompt_hash
+            )
+
+            segment.clip_url = clip_ref.url
+            segment.actual_duration_seconds = segment.target_duration_seconds
+            segment.status = "rendered"
+            segment.error_message = None
+            return clip_ref
+
+        except Exception as exc:
+            segment.status = "failed"
+            segment.retry_count += 1
+            segment.error_message = str(exc)[:500]
+            logger.error(f"[manim_renderer] segment {segment.id} failed: {exc}")
+            raise
