@@ -5458,6 +5458,46 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                     "UPDATE videos SET status='queued', updated_at=NOW() WHERE id=$1", video_id,
                 )
             _trigger_video_generation(video_id, {})
+            # Create content block + studio chat card (same as Phase 2 path below)
+            if teacher_id:
+                try:
+                    async with get_db() as db:
+                        max_pos = await db.fetchval(
+                            "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+                            concept_id,
+                        )
+                        block = await db.fetchrow("""
+                            INSERT INTO concept_content_blocks
+                              (concept_id, type, position, title, body, created_by, in_textbook, video_id)
+                            VALUES ($1::uuid, 'video', $2, $3, $4, $5::uuid, false, $6)
+                            RETURNING id
+                        """, concept_id, int(max_pos) + 1, concept["title"], script, teacher_id, video_id)
+                        block_id = str(block["id"])
+
+                        conv = await db.fetchrow(
+                            "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+                        )
+                        if not conv:
+                            course_info = await db.fetchrow("""
+                                SELECT c.subject FROM course_concepts cc
+                                JOIN course_units cu ON cu.id = cc.unit_id
+                                JOIN courses c ON c.id = cu.course_id
+                                WHERE cc.id = $1::uuid
+                            """, concept_id)
+                            conv = await db.fetchrow("""
+                                INSERT INTO conversations
+                                  (user_id, title, subject, concept_id, conversation_type)
+                                VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
+                            """, teacher_id,
+                                f"{concept['title']} — Authoring chat",
+                                (course_info["subject"] if course_info else None), concept_id)
+
+                        await db.execute("""
+                            INSERT INTO messages (conversation_id, role, content, metadata)
+                            VALUES ($1::uuid, 'assistant', '', $2::jsonb)
+                        """, conv["id"], json.dumps({"content_type": "video", "block_id": block_id, "video_id": video_id}))
+                except Exception as exc:
+                    logger.error("[video] concept %s: storyboard chat card inject failed: %s", concept_id, exc)
             return
 
         # ── Phase 2: Claude Manim code + SVG assets + critic pass ────────────
