@@ -53,7 +53,6 @@ export default function StudentConceptDetailPage() {
   const [concept,    setConcept]    = useState<ConceptDetail | null>(null);
   const [assets,     setAssets]     = useState<Assets | null>(null);
   const [loading,    setLoading]    = useState(true);
-  const [activating,     setActivating]     = useState(false);
   const [hasBlocks,      setHasBlocks]      = useState(false);
   const [activeTab,      setActiveTab]      = useState<'learn' | 'materials' | 'practice' | 'lab' | 'chat'>('learn');
 
@@ -64,7 +63,6 @@ export default function StudentConceptDetailPage() {
 
   // Chat Q&A state
   type ChatMsg = { role: 'user' | 'assistant'; content: string };
-  const [chatOpen,    setChatOpen]    = useState(false);
   const [chatConvId,  setChatConvId]  = useState<string | null>(null);
   const [chatMsgs,    setChatMsgs]    = useState<ChatMsg[]>([]);
   const [chatLoaded,  setChatLoaded]  = useState(false);
@@ -221,41 +219,6 @@ export default function StudentConceptDetailPage() {
         .catch(() => {});
     }
   }, [activeTab, labLoaded2, chatLoaded]);
-
-  async function openChat(resource?: { id: string; title: string; type: string }) {
-    if (chatOpen && !resource) { setChatOpen(false); return; }
-    if (resource) {
-      setChatResource(resource);
-      if (!chatOpen) {
-        setChatInput(
-          resource.type === 'image'
-            ? `Can you explain what this diagram "${resource.title}" shows?`
-            : `Can you explain the content from "${resource.title}"?`
-        );
-      }
-    }
-    setChatOpen(true);
-    // Load history the first time the chat is opened
-    if (!chatLoaded) {
-      setChatLoaded(true);
-      try {
-        const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.conversation_id) setChatConvId(data.conversation_id);
-          if (data.messages?.length) {
-            setChatMsgs(data.messages.map((m: { role: string; content: string }) => ({
-              role: m.role as 'user' | 'assistant',
-              content: m.content,
-            })));
-          }
-        }
-      } catch { /* ignore — fresh chat */ }
-    }
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-  }
 
   async function _doSendChat(msg: string, resource: typeof chatResource, isDirect: boolean) {
     setChatMsgs(prev => [...prev, { role: 'user', content: msg }]);
@@ -534,13 +497,11 @@ export default function StudentConceptDetailPage() {
                 <figure key={r.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-xl overflow-hidden">
                   <img src={`${API_BASE}${r.file_url}`} alt={r.title}
                     className="w-full aspect-video object-contain bg-[var(--ov2)]" />
-                  <div className="px-3 py-2 flex items-center justify-between">
-                    {r.title && <figcaption className="text-xs text-[var(--tx6)] truncate">{r.title}</figcaption>}
-                    <button onClick={() => openChat({ id: r.id, title: r.title, type: 'image' })}
-                      className="text-xs text-purple-400 hover:text-purple-300 transition-colors shrink-0 ml-2">
-                      {t.concept.askAI}
-                    </button>
-                  </div>
+                  {r.title && (
+                    <div className="px-3 py-2">
+                      <figcaption className="text-xs text-[var(--tx6)] truncate">{r.title}</figcaption>
+                    </div>
+                  )}
                 </figure>
               ))}
             </div>
@@ -559,12 +520,6 @@ export default function StudentConceptDetailPage() {
                   className="text-xs text-purple-400 hover:text-purple-300 transition-colors shrink-0">
                   {t.studySets.openPdf}
                 </a>
-              </div>
-              <div className="px-4 pb-3">
-                <button onClick={() => openChat({ id: r.id, title: r.title, type: r.type })}
-                  className="text-xs text-purple-400 hover:text-purple-300 transition-colors">
-                  {t.concept.askAIAbout}
-                </button>
               </div>
             </div>
           ))}
@@ -849,18 +804,6 @@ export default function StudentConceptDetailPage() {
       {/* ── Chat tab content ── */}
       {activeTab === 'chat' && (
         <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden mt-6">
-          {concept.student_questions && concept.student_questions.length > 0 && (
-            <div className="px-4 pt-3 pb-1 flex flex-wrap gap-1.5 border-b border-[var(--bd)]">
-              {concept.student_questions.map((q, i) => (
-                <button key={i} onClick={() => sendQuestion(q)} disabled={chatSending}
-                  className="text-xs px-2.5 py-1 rounded-full border border-purple-500/30 bg-purple-500/8
-                             text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/50
-                             transition-all disabled:opacity-40 text-left">
-                  {q}
-                </button>
-              ))}
-            </div>
-          )}
           <div className="px-4 py-3 space-y-3 max-h-[480px] overflow-y-auto">
             {chatMsgs.length === 0 && (
               <p className="text-[var(--tx7)] text-sm text-center py-4">
@@ -901,6 +844,19 @@ export default function StudentConceptDetailPage() {
             </div>
           )}
 
+          {concept.student_questions && concept.student_questions.length > 0 && (
+            <div className="px-4 pt-2 pb-1 flex flex-wrap gap-1.5 border-t border-[var(--bd)]">
+              {concept.student_questions.map((q, i) => (
+                <button key={i} onClick={() => sendQuestion(q)} disabled={chatSending}
+                  className="text-xs px-2.5 py-1 rounded-full border border-purple-500/30 bg-purple-500/8
+                             text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/50
+                             transition-all disabled:opacity-40 text-left">
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center gap-2 px-4 py-2 border-t border-[var(--bd)]">
             <button onClick={() => setDirectMode(false)}
               className={`text-xs px-3 py-1 rounded-full border transition-all ${
@@ -936,112 +892,6 @@ export default function StudentConceptDetailPage() {
           </form>
         </div>
       )}
-
-      {/* Chat Q&A — collapsible panel, visible on all tabs */}
-      <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden mt-6">
-        <button onClick={() => openChat()} disabled={activating}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors disabled:opacity-50">
-          <span className="flex items-center gap-2 text-[var(--tx1)] font-semibold text-sm">
-            {activating
-              ? <Loader2 size={16} className="animate-spin text-purple-400" />
-              : <MessageSquare size={16} className="text-purple-400" />}
-            {t.concept.askConceptAI}
-          </span>
-          <span className="text-[var(--tx7)] text-xs">{chatOpen ? t.concept.chatClose : t.concept.chatOpen}</span>
-        </button>
-
-        {chatOpen && (
-          <div className="border-t border-[var(--bd)]">
-            {/* Starter question chips — always visible as quick-access row */}
-            {concept.student_questions && concept.student_questions.length > 0 && (
-              <div className="px-4 pt-3 pb-1 flex flex-wrap gap-1.5 border-b border-[var(--bd)]">
-                {concept.student_questions.map((q, i) => (
-                  <button key={i} onClick={() => sendQuestion(q)} disabled={chatSending}
-                    className="text-xs px-2.5 py-1 rounded-full border border-purple-500/30 bg-purple-500/8
-                               text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/50
-                               transition-all disabled:opacity-40 text-left">
-                    {q}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="px-4 py-3 space-y-3 max-h-72 overflow-y-auto">
-              {chatMsgs.length === 0 && (
-                <p className="text-[var(--tx7)] text-sm text-center py-4">
-                  {t.concept.chatAskAnything} <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
-                </p>
-              )}
-              {chatMsgs.map((msg, i) => (
-                <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  {msg.role === 'user' ? (
-                    <div className="max-w-[80%] bg-purple-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">
-                      {msg.content}
-                    </div>
-                  ) : (
-                    <div className="max-w-[85%] bg-[var(--ov1)] border border-[var(--bd)] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-[var(--tx2)] prose prose-sm dark:prose-invert max-w-none">
-                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
-                        {preprocessMath(msg.content)}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-                </div>
-              ))}
-              {chatSending && (
-                <div className="flex justify-start">
-                  <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-2xl rounded-tl-sm px-4 py-2.5">
-                    <Loader2 size={14} className="animate-spin text-purple-400" />
-                  </div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-
-            {chatResource && (
-              <div className="flex items-center gap-2 px-4 py-2 border-t border-[var(--bd)] bg-purple-500/5">
-                <span className="text-xs text-purple-400">
-                  {chatResource.type === 'image' ? '🖼' : '📄'} Asking about: <span className="font-medium">{chatResource.title}</span>
-                </span>
-                <button onClick={() => setChatResource(null)} className="ml-auto text-[var(--tx8)] hover:text-[var(--tx3)] text-xs">✕</button>
-              </div>
-            )}
-
-            {/* Mode toggle */}
-            <div className="flex items-center gap-2 px-4 py-2 border-t border-[var(--bd)]">
-              <button onClick={() => setDirectMode(false)}
-                className={`text-xs px-3 py-1 rounded-full border transition-all ${
-                  !directMode
-                    ? 'border-purple-500/50 bg-purple-500/15 text-purple-300'
-                    : 'border-[var(--bd)] text-[var(--tx8)] hover:text-[var(--tx5)]'
-                }`}>
-                Guided
-              </button>
-              <button onClick={() => setDirectMode(true)}
-                className={`text-xs px-3 py-1 rounded-full border transition-all ${
-                  directMode
-                    ? 'border-amber-500/50 bg-amber-500/15 text-amber-300'
-                    : 'border-[var(--bd)] text-[var(--tx8)] hover:text-[var(--tx5)]'
-                }`}>
-                Just tell me
-              </button>
-              {directMode && (
-                <span className="text-[10px] text-amber-400/60 ml-1">direct answers on</span>
-              )}
-            </div>
-
-            <form onSubmit={sendChatMessage} className="flex gap-2 px-4 py-3 border-t border-[var(--bd)]">
-              <input value={chatInput} onChange={e => setChatInput(e.target.value)}
-                placeholder={chatResource ? `${t.concept.chatAskAnything} ${chatResource.title}…` : t.concept.chatPlaceholder}
-                disabled={chatSending}
-                className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
-                           text-[var(--tx1)] placeholder-[var(--tx8)] focus:outline-none focus:border-purple-500 disabled:opacity-50" />
-              <button type="submit" disabled={chatSending || !chatInput.trim()}
-                className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-                <Send size={15} />
-              </button>
-            </form>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
