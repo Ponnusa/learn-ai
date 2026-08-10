@@ -55,7 +55,7 @@ export default function StudentConceptDetailPage() {
   const [loading,    setLoading]    = useState(true);
   const [activating,     setActivating]     = useState(false);
   const [hasBlocks,      setHasBlocks]      = useState(false);
-  const [activeTab,      setActiveTab]      = useState<'learn' | 'materials' | 'practice' | 'lab'>('learn');
+  const [activeTab,      setActiveTab]      = useState<'learn' | 'materials' | 'practice' | 'lab' | 'chat'>('learn');
 
   // Lab sheet
   interface LabContent { objective: string; materials: string[]; safety: string[]; procedure: string[]; data_table: { title: string; headers: string[]; rows: number }; analysis_questions: string[]; conclusion_prompt: string; }
@@ -203,7 +203,24 @@ export default function StudentConceptDetailPage() {
         .then(d => { if (d?.content) setLabContent2(d.content); })
         .finally(() => setLabLoaded2(true));
     }
-  }, [activeTab, labLoaded2]);
+    if (activeTab === 'chat' && !chatLoaded) {
+      setChatLoaded(true);
+      fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (data?.conversation_id) setChatConvId(data.conversation_id);
+          if (data?.messages?.length) {
+            setChatMsgs(data.messages.map((m: { role: string; content: string }) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [activeTab, labLoaded2, chatLoaded]);
 
   async function openChat(resource?: { id: string; title: string; type: string }) {
     if (chatOpen && !resource) { setChatOpen(false); return; }
@@ -380,6 +397,7 @@ export default function StudentConceptDetailPage() {
     ...(hasResources ? [{ key: 'materials', label: t.concept.tabMaterials, icon: <FileText size={13} /> }] : []),
     ...(hasPractice  ? [{ key: 'practice',  label: t.concept.tabPractice,  icon: <Dumbbell size={13} /> }] : []),
     ...(labContent ? [{ key: 'lab', label: 'Lab', icon: <FlaskConical size={13} /> }] : []),
+    { key: 'chat', label: 'Chat', icon: <MessageSquare size={13} /> },
   ];
 
   return (
@@ -711,128 +729,219 @@ export default function StudentConceptDetailPage() {
         </div>
       )}
 
-      {/* Chat Q&A — always visible regardless of tab */}
-      <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden mt-6">
-        <button onClick={() => openChat()} disabled={activating}
-          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors disabled:opacity-50">
-          {/* ── Lab Sheet tab content ── */}
-        {activeTab === 'lab' && (
-          <div className="mb-6">
-            {!labLoaded2 ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 size={20} className="text-purple-400 animate-spin" />
+      {/* ── Lab Sheet tab content ── */}
+      {activeTab === 'lab' && (
+        <div className="mb-6">
+          {!labLoaded2 ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={20} className="text-purple-400 animate-spin" />
+            </div>
+          ) : !labContent ? (
+            <div className="text-center py-12 bg-[var(--surface)] border border-[var(--bd)] rounded-2xl">
+              <FlaskConical size={28} className="text-[var(--tx8)] mx-auto mb-2" />
+              <p className="text-[var(--tx6)] text-sm">No lab sheet available yet.</p>
+              <p className="text-[var(--tx8)] text-xs mt-1">Your teacher will publish one when it's ready.</p>
+            </div>
+          ) : (
+            <div className="space-y-4 print:space-y-3">
+              {/* Print button */}
+              <div className="flex justify-end print:hidden">
+                <button onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--bd)] rounded-xl text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
+                  <Printer size={12} /> Print lab sheet
+                </button>
               </div>
-            ) : !labContent ? (
-              <div className="text-center py-12 bg-[var(--surface)] border border-[var(--bd)] rounded-2xl">
-                <FlaskConical size={28} className="text-[var(--tx8)] mx-auto mb-2" />
-                <p className="text-[var(--tx6)] text-sm">No lab sheet available yet.</p>
-                <p className="text-[var(--tx8)] text-xs mt-1">Your teacher will publish one when it's ready.</p>
+
+              {/* Objective */}
+              <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">Objective</p>
+                <p className="text-[var(--tx2)] text-sm">{labContent.objective}</p>
               </div>
-            ) : (
-              <div className="space-y-4 print:space-y-3">
-                {/* Print button */}
-                <div className="flex justify-end print:hidden">
-                  <button onClick={() => window.print()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-[var(--bd)] rounded-xl text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all">
-                    <Printer size={12} /> Print lab sheet
-                  </button>
-                </div>
 
-                {/* Objective */}
-                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
-                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">Objective</p>
-                  <p className="text-[var(--tx2)] text-sm">{labContent.objective}</p>
-                </div>
+              {/* Materials + Safety */}
+              <div className="grid grid-cols-2 gap-3">
+                {([['materials','Materials'],['safety','Safety']] as const).map(([field, label]) => (
+                  <div key={field} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                    <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">{label}</p>
+                    <ul className="space-y-0.5">
+                      {labContent[field].map((item, i) => (
+                        <li key={i} className="text-[var(--tx2)] text-xs flex items-start gap-1.5">
+                          <span className="text-[var(--tx7)] shrink-0 mt-0.5">•</span>{item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
 
-                {/* Materials + Safety */}
-                <div className="grid grid-cols-2 gap-3">
-                  {([['materials','Materials'],['safety','Safety']] as const).map(([field, label]) => (
-                    <div key={field} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
-                      <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">{label}</p>
-                      <ul className="space-y-0.5">
-                        {labContent[field].map((item, i) => (
-                          <li key={i} className="text-[var(--tx2)] text-xs flex items-start gap-1.5">
-                            <span className="text-[var(--tx7)] shrink-0 mt-0.5">•</span>{item}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
+              {/* Procedure */}
+              <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Procedure</p>
+                <ol className="space-y-2">
+                  {labContent.procedure.map((step, i) => (
+                    <li key={i} className="flex items-start gap-2.5">
+                      <span className="text-purple-400 font-bold text-xs shrink-0 w-5 text-right mt-0.5">{i + 1}.</span>
+                      <p className="text-[var(--tx2)] text-sm">{step}</p>
+                    </li>
                   ))}
-                </div>
+                </ol>
+              </div>
 
-                {/* Procedure */}
+              {/* Data Table */}
+              {labContent.data_table.headers.length > 0 && (
                 <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
-                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Procedure</p>
-                  <ol className="space-y-2">
-                    {labContent.procedure.map((step, i) => (
-                      <li key={i} className="flex items-start gap-2.5">
-                        <span className="text-purple-400 font-bold text-xs shrink-0 w-5 text-right mt-0.5">{i + 1}.</span>
-                        <p className="text-[var(--tx2)] text-sm">{step}</p>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-
-                {/* Data Table */}
-                {labContent.data_table.headers.length > 0 && (
-                  <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
-                    <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">
-                      {labContent.data_table.title || 'Data Table'}
-                    </p>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs border-collapse">
-                        <thead>
-                          <tr>
-                            {labContent.data_table.headers.map((h, i) => (
-                              <th key={i} className="border border-[var(--bd)] px-3 py-2 text-left text-[var(--tx3)] font-semibold bg-[var(--ov1)]">{h}</th>
+                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">
+                    {labContent.data_table.title || 'Data Table'}
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr>
+                          {labContent.data_table.headers.map((h, i) => (
+                            <th key={i} className="border border-[var(--bd)] px-3 py-2 text-left text-[var(--tx3)] font-semibold bg-[var(--ov1)]">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Array.from({ length: labContent.data_table.rows }).map((_, r) => (
+                          <tr key={r}>
+                            {labContent.data_table.headers.map((_, c) => (
+                              <td key={c} className="border border-[var(--bd)] px-3 py-4 text-[var(--tx8)]" />
                             ))}
                           </tr>
-                        </thead>
-                        <tbody>
-                          {Array.from({ length: labContent.data_table.rows }).map((_, r) => (
-                            <tr key={r}>
-                              {labContent.data_table.headers.map((_, c) => (
-                                <td key={c} className="border border-[var(--bd)] px-3 py-4 text-[var(--tx8)]" />
-                              ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Analysis Questions */}
+              <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Analysis Questions</p>
+                <ol className="space-y-4">
+                  {labContent.analysis_questions.map((q, i) => (
+                    <li key={i} className="flex items-start gap-2.5">
+                      <span className="text-purple-400 font-bold text-xs shrink-0 w-5 text-right mt-0.5">{i + 1}.</span>
+                      <div className="flex-1">
+                        <p className="text-[var(--tx2)] text-sm mb-2">{q}</p>
+                        <div className="border-b border-[var(--bd)] mt-6" />
+                        <div className="border-b border-[var(--bd)] mt-6" />
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              {/* Conclusion */}
+              <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
+                <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">Conclusion</p>
+                <p className="text-[var(--tx2)] text-sm mb-4">{labContent.conclusion_prompt}</p>
+                <div className="border-b border-[var(--bd)] mt-6" />
+                <div className="border-b border-[var(--bd)] mt-6" />
+                <div className="border-b border-[var(--bd)] mt-6" />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Chat tab content ── */}
+      {activeTab === 'chat' && (
+        <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden mt-6">
+          {concept.student_questions && concept.student_questions.length > 0 && (
+            <div className="px-4 pt-3 pb-1 flex flex-wrap gap-1.5 border-b border-[var(--bd)]">
+              {concept.student_questions.map((q, i) => (
+                <button key={i} onClick={() => sendQuestion(q)} disabled={chatSending}
+                  className="text-xs px-2.5 py-1 rounded-full border border-purple-500/30 bg-purple-500/8
+                             text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/50
+                             transition-all disabled:opacity-40 text-left">
+                  {q}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="px-4 py-3 space-y-3 max-h-[480px] overflow-y-auto">
+            {chatMsgs.length === 0 && (
+              <p className="text-[var(--tx7)] text-sm text-center py-4">
+                {t.concept.chatAskAnything} <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
+              </p>
+            )}
+            {chatMsgs.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                {msg.role === 'user' ? (
+                  <div className="max-w-[80%] bg-purple-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">
+                    {msg.content}
+                  </div>
+                ) : (
+                  <div className="max-w-[85%] bg-[var(--ov1)] border border-[var(--bd)] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-[var(--tx2)] prose prose-sm dark:prose-invert max-w-none">
+                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
+                      {preprocessMath(msg.content)}
+                    </ReactMarkdown>
                   </div>
                 )}
-
-                {/* Analysis Questions */}
-                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
-                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-2">Analysis Questions</p>
-                  <ol className="space-y-4">
-                    {labContent.analysis_questions.map((q, i) => (
-                      <li key={i} className="flex items-start gap-2.5">
-                        <span className="text-purple-400 font-bold text-xs shrink-0 w-5 text-right mt-0.5">{i + 1}.</span>
-                        <div className="flex-1">
-                          <p className="text-[var(--tx2)] text-sm mb-2">{q}</p>
-                          <div className="border-b border-[var(--bd)] mt-6" />
-                          <div className="border-b border-[var(--bd)] mt-6" />
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-
-                {/* Conclusion */}
-                <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-4">
-                  <p className="text-xs font-bold text-purple-400 uppercase tracking-wider mb-1">Conclusion</p>
-                  <p className="text-[var(--tx2)] text-sm mb-4">{labContent.conclusion_prompt}</p>
-                  <div className="border-b border-[var(--bd)] mt-6" />
-                  <div className="border-b border-[var(--bd)] mt-6" />
-                  <div className="border-b border-[var(--bd)] mt-6" />
+              </div>
+            ))}
+            {chatSending && (
+              <div className="flex justify-start">
+                <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-2xl rounded-tl-sm px-4 py-2.5">
+                  <Loader2 size={14} className="animate-spin text-purple-400" />
                 </div>
               </div>
             )}
+            <div ref={chatEndRef} />
           </div>
-        )}
 
-        <span className="flex items-center gap-2 text-[var(--tx1)] font-semibold text-sm">
+          {chatResource && (
+            <div className="flex items-center gap-2 px-4 py-2 border-t border-[var(--bd)] bg-purple-500/5">
+              <span className="text-xs text-purple-400">
+                {chatResource.type === 'image' ? '🖼' : '📄'} Asking about: <span className="font-medium">{chatResource.title}</span>
+              </span>
+              <button onClick={() => setChatResource(null)} className="ml-auto text-[var(--tx8)] hover:text-[var(--tx3)] text-xs">✕</button>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 px-4 py-2 border-t border-[var(--bd)]">
+            <button onClick={() => setDirectMode(false)}
+              className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                !directMode
+                  ? 'border-purple-500/50 bg-purple-500/15 text-purple-300'
+                  : 'border-[var(--bd)] text-[var(--tx8)] hover:text-[var(--tx5)]'
+              }`}>
+              Guided
+            </button>
+            <button onClick={() => setDirectMode(true)}
+              className={`text-xs px-3 py-1 rounded-full border transition-all ${
+                directMode
+                  ? 'border-amber-500/50 bg-amber-500/15 text-amber-300'
+                  : 'border-[var(--bd)] text-[var(--tx8)] hover:text-[var(--tx5)]'
+              }`}>
+              Just tell me
+            </button>
+            {directMode && (
+              <span className="text-[10px] text-amber-400/60 ml-1">direct answers on</span>
+            )}
+          </div>
+
+          <form onSubmit={sendChatMessage} className="flex gap-2 px-4 py-3 border-t border-[var(--bd)]">
+            <input value={chatInput} onChange={e => setChatInput(e.target.value)}
+              placeholder={chatResource ? `${t.concept.chatAskAnything} ${chatResource.title}…` : t.concept.chatPlaceholder}
+              disabled={chatSending}
+              className="flex-1 bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
+                         text-[var(--tx1)] placeholder-[var(--tx8)] focus:outline-none focus:border-purple-500 disabled:opacity-50" />
+            <button type="submit" disabled={chatSending || !chatInput.trim()}
+              className="p-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+              <Send size={15} />
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* Chat Q&A — collapsible panel, visible on all tabs */}
+      <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden mt-6">
+        <button onClick={() => openChat()} disabled={activating}
+          className="w-full flex items-center justify-between px-5 py-4 hover:bg-[var(--ov1)] transition-colors disabled:opacity-50">
+          <span className="flex items-center gap-2 text-[var(--tx1)] font-semibold text-sm">
             {activating
               ? <Loader2 size={16} className="animate-spin text-purple-400" />
               : <MessageSquare size={16} className="text-purple-400" />}
