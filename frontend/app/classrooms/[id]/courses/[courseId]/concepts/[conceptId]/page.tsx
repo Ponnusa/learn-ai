@@ -67,6 +67,7 @@ export default function StudentConceptDetailPage() {
   const [chatOpen,    setChatOpen]    = useState(false);
   const [chatConvId,  setChatConvId]  = useState<string | null>(null);
   const [chatMsgs,    setChatMsgs]    = useState<ChatMsg[]>([]);
+  const [chatLoaded,  setChatLoaded]  = useState(false);
   const [chatInput,   setChatInput]   = useState('');
   const [chatSending, setChatSending] = useState(false);
   const [directMode,  setDirectMode]  = useState(false);
@@ -209,7 +210,6 @@ export default function StudentConceptDetailPage() {
     if (resource) {
       setChatResource(resource);
       if (!chatOpen) {
-        // pre-fill question for the resource
         setChatInput(
           resource.type === 'image'
             ? `Can you explain what this diagram "${resource.title}" shows?`
@@ -218,6 +218,25 @@ export default function StudentConceptDetailPage() {
       }
     }
     setChatOpen(true);
+    // Load history the first time the chat is opened
+    if (!chatLoaded) {
+      setChatLoaded(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.conversation_id) setChatConvId(data.conversation_id);
+          if (data.messages?.length) {
+            setChatMsgs(data.messages.map((m: { role: string; content: string }) => ({
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+            })));
+          }
+        }
+      } catch { /* ignore — fresh chat */ }
+    }
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   }
 
@@ -824,25 +843,24 @@ export default function StudentConceptDetailPage() {
 
         {chatOpen && (
           <div className="border-t border-[var(--bd)]">
-            <div className="px-4 py-3 space-y-3 max-h-80 overflow-y-auto">
+            {/* Starter question chips — always visible as quick-access row */}
+            {concept.student_questions && concept.student_questions.length > 0 && (
+              <div className="px-4 pt-3 pb-1 flex flex-wrap gap-1.5 border-b border-[var(--bd)]">
+                {concept.student_questions.map((q, i) => (
+                  <button key={i} onClick={() => sendQuestion(q)} disabled={chatSending}
+                    className="text-xs px-2.5 py-1 rounded-full border border-purple-500/30 bg-purple-500/8
+                               text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/50
+                               transition-all disabled:opacity-40 text-left">
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="px-4 py-3 space-y-3 max-h-72 overflow-y-auto">
               {chatMsgs.length === 0 && (
-                <div className="py-3 space-y-3">
-                  <p className="text-[var(--tx7)] text-sm text-center">
-                    {t.concept.chatAskAnything} <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
-                  </p>
-                  {concept.student_questions && concept.student_questions.length > 0 && (
-                    <div className="flex flex-wrap gap-2 justify-center pt-1">
-                      {concept.student_questions.map((q, i) => (
-                        <button key={i} onClick={() => sendQuestion(q)} disabled={chatSending}
-                          className="text-xs px-3 py-1.5 rounded-full border border-purple-500/30 bg-purple-500/8
-                                     text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/50
-                                     transition-all disabled:opacity-40 text-left">
-                          {q}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <p className="text-[var(--tx7)] text-sm text-center py-4">
+                  {t.concept.chatAskAnything} <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
+                </p>
               )}
               {chatMsgs.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>

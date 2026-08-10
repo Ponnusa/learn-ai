@@ -4482,24 +4482,27 @@ async def get_student_chat(concept_id: str, authorization: str = Header(...)):
             "SELECT study_set_id FROM course_concepts WHERE id = $1::uuid", concept_id
         )
         if not ss_id:
-            return []
+            return {"conversation_id": None, "messages": []}
         conv = await db.fetchrow("""
             SELECT id FROM conversations
             WHERE study_set_id = $1::uuid AND user_id = $2::uuid
             ORDER BY created_at ASC LIMIT 1
         """, ss_id, student_id)
         if not conv:
-            return []
+            return {"conversation_id": None, "messages": []}
         rows = await db.fetch("""
             SELECT id, role, content, created_at
             FROM messages WHERE conversation_id = $1::uuid
             ORDER BY created_at ASC LIMIT 60
         """, conv["id"])
-    return [
-        {"id": str(r["id"]), "role": r["role"], "content": r["content"],
-         "created_at": r["created_at"].isoformat()}
-        for r in rows
-    ]
+    return {
+        "conversation_id": str(conv["id"]),
+        "messages": [
+            {"id": str(r["id"]), "role": r["role"], "content": r["content"],
+             "created_at": r["created_at"].isoformat()}
+            for r in rows
+        ],
+    }
 
 
 @router.post("/concepts/{concept_id}/student-chat")
