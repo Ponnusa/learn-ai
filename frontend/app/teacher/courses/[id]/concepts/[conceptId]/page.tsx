@@ -110,6 +110,7 @@ export default function ConceptEditorPage() {
   const [concept,    setConcept]    = useState<ConceptDetail | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [activeTab,  setActiveTab]  = useState<Tab>('studio');
+  const [assetTab,   setAssetTab]   = useState<'quiz' | 'flashcards' | 'videos'>('quiz');
   const [showLeft,   setShowLeft]   = useState(true);
 
 
@@ -2150,8 +2151,23 @@ export default function ConceptEditorPage() {
 
           {/* ── Assets ── */}
           {activeTab === 'assets' && (
-            <div className="space-y-4">
-              {!assetsLoaded ? (
+            <div className="flex flex-col gap-0">
+              {/* Sub-tab bar */}
+              <div className="flex border-b border-[var(--bd)] mb-4">
+                {(['quiz', 'flashcards', 'videos'] as const).map(tab => (
+                  <button key={tab} onClick={() => setAssetTab(tab)}
+                    className={`text-xs px-4 py-2 -mb-px border-b-2 transition-colors font-medium ${
+                      assetTab === tab
+                        ? 'border-purple-500 text-purple-400'
+                        : 'border-transparent text-[var(--tx6)] hover:text-[var(--tx2)]'
+                    }`}>
+                    {tab === 'quiz' ? t.teacher.assetQuiz
+                      : tab === 'flashcards' ? t.teacher.assetFlashcards
+                      : 'Videos'}
+                  </button>
+                ))}
+              </div>
+              {assetTab === 'quiz' && (!assetsLoaded ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 size={24} className="text-purple-400 animate-spin" />
                 </div>
@@ -2298,7 +2314,14 @@ export default function ConceptEditorPage() {
                       </div>
                     )}
                   </AssetSection>
-
+                </>
+              ) : null)}
+              {assetTab === 'flashcards' && (!assetsLoaded ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 size={24} className="text-purple-400 animate-spin" />
+                </div>
+              ) : assets ? (
+                <>
                   <AssetSection
                     title={t.teacher.assetFlashcards} icon={<Layers size={14} />}
                     status={assets.flashcard_status}
@@ -2367,9 +2390,91 @@ export default function ConceptEditorPage() {
                       </div>
                     )}
                   </AssetSection>
-
                 </>
-              ) : null}
+              ) : null)}
+              {assetTab === 'videos' && (
+                <div>
+                  {(() => {
+                    const studioVideos = chatMsgs.filter(m => !!m.videoBlockId && m.videoStatus !== 'failed');
+                    if (studioVideos.length === 0) {
+                      return (
+                        <div className="flex flex-col items-center justify-center py-12 text-[var(--tx7)]">
+                          <Video size={28} className="mb-2 opacity-40" />
+                          <p className="text-sm">No videos yet. Generate one from a Studio message.</p>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div className="space-y-3">
+                        {studioVideos.map(vid => {
+                          const vidReady = !!vid.videoUrl;
+                          const blockId = vid.videoBlockId!;
+                          const inTextbook = vid.videoInTextbook && !removedVideoBlocks.has(blockId);
+                          return (
+                            <div key={vid.id} className="rounded-xl overflow-hidden bg-[var(--ov1)] border border-[var(--bd)]">
+                              <div className="flex items-center gap-2 px-3.5 py-2">
+                                <Video size={11} className="text-blue-400 shrink-0" />
+                                <span className="text-[var(--tx6)] text-xs font-medium">{t.teacher.animatedVideoCard}</span>
+                                {!vidReady && (
+                                  <span className="ml-auto text-[10px] text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">
+                                    {vid.videoStatus === 'transcript_ready' ? t.teacher.videoStatusWritingAnimation
+                                     : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? t.teacher.videoStatusRendering
+                                     : vid.videoStatus === 'fixing' ? t.teacher.videoStatusAutoFixing
+                                     : t.teacher.videoStatusGenerating}
+                                  </span>
+                                )}
+                                {vidReady && <span className="ml-auto text-[10px] text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">Ready</span>}
+                              </div>
+                              {!vidReady && (
+                                <div className="flex items-center gap-2 px-3.5 pb-3">
+                                  <Loader2 size={13} className="animate-spin text-blue-400 shrink-0" />
+                                  <span className="text-[var(--tx7)] text-xs">
+                                    {vid.videoStatus === 'transcript_ready' ? t.teacher.videoProgressBuildingAnimation
+                                     : vid.videoStatus === 'queued' || vid.videoStatus === 'rendering' ? t.teacher.videoProgressRendering
+                                     : vid.videoStatus === 'fixing' ? t.teacher.videoProgressAutoFixing
+                                     : t.teacher.videoProgressWritingScript}
+                                  </span>
+                                </div>
+                              )}
+                              {vidReady && (
+                                <div>
+                                  <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata" />
+                                  <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
+                                    {inTextbook ? (
+                                      <button onClick={() => removeVideoFromTextbook(blockId)}
+                                        className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-red-400 transition-colors">
+                                        <X size={11} /> {t.teacher.removeFromTextbook}
+                                      </button>
+                                    ) : vid.videoId ? (
+                                      <button onClick={async () => {
+                                        if (blockId && !removedVideoBlocks.has(blockId)) {
+                                          try {
+                                            const r = await fetch(
+                                              `${API_BASE}/api/courses/concepts/${conceptId}/content-blocks/${blockId}/add-to-textbook`,
+                                              { method: 'POST', headers: authH },
+                                            );
+                                            if (!r.ok) throw new Error('Could not add to textbook');
+                                            setChatMsgs(prev => prev.map(x => x.id === vid.id ? { ...x, videoInTextbook: true } : x));
+                                          } catch (err: any) { alert(err.message); }
+                                        } else {
+                                          addVideoBackToTextbook(vid.id, vid.videoId!, blockId);
+                                        }
+                                      }}
+                                        className="flex items-center gap-1 text-xs text-[var(--tx7)] hover:text-green-400 transition-colors">
+                                        <Plus size={11} /> {t.teacher.addToTextbook}
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </div>
           )}
 
