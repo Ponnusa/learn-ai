@@ -228,30 +228,47 @@ ASPECT RATIO: {aspect_ratio}
 Output ONLY the Python code (imports + module-level constants + {n} classes).
 No explanation, no markdown fences."""
 
-    raw = call_with_retry(
-        model=MODEL,
-        max_tokens=32000,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
+    messages = [{"role": "user", "content": user_prompt}]
 
-    code = _strip_fences(raw)
-
-    # Verify every expected class is present before paying for a Docker render
-    missing = [
-        _unified_class_name(s) for s in segments
-        if f"class {_unified_class_name(s)}" not in code
-    ]
-    if missing:
-        raise ValueError(
-            f"Unified codegen response is missing expected classes: {missing}. "
-            "Output was likely truncated — falling back to per-segment generation."
+    for fix_attempt in range(2):  # attempt 0 = first try, attempt 1 = syntax-fix retry
+        raw = call_with_retry(
+            model=MODEL,
+            max_tokens=32000,
+            system=system_prompt,
+            messages=messages,
         )
 
-    try:
-        compile(code, "<generated-lesson>", "exec")
-    except SyntaxError as exc:
-        raise ValueError(f"Unified Manim code has a syntax error: {exc}")
+        code = _strip_fences(raw)
+
+        missing = [
+            _unified_class_name(s) for s in segments
+            if f"class {_unified_class_name(s)}" not in code
+        ]
+        if missing:
+            raise ValueError(
+                f"Unified codegen response is missing expected classes: {missing}. "
+                "Output was likely truncated — falling back to per-segment generation."
+            )
+
+        try:
+            compile(code, "<generated-lesson>", "exec")
+            break  # valid code — exit retry loop
+        except SyntaxError as exc:
+            if fix_attempt == 0:
+                logger.warning(
+                    f"[manim_renderer] unified code has syntax error ({exc}) — retrying with fix prompt"
+                )
+                messages = [
+                    {"role": "user", "content": user_prompt},
+                    {"role": "assistant", "content": raw},
+                    {"role": "user", "content": (
+                        f"Your code has a Python syntax error: {exc}\n"
+                        "Return the COMPLETE corrected Python file. "
+                        "No explanation, no markdown fences."
+                    )},
+                ]
+            else:
+                raise ValueError(f"Unified Manim code has a syntax error after fix attempt: {exc}")
 
     logger.info(
         f"[manim_renderer] unified code generated: {n} classes, {len(code)} chars"
