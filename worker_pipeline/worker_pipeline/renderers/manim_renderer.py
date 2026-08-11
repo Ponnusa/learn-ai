@@ -230,7 +230,7 @@ No explanation, no markdown fences."""
 
     raw = call_with_retry(
         model=MODEL,
-        max_tokens=16000,
+        max_tokens=32000,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
     )
