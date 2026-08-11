@@ -40,6 +40,8 @@ class Segment(BaseModel):
     # without re-parsing the code. None means single-segment path was used.
     generated_class_name: Optional[str] = None
 
+    language: str = "en"
+
     status: SegmentStatus = "pending"
     retry_count: int = 0
     error_message: Optional[str] = None
