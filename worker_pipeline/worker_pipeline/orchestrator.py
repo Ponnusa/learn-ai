@@ -253,9 +253,9 @@ def render_storyboard(
 
     ordered = sorted(storyboard.segments, key=lambda s: s.order)
 
-    # Unified Manim pre-generation: one Claude call for all non-cached Manim
-    # segments. Falls back to per-segment if this raises.
-    _try_unified_manim_codegen(ordered)
+    # Unified Manim pre-generation disabled — falls back to per-segment which is
+    # more reliable. Re-enable when unified codegen is stable.
+    # _try_unified_manim_codegen(ordered)
 
     for segment in ordered:
         _render_with_degrade(renderers, segment, ordered, work_dir)
