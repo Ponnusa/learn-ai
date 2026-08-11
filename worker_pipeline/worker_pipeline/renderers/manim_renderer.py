@@ -88,7 +88,7 @@ def _check_manim_cache(segment: Segment) -> Optional[AssetRef]:
     key without recomputing it.
     """
     clip_hash = compute_prompt_hash(
-        f"{segment.generation_prompt}||{segment.narration_text}", "", segment.subject_area,
+        f"{segment.generation_prompt}||{segment.narration_text}", "", f"{segment.subject_area}||{segment.language}",
     )
     segment.prompt_hash = clip_hash
     return check_cache(clip_hash, "manim_clip", segment.id, ".mp4")

@@ -132,7 +132,7 @@ class VideoRenderer(Renderer):
         # the final clip's audio track depends on it — same reasoning as
         # image_renderer.py's image_hash/clip_hash split.
         clip_hash = compute_prompt_hash(
-            f"{segment.generation_prompt}||{segment.narration_text}", "", segment.subject_area,
+            f"{segment.generation_prompt}||{segment.narration_text}", "", f"{segment.subject_area}||{segment.language}",
         )
         segment.prompt_hash = clip_hash
 

@@ -234,12 +234,12 @@ class ImageRenderer(Renderer):
             image_hash = compute_prompt_hash(
                 segment.generation_prompt,
                 segment.style_reference_segment_id or "",
-                segment.subject_area,
+                f"{segment.subject_area}||{segment.language}",
             )
             clip_hash = compute_prompt_hash(
                 f"{segment.generation_prompt}||{segment.narration_text}",
                 segment.style_reference_segment_id or "",
-                segment.subject_area,
+                f"{segment.subject_area}||{segment.language}",
             )
             segment.prompt_hash = clip_hash
 
