@@ -38,8 +38,33 @@ AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY")
 AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION", "swedencentral")
 AZURE_VOICE_NAME = os.getenv("AZURE_VOICE_NAME", "en-US-JennyNeural")
 
+LANGUAGE_VOICE_MAP: dict = {
+    "en": "en-US-JennyNeural",
+    "fi": "fi-FI-NooraNeural",
+    "sv": "sv-SE-SofieNeural",
+    "de": "de-DE-KatjaNeural",
+    "fr": "fr-FR-DeniseNeural",
+    "es": "es-ES-ElviraNeural",
+    "it": "it-IT-ElsaNeural",
+    "nl": "nl-NL-ColetteNeural",
+    "pt": "pt-PT-RaquelNeural",
+    "ar": "ar-SA-ZariyahNeural",
+    "zh": "zh-CN-XiaoxiaoNeural",
+    "ja": "ja-JP-NanamiNeural",
+    "ko": "ko-KR-SunHiNeural",
+    "ru": "ru-RU-SvetlanaNeural",
+    "pl": "pl-PL-ZofiaNeural",
+    "tr": "tr-TR-EmelNeural",
+    "hi": "hi-IN-SwaraNeural",
+}
 
-def generate_narration_audio(text: str, output_path: str) -> None:
+
+def voice_for_language(lang: str) -> str:
+    base = lang.split("-")[0].lower() if lang else "en"
+    return LANGUAGE_VOICE_MAP.get(base, AZURE_VOICE_NAME)
+
+
+def generate_narration_audio(text: str, output_path: str, voice_name: str = AZURE_VOICE_NAME) -> None:
     """
     Synthesize `text` to speech and write it to output_path (wav).
     Raises if credentials are missing or synthesis fails — never writes a
@@ -51,7 +76,7 @@ def generate_narration_audio(text: str, output_path: str) -> None:
     import azure.cognitiveservices.speech as speechsdk
 
     speech_config = speechsdk.SpeechConfig(subscription=AZURE_SPEECH_KEY, region=AZURE_SPEECH_REGION)
-    speech_config.speech_synthesis_voice_name = AZURE_VOICE_NAME
+    speech_config.speech_synthesis_voice_name = voice_name
     audio_config = speechsdk.audio.AudioOutputConfig(filename=output_path)
     synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
 
