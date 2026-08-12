@@ -151,7 +151,7 @@ no markdown fences."""
     raw = call_with_retry(
         model=MODEL,
         max_tokens=16000,
-        system=system_prompt,
+        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user_prompt}],
     )
 
@@ -234,7 +234,7 @@ No explanation, no markdown fences."""
         raw = call_with_retry(
             model=MODEL,
             max_tokens=32000,
-            system=system_prompt,
+            system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
             messages=messages,
         )
 
