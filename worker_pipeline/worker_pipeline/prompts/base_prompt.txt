@@ -310,6 +310,12 @@ Object positions:
 Use: get_center(), get_top(), get_bottom(), get_left(), get_right()
 Never: obj.center, obj.top
 
+NO SUBTITLES — EVER:
+The narration is delivered as Azure TTS audio. Do NOT display subtitle text,
+caption text, or any on-screen transcript of what is being spoken.
+NEVER create a subtitle bar, caption overlay, or scrolling text that mirrors
+the voiceover. The visual track shows diagrams and animations only.
+
 HALLUCINATED HELPER METHODS — NEVER CALL THESE (they do not exist):
 self.show_subtitle(...)      → does not exist on VoiceoverScene
 self.add_subtitle(...)       → does not exist
@@ -317,7 +323,6 @@ self.display_text(...)       → does not exist
 self.show_title(...)         → does not exist
 self.add_caption(...)        → does not exist
 self.play_sound(...)         → does not exist
-To show subtitles/titles: create a Text() object, position it, animate with FadeIn/FadeOut.
 Only call methods that are part of the standard Manim or manim-voiceover API.
 
 ══════════════════════════════════════════════════════════════════
@@ -548,6 +553,7 @@ Before outputting, verify:
 ✔ Objects within safe zones
 ✔ No invalid colors
 ✔ No nested coordinate arrays
+✔ No subtitles or caption overlays — narration is audio only, not on-screen text
 ✔ No hallucinated helper methods (show_subtitle, add_subtitle, show_title, display_text, etc.)
 ✔ Code is valid Manim Python
 ✔ Background set to ManimColor("#0D1117")
