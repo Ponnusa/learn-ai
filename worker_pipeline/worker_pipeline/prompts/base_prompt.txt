@@ -316,6 +316,15 @@ caption text, or any on-screen transcript of what is being spoken.
 NEVER create a subtitle bar, caption overlay, or scrolling text that mirrors
 the voiceover. The visual track shows diagrams and animations only.
 
+ZERO-LENGTH MOBJECTS — always crash with "no points" error:
+NEVER create a Line or Arrow where start == end (zero length):
+  BAD:  Line(point, point)  /  Arrow(ORIGIN, ORIGIN)
+  FIX:  ensure start != end, e.g. Line(LEFT, RIGHT)
+NEVER call get_start() / get_end() on a VGroup — call it on the individual
+  child Line/Arrow instead.
+NEVER call get_start() / get_end() on an empty VGroup() or any Mobject that
+  has not yet had points added to it.
+
 HALLUCINATED HELPER METHODS — NEVER CALL THESE (they do not exist):
 self.show_subtitle(...)      → does not exist on VoiceoverScene
 self.add_subtitle(...)       → does not exist
@@ -553,6 +562,7 @@ Before outputting, verify:
 ✔ Objects within safe zones
 ✔ No invalid colors
 ✔ No nested coordinate arrays
+✔ No zero-length Lines or Arrows (start ≠ end), no get_start()/get_end() on VGroup
 ✔ No subtitles or caption overlays — narration is audio only, not on-screen text
 ✔ No hallucinated helper methods (show_subtitle, add_subtitle, show_title, display_text, etc.)
 ✔ Code is valid Manim Python
