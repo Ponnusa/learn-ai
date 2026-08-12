@@ -52,6 +52,98 @@ logger = logging.getLogger(__name__)
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
+# ── Bohr atom helper — injected into chemistry code before Docker render ──────
+
+_ATOM_BOHR_CODE: str = '''
+ATOM_CONFIGS = {
+    "H":  ([1],             "#DDDDDD"),
+    "He": ([2],             "#C8E8FF"),
+    "Li": ([2, 1],          "#CC3333"),
+    "Be": ([2, 2],          "#228844"),
+    "B":  ([2, 3],          "#DD7700"),
+    "C":  ([2, 4],          "#888888"),
+    "N":  ([2, 5],          "#4477EE"),
+    "O":  ([2, 6],          "#EE3333"),
+    "F":  ([2, 7],          "#33BB77"),
+    "Ne": ([2, 8],          "#99CCFF"),
+    "Na": ([2, 8, 1],       "#FFCC22"),
+    "Mg": ([2, 8, 2],       "#22AA55"),
+    "Al": ([2, 8, 3],       "#AAAAAA"),
+    "Si": ([2, 8, 4],       "#BBBBBB"),
+    "P":  ([2, 8, 5],       "#FF7722"),
+    "S":  ([2, 8, 6],       "#FFDD00"),
+    "Cl": ([2, 8, 7],       "#44CC44"),
+    "Ar": ([2, 8, 8],       "#AABBFF"),
+    "K":  ([2, 8, 8, 1],    "#BB44AA"),
+    "Ca": ([2, 8, 8, 2],    "#22AA44"),
+}
+
+
+def draw_bohr_atom(symbol, position=ORIGIN, scale=1.0, electron_color=YELLOW, shell_color=GRAY, shells=None, color=None):
+    import math as _m
+    if color is not None:
+        electron_color = color
+    cfg_shells, nuc_hex = ATOM_CONFIGS.get(symbol, ([1], "#888888"))
+    if shells is None:
+        shells = cfg_shells
+    group = VGroup()
+    nuc_r = 0.28 * scale
+    nucleus  = Circle(radius=nuc_r, fill_color=ManimColor(nuc_hex), fill_opacity=1,
+                      stroke_color=WHITE, stroke_width=1.5)
+    sym_text = Text(symbol, font_size=int(16 * scale), color=WHITE)
+    nuc_group = VGroup(nucleus, sym_text)
+    nuc_group.move_to(position)
+    group.add(nuc_group)
+    base_radii = [0.62, 1.08, 1.54, 2.00]
+    for i, count in enumerate(shells):
+        r = base_radii[i] * scale
+        ring = Circle(radius=r, stroke_color=shell_color, stroke_width=1.2,
+                      fill_opacity=0, stroke_opacity=0.55).move_to(position)
+        group.add(ring)
+        for j in range(count):
+            angle = (2 * _m.pi * j / count) - _m.pi / 2
+            ex = position[0] + r * _m.cos(angle)
+            ey = position[1] + r * _m.sin(angle)
+            group.add(Dot(radius=0.072 * scale, color=electron_color).move_to([ex, ey, 0]))
+    return group
+'''
+
+
+def _strip_llm_atom_definitions(code: str) -> str:
+    import ast as _ast
+    try:
+        tree = _ast.parse(code)
+    except SyntaxError:
+        return code
+    lines = code.splitlines(keepends=True)
+    to_remove: set = set()
+    for node in tree.body:
+        if isinstance(node, _ast.FunctionDef) and node.name == 'draw_bohr_atom':
+            for ln in range(node.lineno, node.end_lineno + 1):
+                to_remove.add(ln)
+        elif isinstance(node, _ast.Assign):
+            for tgt in node.targets:
+                if isinstance(tgt, _ast.Name) and tgt.id == 'ATOM_CONFIGS':
+                    for ln in range(node.lineno, node.end_lineno + 1):
+                        to_remove.add(ln)
+    if not to_remove:
+        return code
+    result = ''.join(line for i, line in enumerate(lines, 1) if i not in to_remove)
+    return re.sub(r'\n{3,}', '\n\n', result)
+
+
+def inject_atom_helper(code: str, subject_area: str) -> str:
+    if subject_area != "chemistry":
+        return code
+    if "draw_bohr_atom" not in code:
+        return code
+    code = _strip_llm_atom_definitions(code)
+    match = re.search(r'^class\s+\w+', code, re.MULTILINE)
+    if not match:
+        return code
+    insert_pos = match.start()
+    return code[:insert_pos] + _ATOM_BOHR_CODE.strip() + "\n\n\n" + code[insert_pos:]
+
 _SUBJECT_PROMPT_FILES = {
     "physics": "physics_prompt.txt",
     "chemistry": "chemistry_prompt.txt",
@@ -307,6 +399,7 @@ def render_code_to_clip(
     segment_id: str,
     work_dir: str,
     scene_name: Optional[str] = None,
+    subject_area: str = "",
 ) -> str:
     """
     Render generated Manim code to an mp4 via Docker.
@@ -330,6 +423,7 @@ def render_code_to_clip(
             "EOFError (no stdin attached to a non-interactive docker run)."
         )
 
+    code = inject_atom_helper(code, subject_area)
     resolved_scene = scene_name or _extract_scene_name(code)
     os.makedirs(work_dir, exist_ok=True)
     code_file = os.path.join(work_dir, f"{segment_id}.py")
@@ -404,7 +498,8 @@ class ManimRenderer(Renderer):
 
             seg_work_dir = os.path.join(self._work_dir, f"manim_{segment.id}")
             clip_path = render_code_to_clip(
-                code, segment.id, seg_work_dir, scene_name=scene_name
+                code, segment.id, seg_work_dir, scene_name=scene_name,
+                subject_area=segment.subject_area,
             )
 
             clip_ref = register_asset(
