@@ -114,7 +114,13 @@ def generate_image_bytes(prompt: str, reference_image_bytes: Optional[bytes] = N
 
     response = client.models.generate_content(model=NANO_BANANA_MODEL, contents=contents)
 
-    for part in response.candidates[0].content.parts:
+    candidates = response.candidates
+    if not candidates:
+        raise RuntimeError(f"Nano Banana returned no candidates (likely safety filter or quota). Prompt: {prompt[:200]}")
+    content = candidates[0].content
+    if not content or not content.parts:
+        raise RuntimeError(f"Nano Banana candidate has no content parts. Finish reason: {getattr(candidates[0], 'finish_reason', 'unknown')}")
+    for part in content.parts:
         if getattr(part, "inline_data", None) is not None:
             return part.inline_data.data
     raise RuntimeError("Nano Banana response contained no image data")
