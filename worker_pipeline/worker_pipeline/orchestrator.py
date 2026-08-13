@@ -230,6 +230,7 @@ def render_storyboard(
     storyboard: Storyboard,
     work_dir: Optional[str] = None,
     renderers: Optional[Dict[str, Renderer]] = None,
+    persist_codegen: Optional[Callable[[Segment], None]] = None,
 ) -> Storyboard:
     """
     Render every segment in a Storyboard, in order, applying the retry +
@@ -268,6 +269,12 @@ def render_storyboard(
                 seg.generated_code = generate_manim_code(seg)
                 seg.generated_class_name = _extract_scene_name(seg.generated_code)
                 logger.info(f"[orchestrator] codegen done for seg {seg.order} (class {seg.generated_class_name})")
+                if persist_codegen is not None:
+                    try:
+                        persist_codegen(seg)
+                        logger.info(f"[orchestrator] codegen persisted for seg {seg.order}")
+                    except Exception as pe:
+                        logger.warning(f"[orchestrator] codegen persist failed for seg {seg.order}: {pe}")
             except Exception as exc:
                 logger.warning(f"[orchestrator] codegen failed for seg {seg.order}: {exc}")
         with ThreadPoolExecutor(max_workers=len(manim_segs)) as pool:
