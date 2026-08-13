@@ -242,7 +242,7 @@ no markdown fences."""
 
     raw = call_with_retry(
         model=MODEL,
-        max_tokens=16000,
+        max_tokens=32000,
         system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user_prompt}],
     )
@@ -475,7 +475,7 @@ def fix_code_with_claude(code: str, error: str) -> str:
     """
     raw = call_with_retry(
         model=MODEL,
-        max_tokens=16000,
+        max_tokens=32000,
         system=[{"type": "text", "text": (
             "You are a Manim Python code fixer. "
             "You will be given broken Manim code and an error traceback. "
