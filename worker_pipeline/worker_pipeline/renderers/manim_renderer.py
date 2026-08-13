@@ -433,8 +433,11 @@ def render_code_to_clip(
     media_dir = os.path.join(work_dir, "media")
     os.makedirs(media_dir, exist_ok=True)
 
+    import uuid as _uuid
+    container_name = f"manim_{segment_id}_{_uuid.uuid4().hex[:8]}"
     cmd = [
         "docker", "run", "--rm", "--init", "--user", "root",
+        "--name", container_name,
         "-v", f"{os.path.abspath(work_dir)}:/manim",
         "-v", f"{os.path.abspath(media_dir)}:/output",
         "-e", "PYTHONPATH=/manim",
@@ -445,7 +448,11 @@ def render_code_to_clip(
         "manim", "-qm", "--media_dir", "/output", "--progress_bar", "none", "--disable_caching",
         f"{segment_id}.py", resolved_scene,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    except (subprocess.TimeoutExpired, Exception):
+        subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=10)
+        raise
     if result.returncode != 0:
         raise RuntimeError(f"Manim Docker render failed:\n{result.stderr[-1000:]}")
 
