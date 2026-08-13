@@ -275,11 +275,10 @@ def render_storyboard(
             for f in as_completed(futures):
                 f.result()  # surface exceptions
 
-    # ── Phase 2: sequential Docker renders ───────────────────────────────────
-    # Manim renders are CPU-heavy — parallel rendering splits vCPUs across
-    # containers and makes each render slower. Sequential gives each render
-    # the full machine, which is faster overall for complex scenes.
-    MAX_RENDER_WORKERS = 1
+    # ── Phase 2: parallel Docker renders (CPU-limited) ────────────────────────
+    # 2 concurrent renders on n2d-standard-8 → 4 vCPUs each, fast enough for
+    # complex scenes without the timeout risk of 4-way splitting (2 vCPUs each).
+    MAX_RENDER_WORKERS = 2
 
     def _render_segment(seg):
         _render_with_degrade(renderers, seg, ordered, work_dir)

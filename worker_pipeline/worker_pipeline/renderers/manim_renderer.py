@@ -449,7 +449,7 @@ def render_code_to_clip(
         f"{segment_id}.py", resolved_scene,
     ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
     except (subprocess.TimeoutExpired, Exception):
         subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=10)
         raise
