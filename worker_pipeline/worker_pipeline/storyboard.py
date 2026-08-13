@@ -91,6 +91,11 @@ Each segment has exactly one "type":
     natural realistic depiction. Either way, generation_prompt must be pure art-direction:
     composition, what to show/label, lighting/style — NO Manim class names, NO code terms,
     NO camera-motion language (camera motion is video's job).
+    STRICT RULE — NEVER request a realistic portrait photograph of a named real person
+    (e.g. "portrait of Niels Bohr", "photograph of Einstein"). The image model will reject
+    these. Instead use: vintage scientific illustration style, ink-and-watercolour, or
+    educational textbook art style — describe the scene/era/mood without naming the person
+    (e.g. "early 1900s physicist at a chalkboard, ink illustration style").
   - "video" -> {video_rule}
     generation_prompt (when used) must be cinematography style: camera framing and real-world
     motion — NEVER instruct on-screen text/labels.
