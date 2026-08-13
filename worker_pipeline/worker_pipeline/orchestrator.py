@@ -54,6 +54,7 @@ import logging
 import os
 import tempfile
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Dict, List, Optional
 
 import requests
@@ -253,11 +254,40 @@ def render_storyboard(
 
     ordered = sorted(storyboard.segments, key=lambda s: s.order)
 
-    # Unified Manim pre-generation disabled — falls back to per-segment which is
-    # more reliable. Re-enable when unified codegen is stable.
-    # _try_unified_manim_codegen(ordered)
+    # ── Phase 1: parallel Claude codegen for all Manim segments ──────────────
+    # Fire all Claude API calls simultaneously — each is independent, safe to
+    # parallelize. Image/video segments have no codegen so they're excluded.
+    # Docker renders (phase 2) are kept separate so we control CPU concurrency.
+    manim_segs = [s for s in ordered if s.type == "manim" and _check_manim_cache(s) is None]
+    if len(manim_segs) > 1:
+        logger.info(f"[orchestrator] parallel codegen for {len(manim_segs)} Manim segments")
+        def _generate(seg):
+            from .renderers.manim_renderer import generate_manim_code, _unified_class_name
+            try:
+                seg.generated_code = generate_manim_code(seg)
+                seg.generated_class_name = None  # per-segment path, scene name extracted at render
+                logger.info(f"[orchestrator] codegen done for seg {seg.order}")
+            except Exception as exc:
+                logger.warning(f"[orchestrator] codegen failed for seg {seg.order}: {exc}")
+        with ThreadPoolExecutor(max_workers=len(manim_segs)) as pool:
+            futures = {pool.submit(_generate, s): s for s in manim_segs}
+            for f in as_completed(futures):
+                f.result()  # surface exceptions
 
-    for segment in ordered:
-        _render_with_degrade(renderers, segment, ordered, work_dir)
+    # ── Phase 2: parallel Docker renders (CPU-limited) ────────────────────────
+    # Max 3 concurrent renders — enough parallelism on an 8-vCPU VM without
+    # starving individual renders of CPU.
+    MAX_RENDER_WORKERS = 3
+
+    def _render_segment(seg):
+        _render_with_degrade(renderers, seg, ordered, work_dir)
+
+    with ThreadPoolExecutor(max_workers=MAX_RENDER_WORKERS) as pool:
+        futures = {pool.submit(_render_segment, s): s for s in ordered}
+        for f in as_completed(futures):
+            try:
+                f.result()
+            except Exception as exc:
+                logger.error(f"[orchestrator] segment render raised unexpectedly: {exc}")
 
     return storyboard
