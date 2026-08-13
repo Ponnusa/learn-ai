@@ -456,6 +456,45 @@ def render_code_to_clip(
     raise RuntimeError("Manim render completed but output mp4 was not found")
 
 
+# ── Auto-fix: ask Claude to repair Python errors before retry ─────────────────
+
+_PYTHON_ERROR_PATTERNS = (
+    "NameError", "AttributeError", "TypeError", "SyntaxError",
+    "ValueError", "IndexError", "KeyError", "UnboundLocalError",
+)
+
+
+def _is_python_error(stderr: str) -> bool:
+    return any(p in stderr for p in _PYTHON_ERROR_PATTERNS)
+
+
+def fix_code_with_claude(code: str, error: str) -> str:
+    """
+    Ask Claude to fix a Python/Manim error in generated code.
+    Returns corrected code, or raises if the fix itself has a syntax error.
+    """
+    raw = call_with_retry(
+        model=MODEL,
+        max_tokens=16000,
+        system=[{"type": "text", "text": (
+            "You are a Manim Python code fixer. "
+            "You will be given broken Manim code and an error traceback. "
+            "Return ONLY the complete corrected Python file — no explanation, no markdown fences."
+        )}],
+        messages=[{"role": "user", "content": (
+            f"Fix this Manim Python error and return the complete corrected file.\n\n"
+            f"ERROR:\n{error[-2000:]}\n\n"
+            f"CODE:\n{code}"
+        )}],
+    )
+    fixed = _strip_fences(raw)
+    try:
+        compile(fixed, "<fix-check>", "exec")
+    except SyntaxError as exc:
+        raise ValueError(f"Claude's fix still has a syntax error: {exc}")
+    return fixed
+
+
 # ── Renderer class ────────────────────────────────────────────────────────────
 
 class ManimRenderer(Renderer):
@@ -497,10 +536,32 @@ class ManimRenderer(Renderer):
                 scene_name = None  # render_code_to_clip will extract it
 
             seg_work_dir = os.path.join(self._work_dir, f"manim_{segment.id}")
-            clip_path = render_code_to_clip(
-                code, segment.id, seg_work_dir, scene_name=scene_name,
-                subject_area=segment.subject_area,
-            )
+            try:
+                clip_path = render_code_to_clip(
+                    code, segment.id, seg_work_dir, scene_name=scene_name,
+                    subject_area=segment.subject_area,
+                )
+            except RuntimeError as render_exc:
+                err_str = str(render_exc)
+                if _is_python_error(err_str):
+                    logger.warning(
+                        f"[manim_renderer] Python error in segment {segment.id} — "
+                        "asking Claude to fix before retry"
+                    )
+                    try:
+                        code = fix_code_with_claude(code, err_str)
+                        segment.generated_code = code
+                        scene_name = _extract_scene_name(code)
+                        clip_path = render_code_to_clip(
+                            code, segment.id, seg_work_dir, scene_name=scene_name,
+                            subject_area=segment.subject_area,
+                        )
+                    except Exception as fix_exc:
+                        raise RuntimeError(
+                            f"Auto-fix failed: {fix_exc}\nOriginal error: {render_exc}"
+                        )
+                else:
+                    raise
 
             clip_ref = register_asset(
                 clip_path, segment.id, "manim_clip", segment.prompt_hash
