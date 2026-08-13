@@ -68,6 +68,7 @@ from .renderers.image_renderer import ImageRenderer, make_ken_burns_clip
 from .renderers.manim_renderer import (
     ManimRenderer,
     _check_manim_cache,
+    _extract_scene_name,
     _unified_class_name,
     generate_all_manim_code,
 )
@@ -262,11 +263,11 @@ def render_storyboard(
     if len(manim_segs) > 1:
         logger.info(f"[orchestrator] parallel codegen for {len(manim_segs)} Manim segments")
         def _generate(seg):
-            from .renderers.manim_renderer import generate_manim_code, _unified_class_name
+            from .renderers.manim_renderer import generate_manim_code
             try:
                 seg.generated_code = generate_manim_code(seg)
-                seg.generated_class_name = None  # per-segment path, scene name extracted at render
-                logger.info(f"[orchestrator] codegen done for seg {seg.order}")
+                seg.generated_class_name = _extract_scene_name(seg.generated_code)
+                logger.info(f"[orchestrator] codegen done for seg {seg.order} (class {seg.generated_class_name})")
             except Exception as exc:
                 logger.warning(f"[orchestrator] codegen failed for seg {seg.order}: {exc}")
         with ThreadPoolExecutor(max_workers=len(manim_segs)) as pool:
