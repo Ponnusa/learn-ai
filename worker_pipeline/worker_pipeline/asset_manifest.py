@@ -192,13 +192,18 @@ def log_manim_failure(video_id: int, segment_order: int, segment_id: str, error:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS manim_render_failures (
                 id            SERIAL PRIMARY KEY,
-                video_id      INTEGER NOT NULL,
+                video_id      INTEGER,
                 segment_order INTEGER NOT NULL,
                 segment_id    TEXT,
                 error_message TEXT,
                 generated_code TEXT,
                 created_at    TIMESTAMPTZ DEFAULT NOW()
             )
+        """)
+        # Drop NOT NULL if table already existed with the old constraint
+        cur.execute("""
+            ALTER TABLE manim_render_failures
+            ALTER COLUMN video_id DROP NOT NULL
         """)
         cur.execute(
             """INSERT INTO manim_render_failures

@@ -445,7 +445,7 @@ def render_code_to_clip(
         "manim", "-qm", "--media_dir", "/output", "--progress_bar", "none", "--disable_caching",
         f"{segment_id}.py", resolved_scene,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
     if result.returncode != 0:
         raise RuntimeError(f"Manim Docker render failed:\n{result.stderr[-1000:]}")
 
