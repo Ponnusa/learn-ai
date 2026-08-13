@@ -43,7 +43,7 @@ from typing import List, Optional
 from pathlib import Path
 
 from .._claude import MODEL, call_with_retry
-from ..asset_manifest import AssetRef, check_cache, compute_prompt_hash, register_asset
+from ..asset_manifest import AssetRef, check_cache, compute_prompt_hash, log_manim_failure, register_asset
 from ..schema import Segment
 from ..tts import AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, AZURE_VOICE_NAME, voice_for_language
 from .base import Renderer
@@ -578,4 +578,14 @@ class ManimRenderer(Renderer):
             segment.retry_count += 1
             segment.error_message = str(exc)[:500]
             logger.error(f"[manim_renderer] segment {segment.id} failed: {exc}")
+            try:
+                log_manim_failure(
+                    video_id=segment.video_id,
+                    segment_order=segment.order,
+                    segment_id=segment.id,
+                    error=str(exc),
+                    code=segment.generated_code or "",
+                )
+            except Exception:
+                pass  # never let logging break the render flow
             raise

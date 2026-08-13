@@ -10,6 +10,7 @@ SegmentStatus = Literal["pending", "generating", "rendered", "failed"]
 class Segment(BaseModel):
     id: str
     order: int
+    video_id: Optional[int] = None   # set by worker when loading from DB
     type: SegmentType
     target_duration_seconds: float
     actual_duration_seconds: Optional[float] = None
