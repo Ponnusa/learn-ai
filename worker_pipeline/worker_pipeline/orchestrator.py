@@ -275,10 +275,11 @@ def render_storyboard(
             for f in as_completed(futures):
                 f.result()  # surface exceptions
 
-    # ── Phase 2: parallel Docker renders (CPU-limited) ────────────────────────
-    # Max 3 concurrent renders — enough parallelism on an 8-vCPU VM without
-    # starving individual renders of CPU.
-    MAX_RENDER_WORKERS = 4  # n2d-standard-8: 8 vCPUs, ~2 vCPUs per render
+    # ── Phase 2: sequential Docker renders ───────────────────────────────────
+    # Manim renders are CPU-heavy — parallel rendering splits vCPUs across
+    # containers and makes each render slower. Sequential gives each render
+    # the full machine, which is faster overall for complex scenes.
+    MAX_RENDER_WORKERS = 1
 
     def _render_segment(seg):
         _render_with_degrade(renderers, seg, ordered, work_dir)
