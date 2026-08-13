@@ -277,7 +277,7 @@ def render_storyboard(
     # ── Phase 2: parallel Docker renders (CPU-limited) ────────────────────────
     # Max 3 concurrent renders — enough parallelism on an 8-vCPU VM without
     # starving individual renders of CPU.
-    MAX_RENDER_WORKERS = 3
+    MAX_RENDER_WORKERS = 4  # n2d-standard-8: 8 vCPUs, ~2 vCPUs per render
 
     def _render_segment(seg):
         _render_with_degrade(renderers, seg, ordered, work_dir)
