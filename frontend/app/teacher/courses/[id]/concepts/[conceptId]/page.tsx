@@ -87,7 +87,8 @@ interface PipelineSegment {
   segment_id: string; segment_order: number; segment_type: string;
   asset_type: string; narration_text: string | null;
   r2_key: string;
-  clip_url: string | null; image_url: string | null; source_image_url: string | null;
+  clip_url: string | null; image_url: string | null;
+  source_image_url: string | null; source_image_r2_key: string | null;
   asset_created_at: string;
 }
 interface PipelineRun {
@@ -2499,34 +2500,88 @@ export default function ConceptEditorPage() {
                                 } catch (e: any) { alert(e.message); }
                                 finally { setAddingToTextbook(p => ({ ...p, [key]: false })); }
                               };
+                              const imgKey  = `${run.video_id}-${seg.segment_id}-img`;
+                              const isAddingImg = addingToTextbook[imgKey];
+                              const addImageToTextbook = seg.source_image_r2_key ? async () => {
+                                setAddingToTextbook(p => ({ ...p, [imgKey]: true }));
+                                try {
+                                  const r = await fetch(
+                                    `${API_BASE}/api/courses/concepts/${conceptId}/pipeline-assets/add-to-textbook`,
+                                    {
+                                      method: 'POST',
+                                      headers: { ...authH, 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        r2_key:         seg.source_image_r2_key,
+                                        narration_text: seg.narration_text,
+                                        asset_type:     'image',
+                                      }),
+                                    },
+                                  );
+                                  if (!r.ok) throw new Error('Failed to add to textbook');
+                                } catch (e: any) { alert(e.message); }
+                                finally { setAddingToTextbook(p => ({ ...p, [imgKey]: false })); }
+                              } : undefined;
+
                               return (
-                                <div key={seg.segment_id} className="p-3 flex flex-col gap-2">
+                                <div key={seg.segment_id} className="p-3 flex flex-col gap-3">
+                                  {/* Segment label */}
                                   <div className="flex items-center gap-2">
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium uppercase tracking-wide">
                                       {seg.segment_type}
                                     </span>
                                     <span className="text-[10px] text-[var(--tx7)]">seg {seg.segment_order + 1}</span>
-                                    <button
-                                      disabled={isAdding}
-                                      onClick={addToTextbook}
-                                      className="ml-auto flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border border-[var(--bd)]
-                                                 text-[var(--tx6)] hover:text-green-400 hover:border-green-500/40 transition-colors disabled:opacity-50">
-                                      {isAdding ? <Loader2 size={9} className="animate-spin" /> : <Plus size={9} />}
-                                      Add to Textbook
-                                    </button>
                                   </div>
+
+                                  {/* Source image — separate addable asset */}
                                   {seg.source_image_url && (
-                                    <img src={seg.source_image_url} alt="" className="w-full rounded-lg object-cover max-h-48" />
+                                    <div className="rounded-lg overflow-hidden border border-[var(--bd)]">
+                                      <img src={seg.source_image_url} alt="" className="w-full object-cover max-h-48" />
+                                      <div className="flex items-center justify-between px-2 py-1.5 bg-[var(--ov1)]">
+                                        <span className="text-[9px] text-[var(--tx7)]">Gemini image</span>
+                                        {addImageToTextbook && (
+                                          <button
+                                            disabled={isAddingImg}
+                                            onClick={addImageToTextbook}
+                                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-[var(--bd)]
+                                                       text-[var(--tx6)] hover:text-green-400 hover:border-green-500/40 transition-colors disabled:opacity-50">
+                                            {isAddingImg ? <Loader2 size={9} className="animate-spin" /> : <Plus size={9} />}
+                                            Add to Textbook
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
                                   )}
+
+                                  {/* Clip video — separate addable asset, middle-frame thumbnail */}
                                   {seg.clip_url && (
-                                    <video
-                                      src={seg.clip_url}
-                                      controls
-                                      className="w-full rounded-lg bg-black"
-                                      preload="metadata"
-                                      poster={seg.source_image_url || undefined}
-                                    />
+                                    <div className="rounded-lg overflow-hidden border border-[var(--bd)]">
+                                      <video
+                                        src={seg.clip_url}
+                                        controls
+                                        className="w-full bg-black"
+                                        preload="metadata"
+                                        onLoadedMetadata={(e) => {
+                                          const v = e.currentTarget;
+                                          if (v.duration && isFinite(v.duration)) v.currentTime = v.duration / 2;
+                                        }}
+                                      />
+                                      <div className="flex items-center justify-between px-2 py-1.5 bg-[var(--ov1)]">
+                                        <span className="text-[9px] text-[var(--tx7)]">
+                                          {seg.asset_type === 'manim_clip' ? 'Manim animation' : 'Animated clip'}
+                                        </span>
+                                        <button
+                                          disabled={isAdding}
+                                          onClick={addToTextbook}
+                                          className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-[var(--bd)]
+                                                     text-[var(--tx6)] hover:text-green-400 hover:border-green-500/40 transition-colors disabled:opacity-50">
+                                          {isAdding ? <Loader2 size={9} className="animate-spin" /> : <Plus size={9} />}
+                                          Add to Textbook
+                                        </button>
+                                      </div>
+                                    </div>
                                   )}
+
+                                  {/* Narration */}
                                   {seg.narration_text && (
                                     <p className="text-xs text-[var(--tx6)] leading-snug line-clamp-3">{seg.narration_text}</p>
                                   )}

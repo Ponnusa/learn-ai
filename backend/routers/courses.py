@@ -2031,16 +2031,17 @@ async def get_pipeline_assets(concept_id: str, authorization: str = Header(...))
         source_image_url = _r2_url(src_key) if src_key else None
 
         groups[vid]["segments"].append({
-            "segment_id":        r["segment_id"],
-            "segment_order":     r["segment_order"],
-            "segment_type":      r["segment_type"],
-            "asset_type":        r["asset_type"],
-            "narration_text":    r["narration_text"],
-            "r2_key":            r["r2_key"],
-            "clip_url":          None if is_image else url,
-            "image_url":         url if is_image else None,
-            "source_image_url":  source_image_url,
-            "asset_created_at":  r["asset_created_at"].isoformat(),
+            "segment_id":           r["segment_id"],
+            "segment_order":        r["segment_order"],
+            "segment_type":         r["segment_type"],
+            "asset_type":           r["asset_type"],
+            "narration_text":       r["narration_text"],
+            "r2_key":               r["r2_key"],
+            "clip_url":             None if is_image else url,
+            "image_url":            url if is_image else None,
+            "source_image_url":     source_image_url,
+            "source_image_r2_key":  src_key,
+            "asset_created_at":     r["asset_created_at"].isoformat(),
         })
 
     return list(groups.values())
