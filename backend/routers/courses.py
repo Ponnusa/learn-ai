@@ -1981,6 +1981,7 @@ async def get_pipeline_assets(concept_id: str, authorization: str = Header(...))
                 vs.segment_order,
                 vs.type              AS segment_type,
                 vs.narration_text,
+                vs.source_asset_url,
                 v.id                 AS video_id,
                 v.created_at         AS video_created_at
             FROM generated_assets ga
@@ -1989,6 +1990,19 @@ async def get_pipeline_assets(concept_id: str, authorization: str = Header(...))
             WHERE v.concept_id = $1::uuid
             ORDER BY v.created_at DESC, vs.segment_order ASC
         """, concept_id)
+
+    def _extract_r2_key(full_url: str | None) -> str | None:
+        """Pull the r2_key out of a presigned R2 URL (strips base URL + query string)."""
+        if not full_url:
+            return None
+        # URL: https://ACCOUNT.r2.cloudflarestorage.com/BUCKET/r2_key?params
+        # or:  https://pub-xxx.r2.dev/r2_key?params
+        path = full_url.split("?")[0]
+        for marker in ("/learnai-storage/", "/learnai-videos/"):
+            if marker in path:
+                return path.split(marker, 1)[1]
+        # pub-xxx.r2.dev/<r2_key> — no bucket segment
+        return path.split("/", 3)[-1] if path.count("/") >= 3 else None
 
     # Group by video_id preserving most-recent-first order
     groups: dict[int, dict] = {}
@@ -2002,16 +2016,22 @@ async def get_pipeline_assets(concept_id: str, authorization: str = Header(...))
             }
         url = _r2_url(r["r2_key"])
         is_image = r["r2_key"].endswith(".png") or r["r2_key"].endswith(".jpg")
+
+        # Source image: static PNG before Ken Burns animation (image segments only)
+        src_key = _extract_r2_key(r["source_asset_url"])
+        source_image_url = _r2_url(src_key) if src_key else None
+
         groups[vid]["segments"].append({
-            "segment_id":       r["segment_id"],
-            "segment_order":    r["segment_order"],
-            "segment_type":     r["segment_type"],
-            "asset_type":       r["asset_type"],
-            "narration_text":   r["narration_text"],
-            "r2_key":           r["r2_key"],
-            "clip_url":         None if is_image else url,
-            "image_url":        url if is_image else None,
-            "asset_created_at": r["asset_created_at"].isoformat(),
+            "segment_id":        r["segment_id"],
+            "segment_order":     r["segment_order"],
+            "segment_type":      r["segment_type"],
+            "asset_type":        r["asset_type"],
+            "narration_text":    r["narration_text"],
+            "r2_key":            r["r2_key"],
+            "clip_url":          None if is_image else url,
+            "image_url":         url if is_image else None,
+            "source_image_url":  source_image_url,
+            "asset_created_at":  r["asset_created_at"].isoformat(),
         })
 
     return list(groups.values())
