@@ -127,7 +127,8 @@ export default function ConceptEditorPage() {
   const [pipelineLoading,  setPipelineLoading]  = useState(false);
   const [pipelineLoaded,   setPipelineLoaded]   = useState(false);
   const [pipelinePage,     setPipelinePage]     = useState(0);
-  const [addingToTextbook, setAddingToTextbook] = useState<Record<string, boolean>>({});
+  const [addingToTextbook,  setAddingToTextbook]  = useState<Record<string, boolean>>({});
+  const [addedToTextbook,   setAddedToTextbook]   = useState<Set<string>>(new Set());
   const [showLeft,   setShowLeft]   = useState(true);
 
 
@@ -2497,11 +2498,14 @@ export default function ConceptEditorPage() {
                                     },
                                   );
                                   if (!r.ok) throw new Error('Failed to add to textbook');
+                                  setAddedToTextbook(prev => new Set(prev).add(seg.r2_key));
                                 } catch (e: any) { alert(e.message); }
                                 finally { setAddingToTextbook(p => ({ ...p, [key]: false })); }
                               };
                               const imgKey  = `${run.video_id}-${seg.segment_id}-img`;
                               const isAddingImg = addingToTextbook[imgKey];
+                              const imgAdded    = addedToTextbook.has(seg.source_image_r2_key ?? '');
+                              const clipAdded   = addedToTextbook.has(seg.r2_key);
                               const addImageToTextbook = seg.source_image_r2_key ? async () => {
                                 setAddingToTextbook(p => ({ ...p, [imgKey]: true }));
                                 try {
@@ -2518,6 +2522,7 @@ export default function ConceptEditorPage() {
                                     },
                                   );
                                   if (!r.ok) throw new Error('Failed to add to textbook');
+                                  setAddedToTextbook(prev => new Set(prev).add(seg.source_image_r2_key!));
                                 } catch (e: any) { alert(e.message); }
                                 finally { setAddingToTextbook(p => ({ ...p, [imgKey]: false })); }
                               } : undefined;
@@ -2537,8 +2542,8 @@ export default function ConceptEditorPage() {
                                     <div className="rounded-lg overflow-hidden border border-[var(--bd)]">
                                       <img src={seg.source_image_url} alt="" className="w-full object-cover max-h-48" />
                                       <div className="flex items-center justify-between px-2 py-1.5 bg-[var(--ov1)]">
-                                        <span className="text-[9px] text-[var(--tx7)]">Gemini image</span>
-                                        {addImageToTextbook && (
+                                        <span className="text-[9px] text-[var(--tx7)]">AI image</span>
+                                        {addImageToTextbook && !imgAdded && (
                                           <button
                                             disabled={isAddingImg}
                                             onClick={addImageToTextbook}
@@ -2548,6 +2553,7 @@ export default function ConceptEditorPage() {
                                             Add to Textbook
                                           </button>
                                         )}
+                                        {imgAdded && <span className="text-[9px] text-green-400">Added</span>}
                                       </div>
                                     </div>
                                   )}
@@ -2565,19 +2571,22 @@ export default function ConceptEditorPage() {
                                           if (v.duration && isFinite(v.duration)) v.currentTime = v.duration / 2;
                                         }}
                                       />
-                                      <div className="flex items-center justify-between px-2 py-1.5 bg-[var(--ov1)]">
-                                        <span className="text-[9px] text-[var(--tx7)]">
-                                          {seg.asset_type === 'manim_clip' ? 'Manim animation' : 'Animated clip'}
-                                        </span>
-                                        <button
-                                          disabled={isAdding}
-                                          onClick={addToTextbook}
-                                          className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-[var(--bd)]
-                                                     text-[var(--tx6)] hover:text-green-400 hover:border-green-500/40 transition-colors disabled:opacity-50">
-                                          {isAdding ? <Loader2 size={9} className="animate-spin" /> : <Plus size={9} />}
-                                          Add to Textbook
-                                        </button>
-                                      </div>
+                                      {!clipAdded ? (
+                                        <div className="flex items-center justify-end px-2 py-1.5 bg-[var(--ov1)]">
+                                          <button
+                                            disabled={isAdding}
+                                            onClick={addToTextbook}
+                                            className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border border-[var(--bd)]
+                                                       text-[var(--tx6)] hover:text-green-400 hover:border-green-500/40 transition-colors disabled:opacity-50">
+                                            {isAdding ? <Loader2 size={9} className="animate-spin" /> : <Plus size={9} />}
+                                            Add to Textbook
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center justify-end px-2 py-1.5 bg-[var(--ov1)]">
+                                          <span className="text-[9px] text-green-400">Added</span>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
 
