@@ -1987,7 +1987,16 @@ async def get_pipeline_assets(concept_id: str, authorization: str = Header(...))
             FROM generated_assets ga
             JOIN video_segments vs ON vs.prompt_hash = ga.prompt_hash
             JOIN videos v          ON vs.video_id    = v.id
-            WHERE v.concept_id = $1::uuid
+            WHERE (
+                v.concept_id = $1::uuid
+                OR v.id IN (
+                    SELECT video_id FROM concept_content_blocks
+                    WHERE concept_id = $1::uuid AND video_id IS NOT NULL
+                    UNION
+                    SELECT video_job_id FROM course_concepts
+                    WHERE id = $1::uuid AND video_job_id IS NOT NULL
+                )
+            )
             ORDER BY v.created_at DESC, vs.segment_order ASC
         """, concept_id)
 
