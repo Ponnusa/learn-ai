@@ -1,0 +1,744 @@
+══════════════════════════════════════════════════════════════════
+PHYSICS-SPECIFIC RULES
+══════════════════════════════════════════════════════════════════
+
+══════════════════════════════════════════════════════════════════
+SVG ASSETS vs MANIM NATIVE SHAPES — DECISION RULE
+══════════════════════════════════════════════════════════════════
+
+Use MANIM NATIVE SHAPES for anything simple — do NOT use get_svg() for these:
+  ✓ Arrows:          Arrow(), always — never load arrow SVGs
+  ✓ Lines:           Line()
+  ✓ Rectangles:      Rectangle(), Square()
+  ✓ Circles:         Circle(), Dot()
+  ✓ Force arrows:    Arrow() with label
+  ✓ Velocity:        Arrow() + Text label
+  ✓ Ground:          Line() + hatching via short Lines
+  ✓ Box/block:       Rectangle()
+  ✓ Ball:            Circle()
+  ✓ Ramp:            Polygon() or Line()
+  ✓ Wide pipe:       Rectangle() with fill_opacity
+  ✓ Narrow pipe:     Polygon() — use the 12-point venturi pattern below
+
+Only use get_svg() for objects with real structural complexity that
+Manim primitives cannot reasonably represent:
+  ✓ Bicycle          — frame, two wheels, handlebars, seat
+  ✓ Car side view    — body, wheels, windows
+  ✓ Truck side view  — cab, flatbed, wheels
+  ✓ Rocket           — nose cone, fins, body
+  ✓ Pendulum         — pivot, rod, bob
+  ✓ Pulley system    — wheels, rope, weight
+  ✓ Human figure     — stick figure for person/cyclist/student
+  ✓ Resistor symbol  — zigzag (though VMobject works too)
+  ✓ Inductor coil    — repeated arcs
+  ✓ Battery symbol   — fine detail
+  ✓ Transistor       — complex symbol
+  ✓ Atom diagram     — orbital structure
+  ✓ Gear             — teeth around perimeter
+
+MANDATORY: If get_svg() assets are provided in the prompt (AVAILABLE SVG ASSETS section),
+you MUST use them. NEVER substitute a provided SVG with Dot(), Rectangle(), or Circle().
+Using a placeholder instead of a provided SVG is a critical error.
+
+══════════════════════════════════════════════════════════════════
+PHYSICS HELPER FUNCTIONS AVAILABLE
+══════════════════════════════════════════════════════════════════
+
+Import at the top: from helpers import *
+
+──────────────────────────────────────────────────────────────────
+1. WATER PIPE ANALOGY (Ohm's Law V=IR) ★ MANDATORY FOR OHM'S LAW
+──────────────────────────────────────────────────────────────────
+
+create_water_pipe_ohms_law(position=ORIGIN, width=6, show_labels=True)
+
+Creates COMPLETE water pipe system to explain Ohm's Law visually.
+This is THE go-to visualization for any V=IR or circuit basics question.
+
+Returns: (pipe, water_particles, pressure_gauge, resistance_valve, flow_indicator)
+
+MANDATORY USAGE FOR:
+- Any question about Ohm's Law (V=IR)
+- Voltage, current, resistance relationships
+- Circuit basics
+- "Explain electricity using water analogy"
+
+EXAMPLE:
+```python
+from helpers import create_water_pipe_ohms_law, animate_water_flow, create_ohms_law_comparison
+
+# Create complete water pipe analogy
+pipe, water, gauge, valve, flow = create_water_pipe_ohms_law(position=UP*0.5)
+
+# Show the system
+self.play(Create(pipe), Create(gauge), Create(valve), Create(flow))
+self.play(FadeIn(water))
+
+# Animate water flow (represents current)
+animate_water_flow(self, water, duration=3)
+
+# Show comparison table (water → electricity)
+comparison = create_ohms_law_comparison()
+self.play(FadeIn(comparison))
+```
+
+COMPANION FUNCTIONS:
+- animate_water_flow(scene, water_particles, duration=3, flow_speed=1.0)
+  — Animates current flow through pipe
+
+- create_ohms_law_comparison(position=DOWN*3)
+  — Creates comparison table showing:
+    * Pressure → Voltage
+    * Flow Rate → Current
+    * Valve → Resistance
+    * Includes V=IR formula
+
+──────────────────────────────────────────────────────────────────
+2. ENERGY VISUALIZATION
+──────────────────────────────────────────────────────────────────
+
+create_energy_bars(pe_value, ke_value, position=RIGHT*3,
+                  max_energy=100000, show_values=True)
+
+Creates animated PE/KE bar charts for energy conservation.
+
+USE FOR: Roller coaster, pendulum, falling objects, energy conservation
+
+EXAMPLE:
+```python
+from helpers import create_energy_bars
+
+# At top of hill (all PE)
+bars = create_energy_bars(pe=100000, ke=0)
+self.play(FadeIn(bars))
+
+# Car moves down
+self.play(car.animate.move_to(end_pos), run_time=2)
+
+# At bottom (all KE) - transform bars!
+bars_bottom = create_energy_bars(pe=0, ke=100000)
+self.play(Transform(bars, bars_bottom), run_time=2)
+```
+
+──────────────────────────────────────────────────────────────────
+3. FORCE DIAGRAMS
+──────────────────────────────────────────────────────────────────
+
+create_force_arrow(magnitude, direction, position, label="F", color=YELLOW)
+create_force_diagram(obj, forces_dict)
+
+Creates professional force vector arrows and diagrams.
+
+USE FOR: Free body diagrams, Newton's laws, force balance
+
+EXAMPLE:
+```python
+from helpers import create_force_diagram
+
+box = Rectangle(width=1, height=1, fill_opacity=0.5, color=ORANGE)
+
+forces = create_force_diagram(
+    obj=box,
+    forces_dict={
+        "Gravity": (98, DOWN, GREEN),
+        "Normal": (98, UP, BLUE),
+        "Applied": (30, RIGHT, RED),
+        "Friction": (10, LEFT, ORANGE)
+    }
+)
+
+self.play(FadeIn(box), Create(forces))
+```
+
+══════════════════════════════════════════════════════════════════
+CRITICAL: ARROW OFFSET RULES (PREVENT OVERLAPPING)
+══════════════════════════════════════════════════════════════════
+
+PROBLEM: When multiple arrows point in the same direction from the same point,
+they overlap and become invisible/confusing.
+
+SOLUTION: Offset arrows laterally (perpendicular to their direction)
+
+MANDATORY OFFSET RULES:
+
+1. Identify Parallel Arrows
+   If 2+ arrows from same point have same/similar direction — OFFSET THEM
+
+2. Offset Distance
+   - Small diagrams (object < 1 unit): 0.15-0.25 units perpendicular offset
+   - Medium diagrams (object 1-2 units): 0.3-0.4 units perpendicular offset
+   - Large diagrams (object > 2 units): 0.5-0.6 units perpendicular offset
+
+3. How to Apply Offset
+
+For VERTICAL arrows (UP/DOWN direction):
+→ Offset LEFT and RIGHT
+
+```python
+# Example: Tension and Acceleration both pointing UP
+base_point = weight.get_center()
+
+# Tension arrow - offset to LEFT
+tension_start = base_point + LEFT * 0.3
+tension_end = tension_start + UP * 1.5
+tension = Arrow(tension_start, tension_end, color=RED, buff=0, stroke_width=4)
+
+# Acceleration arrow - offset to RIGHT
+accel_start = base_point + RIGHT * 0.3
+accel_end = accel_start + UP * 1.0
+accel = Arrow(accel_start, accel_end, color=YELLOW, buff=0, stroke_width=4)
+```
+
+For HORIZONTAL arrows (LEFT/RIGHT direction):
+→ Offset UP and DOWN
+
+```python
+# Example: Applied force and Friction both pointing RIGHT
+base_point = box.get_center()
+
+# Applied force - offset UP
+applied_start = base_point + UP * 0.25
+applied_end = applied_start + RIGHT * 1.2
+applied = Arrow(applied_start, applied_end, color=BLUE, buff=0, stroke_width=4)
+
+# Friction - offset DOWN
+friction_start = base_point + DOWN * 0.25
+friction_end = friction_start + RIGHT * 0.8
+friction = Arrow(friction_start, friction_end, color=ORANGE, buff=0, stroke_width=4)
+```
+
+For DIAGONAL arrows:
+→ Offset perpendicular to arrow direction
+
+```python
+# Example: Two forces at 45° angle
+import numpy as np
+
+base_point = obj.get_center()
+force_direction = (RIGHT + UP) / np.sqrt(2)  # 45° angle
+perpendicular = np.array([-force_direction[1], force_direction[0], 0])
+
+# Force 1 - offset in +perpendicular direction
+force1_start = base_point + perpendicular * 0.3
+force1_end = force1_start + force_direction * 1.5
+force1 = Arrow(force1_start, force1_end, color=RED, buff=0, stroke_width=4)
+
+# Force 2 - offset in -perpendicular direction
+force2_start = base_point - perpendicular * 0.3
+force2_end = force2_start + force_direction * 1.2
+force2 = Arrow(force2_start, force2_end, color=BLUE, buff=0, stroke_width=4)
+```
+
+4. Label Positioning
+   - Place labels OUTSIDE the arrow cluster
+   - Use .next_to() with buff=0.1-0.2
+   - For offset arrows, labels stay close to their arrow tip
+
+```python
+# Labels for offset arrows
+tension_label = Text("F_T", font_size=20, color=RED)
+tension_label.next_to(tension.get_end(), LEFT, buff=0.15)
+
+accel_label = Text("a", font_size=20, color=YELLOW)
+accel_label.next_to(accel.get_end(), RIGHT, buff=0.15)
+```
+
+5. Common Scenarios Requiring Offsets
+
+Pendulum:   Tension + Acceleration both toward pivot — OFFSET LEFT/RIGHT
+Inclined Plane: Normal + Component of weight both perpendicular to slope — OFFSET
+Circular Motion: Centripetal force + Net force both toward center — OFFSET
+Elevator:   Tension + Normal both UP — OFFSET LEFT/RIGHT
+            Weight + Apparent weight both DOWN — OFFSET LEFT/RIGHT
+
+══════════════════════════════════════════════════════════════════
+PENDULUM FORCE DIAGRAM - CORRECT EXAMPLE WITH OFFSETS
+══════════════════════════════════════════════════════════════════
+
+```python
+# Pendulum at angle
+pivot = Dot(UP * 2, color=WHITE, radius=0.1)
+angle = 30 * DEGREES
+wire_end = pivot.get_center() + 3 * np.array([np.sin(angle), -np.cos(angle), 0])
+wire = Line(pivot.get_center(), wire_end, color=GRAY, stroke_width=3)
+weight = Circle(radius=0.3, color=ORANGE, fill_opacity=0.8)
+weight.move_to(wire_end)
+
+base_point = weight.get_center()
+
+# Calculate wire direction (toward pivot)
+wire_direction = (pivot.get_center() - base_point) / 3
+
+# TENSION - offset to LEFT (perpendicular to wire)
+perpendicular = np.array([wire_direction[1], -wire_direction[0], 0])
+tension_start = base_point + perpendicular * 0.35  # LEFT offset
+tension_end = tension_start + wire_direction * 1.8
+tension = Arrow(tension_start, tension_end, color=RED, buff=0, stroke_width=4)
+tension_label = Text("F_T", font_size=20, color=RED)
+tension_label.next_to(tension.get_end(), LEFT, buff=0.15)
+
+# ACCELERATION - offset to RIGHT (perpendicular to wire)
+accel_start = base_point - perpendicular * 0.35  # RIGHT offset
+accel_end = accel_start + wire_direction * 1.2
+accel = Arrow(accel_start, accel_end, color=YELLOW, buff=0, stroke_width=4)
+accel_label = Text("a", font_size=20, color=YELLOW)
+accel_label.next_to(accel.get_end(), RIGHT, buff=0.15)
+
+# GRAVITY - straight down, no offset needed (different direction)
+gravity = Arrow(base_point, base_point + DOWN * 1.5, color=GREEN, buff=0, stroke_width=4)
+gravity_label = Text("mg", font_size=20, color=GREEN)
+gravity_label.next_to(gravity.get_end(), DOWN, buff=0.1)
+
+# VELOCITY - perpendicular to wire, no offset needed
+velocity_direction = np.array([-wire_direction[1], wire_direction[0], 0])
+velocity = Arrow(base_point, base_point + velocity_direction * 1.5,
+                color=PURPLE, buff=0, stroke_width=4)
+velocity_label = Text("v", font_size=20, color=PURPLE)
+velocity_label.next_to(velocity.get_end(), UP, buff=0.1)
+
+self.play(Create(pivot), Create(wire), Create(weight))
+self.play(Create(tension), Create(accel), Create(gravity), Create(velocity))
+self.play(Write(tension_label), Write(accel_label),
+         Write(gravity_label), Write(velocity_label))
+```
+
+KEY POINTS:
+✓ Tension and acceleration are OFFSET perpendicular to wire direction
+✓ Distance of 0.35 units makes them clearly visible
+✓ Labels positioned appropriately for each offset arrow
+✓ Other arrows (gravity, velocity) don't need offsets — different directions
+✓ Result: ALL arrows clearly visible, no confusion
+
+══════════════════════════════════════════════════════════════════
+WHEN TO USE PHYSICS HELPERS
+══════════════════════════════════════════════════════════════════
+
+ALWAYS USE for these topics:
+✓ Ohm's Law / V=IR → create_water_pipe_ohms_law()
+✓ Energy conservation → create_energy_bars()
+✓ Force diagrams, free body diagrams, Newton's laws → create_force_diagram()
+✓ Any question with a bicycle, car, person on a slope → get_svg() for the object + create_force_diagram() for arrows
+
+PHYSICS HELPERS ARE ANIMATED AND EDUCATIONAL — ALWAYS USE THEM!
+
+══════════════════════════════════════════════════════════════════
+REFERENCE EXAMPLE: BICYCLE ON A HILL (FORCE DIAGRAM)
+══════════════════════════════════════════════════════════════════
+
+This is the CORRECT pattern for vehicle-on-slope problems. Follow it exactly.
+
+```python
+from manim import *
+from manim_voiceover import VoiceoverScene
+import numpy as np
+
+def get_svg(name, url, height=0.8): ...  # injected by backend
+
+class BicycleForces(VoiceoverScene):
+    def show_subtitle(self, text, duration=None): ...  # injected by backend
+
+    def construct(self):
+        self.camera.background_color = ManimColor("#0D1117")
+
+        # SCENE LAYOUT:
+        # LEFT zone (-4 to 0): hill + bicycle + force arrows
+        # RIGHT zone (1.5 to 4): formulas and labels
+        # TOP zone (y > 2.5): title
+        # BOTTOM zone (y < -2.5): subtitle only
+
+        # HILL (filled polygon)
+        hill = Polygon(
+            LEFT*4 + DOWN*2, LEFT*0.5 + UP*1.2, RIGHT*0.5 + DOWN*0.2, RIGHT*0.5 + DOWN*2,
+            fill_color="#2D5A27", fill_opacity=0.35, stroke_color="#4CAF50", stroke_width=3
+        )
+        ground = Line(LEFT*4+DOWN*2, RIGHT*0.5+DOWN*2, color="#555555", stroke_width=2)
+
+        with self.voiceover(text="A 10 kg bicycle rides down a slope...") as tracker:
+            sub = self.show_subtitle("A 10 kg bicycle rides down a slope...")
+            title = Text("Forces on a Bicycle", font_size=32, color=WHITE).to_edge(UP, buff=0.3)
+            self.play(FadeIn(title, shift=UP*0.3), run_time=0.8)
+            self.play(DrawBorderThenFill(hill), Create(ground), run_time=1.5)
+
+            bicycle = get_svg("bicycle", "URL_HERE", height=1.0)
+            bicycle.rotate(-20 * DEGREES)
+            bicycle.move_to(LEFT*2 + UP*0.3)
+            self.play(FadeIn(bicycle, shift=LEFT*0.3), run_time=1.0)
+            self.wait(tracker.duration - 3.5)
+        self.play(FadeOut(sub), run_time=0.5)
+
+        # FORCE ARROWS — use Create(), NOT GrowArrow (crashes in this Manim version)
+        with self.voiceover(text="Gravity pulls it straight down with 98 Newtons...") as tracker:
+            sub = self.show_subtitle("Gravity pulls it straight down with 98 Newtons.")
+
+            formula = MathTex(r"F_g = mg = 98\,\text{N}", font_size=30, color=YELLOW)
+            formula.move_to(RIGHT*3 + UP*2)
+            self.play(FadeIn(formula, shift=RIGHT*0.3), run_time=0.8)
+
+            grav_arrow = Arrow(
+                bicycle.get_center(),
+                bicycle.get_center() + DOWN*1.8,
+                color=RED, buff=0, stroke_width=5, max_tip_length_to_length_ratio=0.15
+            )
+            grav_label = Text("Fg", font_size=20, color=RED).next_to(grav_arrow.get_end(), RIGHT, buff=0.15)
+            self.play(Create(grav_arrow), run_time=0.9)
+            self.play(FadeIn(grav_label), run_time=0.5)
+            self.play(Indicate(formula, color=RED, scale_factor=1.1), run_time=0.8)
+            self.wait(tracker.duration - 3.2)
+        self.play(FadeOut(sub), run_time=0.5)
+
+        # VEHICLE MOTION: move bicycle + arrows together
+        with self.voiceover(text="The bicycle accelerates down the slope...") as tracker:
+            sub = self.show_subtitle("The bicycle accelerates down the slope.")
+            shift_vec = RIGHT*2 + DOWN*1.0  # move along slope direction
+            self.play(
+                bicycle.animate.shift(shift_vec),
+                grav_arrow.animate.shift(shift_vec),
+                grav_label.animate.shift(shift_vec),
+                run_time=2.5, rate_func=smooth
+            )
+            self.wait(tracker.duration - 3.0)
+        self.play(FadeOut(sub), run_time=0.5)
+```
+
+KEY RULES from this example:
+- hill uses Polygon() with fill_opacity — NOT set_points_as_corners on VMobject
+- bicycle = get_svg(...) — NEVER Dot(radius=0.01)
+- force arrows created as Arrow(start, end, ...): Create() — NEVER Create()
+- force arrows that are SVGMobjects from get_svg(): FadeIn() or Create() — NEVER Create() (will crash)
+- motion: bicycle + arrows all shift() together in ONE play() call
+- formulas on RIGHT, diagram on LEFT — no overlap
+- DrawBorderThenFill() for the hill polygon
+
+══════════════════════════════════════════════════════════════════
+SHOW_SUBTITLE REMINDER (PHYSICS)
+══════════════════════════════════════════════════════════════════
+
+show_subtitle MUST be defined as a CLASS METHOD, not a nested function inside construct().
+
+CORRECT:
+class PhysicsScene(VoiceoverScene):
+    def show_subtitle(self, text, duration=None):   # class method, 4-space indent
+        ...
+    def construct(self):
+        sub = self.show_subtitle("...")              # called with self.
+
+WRONG (crashes or silently fails):
+    def construct(self):
+        def show_subtitle(self, text):              # NEVER nest it here
+            ...
+        sub = show_subtitle(self, "...")            # NEVER call like this
+
+══════════════════════════════════════════════════════════════════
+CIRCUIT DIAGRAMS (Manual Construction)
+══════════════════════════════════════════════════════════════════
+
+For circuits OTHER than Ohm's Law water analogy, use manual construction:
+
+Battery symbol:
+```python
+# Long line (positive), short line (negative)
+long_line = Line(UP * 0.3, DOWN * 0.3, color=RED, stroke_width=6)
+short_line = Line(UP * 0.2, DOWN * 0.2, color=RED, stroke_width=6)
+short_line.next_to(long_line, RIGHT, buff=0.2)
+battery = VGroup(long_line, short_line)
+```
+
+Resistor symbol:
+```python
+# Zigzag pattern
+points = [LEFT * 0.5, LEFT * 0.3 + UP * 0.2, LEFT * 0.1 + DOWN * 0.2,
+          RIGHT * 0.1 + UP * 0.2, RIGHT * 0.3 + DOWN * 0.2, RIGHT * 0.5]
+resistor = VMobject(color=ORANGE, stroke_width=4)
+resistor.set_points_as_corners(points)
+```
+
+Wire:
+```python
+wire = Line(start_pos, end_pos, color=WHITE, stroke_width=4)
+```
+
+══════════════════════════════════════════════════════════════════
+PIPE / FLUID DIAGRAMS (Resistance, Pressure, Flow)
+══════════════════════════════════════════════════════════════════
+
+USE THESE PATTERNS for any question involving:
+- Electrical resistance analogy (narrow pipe = high resistance)
+- Fluid flow, pressure, Bernoulli's principle
+- Venturi effect, nozzles, constrictions
+
+WIDE PIPE — low resistance / high flow:
+```python
+pipe_wide = Rectangle(width=5, height=1.2, color=GRAY, fill_opacity=0.25, stroke_width=3)
+pipe_wide.move_to(ORIGIN)
+
+# Water flow arrows inside
+flow = VGroup(*[
+    Arrow(LEFT*2 + RIGHT*i*0.8, LEFT*1.4 + RIGHT*i*0.8,
+          color=BLUE, buff=0, stroke_width=2, max_tip_length_to_length_ratio=0.3)
+    for i in range(4)
+]).move_to(pipe_wide.get_center())
+```
+
+NARROW PIPE — high resistance / low flow (venturi/nozzle shape):
+```python
+# Built with Polygon — 12 points forming a pipe that pinches in the center
+pipe_narrow = Polygon(
+    LEFT*2.5 + UP*0.55,     # outer top-left
+    LEFT*0.5 + UP*0.55,     # top before neck
+    LEFT*0.2 + UP*0.15,     # neck top-left
+    RIGHT*0.2 + UP*0.15,    # neck top-right
+    RIGHT*0.5 + UP*0.55,    # top after neck
+    RIGHT*2.5 + UP*0.55,    # outer top-right
+    RIGHT*2.5 + DOWN*0.55,  # outer bottom-right
+    RIGHT*0.5 + DOWN*0.55,  # bottom after neck
+    RIGHT*0.2 + DOWN*0.15,  # neck bottom-right
+    LEFT*0.2 + DOWN*0.15,   # neck bottom-left
+    LEFT*0.5 + DOWN*0.55,   # bottom before neck
+    LEFT*2.5 + DOWN*0.55,   # outer bottom-left
+    color=GRAY, fill_opacity=0.25, stroke_width=3
+)
+pipe_narrow.move_to(ORIGIN)
+```
+
+ALWAYS USE the Polygon pattern above for narrow pipes —
+never use two overlapping rectangles of different heights.
+
+══════════════════════════════════════════════════════════════════
+MOTION & TRAJECTORIES
+══════════════════════════════════════════════════════════════════
+
+For projectile motion, roller coasters, falling objects:
+
+Simple path:
+```python
+path_points = []
+for t in np.linspace(0, 1, 50):
+    x = start_x + (end_x - start_x) * t
+    y = start_y + (end_y - start_y) * t + curve_height * (t * (1 - t) * 4)
+    path_points.append([x, y, 0])
+
+trajectory = VMobject()
+trajectory.set_points_as_corners(path_points)
+trajectory.set_color(YELLOW)
+self.play(Create(trajectory))
+```
+
+Animate object along path:
+```python
+self.play(MoveAlongPath(car, trajectory), run_time=3)
+```
+
+══════════════════════════════════════════════════════════════════
+KEY IMPROVEMENTS FOR PHYSICS (9:16)
+══════════════════════════════════════════════════════════════════
+
+1. Title at UP * 5 (not UP * 4)
+2. Diagram zone: UP * 5.5 to UP * 2.5
+3. Working zone: UP * 1.5 to DOWN * 5
+4. Larger fonts: 28-34 (not 24-28)
+5. Better vertical spacing: 1.2-1.5 units between elements
+6. Use FULL height available
+
+══════════════════════════════════════════════════════════════════
+REFERENCE LAYOUT PROGRAM — 16:9 PHYSICS (FOLLOW THIS EXACTLY)
+══════════════════════════════════════════════════════════════════
+
+This is the GOLD STANDARD for 16:9 physics videos. Every structural choice
+below is deliberate. Do not deviate from it.
+
+```python
+from manim import *
+from manim_voiceover import VoiceoverScene
+from manim_voiceover.services.azure import AzureService
+import numpy as np
+
+class NewtonsSecondLaw(VoiceoverScene):
+    def show_subtitle(self, text, duration=None): ...  # injected by backend
+
+    def construct(self):
+        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=1.0))
+        self.camera.background_color = ManimColor("#0D1117")
+
+        # ── ZONE CONSTANTS — copy these to every 16:9 physics video ─────────
+        # LEFT panel  (x: -6.5 to  0): physical scene (object + terrain + arrows)
+        # RIGHT panel (x:  0   to +6.5): title, formula, beat text
+        TEXT_CENTER = RIGHT * 2.8
+
+        # ── SETUP BLOCK — ALL objects defined here, before any voiceover ────
+        divider = Line(UP * 3.0, DOWN * 2.5, color=GRAY, stroke_width=1, stroke_opacity=0.35)
+
+        # Persistent right-panel header (title + formula always visible)
+        panel_title = Text("Newton's Second Law", font_size=26, color=YELLOW,
+                           weight=BOLD).move_to(TEXT_CENTER + UP * 2.8)
+        panel_formula = MathTex(r"\vec{F} = m\vec{a}", font_size=32, color=WHITE
+                                ).next_to(panel_title, DOWN, buff=0.25)
+        panel_rule = Line(TEXT_CENTER + LEFT * 2.4 + UP * 1.55,
+                          TEXT_CENTER + RIGHT * 2.4 + UP * 1.55,
+                          color=GRAY, stroke_width=1, stroke_opacity=0.4)
+
+        # Physical scene in LEFT panel (all x < 0)
+        ground = Line(np.array([-6.5, -1.2, 0]), np.array([0.0, -1.2, 0]),
+                      color=ManimColor("#546E7A"), stroke_width=3)
+        block = Rectangle(width=1.2, height=0.9,
+                          fill_color=ManimColor("#1565C0"), fill_opacity=0.9,
+                          stroke_color=WHITE, stroke_width=2
+                          ).move_to(LEFT * 3.5 + UP * (-1.2 + 0.45))
+
+        # Force arrow: entirely in left panel (start x=-5.5, end x=-4.5)
+        force_arrow = Arrow(np.array([-5.5, -0.75, 0]), np.array([-4.5, -0.75, 0]),
+                            color=ManimColor("#FF6B6B"), buff=0,
+                            stroke_width=4, max_tip_length_to_length_ratio=0.25)
+
+        # Beat text in RIGHT panel (defined in SETUP, never inside voiceover)
+        b1_text = Text("A 2 kg block rests\non a frictionless surface.",
+                       font_size=20, color=LIGHT_GRAY, line_spacing=1.3
+                       ).move_to(TEXT_CENTER + UP * 0.7)
+
+        b2_text = Text("A 10 N force is applied\nhorizontally.",
+                       font_size=20, color=LIGHT_GRAY, line_spacing=1.3
+                       ).move_to(TEXT_CENTER + UP * 0.7)
+        b2_eq   = MathTex(r"a = \frac{F}{m} = \frac{10}{2} = 5\,\text{m/s}^2",
+                          font_size=26, color=YELLOW).next_to(b2_text, DOWN, buff=0.3)
+
+        # Persistent elements from the start
+        self.add(divider, ground, panel_title, panel_formula, panel_rule)
+
+        # ── BEAT 1: introduce the block ───────────────────────────────────
+        with self.voiceover(text="A two kilogram block rests on a frictionless surface.") as tracker:
+            sub = self.show_subtitle("A 2 kg block on a frictionless surface.")
+            self.play(FadeIn(block, shift=UP * 0.1), run_time=0.8)
+            self.play(FadeIn(b1_text, shift=LEFT * 0.2), run_time=0.7)
+            self.wait(max(0.1, tracker.duration - 1.7))
+        # Always FadeOut beat content before next beat
+        self.play(FadeOut(sub), FadeOut(b1_text, shift=RIGHT * 0.3), run_time=0.5)
+
+        # ── BEAT 2: apply force, show acceleration ────────────────────────
+        with self.voiceover(text="We apply a ten newton force. Using Newton's second law, the block accelerates at five metres per second squared.") as tracker:
+            sub = self.show_subtitle("F = 10 N gives a = 5 m/s²")
+            self.play(Create(force_arrow), run_time=1.0)
+            self.play(FadeIn(b2_text, shift=LEFT * 0.2), run_time=0.7)
+            self.play(block.animate.shift(RIGHT * 2.0),
+                      force_arrow.animate.shift(RIGHT * 2.0),
+                      run_time=1.5, rate_func=smooth)
+            self.play(FadeIn(b2_eq, shift=DOWN * 0.1), run_time=0.6)
+            self.play(Indicate(panel_formula, color=YELLOW, scale_factor=1.1), run_time=0.8)
+            self.wait(max(0.1, tracker.duration - 4.8))
+        self.play(FadeOut(sub), FadeOut(VGroup(b2_text, b2_eq), shift=RIGHT * 0.3), run_time=0.5)
+```
+
+KEY RULES from this reference program:
+- TEXT_CENTER = RIGHT * 2.8 — ALL explanatory text in right panel
+- divider, panel_title, panel_formula added via self.add() — visible throughout
+- Physical scene (block, ground, force arrows) entirely within x < 0 (left panel)
+- Beat text defined in SETUP BLOCK, FadeIn inside voiceover, FadeOut after
+- When object moves: shift it WITH its force arrows in ONE self.play() call
+- FadeOut every beat's content before the next beat begins — no accumulation
+- Formula in right panel gets Indicate() when discussed — connects diagram to math
+
+══════════════════════════════════════════════════════════════════
+3D SCENES — WHEN AND HOW TO USE ThreeDScene
+══════════════════════════════════════════════════════════════════
+
+USE ThreeDScene (instead of plain VoiceoverScene) for:
+✓ Torque and angular momentum (cross products — need 3D axes to show direction)
+✓ Orbital mechanics / planetary motion / satellite trajectories
+✓ 3D electric and magnetic fields (field lines in 3D space)
+✓ Waves propagating through 3D space
+✓ Any topic where a 2D diagram genuinely misleads (e.g. magnetic force direction)
+
+Keep 2D VoiceoverScene for everything else — simpler, faster to render, cleaner.
+
+CLASS DEFINITION FOR 3D WITH VOICEOVER:
+```python
+from manim import *
+from manim_voiceover import VoiceoverScene
+from manim_voiceover.services.azure import AzureService
+
+class MyPhysics3DScene(ThreeDScene, VoiceoverScene):
+    def show_subtitle(self, text, duration=None):
+        import textwrap
+        wrapped = "\n".join(textwrap.wrap(text, width=60))
+        subtitle = Text(wrapped, font_size=18, color=WHITE, line_spacing=1.2).to_edge(DOWN, buff=0.3)
+        self.play(FadeIn(subtitle))
+        if duration:
+            self.wait(duration)
+        return subtitle
+
+    def construct(self):
+        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=1.0))
+        self.set_camera_orientation(phi=75 * DEGREES, theta=-45 * DEGREES)
+        self.camera.background_color = ManimColor("#0D1117")
+        ...
+```
+
+KEY 3D MANIM APIS:
+```python
+# 3D axes
+axes = ThreeDAxes(
+    x_range=[-3, 3, 1], y_range=[-3, 3, 1], z_range=[-3, 3, 1],
+    x_length=6, y_length=6, z_length=6,
+)
+labels = axes.get_axis_labels(x_label="x", y_label="y", z_label="z")
+
+# 3D arrows (for vectors)
+vec = Arrow3D(start=ORIGIN, end=[1, 2, 1], color=YELLOW)
+
+# Surface plot  f(x, y) = z
+surface = Surface(
+    lambda u, v: axes.c2p(u, v, np.sin(u) * np.cos(v)),
+    u_range=[-2, 2], v_range=[-2, 2],
+    resolution=(30, 30), fill_opacity=0.8,
+    checkerboard_colors=[BLUE_D, BLUE_E],
+)
+
+# Camera controls
+self.set_camera_orientation(phi=75 * DEGREES, theta=-45 * DEGREES)
+self.begin_ambient_camera_rotation(rate=0.2)   # slow auto-rotate
+self.stop_ambient_camera_rotation()
+self.move_camera(phi=60 * DEGREES, theta=30 * DEGREES, run_time=2)
+
+# Sphere, Cylinder, Cone
+sphere = Sphere(radius=1, color=BLUE, fill_opacity=0.7)
+cylinder = Cylinder(radius=0.5, height=2, color=GREEN, fill_opacity=0.7)
+```
+
+REFERENCE EXAMPLE — 3D Magnetic Force (Right-Hand Rule):
+```python
+class MagneticForce3D(ThreeDScene, VoiceoverScene):
+    def show_subtitle(self, text, duration=None): ...
+
+    def construct(self):
+        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=1.0))
+        self.camera.background_color = ManimColor("#0D1117")
+        self.set_camera_orientation(phi=70 * DEGREES, theta=-60 * DEGREES)
+
+        axes = ThreeDAxes(x_range=[-2,2,1], y_range=[-2,2,1], z_range=[-2,2,1],
+                          x_length=4, y_length=4, z_length=4)
+        labels = axes.get_axis_labels()
+
+        velocity = Arrow3D(ORIGIN, [2, 0, 0], color=GREEN)
+        b_field  = Arrow3D(ORIGIN, [0, 2, 0], color=BLUE)
+        force    = Arrow3D(ORIGIN, [0, 0, 2], color=RED)
+
+        v_lbl = Text("v", font_size=24, color=GREEN).next_to([2.1, 0, 0], RIGHT)
+        b_lbl = Text("B", font_size=24, color=BLUE).next_to([0, 2.1, 0], UP)
+        f_lbl = Text("F", font_size=24, color=RED).next_to([0, 0, 2.1], UP)
+
+        with self.voiceover(text="The magnetic force on a moving charge is always perpendicular to both the velocity and the field.") as tracker:
+            sub = self.show_subtitle("F = qv × B — force perpendicular to both v and B")
+            self.play(Create(axes), Write(labels), run_time=1.2)
+            self.play(Create(velocity), FadeIn(v_lbl), run_time=0.8)
+            self.play(Create(b_field),  FadeIn(b_lbl), run_time=0.8)
+            self.play(Create(force),    FadeIn(f_lbl), run_time=0.8)
+            self.begin_ambient_camera_rotation(rate=0.15)
+            self.wait(max(0.1, tracker.duration - 4.0))
+            self.play(FadeOut(sub), run_time=0.4)
+        self.stop_ambient_camera_rotation()
+```
+
+CRITICAL 3D RULES:
+- Always call self.set_camera_orientation() before any self.play() — sets the initial 3D view
+- Use self.begin_ambient_camera_rotation(rate=0.15) during the most important beat — slow rotation makes 3D depth clear
+- Labels near 3D objects must be added with self.add_fixed_in_frame_mobjects(label) if you want them to stay flat (2D) in frame — otherwise they rotate with the camera and become unreadable
+- Subtitle: call self.add_fixed_in_frame_mobjects(sub) after show_subtitle() so it stays at screen bottom
+- Arrow3D for true 3D vectors, Arrow() for 2D-projected diagrams within ThreeDScene

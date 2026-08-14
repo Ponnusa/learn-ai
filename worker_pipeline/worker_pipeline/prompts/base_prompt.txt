@@ -101,9 +101,9 @@ SCENE LAYOUT for mechanics problems (bicycle, car, inclined plane, etc.):
   - Terrain: draw the hill/ground with Polygon(), fill_opacity=0.3, stroke_width=3
     Example hill: hill = Polygon(LEFT*4+DOWN*2, LEFT*1+UP*1, RIGHT*3+DOWN*0.5, RIGHT*3+DOWN*2, fill_color=GREEN, fill_opacity=0.25, stroke_color=GREEN, stroke_width=3)
 
-FORCE ARROWS — use GrowArrow() NOT Create() for cinematic effect:
+FORCE ARROWS — use Create() NOT GrowArrow() (GrowArrow crashes in this Manim version):
   grav_arrow = Arrow(bicycle.get_center(), bicycle.get_center()+DOWN*1.8, color=RED, buff=0, stroke_width=5)
-  self.play(GrowArrow(grav_arrow), run_time=0.9)
+  self.play(Create(grav_arrow), run_time=0.9)
   grav_label = Text("Fg = 98 N", font_size=18, color=RED).next_to(grav_arrow.get_end(), RIGHT, buff=0.15)
   self.play(FadeIn(grav_label, shift=RIGHT*0.2), run_time=0.6)
 
@@ -134,7 +134,7 @@ GENERAL ANIMATION RULES
 ══════════════════════════════════════════════════════════════════
 
 - Use FadeIn/FadeOut for all element transitions (not Create/Uncreate unless drawing effect is desired)
-- Use GrowArrow() for any Arrow that represents a force, velocity, or vector — NOT Create()
+- Use Create() for any Arrow that represents a force, velocity, or vector — NOT GrowArrow() (GrowArrow crashes with scale_tips error in the installed Manim version)
 - Use DrawBorderThenFill() for filled shapes (rectangles, polygons) for a polished drawing effect
 - Use Transform (not ReplacementTransform) for showing mathematical equivalence
 - Use AnimationGroup([...], lag_ratio=0.15) to stagger multiple related elements appearing together
@@ -333,6 +333,10 @@ self.show_title(...)         → does not exist
 self.add_caption(...)        → does not exist
 self.play_sound(...)         → does not exist
 Only call methods that are part of the standard Manim or manim-voiceover API.
+
+BROKEN ANIMATIONS — NEVER USE (crash in the installed Manim version):
+GrowArrow(...)  → crashes: VMobject.scale() got unexpected keyword argument 'scale_tips'
+                  Use Create(arrow) instead — identical visual result.
 
 ══════════════════════════════════════════════════════════════════
 SCREEN MANAGEMENT — MANDATORY
