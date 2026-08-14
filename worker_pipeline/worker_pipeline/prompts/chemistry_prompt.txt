@@ -1,0 +1,597 @@
+══════════════════════════════════════════════════════════════════
+CHEMISTRY-SPECIFIC RULES
+══════════════════════════════════════════════════════════════════
+
+FIRST — CLASSIFY THE VIDEO TYPE:
+
+TYPE A — OVERVIEW / MULTI-ITEM (molar mass, stoichiometry across compounds, Ka comparison, enthalpy table):
+  → USE THE TWO-PANEL LAYOUT defined in the main prompt (CHEMISTRY OVERVIEW VIDEO PATTERN).
+  → Hook beat (question mark / molecule) → reveal panel → process each item → summary card.
+
+TYPE B — SINGLE REACTION / MECHANISM (acid-base, equilibrium, one reaction step-by-step):
+  → Use the CINEMATIC BEAT STRUCTURE (reactants → mechanism → products → result).
+  → Sequential display, clear between major transitions.
+
+TYPE C — MOLECULAR GEOMETRY / POLARITY (why is X polar, shape comparison):
+  → Use the MOLECULAR POLARITY PATTERN below.
+  → One molecule at a time, molecule in MIDDLE zone, text in BOTTOM zone.
+
+══════════════════════════════════════════════════════════════════
+SVG ASSETS vs MANIM NATIVE SHAPES — DECISION RULE (MANDATORY)
+══════════════════════════════════════════════════════════════════
+
+Use MANIM NATIVE SHAPES for anything simple — do NOT use get_svg() for these:
+  ✓ Arrows:          Arrow(), always — never load arrow SVGs
+  ✓ Lines:           Line()
+  ✓ Rectangles:      Rectangle(), Square()
+  ✓ Circles:         Circle(), Dot()
+  ✓ Test tubes (simple): Rectangle() + Ellipse() cap — only use get_svg('test_tube') if the video specifically features a test tube as a central prop
+  ✓ Simple beaker:   Rectangle() + two short Lines for rim — use get_svg('beaker') only for complex apparatus scenes
+  ✓ Reaction arrows: Arrow() with double-headed or curved variant
+  ✓ Energy diagrams: Line() for axes, Polygon() for energy barriers
+  ✓ Ionic lattice:   Dot() + Line() grid
+  ✓ Electron shell:  Circle() orbits + Dot() electrons
+
+Only use get_svg() for chemistry apparatus with real structural complexity:
+  ✓ beaker           — wide-mouth lab beaker with volume markings (central prop)
+  ✓ flask_erlenmeyer — conical flask with narrow neck (central prop)
+  ✓ test_tube        — test tube on rack (central prop)
+  ✓ bunsen_burner    — burner with base, gas valve, and flame (central prop)
+  ✓ balance_scale    — analytical balance with two pans (central prop)
+
+"Central prop" means the apparatus is the main visual subject of a scene
+(e.g. titration demo, heating experiment) — not a background decoration.
+If the apparatus is incidental or a brief mention, draw it with primitives.
+
+MANDATORY: If get_svg() assets are provided in the prompt (AVAILABLE SVG ASSETS section),
+you MUST use them. NEVER substitute a provided SVG with Dot(), Rectangle(), or Circle().
+Using a placeholder instead of a provided SVG is a critical error.
+
+CRITICAL: NEVER call get_svg() with an asset name that is NOT listed above.
+If you need to show a microscope, flask stand, graduated cylinder, syringe, or
+any apparatus not in the list above — draw it with Manim primitives or skip it.
+Calling get_svg() with an unrecognised name returns an empty URL and crashes the render.
+
+IMPORTANT: NEVER use get_svg("atom") — atoms are now drawn with draw_bohr_atom() (see METHOD 3 below).
+
+══════════════════════════════════════════════════════════════════
+CHEMISTRY NAMING RULE (MANDATORY)
+══════════════════════════════════════════════════════════════════
+
+- NEVER read chemical formulas letter-by-letter in voiceover
+- ALWAYS convert formulas to proper chemical names in spoken text
+- Visual formulas (e.g. ZnCl₂, H₂SO₄) are allowed on screen
+- Spoken language must use:
+  - English: zinc chloride, sulfuric acid
+  - Finnish: sinkkikloridi, rikkihappo
+  - Swedish: zinkklorid, svavelsyra
+
+══════════════════════════════════════════════════════════════════
+CHEMISTRY VISUALIZATION STRATEGY (CRITICAL DECISION RULE)
+══════════════════════════════════════════════════════════════════
+
+RULE: Choose visualization method based on molecule type and complexity
+
+──────────────────────────────────────────────────────────────────
+METHOD 1: MANUAL CONSTRUCTION (Simple Inorganic Molecules)
+──────────────────────────────────────────────────────────────────
+
+USE FOR:
+✓ Water (H₂O)
+✓ Carbon dioxide (CO₂)
+✓ Ammonia (NH₃)
+✓ Hydrogen chloride (HCl)
+✓ Oxygen (O₂), Nitrogen (N₂)
+✓ Simple ionic compounds
+
+WHEN TO USE:
+- Molecule has ≤5 atoms total
+- No carbon chains or complex rings
+- Educational focus on molecular geometry or polarity
+- Teaching basic bonding concepts
+- User asks to "explain" or "show why" (not just "show")
+
+WHY MANUAL:
+✓ Step-by-step atom construction (educational)
+✓ Animated bond formation (students see building process)
+✓ Manual dipole arrows (full control)
+✓ Better for teaching geometry fundamentals
+
+IMPLEMENTATION PATTERN:
+```python
+# Build atoms one by one
+o_atom = Circle(radius=0.3, color=RED, fill_opacity=0.8)
+o_label = Text("O", font_size=20, color=WHITE)
+o_label.move_to(o_atom.get_center())
+
+h1_atom = Circle(radius=0.2, color=WHITE, fill_opacity=0.8)
+h1_label = Text("H", font_size=16, color=BLACK)
+h1_label.move_to(h1_atom.get_center())
+
+# Animate atom creation
+self.play(Create(o_atom), Write(o_label))
+self.play(Create(h1_atom), Write(h1_label))
+
+# Create and animate bonds
+bond = Line(o_atom.get_center(), h1_atom.get_center(), color=WHITE, stroke_width=4)
+self.play(Create(bond))
+
+# Add dipole arrow manually
+dipole = Arrow(start, end, color=YELLOW, buff=0, stroke_width=4)
+self.play(Create(dipole))
+```
+
+──────────────────────────────────────────────────────────────────
+METHOD 2: RDKIT SMILES HELPER (Organic & Complex Molecules)
+──────────────────────────────────────────────────────────────────
+
+
+USE FOR:
+✓ ALL organic chemistry (methane, benzene, ethanol, etc.)
+✓ Any molecule with carbon chains (C-C bonds)
+✓ Complex molecules (≥6 atoms)
+✓ Aromatic compounds, functional groups
+✓ Hydrocarbons, alcohols, acids, esters
+
+WHEN TO USE:
+- Molecule involves organic chemistry
+- Has carbon chains or rings
+- ≥6 atoms total
+- User asks to "show structure of [organic molecule]"
+- Comparing multiple organic molecules
+
+WHY SMILES HELPER:
+✓ Accurate molecular structure (real bond angles)
+✓ Professional appearance
+✓ Handles complexity automatically
+✓ Shows realistic 3D-to-2D projection
+✓ Built-in hydrogen and dipole support
+
+REQUIRED IMPORT:
+from helpers import create_molecule_from_smiles
+
+USAGE:
+molecule = create_molecule_from_smiles(
+    smiles="SMILES_STRING",
+    position=ORIGIN,
+    scale=2.0,
+    show_hydrogens=False,
+    show_dipoles=False,
+    highlight_polar_bonds=False
+)
+
+COMMON SMILES:
+- Water (H₂O): "O"
+- Carbon dioxide (CO₂): "O=C=O"
+- Methane (CH₄): "C"
+- Ammonia (NH₃): "N"
+- Ethanol: "CCO"
+- Benzene: "c1ccccc1"
+- HCl: "Cl"
+- Ethane: "CC"
+- Acetic acid: "CC(=O)O"
+- Glucose: "C(C1C(C(C(C(O1)O)O)O)O)O"
+- Aspirin (acetylsalicylic acid, C₉H₈O₄): "CC(=O)Oc1ccccc1C(=O)O"
+- Salicylic acid: "OC(=O)c1ccccc1O"
+- Ethylene (alkene example): "C=C"
+- Propene: "CC=C"
+- Cyclohexane: "C1CCCCC1"
+
+IMPLEMENTATION:
+```python
+from helpers import create_molecule_from_smiles
+
+# Benzene
+benzene = create_molecule_from_smiles(
+    smiles="c1ccccc1",
+    position=LEFT * 3,
+    scale=2.5,
+    show_hydrogens=True
+)
+self.play(FadeIn(benzene))
+
+# Ethanol with dipole
+ethanol = create_molecule_from_smiles(
+    smiles="CCO",
+    position=RIGHT * 3,
+    scale=2.5,
+    show_hydrogens=True,
+    show_dipoles=True
+)
+self.play(FadeIn(ethanol))
+```
+
+──────────────────────────────────────────────────────────────────
+METHOD 3: BOHR ATOM HELPER (Atom Structure & Electron Configuration)
+──────────────────────────────────────────────────────────────────
+
+USE FOR:
+✓ Explaining electron shells / electron configuration (e.g. "show the structure of a sodium atom")
+✓ Ionization (atom → ion: remove/add outer electrons)
+✓ Periodic table trends (atomic radius, electronegativity, comparing atoms)
+✓ Any video where the ATOM ITSELF (not the molecule) is the subject
+
+SUPPORTED ELEMENTS (H through Ca, covers all high-school chemistry):
+H, He, Li, Be, B, C, N, O, F, Ne, Na, Mg, Al, Si, P, S, Cl, Ar, K, Ca
+
+DO NOT use this for:
+✗ Molecular geometry / bonding visualization → use METHOD 1 or 2
+✗ Transition metals or elements beyond Ca — Bohr model breaks down
+
+⚠️ CRITICAL: draw_bohr_atom() and ATOM_CONFIGS are PRE-INJECTED by the backend.
+DO NOT define draw_bohr_atom() or ATOM_CONFIGS in your code — they are already present.
+Writing your own version creates a duplicate definition conflict that crashes the render.
+Just call draw_bohr_atom() directly as if it were a built-in function.
+
+CALL SYNTAX:
+```python
+# Standard atom from ATOM_CONFIGS lookup:
+atom = draw_bohr_atom("Na", position=LEFT * 3, scale=1.2)
+self.play(Create(atom))
+
+# Ion override — pass shells explicitly (e.g. Na+ loses outer electron):
+na_ion = draw_bohr_atom("Na", position=LEFT * 3, scale=1.2, shells=[2, 8])
+cl_ion = draw_bohr_atom("Cl", position=RIGHT * 3, scale=1.2, shells=[2, 8, 8])
+```
+
+COMMON PATTERNS:
+```python
+# Single large atom
+oxygen = draw_bohr_atom("O", position=ORIGIN, scale=1.5)
+self.play(Create(oxygen), run_time=1.0)
+
+# Side-by-side comparison
+sodium = draw_bohr_atom("Na", position=LEFT * 3, scale=1.0)
+chlorine = draw_bohr_atom("Cl", position=RIGHT * 3, scale=1.0)
+self.play(Create(sodium), Create(chlorine), run_time=1.0)
+
+# Ion formation: draw neutral atom, then FadeOut last electron (outermost)
+na_atom = draw_bohr_atom("Na", position=ORIGIN, scale=1.2)
+self.play(Create(na_atom))
+outer_electron = na_atom[-1]   # last Dot = lone outer shell electron
+self.play(FadeOut(outer_electron, shift=RIGHT * 0.5))
+```
+
+══════════════════════════════════════════════════════════════════
+MANUAL BENZENE RING (16:9 LEFT-PANEL EXAMPLE)
+══════════════════════════════════════════════════════════════════
+
+When drawing a benzene ring manually for 16:9 videos, anchor it in the LEFT panel:
+
+```python
+import numpy as np
+ring_center = LEFT * 3.0 + UP * 0.0   # LEFT panel — not ORIGIN
+ring_radius = 1.1
+angles = [np.pi/2 + k * np.pi/3 for k in range(6)]
+verts  = [ring_center + ring_radius * np.array([np.cos(a), np.sin(a), 0]) for a in angles]
+ring_bonds = VGroup(*[
+    Line(verts[i], verts[(i+1)%6], color=WHITE, stroke_width=2.5)
+    for i in range(6)
+])
+inner_ring = Circle(radius=ring_radius * 0.55, color=WHITE, stroke_width=1.5).move_to(ring_center)
+benzene_group = VGroup(ring_bonds, inner_ring)
+```
+
+Side chain attachment (always keep within LEFT panel, x < 0):
+```python
+# COOH group attached to top vertex (verts[0]):
+cooh_c  = verts[0] + np.array([0, 0.65, 0])    # y stays above -2.3
+cooh_o1 = cooh_c   + np.array([0.4,  0.35, 0])
+cooh_o2 = cooh_c   + np.array([-0.4, 0.35, 0])
+cooh_bonds = VGroup(
+    Line(verts[0], cooh_c,  color=WHITE, stroke_width=2.0),
+    Line(cooh_c,   cooh_o1, color=RED_B, stroke_width=2.0),
+    Line(cooh_c,   cooh_o2, color=RED_B, stroke_width=2.0),
+)
+# Text label for COOH goes in RIGHT panel, NOT beside the bond:
+cooh_label = Text("—COOH\n(carboxyl group)", font_size=22, color=RED_B).move_to(RIGHT * 2.8 + UP * 1.2)
+cooh_arrow = Arrow(RIGHT * 1.0 + UP * 1.2, verts[0] + UP * 0.2, color=RED_B, buff=0.1, stroke_width=2)
+```
+
+KEY RULE: For 16:9, all structural text labels (COOH, -OCOCH₃, etc.) belong in the
+RIGHT panel (x > +0.3). The LEFT panel contains ONLY the drawn structure. Arrows
+connect RIGHT panel labels to LEFT panel features. Do NOT use .next_to(ring, RIGHT)
+for labels — that places them near x = -1.5 where they overlap both panels.
+
+══════════════════════════════════════════════════════════════════
+DECISION FLOWCHART (USE THIS TO DECIDE)
+══════════════════════════════════════════════════════════════════
+
+Question: [User's chemistry query]
+
+0️⃣ Is the topic about an ATOM's structure, electron shells, or electron configuration?
+   → YES → Use Bohr atom helper (Method 3)
+   Keywords: "electron configuration", "atomic structure", "shells", "ionization", "ion formation",
+             "periodic trends", "show the atom", "draw a sodium atom", "valence electrons"
+   Supported: H, He, Li, Be, B, C, N, O, F, Ne, Na, Mg, Al, Si, P, S, Cl, Ar, K, Ca
+
+1️⃣ Does it involve organic chemistry or carbon chains?
+   → YES → Use SMILES helper (Method 2)
+   Keywords: "organic", "hydrocarbon", "benzene", "alkane", "functional group", "methane", "ethanol"
+
+2️⃣ Does molecule have C-C or C-H bonds (except single carbon like CO₂)?
+   → YES → Use SMILES helper (Method 2)
+
+3️⃣ Does molecule have ≥6 atoms?
+   → YES → Use SMILES helper (Method 2)
+
+4️⃣ Is it one of: H₂O, CO₂, NH₃, HCl, O₂, N₂?
+   → YES → Use Manual construction (Method 1)
+
+5️⃣ Does question ask to "explain" or "why is X polar/nonpolar"?
+   → YES → Use Manual construction (Method 1)
+   These are teaching moments about geometry
+
+6️⃣ Does question ask to "show structure of [molecule]"?
+   → If organic → SMILES helper (Method 2)
+   → If simple inorganic → Manual construction (Method 1)
+
+7️⃣ Default for complex or unknown molecules:
+   → Use SMILES helper (Method 2)
+
+══════════════════════════════════════════════════════════════════
+EXAMPLES (DECISION GUIDE)
+══════════════════════════════════════════════════════════════════
+
+PROMPT: "Show the electron configuration of sodium"
+→ Bohr atom helper: draw_bohr_atom("Na", ...) — atom structure is the topic
+
+PROMPT: "How does sodium become a sodium ion?"
+→ Bohr atom helper: draw_bohr_atom("Na"), then FadeOut the outer electron
+
+PROMPT: "Compare atomic structure of Na and Cl"
+→ Bohr atom helper: draw_bohr_atom("Na", LEFT*3), draw_bohr_atom("Cl", RIGHT*3)
+
+PROMPT: "Explain why water is polar"
+→ Manual construction (3 atoms, teaching geometry, polarity lesson)
+
+PROMPT: "Show me the structure of benzene"
+→ SMILES helper (organic, 12 atoms, aromatic ring)
+
+PROMPT: "Compare polarity of methanol and ethanol"
+→ SMILES helper (both organic chemistry, carbon chains)
+
+PROMPT: "Why is CO₂ linear but H₂O bent?"
+→ Manual construction (both simple, teaching geometry fundamentals)
+
+PROMPT: "Show functional groups in glucose"
+→ SMILES helper (organic, 24 atoms, complex structure)
+
+PROMPT: "Explain ammonia's pyramidal shape"
+→ Manual construction (4 atoms, geometry lesson)
+
+PROMPT: "Draw the structure of acetic acid"
+→ SMILES helper (organic, carbon chain, functional group)
+
+PROMPT: "Show me CH₄ vs NH₃ polarity"
+→ Mixed: CH₄ with SMILES (organic), NH₃ with Manual (simple)
+
+══════════════════════════════════════════════════════════════════
+MOLECULAR POSITIONING BY ASPECT RATIO (MANDATORY)
+══════════════════════════════════════════════════════════════════
+
+FOR 16:9 (LANDSCAPE) — SPLIT-SCREEN LAYOUT:
+┌────────────────────────────────────────────────────────────┐
+│  HEADER: section title at UP * 3.4, font_size=28, GRAY     │
+├──────────────────────┬─────────────────────────────────────┤
+│  LEFT PANEL          │  RIGHT PANEL                        │
+│  molecule / diagram  │  labels, bullets, formulas          │
+│  center: LEFT * 3.0  │  center: RIGHT * 2.8                │
+│  x: -6.5 to -0.3    │  x: +0.3 to +6.5                    │
+│  y: -2.3 to +2.8    │  y: -2.3 to +2.8                    │
+├──────────────────────┴─────────────────────────────────────┤
+│  SUBTITLE ZONE: y < -2.5 — show_subtitle() output ONLY    │
+└────────────────────────────────────────────────────────────┘
+
+POSITIONING RULES FOR 16:9:
+- Title: UP * 3.4, font_size=28, color=LIGHT_GRAY
+- Single molecule: move_to(LEFT * 3.0), scale=2.0–2.5
+  NEVER move_to(ORIGIN) — this blocks the right-panel text zone
+- Explanation text / bullets: RIGHT_PANEL = RIGHT * 2.8
+  Stack bullet lines vertically: RIGHT * 2.8 + UP * 1.5, + UP * 0.5, + DOWN * 0.5 etc.
+- Formula / equation: RIGHT * 2.8 center, font_size=24–28
+- Side-by-side molecules: LEFT * 2.5 and RIGHT * 2.0 (not LEFT*4/RIGHT*4 — too far apart)
+- Divider line (recommended): Line(UP * 3.0, DOWN * 2.8, color=GRAY, stroke_width=1, stroke_opacity=0.3).move_to(ORIGIN)
+
+FUNCTIONAL GROUP ANNOTATIONS FOR 16:9:
+- Molecule stays in LEFT panel throughout the annotation beats
+- Label text goes in RIGHT panel: RIGHT * 2.8 + UP * (some y)
+- Arrow: start=RIGHT * 2.0 + UP * y, end=feature position on molecule (LEFT panel)
+- Show ONE annotation at a time: FadeOut label+arrow before next annotation
+- NEVER place text labels immediately beside the molecule (no .next_to(benzene_ring, RIGHT) — that lands at x≈-1.5, middle of screen, overlapping both panels)
+
+CLEARING BETWEEN ANNOTATION BEATS (MANDATORY FOR 16:9):
+```
+# Good pattern:
+with self.voiceover(text="The benzene ring provides stability...") as t:
+    sub = self.show_subtitle("The benzene ring provides stability...")
+    self.play(Create(ring_highlight), FadeIn(ring_label_right, shift=LEFT*0.2))  # both defined in SETUP
+    self.wait(max(0.1, t.duration - 0.5))
+self.play(FadeOut(sub), FadeOut(ring_highlight, shift=RIGHT*0.2), FadeOut(ring_label_right, shift=RIGHT*0.2))
+
+# Then next beat:
+with self.voiceover(text="The COOH group enhances solubility...") as t:
+    sub = self.show_subtitle("The COOH group enhances solubility...")
+    self.play(Create(cooh_highlight), FadeIn(cooh_label_right, shift=LEFT*0.2))
+    self.wait(max(0.1, t.duration - 0.5))
+self.play(FadeOut(sub), FadeOut(cooh_highlight, shift=RIGHT*0.2), FadeOut(cooh_label_right, shift=RIGHT*0.2))
+```
+
+FOR 9:16 (PORTRAIT):
+- Title: UP * 6, font_size=36
+- Single molecule: UP * 2.5, scale=3.0
+- Text: DOWN * 2 (first line), DOWN * 3 (second line), DOWN * 4 (third line)
+- Font size for text: 30-32
+- Side-by-side: LEFT*2 + UP*3 and RIGHT*2 + UP*3, scale=2.5
+
+SPACING RULES (STRICT) FOR 9:16:
+- Screen range: UP * 7 to DOWN * 7 (14 units total)
+- Molecule zone: UP * 4 to UP * 1 (3 units) — centered at UP * 2.5
+- Gap zone: UP * 1 to DOWN * 1 (2 units) — EMPTY
+- Text zone: DOWN * 2 to DOWN * 5 (3 units)
+
+NEVER put molecule below UP * 1 (9:16)
+NEVER put text above DOWN * 1.5 (9:16)
+
+══════════════════════════════════════════════════════════════════
+MANDATORY PATTERN: MOLECULAR POLARITY EXPLANATION
+══════════════════════════════════════════════════════════════════
+
+Use this EXACT pattern for any molecular polarity question:
+
+1. Title (stays at top)
+2. First molecule alone
+3. First explanation (far below)
+4. Second explanation (clear first)
+5. Show dipoles (keep molecule, clear text)
+6. Conclusion for molecule 1
+7. CLEAR EVERYTHING
+8. Second molecule (repeat pattern)
+9. Final comparison (optional)
+10. Final takeaway (clear all, just text)
+
+KEY REMINDERS:
+1. ONE MOLECULE AT A TIME — never show two simultaneously unless final comparison
+2. ONE TEXT AT A TIME — FadeOut old text before showing new
+3. USE FULL VERTICAL SPACE — don't cram everything in middle
+4. BIGGER IS BETTER — scale 3.0 for single molecules on 9:16
+5. TEXT FAR BELOW — minimum DOWN * 2 for any text
+6. CLEAR BEFORE COMPARE — FadeOut everything before side-by-side
+7. SEQUENTIAL FLOW — Title → Mol1 → Explain → Clear → Mol2 → Explain → Compare
+
+══════════════════════════════════════════════════════════════════
+CONCEPT VIDEO ANIMATION QUALITY RULES (MANDATORY)
+══════════════════════════════════════════════════════════════════
+
+ATOM COLOR CONSTANTS (use consistently):
+- Oxygen (O): RED
+- Hydrogen (H): WHITE
+- Carbon (C): GRAY
+- Nitrogen (N): BLUE
+- Electrons / polarity / dipoles: YELLOW
+- Functional group highlights: ORANGE
+- Phase titles / section headers: GREEN
+
+ELECTRON SHARING (MANDATORY for bonding concepts):
+- Always show shared electron pairs as Dot() objects at bond midpoint
+- electron_pair = Dot(color=YELLOW, radius=0.08).move_to((atom1.get_center() + atom2.get_center()) / 2)
+- Animate electron shift for polarity: self.play(electron_pair.animate.shift(toward_electronegative * 0.3))
+
+TRANSITIONS (NEVER use plain FadeOut):
+- ✓ self.play(FadeOut(old, shift=LEFT), FadeIn(new, shift=RIGHT))
+- ✓ self.play(Transform(old_title, new_title))
+- ✗ NEVER: self.play(FadeOut(element))
+
+FUNCTIONAL GROUP HIGHLIGHTING (MANDATORY):
+- When introducing a functional group, always use SurroundingRectangle
+- oh_highlight = SurroundingRectangle(oh_group, color=YELLOW, buff=0.1)
+- self.play(Create(oh_highlight))
+
+VOICEOVER SYNC (MANDATORY):
+- Always use tracker pattern: with self.voiceover(...) as tracker: self.play(..., run_time=tracker.duration)
+
+SHOW DON'T TELL:
+- Animate molecular changes instead of bullet-point text lists
+- Max 2 lines of text visible at once
+- Prefer Indicate(), SurroundingRectangle(), animate.shift() over Text() lists
+
+TARGET DURATION:
+- Concept explanation videos: 60-90 seconds total
+- Max 3 voiceover blocks — each block covers one concept stage
+- Do NOT pad with extra beats — tight and clear is better than long
+
+ELECTRON TRANSFER (ionic bonding, ion formation):
+- Use FadeOut(electron, shift=direction) + FadeIn(electron, new_position) — NOT MoveAlongPath
+- MoveAlongPath runs a path animation every frame and causes render timeouts — NEVER use it
+
+══════════════════════════════════════════════════════════════════
+REFERENCE LAYOUT PROGRAM — 16:9 CHEMISTRY (FOLLOW THIS EXACTLY)
+══════════════════════════════════════════════════════════════════
+
+This is the GOLD STANDARD for 16:9 chemistry videos. Every structural choice
+below is deliberate. Do not deviate from it.
+
+```python
+from manim import *
+from manim_voiceover import VoiceoverScene
+from manim_voiceover.services.azure import AzureService
+import numpy as np
+
+class BenzeneExample(VoiceoverScene):
+    def show_subtitle(self, text, duration=None): ...  # injected by backend
+
+    def construct(self):
+        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=0.90))
+        self.camera.background_color = ManimColor("#0D1117")
+
+        # ── ZONE CONSTANTS — copy these to every 16:9 chemistry video ───────
+        # LEFT panel  (x: -6.5 to  0): molecule / diagram ONLY
+        # RIGHT panel (x:  0   to +6.5): all text, labels, formulas
+        RING_CENTER = LEFT * 3.0 + UP * 0.2   # molecule anchored in LEFT panel
+        TEXT_CENTER = RIGHT * 2.8              # all labels/text in RIGHT panel
+
+        # ── SETUP BLOCK — ALL objects defined here, before any voiceover ────
+        divider = Line(UP * 3.0, DOWN * 2.5, color=GRAY, stroke_width=1, stroke_opacity=0.35)
+        panel_title = Text("Benzene Structure", font_size=26, color=YELLOW,
+                           weight=BOLD).move_to(TEXT_CENTER + UP * 2.8)
+        panel_formula = MathTex(r"C_6H_6", font_size=32, color=WHITE
+                                ).next_to(panel_title, DOWN, buff=0.25)
+        panel_rule = Line(TEXT_CENTER + LEFT * 2.4 + UP * 2.1,
+                          TEXT_CENTER + RIGHT * 2.4 + UP * 2.1,
+                          color=GRAY, stroke_width=1, stroke_opacity=0.4)
+
+        # Benzene ring in LEFT panel — anchored at RING_CENTER, never at ORIGIN
+        rr = 1.1
+        angles = [np.pi/2 + k * np.pi/3 for k in range(6)]
+        verts = [RING_CENTER + rr * np.array([np.cos(a), np.sin(a), 0]) for a in angles]
+        ring_bonds = VGroup(*[
+            Line(verts[i], verts[(i+1)%6], color=ManimColor("#88CCFF"), stroke_width=2.5)
+            for i in range(6)
+        ])
+        inner_circle = Circle(radius=rr * 0.55, color=ManimColor("#88CCFF"),
+                              stroke_width=1.5).move_to(RING_CENTER)
+        benzene_group = VGroup(ring_bonds, inner_circle)
+
+        # SurroundingRectangle sized around the bonds ONLY (tight fit)
+        ring_hl = SurroundingRectangle(ring_bonds, color=YELLOW, buff=0.15, stroke_width=2)
+
+        # RIGHT panel beat text — all defined in SETUP, never inside voiceover blocks
+        b1_text = Text("Benzene has 6 carbon atoms\narranged in a hexagonal ring.",
+                       font_size=20, color=LIGHT_GRAY, line_spacing=1.3
+                       ).move_to(TEXT_CENTER + UP * 0.8)
+
+        b2_text = Text("The circle represents\ndelocalized π electrons.",
+                       font_size=20, color=LIGHT_GRAY, line_spacing=1.3
+                       ).move_to(TEXT_CENTER + UP * 0.8)
+        b2_key  = Text("Electron delocalization → stability",
+                       font_size=18, color=YELLOW).next_to(b2_text, DOWN, buff=0.28)
+
+        # ── Persistent elements added before any animation ────────────────
+        self.add(divider, panel_title, panel_formula, panel_rule)
+
+        # ── BEAT 1: introduce the ring ────────────────────────────────────
+        with self.voiceover(text="Benzene has six carbon atoms arranged in a hexagonal ring.") as tracker:
+            sub = self.show_subtitle("Six carbons in a hexagonal ring.")
+            self.play(Create(benzene_group), rate_func=smooth, run_time=1.0)
+            self.play(FadeIn(b1_text, shift=LEFT * 0.2), rate_func=smooth, run_time=0.8)
+            self.wait(max(0.1, tracker.duration - 2.5))
+        # Always FadeOut beat content before next beat
+        self.play(FadeOut(sub), FadeOut(b1_text, shift=RIGHT * 0.3), run_time=0.5)
+
+        # ── BEAT 2: delocalized electrons ────────────────────────────────
+        with self.voiceover(text="The inner circle represents delocalized pi electrons shared across all six bonds, giving benzene exceptional stability.") as tracker:
+            sub = self.show_subtitle("Inner circle = delocalized π electrons.")
+            self.play(Create(ring_hl), rate_func=smooth, run_time=0.8)
+            self.play(FadeIn(b2_text, shift=LEFT * 0.2), run_time=0.7)
+            self.play(FadeIn(b2_key,  shift=DOWN * 0.1), run_time=0.5)
+            self.wait(max(0.1, tracker.duration - 2.3))
+        self.play(FadeOut(sub), FadeOut(VGroup(b2_text, b2_key, ring_hl), shift=RIGHT * 0.3), run_time=0.5)
+```
+
+KEY RULES from this reference program:
+- RING_CENTER = LEFT * 3.0 — molecule NEVER at ORIGIN for 16:9
+- TEXT_CENTER = RIGHT * 2.8 — ALL text/labels in right panel
+- divider, panel_title, panel_formula added via self.add() — visible throughout
+- Beat text defined in SETUP BLOCK, FadeIn inside voiceover, FadeOut after
+- FadeOut every beat's content before the next beat begins — no accumulation
+- SurroundingRectangle surrounds the molecule group (LEFT panel), NOT text
