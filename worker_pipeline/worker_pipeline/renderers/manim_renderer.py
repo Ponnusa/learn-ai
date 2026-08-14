@@ -448,7 +448,7 @@ def render_code_to_clip(
         "-e", f"AZURE_SUBSCRIPTION_KEY={AZURE_SPEECH_KEY}",
         "-e", f"AZURE_SERVICE_REGION={AZURE_SPEECH_REGION}",
         "--workdir", "/manim",
-        "manim-with-voiceover:latest",
+        "manim-with-voiceover:latest",  # Manim 0.19.2 — update base_prompt.txt version line if image changes
         "manim", "-qm", "--media_dir", "/output", "--progress_bar", "none", "--disable_caching",
         f"{segment_id}.py", resolved_scene,
     ]
