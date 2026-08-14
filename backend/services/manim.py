@@ -2870,7 +2870,7 @@ MANDATORY PHYSICS RULES:
 - Normal force perpendicular to surface: normal_dir = [sin θ, cos θ, 0]
 - Gravity always straight DOWN: direction=[0,-1,0]"""
         else:
-            num_scenes = max(3, min(duration // 25, 10))
+            num_scenes = max(3, min(duration // 18, 6))
             svg_binding_scratch = ""
             if svg_urls:
                 svg_binding_scratch = "\nSVG ASSET BINDING (MANDATORY):\n"
