@@ -1778,13 +1778,18 @@ async def list_content_blocks(concept_id: str, authorization: str = Header(...))
             WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
             ORDER BY cb.position, cb.created_at
         """, concept_id)
+    def _resolve_body(r) -> str | None:
+        if r["type"] in ("pipeline_clip", "pipeline_image") and r["body"]:
+            return _r2_url(r["body"])
+        return r["body"]
+
     return [
         {
             "id":           str(r["id"]),
             "type":         r["type"],
             "position":     r["position"],
             "title":        r["title"],
-            "body":         r["body"],
+            "body":         _resolve_body(r),
             "video_id":     r["video_id"],
             "video_url":    r["video_url"],
             "video_status": r["video_status"],
@@ -1942,32 +1947,46 @@ async def add_block_to_textbook(
 
 # ── Pipeline assets (AI-generated segment clips + images) ─────────────────────
 
+def _r2_url(r2_key: str) -> str:
+    """Return a fresh, accessible URL for an R2 key.
+    Prefers R2_PUBLIC_URL (stable, no expiry) over a presigned URL."""
+    from services.manim import R2_PUBLIC_URL, R2_BUCKET_NAME, r2_client
+    if R2_PUBLIC_URL:
+        return f"{R2_PUBLIC_URL.rstrip('/')}/{r2_key}"
+    if r2_client is None:
+        return ""
+    return r2_client.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": R2_BUCKET_NAME, "Key": r2_key},
+        ExpiresIn=86400,
+    )
+
+
 @router.get("/concepts/{concept_id}/pipeline-assets")
 async def get_pipeline_assets(concept_id: str, authorization: str = Header(...)):
     """Return all AI-generated segment assets for a concept, grouped by video run (newest first).
 
     Joins generated_assets → video_segments → videos so only assets that were
-    actually uploaded to R2 are surfaced.
+    actually uploaded to R2 are surfaced. URLs are freshly minted from r2_key
+    so they never expire.
     """
     await _require_teacher(authorization)
     async with get_db() as db:
         rows = await db.fetch("""
             SELECT
                 ga.asset_type,
+                ga.r2_key,
                 ga.created_at        AS asset_created_at,
                 vs.segment_id,
                 vs.segment_order,
                 vs.type              AS segment_type,
                 vs.narration_text,
-                vs.clip_url,
-                vs.source_asset_url,
                 v.id                 AS video_id,
                 v.created_at         AS video_created_at
             FROM generated_assets ga
             JOIN video_segments vs ON vs.prompt_hash = ga.prompt_hash
             JOIN videos v          ON vs.video_id    = v.id
             WHERE v.concept_id = $1::uuid
-            AND (vs.clip_url IS NOT NULL OR vs.source_asset_url IS NOT NULL)
             ORDER BY v.created_at DESC, vs.segment_order ASC
         """, concept_id)
 
@@ -1981,14 +2000,17 @@ async def get_pipeline_assets(concept_id: str, authorization: str = Header(...))
                 "video_created_at": r["video_created_at"].isoformat(),
                 "segments":         [],
             }
+        url = _r2_url(r["r2_key"])
+        is_image = r["r2_key"].endswith(".png") or r["r2_key"].endswith(".jpg")
         groups[vid]["segments"].append({
             "segment_id":       r["segment_id"],
             "segment_order":    r["segment_order"],
             "segment_type":     r["segment_type"],
             "asset_type":       r["asset_type"],
             "narration_text":   r["narration_text"],
-            "clip_url":         r["clip_url"],
-            "image_url":        r["source_asset_url"],
+            "r2_key":           r["r2_key"],
+            "clip_url":         None if is_image else url,
+            "image_url":        url if is_image else None,
             "asset_created_at": r["asset_created_at"].isoformat(),
         })
 
@@ -1996,10 +2018,9 @@ async def get_pipeline_assets(concept_id: str, authorization: str = Header(...))
 
 
 class PipelineAssetTextbookRequest(BaseModel):
-    clip_url:       str | None = None
-    image_url:      str | None = None
+    r2_key:         str
     narration_text: str | None = None
-    segment_type:   str = "manim"
+    asset_type:     str = "manim_clip"
 
 
 @router.post("/concepts/{concept_id}/pipeline-assets/add-to-textbook")
@@ -2008,14 +2029,13 @@ async def add_pipeline_asset_to_textbook(
     req:           PipelineAssetTextbookRequest,
     authorization: str = Header(...),
 ):
-    """Create a content block from a pipeline-generated segment clip or image."""
+    """Create a content block from a pipeline-generated segment clip or image.
+    Stores the r2_key in body so list_content_blocks can mint a fresh URL on read.
+    """
     teacher_id = await _require_teacher(authorization)
-    url = req.clip_url or req.image_url
-    if not url:
-        raise HTTPException(400, "clip_url or image_url required")
-
-    block_type = "pipeline_clip" if req.clip_url else "pipeline_image"
-    title = (req.narration_text or "")[:120] or "AI segment"
+    is_image   = req.r2_key.endswith(".png") or req.r2_key.endswith(".jpg")
+    block_type = "pipeline_image" if is_image else "pipeline_clip"
+    title      = (req.narration_text or "")[:120] or "AI segment"
 
     async with get_db() as db:
         max_pos = await db.fetchval(
@@ -2027,7 +2047,7 @@ async def add_pipeline_asset_to_textbook(
               (concept_id, type, position, title, body, created_by, in_textbook)
             VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, true)
             RETURNING id, position
-        """, concept_id, block_type, int(max_pos) + 1, title, url, teacher_id)
+        """, concept_id, block_type, int(max_pos) + 1, title, req.r2_key, teacher_id)
 
     return {"id": str(row["id"]), "position": row["position"]}
 

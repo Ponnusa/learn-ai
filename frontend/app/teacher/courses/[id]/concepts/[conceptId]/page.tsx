@@ -86,6 +86,7 @@ interface Assets {
 interface PipelineSegment {
   segment_id: string; segment_order: number; segment_type: string;
   asset_type: string; narration_text: string | null;
+  r2_key: string;
   clip_url: string | null; image_url: string | null;
   asset_created_at: string;
 }
@@ -2495,10 +2496,9 @@ export default function ConceptEditorPage() {
                                                 method: 'POST',
                                                 headers: { ...authH, 'Content-Type': 'application/json' },
                                                 body: JSON.stringify({
-                                                  clip_url:       seg.clip_url,
-                                                  image_url:      seg.image_url,
+                                                  r2_key:         seg.r2_key,
                                                   narration_text: seg.narration_text,
-                                                  segment_type:   seg.segment_type,
+                                                  asset_type:     seg.asset_type,
                                                 }),
                                               },
                                             );
