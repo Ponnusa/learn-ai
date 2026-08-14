@@ -83,6 +83,16 @@ interface Assets {
   quiz: QuizQuestion[]; flashcards: Flashcard[];
 }
 
+interface PipelineSegment {
+  segment_id: string; segment_order: number; segment_type: string;
+  asset_type: string; narration_text: string | null;
+  clip_url: string | null; image_url: string | null;
+  asset_created_at: string;
+}
+interface PipelineRun {
+  video_id: number; video_created_at: string; segments: PipelineSegment[];
+}
+
 
 export default function ConceptEditorPage() {
   const router    = useRouter();
@@ -110,7 +120,11 @@ export default function ConceptEditorPage() {
   const [concept,    setConcept]    = useState<ConceptDetail | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [activeTab,  setActiveTab]  = useState<Tab>('studio');
-  const [assetTab,   setAssetTab]   = useState<'quiz' | 'flashcards' | 'videos'>('quiz');
+  const [assetTab,   setAssetTab]   = useState<'quiz' | 'flashcards' | 'videos' | 'pipeline'>('quiz');
+  const [pipelineRuns,     setPipelineRuns]     = useState<PipelineRun[]>([]);
+  const [pipelineLoading,  setPipelineLoading]  = useState(false);
+  const [pipelineLoaded,   setPipelineLoaded]   = useState(false);
+  const [addingToTextbook, setAddingToTextbook] = useState<Record<string, boolean>>({});
   const [showLeft,   setShowLeft]   = useState(true);
 
 
@@ -700,10 +714,26 @@ export default function ConceptEditorPage() {
     return () => { if (pdfRef.current) URL.revokeObjectURL(pdfRef.current); };
   }, [user, conceptId]);
 
+  const loadPipelineAssets = useCallback(async () => {
+    setPipelineLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/pipeline-assets`, { headers: authH });
+      if (res.ok) setPipelineRuns(await res.json());
+    } finally {
+      setPipelineLoading(false);
+      setPipelineLoaded(true);
+    }
+  }, [conceptId, token]);
+
   // Load assets when Assets tab first opens
   useEffect(() => {
     if (activeTab === 'assets' && !assetsLoaded) loadAssets();
   }, [activeTab, assetsLoaded]);
+
+  // Load pipeline assets when pipeline sub-tab first opens
+  useEffect(() => {
+    if (activeTab === 'assets' && assetTab === 'pipeline' && !pipelineLoaded) loadPipelineAssets();
+  }, [activeTab, assetTab, pipelineLoaded]);
 
   // Load lab sheet when Lab tab first opens
   const [labLoaded, setLabLoaded] = useState(false);
@@ -2154,7 +2184,7 @@ export default function ConceptEditorPage() {
             <div className="flex flex-col gap-0">
               {/* Sub-tab bar */}
               <div className="flex border-b border-[var(--bd)] mb-4">
-                {(['quiz', 'flashcards', 'videos'] as const).map(tab => (
+                {(['quiz', 'flashcards', 'videos', 'pipeline'] as const).map(tab => (
                   <button key={tab} onClick={() => setAssetTab(tab)}
                     className={`text-xs px-4 py-2 -mb-px border-b-2 transition-colors font-medium ${
                       assetTab === tab
@@ -2163,7 +2193,8 @@ export default function ConceptEditorPage() {
                     }`}>
                     {tab === 'quiz' ? t.teacher.assetQuiz
                       : tab === 'flashcards' ? t.teacher.assetFlashcards
-                      : 'Videos'}
+                      : tab === 'videos' ? 'Videos'
+                      : 'Pipeline'}
                   </button>
                 ))}
               </div>
@@ -2392,6 +2423,107 @@ export default function ConceptEditorPage() {
                   </AssetSection>
                 </>
               ) : null)}
+              {assetTab === 'pipeline' && (
+                <div>
+                  {pipelineLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 size={24} className="text-purple-400 animate-spin" />
+                    </div>
+                  ) : pipelineRuns.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-12 text-[var(--tx7)]">
+                      <Zap size={28} className="mb-2 opacity-40" />
+                      <p className="text-sm">No pipeline assets yet. Generate a video for this concept first.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      {pipelineRuns.map((run, ri) => (
+                        <div key={run.video_id} className="rounded-xl border border-[var(--bd)] overflow-hidden">
+                          {/* Run header */}
+                          <div className="flex items-center gap-2 px-3.5 py-2 bg-[var(--ov1)] border-b border-[var(--bd)]">
+                            <Layers size={11} className="text-purple-400 shrink-0" />
+                            <span className="text-xs font-medium text-[var(--tx4)]">
+                              Video run #{pipelineRuns.length - ri}
+                            </span>
+                            <span className="ml-auto text-[10px] text-[var(--tx7)]">
+                              {new Date(run.video_created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          {/* Segments grid */}
+                          <div className="grid grid-cols-1 gap-px bg-[var(--bd)]">
+                            {run.segments.map(seg => {
+                              const key = `${run.video_id}-${seg.segment_id}`;
+                              const isAdding = addingToTextbook[key];
+                              const isClip = !!seg.clip_url;
+                              const url = seg.clip_url || seg.image_url;
+                              return (
+                                <div key={seg.segment_id} className="bg-[var(--bg)] p-3 flex gap-3">
+                                  {/* Preview */}
+                                  <div className="shrink-0 w-28 rounded-lg overflow-hidden bg-black aspect-video flex items-center justify-center">
+                                    {isClip ? (
+                                      <video src={seg.clip_url!} className="w-full h-full object-cover" preload="metadata" muted />
+                                    ) : seg.image_url ? (
+                                      <img src={seg.image_url} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <Video size={16} className="text-[var(--tx7)] opacity-40" />
+                                    )}
+                                  </div>
+                                  {/* Info */}
+                                  <div className="flex-1 min-w-0 flex flex-col gap-1">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium uppercase tracking-wide">
+                                        {seg.segment_type}
+                                      </span>
+                                      <span className="text-[10px] text-[var(--tx7)]">seg {seg.segment_order + 1}</span>
+                                    </div>
+                                    {seg.narration_text && (
+                                      <p className="text-xs text-[var(--tx5)] line-clamp-2 leading-snug">
+                                        {seg.narration_text}
+                                      </p>
+                                    )}
+                                  </div>
+                                  {/* Action */}
+                                  {url && (
+                                    <div className="shrink-0 flex flex-col gap-1.5 justify-center">
+                                      <button
+                                        disabled={isAdding}
+                                        onClick={async () => {
+                                          setAddingToTextbook(p => ({ ...p, [key]: true }));
+                                          try {
+                                            const r = await fetch(
+                                              `${API_BASE}/api/courses/concepts/${conceptId}/pipeline-assets/add-to-textbook`,
+                                              {
+                                                method: 'POST',
+                                                headers: { ...authH, 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                  clip_url:       seg.clip_url,
+                                                  image_url:      seg.image_url,
+                                                  narration_text: seg.narration_text,
+                                                  segment_type:   seg.segment_type,
+                                                }),
+                                              },
+                                            );
+                                            if (!r.ok) throw new Error('Failed to add to textbook');
+                                          } catch (e: any) { alert(e.message); }
+                                          finally { setAddingToTextbook(p => ({ ...p, [key]: false })); }
+                                        }}
+                                        className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg border border-[var(--bd)]
+                                                   text-[var(--tx6)] hover:text-green-400 hover:border-green-500/40 transition-colors disabled:opacity-50">
+                                        {isAdding ? <Loader2 size={9} className="animate-spin" /> : <Plus size={9} />}
+                                        Textbook
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {assetTab === 'videos' && (
                 <div>
                   {(() => {

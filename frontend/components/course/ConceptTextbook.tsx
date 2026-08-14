@@ -403,11 +403,23 @@ function SortableBlock({ block, conceptId, token, editable, onDelete, onLightbox
         </div>
       )}
       <div className="flex-1 min-w-0">
-        {block.type === 'video'       ? <VideoBlock      block={block} token={token} />
-        : block.type === 'audio'      ? <AudioBlock      block={block} />
-        : block.type === 'embed_video'? <EmbedVideoBlock block={block} />
-        : block.type === 'embed_image'? <EmbedImageBlock block={block} onLightbox={onLightbox} />
-        : block.type === 'embed_pdf'  ? <EmbedPdfBlock   block={block} onOpen={onPdf} />
+        {block.type === 'video'          ? <VideoBlock      block={block} token={token} />
+        : block.type === 'audio'         ? <AudioBlock      block={block} />
+        : block.type === 'embed_video'   ? <EmbedVideoBlock block={block} />
+        : block.type === 'embed_image'   ? <EmbedImageBlock block={block} onLightbox={onLightbox} />
+        : block.type === 'embed_pdf'     ? <EmbedPdfBlock   block={block} onOpen={onPdf} />
+        : block.type === 'pipeline_clip' ? (
+          <div className="rounded-xl overflow-hidden bg-black">
+            <video src={block.body!} controls className="w-full" preload="metadata" />
+            {block.title && <p className="px-3 py-2 text-xs text-[var(--tx6)]">{block.title}</p>}
+          </div>
+        )
+        : block.type === 'pipeline_image' ? (
+          <div className="rounded-xl overflow-hidden">
+            <img src={block.body!} alt={block.title || ''} className="w-full object-cover rounded-xl" />
+            {block.title && <p className="mt-1 text-xs text-[var(--tx6)]">{block.title}</p>}
+          </div>
+        )
         : <TextBlock block={block} conceptId={conceptId} token={token} editable={editable} />}
       </div>
     </div>
@@ -494,11 +506,23 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
               editable onDelete={handleDelete} onLightbox={setLightboxUrl}
               onPdf={(url, title) => setPdfModal({ url, title })} />
           : <div key={block.id}>
-              {block.type === 'video'        ? <VideoBlock      block={block} token={token} onWatchPct={trackProgress ? reportWatchPct : undefined} />
-              : block.type === 'audio'       ? <AudioBlock      block={block} />
-              : block.type === 'embed_video' ? <EmbedVideoBlock block={block} />
-              : block.type === 'embed_image' ? <EmbedImageBlock block={block} onLightbox={setLightboxUrl} />
-              : block.type === 'embed_pdf'   ? <EmbedPdfBlock   block={block} onOpen={(u,t) => setPdfModal({url:u,title:t})} />
+              {block.type === 'video'          ? <VideoBlock      block={block} token={token} onWatchPct={trackProgress ? reportWatchPct : undefined} />
+              : block.type === 'audio'         ? <AudioBlock      block={block} />
+              : block.type === 'embed_video'   ? <EmbedVideoBlock block={block} />
+              : block.type === 'embed_image'   ? <EmbedImageBlock block={block} onLightbox={setLightboxUrl} />
+              : block.type === 'embed_pdf'     ? <EmbedPdfBlock   block={block} onOpen={(u,t) => setPdfModal({url:u,title:t})} />
+              : block.type === 'pipeline_clip' ? (
+                <div className="rounded-xl overflow-hidden bg-black">
+                  <video src={block.body!} controls className="w-full" preload="metadata" />
+                  {block.title && <p className="px-3 py-2 text-xs text-[var(--tx6)]">{block.title}</p>}
+                </div>
+              )
+              : block.type === 'pipeline_image' ? (
+                <div className="rounded-xl overflow-hidden">
+                  <img src={block.body!} alt={block.title || ''} className="w-full object-cover rounded-xl" />
+                  {block.title && <p className="mt-1 text-xs text-[var(--tx6)]">{block.title}</p>}
+                </div>
+              )
               : <TextBlock block={block} conceptId={conceptId} token={token} />}
             </div>
       ))}

@@ -1940,6 +1940,98 @@ async def add_block_to_textbook(
     return {"id": str(row["id"]), "position": row["position"], "in_textbook": row["in_textbook"]}
 
 
+# ── Pipeline assets (AI-generated segment clips + images) ─────────────────────
+
+@router.get("/concepts/{concept_id}/pipeline-assets")
+async def get_pipeline_assets(concept_id: str, authorization: str = Header(...)):
+    """Return all AI-generated segment assets for a concept, grouped by video run (newest first).
+
+    Joins generated_assets → video_segments → videos so only assets that were
+    actually uploaded to R2 are surfaced.
+    """
+    await _require_teacher(authorization)
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT
+                ga.asset_type,
+                ga.created_at        AS asset_created_at,
+                vs.segment_id,
+                vs.segment_order,
+                vs.type              AS segment_type,
+                vs.narration_text,
+                vs.clip_url,
+                vs.source_asset_url,
+                v.id                 AS video_id,
+                v.created_at         AS video_created_at
+            FROM generated_assets ga
+            JOIN video_segments vs ON vs.prompt_hash = ga.prompt_hash
+            JOIN videos v          ON vs.video_id    = v.id
+            WHERE v.concept_id = $1::uuid
+            AND (vs.clip_url IS NOT NULL OR vs.source_asset_url IS NOT NULL)
+            ORDER BY v.created_at DESC, vs.segment_order ASC
+        """, concept_id)
+
+    # Group by video_id preserving most-recent-first order
+    groups: dict[int, dict] = {}
+    for r in rows:
+        vid = r["video_id"]
+        if vid not in groups:
+            groups[vid] = {
+                "video_id":         vid,
+                "video_created_at": r["video_created_at"].isoformat(),
+                "segments":         [],
+            }
+        groups[vid]["segments"].append({
+            "segment_id":       r["segment_id"],
+            "segment_order":    r["segment_order"],
+            "segment_type":     r["segment_type"],
+            "asset_type":       r["asset_type"],
+            "narration_text":   r["narration_text"],
+            "clip_url":         r["clip_url"],
+            "image_url":        r["source_asset_url"],
+            "asset_created_at": r["asset_created_at"].isoformat(),
+        })
+
+    return list(groups.values())
+
+
+class PipelineAssetTextbookRequest(BaseModel):
+    clip_url:       str | None = None
+    image_url:      str | None = None
+    narration_text: str | None = None
+    segment_type:   str = "manim"
+
+
+@router.post("/concepts/{concept_id}/pipeline-assets/add-to-textbook")
+async def add_pipeline_asset_to_textbook(
+    concept_id:    str,
+    req:           PipelineAssetTextbookRequest,
+    authorization: str = Header(...),
+):
+    """Create a content block from a pipeline-generated segment clip or image."""
+    teacher_id = await _require_teacher(authorization)
+    url = req.clip_url or req.image_url
+    if not url:
+        raise HTTPException(400, "clip_url or image_url required")
+
+    block_type = "pipeline_clip" if req.clip_url else "pipeline_image"
+    title = (req.narration_text or "")[:120] or "AI segment"
+
+    async with get_db() as db:
+        max_pos = await db.fetchval(
+            "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+            concept_id,
+        )
+        row = await db.fetchrow("""
+            INSERT INTO concept_content_blocks
+              (concept_id, type, position, title, body, created_by, in_textbook)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, true)
+            RETURNING id, position
+        """, concept_id, block_type, int(max_pos) + 1, title, url, teacher_id)
+
+    return {"id": str(row["id"]), "position": row["position"]}
+
+
 @router.post("/concepts/{concept_id}/content-blocks/{block_id}/retry-video")
 async def retry_block_video(
     concept_id:    str,
