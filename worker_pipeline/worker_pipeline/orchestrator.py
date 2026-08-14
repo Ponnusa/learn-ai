@@ -271,8 +271,8 @@ def render_storyboard(
           f"{sum(1 for s in ordered if s.type=='image')} image | "
           f"{sum(1 for s in ordered if s.type=='video')} video", flush=True)
 
-    if len(manim_segs) > 1:
-        print(f"[orchestrator] Phase1: firing {len(manim_segs)} parallel Claude calls: "
+    if manim_segs:
+        print(f"[orchestrator] Phase1: firing {len(manim_segs)} Claude calls: "
               f"{[s.id for s in manim_segs]}", flush=True)
         def _generate(seg):
             from .renderers.manim_renderer import generate_manim_code
@@ -297,9 +297,6 @@ def render_storyboard(
             for f in as_completed(futures):
                 f.result()  # surface exceptions
         print(f"[orchestrator] Phase1: all codegen threads done", flush=True)
-    elif manim_segs:
-        print(f"[orchestrator] Phase1: 1 manim seg ({manim_segs[0].id}) — "
-              f"codegen will happen inside Phase2 render", flush=True)
     else:
         print(f"[orchestrator] Phase1: all manim segs cached — skipping codegen", flush=True)
 
