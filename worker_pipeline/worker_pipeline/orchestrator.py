@@ -53,6 +53,7 @@ Unified Manim codegen (pre-generation pass):
 import logging
 import os
 import tempfile
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Dict, List, Optional
@@ -260,35 +261,60 @@ def render_storyboard(
     # Fire all Claude API calls simultaneously — each is independent, safe to
     # parallelize. Image/video segments have no codegen so they're excluded.
     # Docker renders (phase 2) are kept separate so we control CPU concurrency.
-    manim_segs = [s for s in ordered if s.type == "manim" and _check_manim_cache(s) is None]
+    # _check_manim_cache sets segment.prompt_hash as a side effect; call once per seg.
+    _cache_results = {s.id: _check_manim_cache(s) for s in ordered if s.type == "manim"}
+    cached_segs = [s for s in ordered if s.type == "manim" and _cache_results[s.id] is not None]
+    manim_segs  = [s for s in ordered if s.type == "manim" and _cache_results[s.id] is None]
+    print(f"[orchestrator] Phase1: {len(ordered)} total segs | "
+          f"{len(manim_segs)} manim need codegen | "
+          f"{len(cached_segs)} manim cache-hits | "
+          f"{sum(1 for s in ordered if s.type=='image')} image | "
+          f"{sum(1 for s in ordered if s.type=='video')} video", flush=True)
+
     if len(manim_segs) > 1:
-        logger.info(f"[orchestrator] parallel codegen for {len(manim_segs)} Manim segments")
+        print(f"[orchestrator] Phase1: firing {len(manim_segs)} parallel Claude calls: "
+              f"{[s.id for s in manim_segs]}", flush=True)
         def _generate(seg):
             from .renderers.manim_renderer import generate_manim_code
+            print(f"[orchestrator] Phase1: codegen START  seg={seg.id}", flush=True)
+            t0 = time.time()
             try:
                 seg.generated_code = generate_manim_code(seg)
                 seg.generated_class_name = _extract_scene_name(seg.generated_code)
-                logger.info(f"[orchestrator] codegen done for seg {seg.order} (class {seg.generated_class_name})")
+                print(f"[orchestrator] Phase1: codegen DONE   seg={seg.id} "
+                      f"class={seg.generated_class_name} elapsed={time.time()-t0:.1f}s", flush=True)
                 if persist_codegen is not None:
                     try:
                         persist_codegen(seg)
-                        logger.info(f"[orchestrator] codegen persisted for seg {seg.order}")
+                        print(f"[orchestrator] Phase1: persisted seg={seg.id}", flush=True)
                     except Exception as pe:
-                        logger.warning(f"[orchestrator] codegen persist failed for seg {seg.order}: {pe}")
+                        print(f"[orchestrator] Phase1: persist FAILED seg={seg.id}: {pe}", flush=True)
             except Exception as exc:
-                logger.warning(f"[orchestrator] codegen failed for seg {seg.order}: {exc}")
+                print(f"[orchestrator] Phase1: codegen FAILED seg={seg.id} "
+                      f"elapsed={time.time()-t0:.1f}s: {exc}", flush=True)
         with ThreadPoolExecutor(max_workers=len(manim_segs)) as pool:
             futures = {pool.submit(_generate, s): s for s in manim_segs}
             for f in as_completed(futures):
                 f.result()  # surface exceptions
+        print(f"[orchestrator] Phase1: all codegen threads done", flush=True)
+    elif manim_segs:
+        print(f"[orchestrator] Phase1: 1 manim seg ({manim_segs[0].id}) — "
+              f"codegen will happen inside Phase2 render", flush=True)
+    else:
+        print(f"[orchestrator] Phase1: all manim segs cached — skipping codegen", flush=True)
 
     # ── Phase 2: parallel Docker renders (CPU-limited) ────────────────────────
     # 2 concurrent renders on n2d-standard-8 → 4 vCPUs each, fast enough for
     # complex scenes without the timeout risk of 4-way splitting (2 vCPUs each).
     MAX_RENDER_WORKERS = 2
+    print(f"[orchestrator] Phase2: starting renders MAX_RENDER_WORKERS={MAX_RENDER_WORKERS}", flush=True)
 
     def _render_segment(seg):
+        print(f"[orchestrator] Phase2: render START  seg={seg.id} type={seg.type}", flush=True)
+        t0 = time.time()
         _render_with_degrade(renderers, seg, ordered, work_dir)
+        print(f"[orchestrator] Phase2: render DONE   seg={seg.id} elapsed={time.time()-t0:.1f}s "
+              f"status={seg.status}", flush=True)
 
     with ThreadPoolExecutor(max_workers=MAX_RENDER_WORKERS) as pool:
         futures = {pool.submit(_render_segment, s): s for s in ordered}
@@ -297,5 +323,7 @@ def render_storyboard(
                 f.result()
             except Exception as exc:
                 logger.error(f"[orchestrator] segment render raised unexpectedly: {exc}")
+                print(f"[orchestrator] Phase2: segment RAISED: {exc}", flush=True)
+    print(f"[orchestrator] Phase2: all renders done", flush=True)
 
     return storyboard

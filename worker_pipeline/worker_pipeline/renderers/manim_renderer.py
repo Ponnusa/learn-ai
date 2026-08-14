@@ -39,6 +39,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from typing import List, Optional
 from pathlib import Path
 
@@ -240,6 +241,8 @@ subtraction. Apply this to EVERY computed wait/run_time in the scene, not just o
 Output ONLY the Python code for the scene (imports + one Scene subclass), no explanation,
 no markdown fences."""
 
+    print(f"[manim_renderer] Claude codegen START  seg={segment.id}", flush=True)
+    t0 = time.time()
     raw = call_with_retry(
         model=MODEL,
         max_tokens=32000,
@@ -254,6 +257,7 @@ no markdown fences."""
     except SyntaxError as exc:
         raise ValueError(f"Generated Manim code has a syntax error (likely truncated): {exc}")
 
+    print(f"[manim_renderer] Claude codegen DONE   seg={segment.id} elapsed={time.time()-t0:.1f}s", flush=True)
     return code
 
 
@@ -448,13 +452,24 @@ def render_code_to_clip(
         "manim", "-qm", "--media_dir", "/output", "--progress_bar", "none", "--disable_caching",
         f"{segment_id}.py", resolved_scene,
     ]
+    print(f"[manim_renderer] Docker START  seg={segment_id} scene={resolved_scene} "
+          f"container={container_name} timeout=900s", flush=True)
+    t0 = time.time()
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
-    except (subprocess.TimeoutExpired, Exception):
+    except subprocess.TimeoutExpired:
+        print(f"[manim_renderer] Docker TIMEOUT seg={segment_id} after {time.time()-t0:.0f}s — killing {container_name}", flush=True)
+        subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=10)
+        raise
+    except Exception as exc:
+        print(f"[manim_renderer] Docker ERROR  seg={segment_id} after {time.time()-t0:.0f}s: {exc}", flush=True)
         subprocess.run(["docker", "kill", container_name], capture_output=True, timeout=10)
         raise
     if result.returncode != 0:
+        print(f"[manim_renderer] Docker FAILED seg={segment_id} rc={result.returncode} "
+              f"elapsed={time.time()-t0:.0f}s\n{result.stderr[-500:]}", flush=True)
         raise RuntimeError(f"Manim Docker render failed:\n{result.stderr[-1000:]}")
+    print(f"[manim_renderer] Docker DONE   seg={segment_id} elapsed={time.time()-t0:.0f}s", flush=True)
 
     for root, _dirs, files in os.walk(media_dir):
         for fname in files:
@@ -480,6 +495,8 @@ def fix_code_with_claude(code: str, error: str) -> str:
     Ask Claude to fix a Python/Manim error in generated code.
     Returns corrected code, or raises if the fix itself has a syntax error.
     """
+    print(f"[manim_renderer] Claude auto-fix START", flush=True)
+    t0 = time.time()
     raw = call_with_retry(
         model=MODEL,
         max_tokens=32000,
@@ -499,6 +516,7 @@ def fix_code_with_claude(code: str, error: str) -> str:
         compile(fixed, "<fix-check>", "exec")
     except SyntaxError as exc:
         raise ValueError(f"Claude's fix still has a syntax error: {exc}")
+    print(f"[manim_renderer] Claude auto-fix DONE  elapsed={time.time()-t0:.1f}s", flush=True)
     return fixed
 
 

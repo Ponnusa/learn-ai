@@ -25,6 +25,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import time
 from typing import Callable, Optional
 
 import requests
@@ -112,7 +113,10 @@ def generate_image_bytes(prompt: str, reference_image_bytes: Optional[bytes] = N
     if reference_image_bytes:
         contents.append(types.Part.from_bytes(data=reference_image_bytes, mime_type="image/png"))
 
+    print(f"[image_renderer] Gemini generate START  model={NANO_BANANA_MODEL}", flush=True)
+    t0 = time.time()
     response = client.models.generate_content(model=NANO_BANANA_MODEL, contents=contents)
+    print(f"[image_renderer] Gemini generate DONE   elapsed={time.time()-t0:.1f}s", flush=True)
 
     candidates = response.candidates
     if not candidates:
@@ -147,6 +151,8 @@ Return ONLY valid JSON, no markdown fences:
 
     try:
         client = _get_genai_client()
+        print(f"[image_renderer] Gemini critic  START  model={GEMINI_CRITIC_MODEL}", flush=True)
+        t0 = time.time()
         response = client.models.generate_content(
             model=GEMINI_CRITIC_MODEL,
             contents=[types.Part.from_bytes(data=image_bytes, mime_type="image/png"), prompt],
@@ -158,6 +164,8 @@ Return ONLY valid JSON, no markdown fences:
                 text = text[4:]
             text = text.strip()
         report = json.loads(text)
+        print(f"[image_renderer] Gemini critic  DONE   elapsed={time.time()-t0:.1f}s "
+              f"score={report.get('score')}", flush=True)
         logger.info(f"[critic] score={report.get('score')} issues={len(report.get('issues', []))}")
         return report
     except Exception as exc:

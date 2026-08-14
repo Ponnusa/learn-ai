@@ -11,6 +11,7 @@ importable.
 """
 import logging
 import os
+import threading
 import time
 from typing import Optional
 
@@ -35,12 +36,19 @@ def call_with_retry(**kwargs) -> str:
     """Same overloaded/529 backoff schedule as main.py's claude_with_retry (5s/15s/45s/135s).
     Always uses streaming so large max_tokens values don't hit the SDK's 10-minute non-streaming limit."""
     client = get_client()
+    tid = threading.get_ident()
+    model = kwargs.get("model", MODEL)
+    max_tokens = kwargs.get("max_tokens", "?")
+    print(f"[claude] thread={tid} START  model={model} max_tokens={max_tokens}", flush=True)
+    t0 = time.time()
     last_exc = None
     for attempt, delay in enumerate(_RETRY_DELAYS, 1):
         try:
             with client.messages.stream(**kwargs) as stream:
                 text = stream.get_final_text()
             if text:
+                elapsed = time.time() - t0
+                print(f"[claude] thread={tid} DONE   elapsed={elapsed:.1f}s len={len(text)}", flush=True)
                 return text.strip()
             raise RuntimeError("Claude response contained no text (only thinking/other blocks)")
         except Exception as exc:
@@ -48,8 +56,10 @@ def call_with_retry(**kwargs) -> str:
             err = str(exc)
             is_overloaded = "overloaded" in err.lower() or "529" in err
             if is_overloaded and attempt < len(_RETRY_DELAYS):
+                print(f"[claude] thread={tid} OVERLOADED attempt={attempt} — retrying in {delay}s", flush=True)
                 logger.warning(f"⚠️ Claude overloaded (attempt {attempt}) — retrying in {delay}s")
                 time.sleep(delay)
             else:
+                print(f"[claude] thread={tid} ERROR  elapsed={time.time()-t0:.1f}s: {err[:120]}", flush=True)
                 raise
     raise last_exc  # pragma: no cover — unreachable, loop always returns or raises
