@@ -496,7 +496,7 @@ SHOW DON'T TELL:
 - Prefer Indicate(), SurroundingRectangle(), animate.shift() over Text() lists
 
 TARGET DURATION:
-- Concept explanation videos: 60-90 seconds total
+- Concept explanation videos: 90-120 seconds total
 - Max 3 voiceover blocks — each block covers one concept stage
 - Do NOT pad with extra beats — tight and clear is better than long
 

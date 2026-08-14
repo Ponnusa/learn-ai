@@ -109,7 +109,7 @@ FORCE ARROWS — use Create() NOT GrowArrow() (GrowArrow crashes in this Manim v
   self.play(FadeIn(grav_label, shift=RIGHT*0.2), run_time=0.6)
 
 VEHICLE MOTION along a slope — use animate.move_to with smooth rate_func:
-  self.play(bicycle.animate.move_to(end_pos), run_time=2.5, rate_func=smooth)
+  self.play(bicycle.animate.move_to(end_pos), run_time=1.2, rate_func=smooth)
   Move force arrows WITH the object in the SAME play() call using .animate.shift()
 
 DYNAMIC FORMULA UPDATES — use DecimalNumber + ValueTracker for live displays:

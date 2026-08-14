@@ -113,11 +113,11 @@ bars = create_energy_bars(pe=100000, ke=0)
 self.play(FadeIn(bars))
 
 # Car moves down
-self.play(car.animate.move_to(end_pos), run_time=2)
+self.play(car.animate.move_to(end_pos), run_time=1.0)
 
 # At bottom (all KE) - transform bars!
 bars_bottom = create_energy_bars(pe=0, ke=100000)
-self.play(Transform(bars, bars_bottom), run_time=2)
+self.play(Transform(bars, bars_bottom), run_time=1.0)
 ```
 
 ──────────────────────────────────────────────────────────────────
@@ -394,7 +394,7 @@ class BicycleForces(VoiceoverScene):
                 bicycle.animate.shift(shift_vec),
                 grav_arrow.animate.shift(shift_vec),
                 grav_label.animate.shift(shift_vec),
-                run_time=2.5, rate_func=smooth
+                run_time=1.2, rate_func=smooth
             )
             self.wait(tracker.duration - 3.0)
         self.play(FadeOut(sub), run_time=0.5)
@@ -525,8 +525,13 @@ self.play(Create(trajectory))
 
 Animate object along path:
 ```python
-self.play(MoveAlongPath(car, trajectory), run_time=3)
+self.play(MoveAlongPath(car, trajectory), run_time=1.2)
 ```
+
+TARGET DURATION:
+- Physics explanation videos: 90-120 seconds total
+- Max 3 voiceover blocks — each block covers one concept stage
+- Do NOT pad with extra beats — tight and clear is better than long
 
 ══════════════════════════════════════════════════════════════════
 KEY IMPROVEMENTS FOR PHYSICS (9:16)
@@ -695,7 +700,7 @@ surface = Surface(
 self.set_camera_orientation(phi=75 * DEGREES, theta=-45 * DEGREES)
 self.begin_ambient_camera_rotation(rate=0.2)   # slow auto-rotate
 self.stop_ambient_camera_rotation()
-self.move_camera(phi=60 * DEGREES, theta=30 * DEGREES, run_time=2)
+self.move_camera(phi=60 * DEGREES, theta=30 * DEGREES, run_time=1.0)
 
 # Sphere, Cylinder, Cone
 sphere = Sphere(radius=1, color=BLUE, fill_opacity=0.7)
