@@ -1296,7 +1296,9 @@ export default function ConceptEditorPage() {
                               )}
                               {vidReady && (
                                 <div>
-                                  <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata" />
+                                  <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata"
+                                    onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+                                  />
                                   <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
                                     {vid.videoBlockId && vid.videoInTextbook && !removedVideoBlocks.has(vid.videoBlockId) ? (
                                       <>
@@ -1608,7 +1610,9 @@ export default function ConceptEditorPage() {
                                 {/* Ready — player + actions */}
                                 {vidReady && (
                                   <div>
-                                    <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata" />
+                                    <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata"
+                                    onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+                                  />
                                     <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
                                       {vid.videoBlockId && vid.videoInTextbook && !removedVideoBlocks.has(vid.videoBlockId) ? (
                                         <>
@@ -2651,7 +2655,9 @@ export default function ConceptEditorPage() {
                               )}
                               {vidReady && (
                                 <div>
-                                  <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata" />
+                                  <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata"
+                                    onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+                                  />
                                   <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
                                     {inTextbook ? (
                                       <button onClick={() => removeVideoFromTextbook(blockId)}
