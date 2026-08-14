@@ -529,10 +529,11 @@ DURATION GUIDELINES
 ══════════════════════════════════════════════════════════════════
 
 - Each voiceover block ≈ 5–8 seconds
-- 30s → 2–3 blocks
-- 1 min → 4–5 blocks
-- 2 min → 7–9 blocks
-- 3 min → 10–12 blocks
+- This scene is ONE SEGMENT of a multi-segment lesson — target its own duration, not the full video length
+- 10–15s segment → 1–2 blocks
+- 15–20s segment → 2 blocks
+- 20–30s segment → 2–3 blocks
+- 30s+ segment → 3 blocks (hard max)
 
 ══════════════════════════════════════════════════════════════════
 CLASS NAMING RULE
