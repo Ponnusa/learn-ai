@@ -125,6 +125,7 @@ export default function ConceptEditorPage() {
   const [pipelineRuns,     setPipelineRuns]     = useState<PipelineRun[]>([]);
   const [pipelineLoading,  setPipelineLoading]  = useState(false);
   const [pipelineLoaded,   setPipelineLoaded]   = useState(false);
+  const [pipelinePage,     setPipelinePage]     = useState(0);
   const [addingToTextbook, setAddingToTextbook] = useState<Record<string, boolean>>({});
   const [showLeft,   setShowLeft]   = useState(true);
 
@@ -2435,21 +2436,46 @@ export default function ConceptEditorPage() {
                       <Zap size={28} className="mb-2 opacity-40" />
                       <p className="text-sm">No pipeline assets yet. Generate a video for this concept first.</p>
                     </div>
-                  ) : (
-                    <div className="space-y-6">
-                      {pipelineRuns.map((run, ri) => (
-                        <div key={run.video_id} className="rounded-xl border border-[var(--bd)] overflow-hidden">
-                          {/* Run header */}
+                  ) : (() => {
+                    const safePage = Math.min(pipelinePage, pipelineRuns.length - 1);
+                    const run = pipelineRuns[safePage];
+                    return (
+                      <div>
+                        {/* Pagination bar */}
+                        {pipelineRuns.length > 1 && (
+                          <div className="flex items-center justify-center gap-1 mb-4">
+                            {pipelineRuns.map((_, pi) => (
+                              <button
+                                key={pi}
+                                onClick={() => setPipelinePage(pi)}
+                                className={`h-6 min-w-[24px] px-1.5 rounded text-[10px] font-medium transition-colors
+                                  ${pi === safePage
+                                    ? 'bg-purple-500/20 text-purple-400 border border-purple-500/40'
+                                    : 'text-[var(--tx7)] border border-[var(--bd)] hover:text-[var(--tx4)] hover:border-[var(--bd2)]'
+                                  }`}
+                              >
+                                {pi + 1}
+                              </button>
+                            ))}
+                            <span className="ml-2 text-[10px] text-[var(--tx7)]">
+                              {safePage === 0 ? 'latest' : `run ${safePage + 1} of ${pipelineRuns.length}`}
+                            </span>
+                          </div>
+                        )}
+                        {/* Current run */}
+                        <div className="rounded-xl border border-[var(--bd)] overflow-hidden">
                           <div className="flex items-center gap-2 px-3.5 py-2 bg-[var(--ov1)] border-b border-[var(--bd)]">
                             <Layers size={11} className="text-purple-400 shrink-0" />
                             <span className="text-xs font-medium text-[var(--tx4)]">
-                              Video run #{pipelineRuns.length - ri}
+                              Video run #{safePage + 1}
                             </span>
+                            {safePage === 0 && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-400 font-medium">latest</span>
+                            )}
                             <span className="ml-auto text-[10px] text-[var(--tx7)]">
                               {new Date(run.video_created_at).toLocaleString()}
                             </span>
                           </div>
-                          {/* Segments */}
                           <div className="divide-y divide-[var(--bd)]">
                             {run.segments.map(seg => {
                               const key = `${run.video_id}-${seg.segment_id}`;
@@ -2475,7 +2501,6 @@ export default function ConceptEditorPage() {
                               };
                               return (
                                 <div key={seg.segment_id} className="p-3 flex flex-col gap-2">
-                                  {/* Header row */}
                                   <div className="flex items-center gap-2">
                                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 font-medium uppercase tracking-wide">
                                       {seg.segment_type}
@@ -2490,15 +2515,9 @@ export default function ConceptEditorPage() {
                                       Add to Textbook
                                     </button>
                                   </div>
-                                  {/* Source image (Gemini) — shown for image segments */}
                                   {seg.source_image_url && (
-                                    <img
-                                      src={seg.source_image_url}
-                                      alt=""
-                                      className="w-full rounded-lg object-cover max-h-48"
-                                    />
+                                    <img src={seg.source_image_url} alt="" className="w-full rounded-lg object-cover max-h-48" />
                                   )}
-                                  {/* Clip video — full width, playable */}
                                   {seg.clip_url && (
                                     <video
                                       src={seg.clip_url}
@@ -2508,20 +2527,17 @@ export default function ConceptEditorPage() {
                                       poster={seg.source_image_url || undefined}
                                     />
                                   )}
-                                  {/* Narration */}
                                   {seg.narration_text && (
-                                    <p className="text-xs text-[var(--tx6)] leading-snug line-clamp-3">
-                                      {seg.narration_text}
-                                    </p>
+                                    <p className="text-xs text-[var(--tx6)] leading-snug line-clamp-3">{seg.narration_text}</p>
                                   )}
                                 </div>
                               );
                             })}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
