@@ -184,27 +184,33 @@ def check_cache(prompt_hash: str, asset_type: str, segment_id: str, ext: str) ->
     )
 
 
+_manim_failures_table_ready = False
+
+
 def log_manim_failure(video_id: int, segment_order: int, segment_id: str, error: str, code: str) -> None:
     """Persist a Manim render failure so bulk-render dashboards can surface it later."""
+    global _manim_failures_table_ready
     conn = psycopg2.connect(_get_database_url())
     try:
         cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS manim_render_failures (
-                id            SERIAL PRIMARY KEY,
-                video_id      INTEGER,
-                segment_order INTEGER NOT NULL,
-                segment_id    TEXT,
-                error_message TEXT,
-                generated_code TEXT,
-                created_at    TIMESTAMPTZ DEFAULT NOW()
-            )
-        """)
-        # Drop NOT NULL if table already existed with the old constraint
-        cur.execute("""
-            ALTER TABLE manim_render_failures
-            ALTER COLUMN video_id DROP NOT NULL
-        """)
+        if not _manim_failures_table_ready:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS manim_render_failures (
+                    id            SERIAL PRIMARY KEY,
+                    video_id      INTEGER,
+                    segment_order INTEGER NOT NULL,
+                    segment_id    TEXT,
+                    error_message TEXT,
+                    generated_code TEXT,
+                    created_at    TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+            cur.execute("""
+                ALTER TABLE manim_render_failures
+                ALTER COLUMN video_id DROP NOT NULL
+            """)
+            conn.commit()
+            _manim_failures_table_ready = True
         cur.execute(
             """INSERT INTO manim_render_failures
                (video_id, segment_order, segment_id, error_message, generated_code)
