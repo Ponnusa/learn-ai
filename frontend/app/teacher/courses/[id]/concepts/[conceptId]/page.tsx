@@ -1298,6 +1298,7 @@ export default function ConceptEditorPage() {
                                 <div>
                                   <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata"
                                     onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+                                    onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
                                   />
                                   <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
                                     {vid.videoBlockId && vid.videoInTextbook && !removedVideoBlocks.has(vid.videoBlockId) ? (
@@ -1612,6 +1613,7 @@ export default function ConceptEditorPage() {
                                   <div>
                                     <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata"
                                     onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+                                    onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
                                   />
                                     <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
                                       {vid.videoBlockId && vid.videoInTextbook && !removedVideoBlocks.has(vid.videoBlockId) ? (
@@ -2570,10 +2572,8 @@ export default function ConceptEditorPage() {
                                         controls
                                         className="w-full bg-black"
                                         preload="metadata"
-                                        onLoadedMetadata={(e) => {
-                                          const v = e.currentTarget;
-                                          if (v.duration && isFinite(v.duration)) v.currentTime = v.duration / 2;
-                                        }}
+                                        onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+                                        onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
                                       />
                                       {!clipAdded ? (
                                         <div className="flex items-center justify-end px-2 py-1.5 bg-[var(--ov1)]">
@@ -2657,6 +2657,7 @@ export default function ConceptEditorPage() {
                                 <div>
                                   <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata"
                                     onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+                                    onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
                                   />
                                   <div className="px-3 py-2 border-t border-[var(--bd)] flex items-center gap-3">
                                     {inTextbook ? (

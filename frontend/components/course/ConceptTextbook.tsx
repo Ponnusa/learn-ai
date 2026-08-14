@@ -110,6 +110,7 @@ function VideoBlock({ block, token, onWatchPct }: {
         ? <>
             <video src={videoUrl} controls className="w-full aspect-video bg-black" preload="metadata"
               onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+              onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
               onTimeUpdate={onWatchPct ? handleTimeUpdate : undefined}
               onEnded={onWatchPct ? handleEnded : undefined}
             />
@@ -205,6 +206,7 @@ function EmbedVideoBlock({ block }: { block: ContentBlock }) {
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
         : <video src={embedUrl} controls className="w-full aspect-video bg-black" preload="metadata"
             onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+            onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
           />}
     </div>
   );
@@ -415,6 +417,7 @@ function SortableBlock({ block, conceptId, token, editable, onDelete, onLightbox
           <div className="rounded-xl overflow-hidden bg-black">
             <video src={block.body!} controls className="w-full" preload="metadata"
               onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+              onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
             />
             {block.title && <p className="px-3 py-2 text-xs text-[var(--tx6)]">{block.title}</p>}
           </div>
@@ -520,6 +523,7 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
                 <div className="rounded-xl overflow-hidden bg-black">
                   <video src={block.body!} controls className="w-full" preload="metadata"
               onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
+              onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
             />
                   {block.title && <p className="px-3 py-2 text-xs text-[var(--tx6)]">{block.title}</p>}
                 </div>
