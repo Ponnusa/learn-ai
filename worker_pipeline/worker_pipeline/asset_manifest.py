@@ -205,10 +205,6 @@ def log_manim_failure(video_id: int, segment_order: int, segment_id: str, error:
                     created_at    TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
-            cur.execute("""
-                ALTER TABLE manim_render_failures
-                ALTER COLUMN video_id DROP NOT NULL
-            """)
             conn.commit()
             _manim_failures_table_ready = True
         cur.execute(
