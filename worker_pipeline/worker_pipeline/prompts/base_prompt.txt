@@ -405,8 +405,8 @@ Always set in construct(), BEFORE any animation:
 2. SMOOTH EASED ANIMATIONS (ALWAYS)
 ─────────────────────────────────────────────
 NEVER use the default linear rate_func.
-ALL self.play() calls MUST include rate_func and run_time ≥ 1.0:
-  ✅ self.play(Create(circle), rate_func=smooth, run_time=1.2)
+ALL self.play() calls MUST include rate_func and run_time between 0.5–1.2:
+  ✅ self.play(Create(circle), rate_func=smooth, run_time=0.8)
   ❌ self.play(Create(circle))
 
 Valid Manim rate functions (use ONLY these):
@@ -415,9 +415,10 @@ Valid Manim rate functions (use ONLY these):
   rush_from   — fast start, slow end (use for entrances)
   linear      — constant speed (avoid unless intentional)
 
-For reveals and entrances: rate_func=smooth, run_time=1.0–1.5
-For exits and FadeOuts: rate_func=rush_into, run_time=0.8–1.0
-For fast emphasis (Indicate, Flash): run_time=0.6
+For reveals and entrances: rate_func=smooth, run_time=0.8–1.2
+For exits and FadeOuts: rate_func=rush_into, run_time=0.5–0.8
+For fast emphasis (Indicate, Flash): run_time=0.5
+NEVER use run_time > 1.5 — long animations are the leading cause of render timeouts.
 
 NEVER USE: ease_in, ease_out, ease_in_out — these do NOT exist in Manim and will crash.
 
@@ -450,17 +451,17 @@ New content enters from the opposite direction:
   )
 
 ─────────────────────────────────────────────
-5. GLOW EFFECTS FOR KEY OBJECTS
+5. GLOW EFFECTS (LIMIT TO FINAL REVEAL ONLY)
 ─────────────────────────────────────────────
-For atoms, key result values, or important highlighted objects, add a glow:
+Use a simple 2-layer glow ONLY for the single most important final result:
   glow = VGroup(*[
-      Circle(radius=r * 0.15 + 0.3, color=YELLOW, fill_opacity=0.04, stroke_width=0)
-      for r in range(6)
+      Circle(radius=r * 0.2 + 0.3, color=YELLOW, fill_opacity=0.06, stroke_width=0)
+      for r in range(2)
   ])
   glow.move_to(key_object.get_center())
-  self.play(FadeIn(glow), rate_func=smooth, run_time=1.0)
+  self.add(glow)  # add silently, no animation needed
 
-Use glow for: final answer reveals, key atoms in molecular diagrams, important constants.
+MAX ONE glow per scene. Do NOT add glows to atoms, molecules, or intermediate objects.
 
 ─────────────────────────────────────────────
 6. BOLD FLAT SHAPES (FILLED, NOT WIREFRAME)
@@ -483,16 +484,10 @@ Recommended palettes:
   - Mathematics: BLUE (primary), GREEN (result), ORANGE (highlight), WHITE (text)
 
 ─────────────────────────────────────────────
-8. PARTICLE BACKGROUND (OPTIONAL BUT RECOMMENDED)
+8. PARTICLE BACKGROUND (BANNED — DO NOT USE)
 ─────────────────────────────────────────────
-For concept videos, add subtle floating particles in the first block:
-  import random
-  particles = VGroup(*[
-      Dot(radius=0.025, color=WHITE, fill_opacity=random.uniform(0.05, 0.25))
-      .move_to([random.uniform(-6.5, 6.5), random.uniform(-3.5, 3.5), 0])
-      for _ in range(60)
-  ])
-  self.add(particles)  # add silently, not animated
+DO NOT add particle backgrounds. They render 60+ objects every frame and cause
+render timeouts. The dark background alone provides sufficient atmosphere.
 
 ─────────────────────────────────────────────
 9. CINEMATIC PACING — ONE IDEA PER SCREEN
@@ -541,6 +536,24 @@ CLASS NAMING RULE
 - Scene class name MUST be in English
 - Screen titles MUST be in the target language
 - The main title must appear within the first voiceover block
+
+══════════════════════════════════════════════════════════════════
+RENDER PERFORMANCE BUDGET (MANDATORY — violations cause timeout failures)
+══════════════════════════════════════════════════════════════════
+
+This scene is rendered at low quality (480p 15fps) with a 8-minute hard timeout.
+Keep complexity minimal so it renders well within that limit.
+
+HARD LIMITS:
+- Max 8 objects visible on screen at any moment (VGroup counts as 1)
+- Max 3 voiceover blocks total per scene
+- No particle backgrounds (banned — see section 8)
+- Max 1 glow effect per scene, max 2 glow circles
+- No ValueTracker updaters that run every frame — use discrete animation steps instead
+- No AnimationGroup with lag_ratio on more than 4 objects
+- For chemistry: show electron transfer as FadeOut(electron, src) + FadeIn(electron, dst)
+  NOT as continuous MoveAlongPath or UpdateFromFunc animations
+- run_time must be 0.5–1.2 (never > 1.5)
 
 ══════════════════════════════════════════════════════════════════
 SELF-VALIDATION STEP (MANDATORY)

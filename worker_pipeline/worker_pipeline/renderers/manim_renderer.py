@@ -449,7 +449,7 @@ def render_code_to_clip(
         "-e", f"AZURE_SERVICE_REGION={AZURE_SPEECH_REGION}",
         "--workdir", "/manim",
         "manim-with-voiceover:latest",
-        "manim", "-qm", "--media_dir", "/output", "--progress_bar", "none", "--disable_caching",
+        "manim", "-ql", "--media_dir", "/output", "--progress_bar", "none", "--disable_caching",
         f"{segment_id}.py", resolved_scene,
     ]
     print(f"[manim_renderer] Docker START  seg={segment_id} scene={resolved_scene} "
