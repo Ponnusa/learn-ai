@@ -5502,7 +5502,7 @@ SOURCE MATERIAL:
 ---"""
 
 
-async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id: str | None = None):
+async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id: str | None = None, target_duration: int | None = None):
     """
     Background: generate a real Manim-animated video for a concept by reusing the
     AnimLearn pipeline (services/manim.py) — the exact two-phase flow used for
@@ -5534,7 +5534,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
         grade       = (course.get("grade") or "") if course else ""
         course_lang = (course.get("language") or "en") if course else "en"
         script      = concept["ai_transcript"] or concept["ai_summary"]
-        duration    = max(45, min(180, len(script) // 12))
+        duration    = target_duration if target_duration else max(45, min(120, len(script) // 12))
 
         # ── Build grade + TEKS context for the video prompt ──────────────────
         extra_parts: list[str] = []
@@ -5995,11 +5995,16 @@ async def delete_concept_flashcards(concept_id: str, authorization: str = Header
     return {"ok": True}
 
 
+class GenerateConceptVideoRequest(BaseModel):
+    target_duration: int | None = None  # seconds; None = auto from script length
+
+
 @router.post("/concepts/{concept_id}/generate/video")
 async def generate_concept_video(
     concept_id: str,
     bg: BackgroundTasks,
     authorization: str = Header(...),
+    req: GenerateConceptVideoRequest = GenerateConceptVideoRequest(),
 ):
     """Trigger a Manim-animated video for this concept via the AnimLearn Cloud Run pipeline."""
     teacher_id = await _require_teacher(authorization)
@@ -6022,7 +6027,7 @@ async def generate_concept_video(
             "UPDATE course_concepts SET video_status = 'generating', video_error = NULL WHERE id = $1::uuid",
             concept_id,
         )
-    bg.add_task(_generate_concept_video_bg, concept_id, str(concept["course_id"]), str(teacher_id))
+    bg.add_task(_generate_concept_video_bg, concept_id, str(concept["course_id"]), str(teacher_id), req.target_duration)
     return {"ok": True, "video_status": "generating"}
 
 

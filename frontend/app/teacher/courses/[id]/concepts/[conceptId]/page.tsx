@@ -180,6 +180,7 @@ export default function ConceptEditorPage() {
   const [improvingVideoMsgs,  setImprovingVideoMsgs]  = useState<Set<string>>(new Set());
   const [showDraftPrompt,   setShowDraftPrompt]   = useState(false);
   const [generatingConceptVideo, setGeneratingConceptVideo] = useState(false);
+  const [videoDuration,          setVideoDuration]          = useState(90);
 
   // Studio quiz/flashcard generation config
   const [quizConfigOpen,       setQuizConfigOpen]       = useState(false);
@@ -961,7 +962,8 @@ export default function ConceptEditorPage() {
     setGeneratingConceptVideo(true);
     try {
       const res = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/generate/video`, {
-        method: 'POST', headers: authH,
+        method: 'POST', headers: { ...authH, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_duration: videoDuration }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: 'Failed to start' }));
@@ -1332,6 +1334,12 @@ export default function ConceptEditorPage() {
                                       </button>
                                     ) : null}
                                     <div className="ml-auto flex items-center gap-2">
+                                      {[60, 90, 120].map(d => (
+                                        <button key={d} onClick={() => setVideoDuration(d)}
+                                          className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${videoDuration === d ? 'border-purple-500/40 bg-purple-500/15 text-purple-400' : 'border-[var(--bd)] text-[var(--tx7)] hover:text-[var(--tx4)]'}`}>
+                                          {d === 120 ? '2m' : `${d}s`}
+                                        </button>
+                                      ))}
                                       <button
                                         onClick={generateConceptVideo}
                                         disabled={generatingConceptVideo || assets?.video_status === 'generating'}
@@ -1651,6 +1659,12 @@ export default function ConceptEditorPage() {
                                         </button>
                                       ) : null}
                                       <div className="ml-auto flex items-center gap-2">
+                                        {[60, 90, 120].map(d => (
+                                          <button key={d} onClick={() => setVideoDuration(d)}
+                                            className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${videoDuration === d ? 'border-purple-500/40 bg-purple-500/15 text-purple-400' : 'border-[var(--bd)] text-[var(--tx7)] hover:text-[var(--tx4)]'}`}>
+                                            {d === 120 ? '2m' : `${d}s`}
+                                          </button>
+                                        ))}
                                         <button
                                           onClick={generateConceptVideo}
                                           disabled={generatingConceptVideo || assets?.video_status === 'generating'}
