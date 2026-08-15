@@ -2686,11 +2686,13 @@ async def get_course_student_view(course_id: str, authorization: str = Header(..
 
     async with get_db() as db:
         course = await db.fetchrow(
-            "SELECT id, name, description, subject, grade, status FROM courses WHERE id = $1::uuid",
+            "SELECT id, name, description, subject, grade, status, is_published FROM courses WHERE id = $1::uuid",
             course_id,
         )
         if not course:
             raise HTTPException(404, "Course not found")
+        if not course["is_published"]:
+            raise HTTPException(403, "This course has not been published yet")
 
         units = await db.fetch("""
             SELECT id, title, description, position FROM course_units

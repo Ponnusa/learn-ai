@@ -421,7 +421,7 @@ async def get_classroom_courses(classroom_id: str, authorization: str = Header(.
             LEFT JOIN course_units cu  ON cu.course_id = c.id
             LEFT JOIN course_concepts cc ON cc.unit_id = cu.id
             LEFT JOIN student_concept_progress scp ON scp.concept_id = cc.id
-            WHERE clc.classroom_id = $1::uuid AND c.status = 'published'
+            WHERE clc.classroom_id = $1::uuid AND c.is_published = true
             GROUP BY c.id
             ORDER BY c.created_at
         """, classroom_id, user_id)

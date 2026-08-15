@@ -751,13 +751,9 @@ export default function CourseDetailPage() {
   }
 
   async function publish() {
-    await fetch(`${API_BASE}/api/courses/${courseId}`, {
-      method: 'PATCH', headers,
-      body: JSON.stringify({ status: course?.status === 'published' ? 'draft' : 'published' }),
-    });
-    setCourse(prev => prev ? {
-      ...prev, status: prev.status === 'published' ? 'draft' : 'published',
-    } : prev);
+    if (course?.is_published) return;
+    await fetch(`${API_BASE}/api/courses/${courseId}/publish`, { method: 'POST', headers });
+    setCourse(prev => prev ? { ...prev, is_published: true } : prev);
   }
 
   const inputCls = `bg-[var(--ov1)] border border-[var(--bd)] rounded-xl px-3 py-2
@@ -876,14 +872,18 @@ export default function CourseDetailPage() {
             )}
           </div>
           <button data-tour="publish-btn" onClick={publish}
+            disabled={course.is_published}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all ${
-              course.status === 'published'
-                ? 'border-green-500/30 text-green-400 hover:bg-green-500/10'
+              course.is_published
+                ? 'border-green-500/30 text-green-400 cursor-default'
                 : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400'
             }`}>
-            {course.status === 'published' ? <><CheckCircle size={14} /> {t.teacher.published}</> : <><Globe size={14} /> {t.teacher.publishBtn}</>}
+            {course.is_published
+              ? <><CheckCircle size={14} /> {user?.account_type === 'institution_admin' ? 'Published to Catalog' : 'Published to Students'}</>
+              : <><Globe size={14} /> {user?.account_type === 'institution_admin' ? 'Publish to Catalog' : 'Publish to Students'}</>
+            }
           </button>
-          {course.status === 'published' ? (
+          {course.is_published ? (
             <button onClick={archiveCourse}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)] text-[var(--tx6)] hover:border-amber-500/40 hover:text-amber-400 transition-all"
               title="Archive this course">

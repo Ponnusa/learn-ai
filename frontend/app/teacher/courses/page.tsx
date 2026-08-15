@@ -175,16 +175,16 @@ export default function TeacherCoursesPage() {
                     )}
                     {c.is_published
                       ? <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">
-                          <Globe size={10} /> Published
+                          <Globe size={10} /> {user?.account_type === 'institution_admin' ? 'In Catalog' : 'Published'}
                         </span>
                       : <button
                           onClick={e => publishCourse(e, c.id)}
                           className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full
                                      bg-purple-600/15 text-purple-400 border border-purple-500/30
                                      hover:bg-purple-600/30 transition-colors"
-                          title="Publish this course so it can be assigned to teachers"
+                          title={user?.account_type === 'institution_admin' ? 'Publish to school catalog' : 'Publish to students'}
                         >
-                          <Globe size={10} /> Publish
+                          <Globe size={10} /> {user?.account_type === 'institution_admin' ? 'Publish to Catalog' : 'Publish to Students'}
                         </button>
                     }
                     {c.failed_count > 0 && (
