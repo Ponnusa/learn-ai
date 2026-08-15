@@ -371,7 +371,12 @@ async def _get_block_section_context(user_id: str, concept_id: str, db) -> tuple
 
     is_admin = user["school_role"] in ("school_admin", "super_admin")
 
-    # Find the section this teacher is assigned to that has this concept's course
+    if is_admin:
+        # School admin writes template blocks — always section_id=NULL, origin='admin'
+        return None, True
+
+    # Find the teacher's section: prefer the one linked to this concept's course,
+    # fall back to any section where this teacher is the assigned teacher.
     row = await db.fetchrow(
         """SELECT s.id
            FROM sections s
@@ -386,13 +391,13 @@ async def _get_block_section_context(user_id: str, concept_id: str, db) -> tuple
            LIMIT 1""",
         concept_id, user_id, user["school_id"],
     )
-    section_id = str(row["id"]) if row else None
-
-    # Admin origin: school_admin who owns the concept's course
-    if is_admin and not section_id:
-        # admin not assigned as a section teacher — their blocks are master/admin blocks
-        return None, True
-    return section_id, False
+    if not row:
+        # Course not wired through school_courses yet — use teacher's section directly
+        row = await db.fetchrow(
+            "SELECT id FROM sections WHERE teacher_id = $1::uuid AND school_id = $2 LIMIT 1",
+            user_id, user["school_id"],
+        )
+    return (str(row["id"]) if row else None), False
 
 
 async def _get_read_section_filter(user_id: str, concept_id: str, db) -> str | None:
@@ -1893,11 +1898,11 @@ async def list_content_blocks(concept_id: str, authorization: str = Header(...))
         section_filter = await _get_read_section_filter(user_id, concept_id, db)
 
         if section_filter == "admin":
-            # School admin sees the canonical template (no section_id)
+            # School admin sees only their canonical template blocks (origin='admin')
             rows = await db.fetch(
                 _BLOCK_SELECT + """
                 WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
-                  AND cb.section_id IS NULL
+                  AND cb.origin = 'admin'
                 ORDER BY cb.position, cb.created_at
                 """, concept_id)
         elif section_filter:
