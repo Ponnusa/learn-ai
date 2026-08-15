@@ -158,13 +158,16 @@ async def list_school_teachers(authorization: str = Header(...)):
     admin = await _require_school_admin(authorization)
     async with get_db() as db:
         rows = await db.fetch(
-            """SELECT id, name, email, created_at
+            """SELECT id, name, email, is_active, created_at
                FROM users
                WHERE school_id = $1 AND school_role = 'teacher'
                ORDER BY name""",
             admin["school_id"],
         )
-    return [{"id": str(r["id"]), "name": r["name"], "email": r["email"]} for r in rows]
+    return [
+        {"id": str(r["id"]), "name": r["name"], "email": r["email"], "is_active": r["is_active"]}
+        for r in rows
+    ]
 
 
 class CreateTeacherLoginRequest(BaseModel):
@@ -231,6 +234,45 @@ async def remove_teacher_from_school(teacher_id: str, authorization: str = Heade
         )
     if result == "UPDATE 0":
         raise HTTPException(404, "Teacher not found in this school")
+    return {"ok": True}
+
+
+class UpdateTeacherRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+    password: str | None = None
+
+
+@router.patch("/teachers/{teacher_id}")
+async def update_teacher(
+    teacher_id: str,
+    req: UpdateTeacherRequest,
+    authorization: str = Header(...),
+):
+    """Admin edits a teacher's name, email, or resets their password."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        teacher = await db.fetchrow(
+            "SELECT id FROM users WHERE id = $1::uuid AND school_id = $2 AND school_role = 'teacher'",
+            teacher_id, admin["school_id"],
+        )
+        if not teacher:
+            raise HTTPException(404, "Teacher not found in this school")
+
+        updates, params = [], [teacher_id]
+        def _set(col, val):
+            params.append(val)
+            updates.append(f"{col} = ${len(params)}")
+
+        if req.name is not None:  _set("name",          req.name.strip())
+        if req.email is not None: _set("email",         req.email.strip())
+        if req.password:          _set("password_hash", _hash_password(req.password))
+
+        if updates:
+            await db.execute(
+                f"UPDATE users SET {', '.join(updates)} WHERE id = $1::uuid",
+                *params,
+            )
     return {"ok": True}
 
 
@@ -824,13 +866,14 @@ class StudentLoginRequest(BaseModel):
 
 def _student_row(r) -> dict:
     return {
-        "id":          str(r["id"]),
-        "name":        r["name"],
-        "roll_number": r["roll_number"],
-        "section_id":  str(r["section_id"]) if r.get("section_id") else None,
+        "id":           str(r["id"]),
+        "name":         r["name"],
+        "email":        r.get("email"),
+        "roll_number":  r["roll_number"],
+        "section_id":   str(r["section_id"]) if r.get("section_id") else None,
         "section_name": r.get("section_name"),
-        "is_active":   r["is_active"],
-        "created_at":  r["created_at"].isoformat(),
+        "is_active":    r["is_active"],
+        "created_at":   r["created_at"].isoformat(),
     }
 
 
@@ -947,40 +990,52 @@ async def bulk_import_students(req: BulkImportRequest, authorization: str = Head
 async def list_students(
     authorization: str = Header(...),
     section_id: str | None = None,
+    include_archived: bool = False,
 ):
     """Admin lists all students in their school, optionally filtered by section."""
     admin = await _require_school_admin(authorization)
+    active_clause = "" if include_archived else "AND u.is_active = true"
     async with get_db() as db:
         if section_id:
             rows = await db.fetch(
-                """SELECT u.id, u.name, u.roll_number, u.section_id, u.is_active, u.created_at,
-                          s.name AS section_name
-                   FROM users u
-                   LEFT JOIN sections s ON s.id = u.section_id
-                   WHERE u.school_id = $1 AND u.school_role = 'student' AND u.section_id = $2::uuid
-                   ORDER BY u.name""",
+                f"""SELECT u.id, u.name, u.email, u.roll_number, u.section_id, u.is_active, u.created_at,
+                           s.name AS section_name
+                    FROM users u
+                    LEFT JOIN sections s ON s.id = u.section_id
+                    WHERE u.school_id = $1 AND u.school_role = 'student'
+                      AND u.section_id = $2::uuid {active_clause}
+                    ORDER BY u.name""",
                 admin["school_id"], section_id,
             )
         else:
             rows = await db.fetch(
-                """SELECT u.id, u.name, u.roll_number, u.section_id, u.is_active, u.created_at,
-                          s.name AS section_name
-                   FROM users u
-                   LEFT JOIN sections s ON s.id = u.section_id
-                   WHERE u.school_id = $1 AND u.school_role = 'student'
-                   ORDER BY s.name NULLS LAST, u.name""",
+                f"""SELECT u.id, u.name, u.email, u.roll_number, u.section_id, u.is_active, u.created_at,
+                           s.name AS section_name
+                    FROM users u
+                    LEFT JOIN sections s ON s.id = u.section_id
+                    WHERE u.school_id = $1 AND u.school_role = 'student' {active_clause}
+                    ORDER BY s.name NULLS LAST, u.name""",
                 admin["school_id"],
             )
     return [_student_row(dict(r)) for r in rows]
 
 
+class UpdateStudentRequest(BaseModel):
+    name: str | None = None
+    roll_number: str | None = None
+    email: str | None = None
+    section_id: str | None = None       # pass "" to clear section
+    password: str | None = None
+    is_active: bool | None = None       # False = archive, True = restore
+
+
 @router.patch("/students/{student_id}")
 async def update_student(
     student_id: str,
-    req: CreateStudentRequest,
+    req: UpdateStudentRequest,
     authorization: str = Header(...),
 ):
-    """Update a student's name, section, or reset their password."""
+    """Update any student field; set is_active=false to archive, true to restore."""
     admin = await _require_school_admin(authorization)
     async with get_db() as db:
         student = await db.fetchrow(
@@ -995,12 +1050,12 @@ async def update_student(
             params.append(val)
             updates.append(f"{col} = ${len(params)}")
 
-        if req.name:          _set("name",        req.name)
-        if req.roll_number:   _set("roll_number", req.roll_number.strip())
-        if req.section_id is not None:
-            _set("section_id", req.section_id or None)
-        if req.password:
-            _set("password_hash", _hash_password(req.password))
+        if req.name is not None:       _set("name",        req.name.strip())
+        if req.roll_number is not None: _set("roll_number", req.roll_number.strip())
+        if req.email is not None:      _set("email",       req.email.strip() or None)
+        if req.section_id is not None: _set("section_id",  req.section_id or None)
+        if req.password:               _set("password_hash", _hash_password(req.password))
+        if req.is_active is not None:  _set("is_active",   req.is_active)
 
         if updates:
             await db.execute(
@@ -1011,16 +1066,32 @@ async def update_student(
 
 
 @router.delete("/students/{student_id}")
-async def delete_student(student_id: str, authorization: str = Header(...)):
-    """Remove a student account from the school."""
+async def delete_student(
+    student_id: str,
+    authorization: str = Header(...),
+    hard: bool = False,
+):
+    """
+    Archive (soft-delete) or hard-delete a student.
+    Default is archive (is_active=false) to preserve history.
+    Pass ?hard=true to permanently delete the record.
+    """
     admin = await _require_school_admin(authorization)
     async with get_db() as db:
-        result = await db.execute(
-            "DELETE FROM users WHERE id = $1::uuid AND school_id = $2 AND school_role = 'student'",
-            student_id, admin["school_id"],
-        )
-    if result == "DELETE 0":
-        raise HTTPException(404, "Student not found")
+        if hard:
+            result = await db.execute(
+                "DELETE FROM users WHERE id = $1::uuid AND school_id = $2 AND school_role = 'student'",
+                student_id, admin["school_id"],
+            )
+            if result == "DELETE 0":
+                raise HTTPException(404, "Student not found")
+        else:
+            result = await db.execute(
+                "UPDATE users SET is_active = false WHERE id = $1::uuid AND school_id = $2 AND school_role = 'student'",
+                student_id, admin["school_id"],
+            )
+            if result == "UPDATE 0":
+                raise HTTPException(404, "Student not found")
     return {"ok": True}
 
 
