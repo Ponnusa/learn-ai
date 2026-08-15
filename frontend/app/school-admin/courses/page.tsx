@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { BookOpen, Loader2, Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { BookOpen, Loader2, Plus, Trash2 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -21,7 +21,6 @@ export default function CoursesPage() {
   const [loading,       setLoading]       = useState(true);
   const [assignCourse,  setAssignCourse]  = useState('');
   const [saving,        setSaving]        = useState(false);
-  const [expanded,      setExpanded]      = useState<string | null>(null);
   const [sectionCourses, setSectionCourses] = useState<Record<string, SectionCourse[]>>({});
   const [assigning,     setAssigning]     = useState<{ secId: string; scId: string } | null>(null);
 
@@ -64,13 +63,10 @@ export default function CoursesPage() {
     const res = await fetch(`${API}/api/school/sections/${secId}/courses`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (res.ok) setSectionCourses(p => ({ ...p, [secId]: await res.json() }));
-  }
-
-  async function toggleSection(secId: string) {
-    if (expanded === secId) { setExpanded(null); return; }
-    setExpanded(secId);
-    if (!sectionCourses[secId]) await loadSectionCourses(secId);
+    if (res.ok) {
+      const data = await res.json();
+      setSectionCourses(p => ({ ...p, [secId]: data }));
+    }
   }
 
   async function assignToSection(secId: string, scId: string) {
