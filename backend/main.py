@@ -10,6 +10,7 @@ from database import init_pool, close_pool
 from config import settings
 from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
 from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments, dqb, lab_sheets
+from routers import school_admin
 
 
 @asynccontextmanager
@@ -658,6 +659,20 @@ async def lifespan(app: FastAPI):
             )
             """,
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS multimodal_video_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+            # ── Sprint 1: School admin ────────────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS schools (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                name        TEXT NOT NULL,
+                city        TEXT,
+                country     TEXT DEFAULT 'India',
+                code        TEXT UNIQUE NOT NULL,  -- short login code e.g. 'GD2025'
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS school_id UUID REFERENCES schools(id) ON DELETE SET NULL",
+            # school_role: NULL=normal user, 'admin'=school admin, 'teacher'=school teacher, 'student'=school student
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS school_role TEXT",
         ]:
             try:
                 await db.execute(sql)
@@ -705,6 +720,7 @@ app.include_router(messages.router)
 app.include_router(assignments.router)
 app.include_router(dqb.router)
 app.include_router(lab_sheets.router)
+app.include_router(school_admin.router)
 
 
 @app.get("/health")
