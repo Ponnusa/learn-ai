@@ -686,6 +686,33 @@ async def lifespan(app: FastAPI):
             )
             """,
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS section_id UUID REFERENCES sections(id) ON DELETE SET NULL",
+            # ── Sprint 4: Course assignment ───────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS school_courses (
+                id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                school_id   UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+                course_id   UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                assigned_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                created_at  TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (school_id, course_id)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS section_courses (
+                id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                section_id       UUID NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+                school_course_id UUID NOT NULL REFERENCES school_courses(id) ON DELETE CASCADE,
+                created_at       TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (section_id, school_course_id)
+            )
+            """,
+            # ── Sprint 5: Content block layering ──────────────────────────────
+            # origin: 'admin' = authored by school/platform admin, flows to all sections
+            #         'teacher' = section-local (or standalone if section_id IS NULL)
+            "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'teacher'",
+            # section_id: NULL = global (admin blocks or standalone teacher), non-NULL = section-local
+            "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS section_id UUID REFERENCES sections(id) ON DELETE CASCADE",
+            "CREATE INDEX IF NOT EXISTS idx_content_blocks_section ON concept_content_blocks(section_id) WHERE section_id IS NOT NULL",
             # ── Sprint 2: Teacher invites ─────────────────────────────────────
             """
             CREATE TABLE IF NOT EXISTS school_invites (
