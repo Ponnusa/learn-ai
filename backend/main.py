@@ -673,6 +673,20 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS school_id UUID REFERENCES schools(id) ON DELETE SET NULL",
             # school_role: NULL=normal user, 'admin'=school admin, 'teacher'=school teacher, 'student'=school student
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS school_role TEXT",
+            # ── Sprint 2: Teacher invites ─────────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS school_invites (
+                token       TEXT PRIMARY KEY,
+                school_id   UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+                email       TEXT,
+                role        TEXT NOT NULL DEFAULT 'teacher',
+                created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+                accepted_by UUID REFERENCES users(id) ON DELETE SET NULL,
+                accepted_at TIMESTAMPTZ,
+                expires_at  TIMESTAMPTZ NOT NULL,
+                created_at  TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
         ]:
             try:
                 await db.execute(sql)

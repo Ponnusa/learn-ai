@@ -1,13 +1,16 @@
 """
-School Admin router — Sprint 1
-Handles school creation and school admin authentication.
-All endpoints require school_role = 'admin'.
+School Admin router — Sprint 1 + 2
+Handles school creation, admin auth, teacher invites, school context.
+All management endpoints require school_role = 'admin'.
 """
 import logging
 import secrets
 import string
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel
+
+from config import settings
 
 from database import get_db
 from routers.teacher_auth import get_current_teacher
@@ -156,3 +159,183 @@ async def list_school_teachers(authorization: str = Header(...)):
             admin["school_id"],
         )
     return [{"id": str(r["id"]), "name": r["name"], "email": r["email"]} for r in rows]
+
+
+@router.delete("/teachers/{teacher_id}")
+async def remove_teacher_from_school(teacher_id: str, authorization: str = Header(...)):
+    """Unlink a teacher from this school (doesn't delete their account)."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        result = await db.execute(
+            """UPDATE users SET school_id = NULL, school_role = NULL
+               WHERE id = $1::uuid AND school_id = $2 AND school_role = 'teacher'""",
+            teacher_id, admin["school_id"],
+        )
+    if result == "UPDATE 0":
+        raise HTTPException(404, "Teacher not found in this school")
+    return {"ok": True}
+
+
+# ── Sprint 2: Invite system ───────────────────────────────────────────────────
+
+class CreateInviteRequest(BaseModel):
+    email: str | None = None   # optional — lock invite to one email
+    role: str = "teacher"      # 'teacher' for now; 'admin' later
+    expires_days: int = 7
+
+
+@router.post("/invite")
+async def create_invite(req: CreateInviteRequest, authorization: str = Header(...)):
+    """
+    Generate a one-time invite link for a teacher.
+    If email is provided the invite is locked to that address.
+    Returns a token the admin can share as a link:
+      https://learnx-ai.com/join?invite=<token>
+    """
+    admin = await _require_school_admin(authorization)
+    token = secrets.token_urlsafe(24)
+    expires_at = datetime.now(timezone.utc) + timedelta(days=req.expires_days)
+
+    async with get_db() as db:
+        school = await db.fetchrow("SELECT name FROM schools WHERE id = $1", admin["school_id"])
+        await db.execute(
+            """INSERT INTO school_invites (token, school_id, email, role, created_by, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6)""",
+            token, admin["school_id"], req.email, req.role, admin["id"], expires_at,
+        )
+
+    frontend_url = getattr(settings, "FRONTEND_URL", "https://learnx-ai.com")
+    invite_url = f"{frontend_url}/join?invite={token}"
+    return {
+        "token":      token,
+        "invite_url": invite_url,
+        "school":     school["name"],
+        "role":       req.role,
+        "expires_at": expires_at.isoformat(),
+    }
+
+
+@router.get("/invite/{token}")
+async def validate_invite(token: str):
+    """
+    Public endpoint — validate an invite token before showing the signup form.
+    Returns school name and role so the frontend can pre-fill and label the form.
+    """
+    async with get_db() as db:
+        invite = await db.fetchrow(
+            """SELECT si.token, si.email, si.role, si.expires_at, si.accepted_at,
+                      s.name AS school_name, s.city
+               FROM school_invites si
+               JOIN schools s ON s.id = si.school_id
+               WHERE si.token = $1""",
+            token,
+        )
+    if not invite:
+        raise HTTPException(404, "Invite not found")
+    if invite["accepted_at"]:
+        raise HTTPException(410, "Invite already used")
+    if invite["expires_at"] < datetime.now(timezone.utc):
+        raise HTTPException(410, "Invite has expired")
+    return {
+        "school_name": invite["school_name"],
+        "city":        invite["city"],
+        "role":        invite["role"],
+        "email":       invite["email"],  # None if open invite
+    }
+
+
+@router.post("/invite/{token}/accept")
+async def accept_invite(token: str, authorization: str = Header(...)):
+    """
+    Called after a teacher logs in / signs up — links them to the school.
+    The frontend calls this immediately after auth if an invite token is in the URL.
+    """
+    teacher = await get_current_teacher(authorization)
+    async with get_db() as db:
+        invite = await db.fetchrow(
+            """SELECT school_id, email, role, expires_at, accepted_at
+               FROM school_invites WHERE token = $1""",
+            token,
+        )
+        if not invite:
+            raise HTTPException(404, "Invite not found")
+        if invite["accepted_at"]:
+            raise HTTPException(410, "Invite already used")
+        if invite["expires_at"] < datetime.now(timezone.utc):
+            raise HTTPException(410, "Invite has expired")
+        if invite["email"] and invite["email"].lower() != teacher["email"].lower():
+            raise HTTPException(403, "This invite was sent to a different email address")
+
+        user = await db.fetchrow("SELECT school_id FROM users WHERE id = $1::uuid", teacher["id"])
+        if user["school_id"] and str(user["school_id"]) != str(invite["school_id"]):
+            raise HTTPException(409, "You already belong to another school")
+
+        await db.execute(
+            "UPDATE users SET school_id = $1, school_role = $2 WHERE id = $3::uuid",
+            invite["school_id"], invite["role"], teacher["id"],
+        )
+        await db.execute(
+            "UPDATE school_invites SET accepted_by = $1, accepted_at = NOW() WHERE token = $2",
+            teacher["id"], token,
+        )
+        school = await db.fetchrow("SELECT name, city FROM schools WHERE id = $1", invite["school_id"])
+
+    return {"ok": True, "school_name": school["name"], "role": invite["role"]}
+
+
+@router.get("/invites")
+async def list_invites(authorization: str = Header(...)):
+    """List all invites (pending and used) for this school."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        rows = await db.fetch(
+            """SELECT si.token, si.email, si.role, si.expires_at, si.accepted_at,
+                      u.name AS accepted_by_name
+               FROM school_invites si
+               LEFT JOIN users u ON u.id = si.accepted_by
+               WHERE si.school_id = $1
+               ORDER BY si.created_at DESC""",
+            admin["school_id"],
+        )
+    return [
+        {
+            "token":             r["token"],
+            "email":             r["email"],
+            "role":              r["role"],
+            "status":            "used" if r["accepted_at"] else ("expired" if r["expires_at"] < datetime.now(timezone.utc) else "pending"),
+            "accepted_by":       r["accepted_by_name"],
+            "expires_at":        r["expires_at"].isoformat(),
+        }
+        for r in rows
+    ]
+
+
+# ── Sprint 2: School context for teacher ─────────────────────────────────────
+
+@router.get("/context")
+async def get_teacher_school_context(authorization: str = Header(...)):
+    """
+    Called by teacher dashboard on load — returns their school info if they
+    belong to one. Returns null school if they're a standalone teacher.
+    """
+    teacher = await get_current_teacher(authorization)
+    async with get_db() as db:
+        user = await db.fetchrow(
+            "SELECT school_id, school_role FROM users WHERE id = $1::uuid", teacher["id"]
+        )
+        if not user or not user["school_id"]:
+            return {"school": None}
+        school = await db.fetchrow(
+            "SELECT id, name, city, country, code FROM schools WHERE id = $1",
+            user["school_id"],
+        )
+    return {
+        "school": {
+            "id":      str(school["id"]),
+            "name":    school["name"],
+            "city":    school["city"],
+            "country": school["country"],
+            "code":    school["code"],
+        },
+        "role": user["school_role"],
+    }
