@@ -31,6 +31,7 @@ interface Classroom { id: string; name: string; }
 interface Course  {
   id: string; name: string; description?: string;
   subject?: string; grade?: string; board?: string; status: string;
+  is_published: boolean;
   units: Unit[]; classrooms: Classroom[];
 }
 
@@ -1133,10 +1134,13 @@ export default function CourseDetailPage() {
                     : <Sparkles size={11} />}
                 </button>
               )}
-              <button onClick={() => deleteUnit(unit.id)}
-                className="text-[var(--tx8)] hover:text-red-400 transition-colors p-1">
-                <Trash2 size={14} />
-              </button>
+              {!course.is_published && (
+                <button onClick={() => deleteUnit(unit.id)}
+                  className="text-[var(--tx8)] hover:text-red-400 transition-colors p-1"
+                  title="Delete unit">
+                  <Trash2 size={14} />
+                </button>
+              )}
             </div>
 
             {/* Concepts */}
@@ -1190,11 +1194,14 @@ export default function CourseDetailPage() {
                         </div>
                       )}
                     </button>
-                    <button onClick={() => setDeleteConfirm({ unitId: unit.id, conceptId: c.id, title: c.title })}
-                      className="opacity-0 group-hover:opacity-100 text-[var(--tx8)] hover:text-red-400
-                                 transition-all p-1 shrink-0">
-                      <Trash2 size={12} />
-                    </button>
+                    {!course.is_published && (
+                      <button onClick={() => setDeleteConfirm({ unitId: unit.id, conceptId: c.id, title: c.title })}
+                        className="opacity-0 group-hover:opacity-100 text-[var(--tx8)] hover:text-red-400
+                                   transition-all p-1 shrink-0"
+                        title="Delete concept">
+                        <Trash2 size={12} />
+                      </button>
+                    )}
                   </div>
                 ))}
 

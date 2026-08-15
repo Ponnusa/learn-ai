@@ -1111,6 +1111,12 @@ async def update_unit(unit_id: str, req: UnitRequest, authorization: str = Heade
 async def delete_unit(unit_id: str, authorization: str = Header(...)):
     await _require_teacher(authorization)
     async with get_db() as db:
+        published = await db.fetchval(
+            "SELECT c.is_published FROM courses c JOIN course_units u ON u.course_id = c.id WHERE u.id = $1::uuid",
+            unit_id,
+        )
+        if published:
+            raise HTTPException(400, "Cannot delete units from a published course")
         await db.execute("DELETE FROM course_units WHERE id = $1::uuid", unit_id)
     return {"ok": True}
 
@@ -1165,6 +1171,15 @@ async def update_concept(concept_id: str, req: ConceptRequest, authorization: st
 async def delete_concept(concept_id: str, authorization: str = Header(...)):
     await _require_teacher(authorization)
     async with get_db() as db:
+        published = await db.fetchval(
+            """SELECT c.is_published FROM courses c
+               JOIN course_units u ON u.course_id = c.id
+               JOIN course_concepts cc ON cc.unit_id = u.id
+               WHERE cc.id = $1::uuid""",
+            concept_id,
+        )
+        if published:
+            raise HTTPException(400, "Cannot delete concepts from a published course")
         await db.execute("DELETE FROM course_concepts WHERE id = $1::uuid", concept_id)
     return {"ok": True}
 
