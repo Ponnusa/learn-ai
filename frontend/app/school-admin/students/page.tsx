@@ -18,7 +18,7 @@ export default function StudentsPage() {
   const [loading,    setLoading]    = useState(true);
   const [filterSec,  setFilterSec]  = useState('');
   const [tab,        setTab]        = useState<'list'|'add'|'bulk'>('list');
-  const [form,       setForm]       = useState({ name: '', roll_number: '', section_id: '', password: '' });
+  const [form,       setForm]       = useState({ name: '', roll_number: '', email: '', section_id: '', password: '' });
   const [csvText,    setCsvText]    = useState('name,roll_number\n');
   const [bulkSec,    setBulkSec]    = useState('');
   const [saving,     setSaving]     = useState(false);
@@ -46,11 +46,12 @@ export default function StudentsPage() {
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: form.name, roll_number: form.roll_number,
+          email: form.email.trim() || null,
           section_id: form.section_id || null,
           password: form.password || null,
         }),
       });
-      if (res.ok) { setForm({ name: '', roll_number: '', section_id: '', password: '' }); setTab('list'); await load(); }
+      if (res.ok) { setForm({ name: '', roll_number: '', email: '', section_id: '', password: '' }); setTab('list'); await load(); }
     } finally { setSaving(false); }
   }
 
@@ -120,14 +121,16 @@ export default function StudentsPage() {
             {[
               { label: 'Full Name *', key: 'name', placeholder: 'Student name' },
               { label: 'Roll Number *', key: 'roll_number', placeholder: 'e.g. S001' },
+              { label: 'Email', key: 'email', placeholder: 'optional — auto-generated if blank', type: 'email' },
               { label: 'Password (default = roll number)', key: 'password', placeholder: 'Leave blank to use roll number' },
             ].map(f => (
-              <div key={f.key} className={f.key === 'password' ? 'col-span-2' : ''}>
+              <div key={f.key} className={f.key === 'email' || f.key === 'password' ? 'col-span-2' : ''}>
                 <label className="block text-xs text-[var(--tx6)] mb-1">{f.label}</label>
                 <input
                   value={(form as any)[f.key]}
                   onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
                   placeholder={f.placeholder}
+                  type={(f as any).type ?? 'text'}
                   className="w-full bg-[var(--ov2)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                              text-[var(--tx1)] placeholder:text-[var(--tx7)] outline-none focus:border-purple-500/60"
                 />

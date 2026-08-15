@@ -804,6 +804,7 @@ def _student_login_key(school_code: str, roll_number: str) -> str:
 class CreateStudentRequest(BaseModel):
     name: str
     roll_number: str
+    email: str | None = None  # auto-generated if omitted
     section_id: str | None = None
     password: str | None = None  # defaults to roll number
 
@@ -850,6 +851,7 @@ async def create_student(req: CreateStudentRequest, authorization: str = Header(
     school_code = await _get_school_code(admin["school_id"])
     roll = req.roll_number.strip()
     password = req.password or _make_roll_password(roll)
+    email = (req.email or "").strip() or f"{school_code.lower()}.{roll.lower().replace(' ', '_')}@students.learnxai.internal"
 
     async with get_db() as db:
         existing = await db.fetchval(
@@ -861,11 +863,11 @@ async def create_student(req: CreateStudentRequest, authorization: str = Header(
 
         row = await db.fetchrow(
             """INSERT INTO users
-                 (name, account_type, school_id, school_role, section_id, roll_number,
+                 (name, email, account_type, school_id, school_role, section_id, roll_number,
                   password_hash, is_active, tier, knowledge_level)
-               VALUES ($1, 'student', $2, 'student', $3::uuid, $4, $5, true, 'free', 'beginner')
+               VALUES ($1, $2, 'student', $3, 'student', $4::uuid, $5, $6, true, 'free', 'beginner')
                RETURNING id, name, roll_number, section_id, is_active, created_at""",
-            req.name, admin["school_id"], req.section_id, roll, _hash_password(password),
+            req.name, email, admin["school_id"], req.section_id, roll, _hash_password(password),
         )
     return {**_student_row(dict(row)), "password_set": password}
 
@@ -920,12 +922,13 @@ async def bulk_import_students(req: BulkImportRequest, authorization: str = Head
                     results.append({"roll_number": roll, "status": "skipped", "reason": "Roll number already exists"})
                     continue
                 password = _make_roll_password(roll)
+                bulk_email = s.get("email", "").strip() or f"{school_code.lower()}.{roll.lower().replace(' ', '_')}@students.learnxai.internal"
                 await db.execute(
                     """INSERT INTO users
-                         (name, account_type, school_id, school_role, section_id, roll_number,
+                         (name, email, account_type, school_id, school_role, section_id, roll_number,
                           password_hash, is_active, tier, knowledge_level)
-                       VALUES ($1, 'student', $2, 'student', $3::uuid, $4, $5, true, 'free', 'beginner')""",
-                    name, admin["school_id"], req.section_id, roll, _hash_password(password),
+                       VALUES ($1, $2, 'student', $3, 'student', $4::uuid, $5, $6, true, 'free', 'beginner')""",
+                    name, bulk_email, admin["school_id"], req.section_id, roll, _hash_password(password),
                 )
                 results.append({
                     "name":        name,
