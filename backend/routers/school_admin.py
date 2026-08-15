@@ -691,9 +691,16 @@ async def list_school_courses(authorization: str = Header(...)):
 
 @router.delete("/courses/{school_course_id}")
 async def unassign_course_from_school(school_course_id: str, authorization: str = Header(...)):
-    """Remove a course from the school (cascades to all section assignments)."""
+    """Remove a course from the school catalog. Blocked if any classroom has an active teacher copy."""
     admin = await _require_school_admin(authorization)
     async with get_db() as db:
+        locked = await db.fetchval(
+            """SELECT COUNT(*) FROM section_courses
+               WHERE school_course_id = $1::uuid AND teacher_course_id IS NOT NULL""",
+            school_course_id,
+        )
+        if locked:
+            raise HTTPException(400, "Cannot remove a course that is already active in one or more classrooms")
         result = await db.execute(
             "DELETE FROM school_courses WHERE id = $1::uuid AND school_id = $2",
             school_course_id, admin["school_id"],

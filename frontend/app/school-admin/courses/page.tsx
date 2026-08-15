@@ -195,13 +195,25 @@ export default function CoursesPage() {
                     </p>
                   )}
                 </div>
-                <button
-                  onClick={() => removeFromSchool(sc.school_course_id)}
-                  className="p-2 text-[var(--tx7)] hover:text-red-400 rounded-lg hover:bg-[var(--ov2)] transition-colors"
-                  title="Remove from school"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {(() => {
+                  const courseIsLocked = Object.values(sectionMap).some(
+                    e => e.locked.has(sc.school_course_id)
+                  );
+                  return (
+                    <button
+                      onClick={() => !courseIsLocked && removeFromSchool(sc.school_course_id)}
+                      disabled={courseIsLocked}
+                      title={courseIsLocked ? 'Cannot remove — course is active in one or more classrooms' : 'Remove from school'}
+                      className={`p-2 rounded-lg transition-colors ${
+                        courseIsLocked
+                          ? 'text-[var(--tx8)] cursor-not-allowed opacity-40'
+                          : 'text-[var(--tx7)] hover:text-red-400 hover:bg-[var(--ov2)]'
+                      }`}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  );
+                })()}
               </div>
 
               {/* Classroom chips */}
