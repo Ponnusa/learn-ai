@@ -755,6 +755,25 @@ async def list_section_courses(section_id: str, authorization: str = Header(...)
     return [_course_row(dict(r)) for r in rows]
 
 
+@router.get("/section-courses-map")
+async def get_section_courses_map(authorization: str = Header(...)):
+    """Return {section_id: [school_course_id, ...]} for every section in the school."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        rows = await db.fetch(
+            """SELECT scc.section_id, scc.school_course_id
+               FROM section_courses scc
+               JOIN sections sec ON sec.id = scc.section_id
+               WHERE sec.school_id = $1""",
+            admin["school_id"],
+        )
+    result: dict[str, list[str]] = {}
+    for r in rows:
+        sid = str(r["section_id"])
+        result.setdefault(sid, []).append(str(r["school_course_id"]))
+    return result
+
+
 @router.delete("/sections/{section_id}/courses/{school_course_id}")
 async def unassign_course_from_section(
     section_id: str,
