@@ -339,3 +339,191 @@ async def get_teacher_school_context(authorization: str = Header(...)):
         },
         "role": user["school_role"],
     }
+
+
+# ── Sprint 3: Sections ────────────────────────────────────────────────────────
+
+class CreateSectionRequest(BaseModel):
+    name: str            # e.g. "Grade 10 - A"
+    grade: str | None = None          # e.g. "Grade 10"
+    section_label: str | None = None  # e.g. "A"
+    teacher_id: str | None = None     # assign immediately, or later
+
+
+class UpdateSectionRequest(BaseModel):
+    name: str | None = None
+    grade: str | None = None
+    section_label: str | None = None
+    teacher_id: str | None = None     # pass empty string to unassign
+
+
+def _section_row(r) -> dict:
+    return {
+        "id":            str(r["id"]),
+        "name":          r["name"],
+        "grade":         r["grade"],
+        "section_label": r["section_label"],
+        "teacher_id":    str(r["teacher_id"]) if r["teacher_id"] else None,
+        "teacher_name":  r.get("teacher_name"),
+        "student_count": r.get("student_count", 0),
+        "created_at":    r["created_at"].isoformat(),
+    }
+
+
+@router.post("/sections")
+async def create_section(req: CreateSectionRequest, authorization: str = Header(...)):
+    """Admin creates a new section (class) in their school."""
+    admin = await _require_school_admin(authorization)
+
+    teacher_id = None
+    if req.teacher_id:
+        async with get_db() as db:
+            ok = await db.fetchval(
+                "SELECT 1 FROM users WHERE id = $1::uuid AND school_id = $2 AND school_role = 'teacher'",
+                req.teacher_id, admin["school_id"],
+            )
+        if not ok:
+            raise HTTPException(404, "Teacher not found in this school")
+        teacher_id = req.teacher_id
+
+    async with get_db() as db:
+        row = await db.fetchrow(
+            """INSERT INTO sections (school_id, name, grade, section_label, teacher_id)
+               VALUES ($1, $2, $3, $4, $5::uuid)
+               RETURNING id, name, grade, section_label, teacher_id, created_at""",
+            admin["school_id"], req.name, req.grade, req.section_label, teacher_id,
+        )
+    return _section_row(dict(row))
+
+
+@router.get("/sections")
+async def list_sections(authorization: str = Header(...)):
+    """Admin lists all sections in their school with teacher name and student count."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        rows = await db.fetch(
+            """SELECT s.id, s.name, s.grade, s.section_label, s.teacher_id, s.created_at,
+                      u.name  AS teacher_name,
+                      (SELECT COUNT(*) FROM users st
+                       WHERE st.school_id = $1 AND st.school_role = 'student'
+                         AND st.section_id = s.id) AS student_count
+               FROM sections s
+               LEFT JOIN users u ON u.id = s.teacher_id
+               WHERE s.school_id = $1
+               ORDER BY s.grade NULLS LAST, s.section_label, s.name""",
+            admin["school_id"],
+        )
+    return [_section_row(dict(r)) for r in rows]
+
+
+@router.patch("/sections/{section_id}")
+async def update_section(section_id: str, req: UpdateSectionRequest, authorization: str = Header(...)):
+    """Admin updates a section — rename, reassign teacher, or change grade."""
+    admin = await _require_school_admin(authorization)
+
+    async with get_db() as db:
+        section = await db.fetchrow(
+            "SELECT id FROM sections WHERE id = $1::uuid AND school_id = $2",
+            section_id, admin["school_id"],
+        )
+        if not section:
+            raise HTTPException(404, "Section not found")
+
+        if req.teacher_id is not None:
+            if req.teacher_id == "":
+                teacher_id = None
+            else:
+                ok = await db.fetchval(
+                    "SELECT 1 FROM users WHERE id = $1::uuid AND school_id = $2 AND school_role = 'teacher'",
+                    req.teacher_id, admin["school_id"],
+                )
+                if not ok:
+                    raise HTTPException(404, "Teacher not found in this school")
+                teacher_id = req.teacher_id
+        else:
+            teacher_id = None  # don't touch existing
+
+        # Build dynamic SET clause for only provided fields
+        updates, params = [], [section_id]
+        def _set(col, val):
+            params.append(val)
+            updates.append(f"{col} = ${len(params)}")
+
+        if req.name          is not None: _set("name",          req.name)
+        if req.grade         is not None: _set("grade",         req.grade)
+        if req.section_label is not None: _set("section_label", req.section_label)
+        if req.teacher_id    is not None: _set("teacher_id",    teacher_id)
+
+        if updates:
+            row = await db.fetchrow(
+                f"UPDATE sections SET {', '.join(updates)} WHERE id = $1::uuid RETURNING id, name, grade, section_label, teacher_id, created_at",
+                *params,
+            )
+        else:
+            row = await db.fetchrow(
+                "SELECT id, name, grade, section_label, teacher_id, created_at FROM sections WHERE id = $1::uuid",
+                section_id,
+            )
+    return _section_row(dict(row))
+
+
+@router.delete("/sections/{section_id}")
+async def delete_section(section_id: str, authorization: str = Header(...)):
+    """Admin deletes a section. Students in it lose their section assignment."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        result = await db.execute(
+            "DELETE FROM sections WHERE id = $1::uuid AND school_id = $2",
+            section_id, admin["school_id"],
+        )
+    if result == "DELETE 0":
+        raise HTTPException(404, "Section not found")
+    return {"ok": True}
+
+
+@router.post("/sections/{section_id}/assign-teacher")
+async def assign_teacher_to_section(section_id: str, req: AddTeacherRequest, authorization: str = Header(...)):
+    """Shortcut: assign a teacher to a section by email."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        teacher = await db.fetchrow(
+            "SELECT id FROM users WHERE email = $1 AND school_id = $2 AND school_role = 'teacher'",
+            req.email, admin["school_id"],
+        )
+        if not teacher:
+            raise HTTPException(404, "Teacher not found in this school")
+        row = await db.fetchrow(
+            """UPDATE sections SET teacher_id = $1 WHERE id = $2::uuid AND school_id = $3
+               RETURNING id, name, grade, section_label, teacher_id, created_at""",
+            teacher["id"], section_id, admin["school_id"],
+        )
+    if not row:
+        raise HTTPException(404, "Section not found")
+    return _section_row(dict(row))
+
+
+# ── Teacher: see own sections ─────────────────────────────────────────────────
+
+@router.get("/sections/mine")
+async def get_my_sections(authorization: str = Header(...)):
+    """
+    Teacher calls this to see which sections they're assigned to.
+    Returns empty list if they're not in a school.
+    """
+    teacher = await get_current_teacher(authorization)
+    async with get_db() as db:
+        user = await db.fetchrow(
+            "SELECT school_id, school_role FROM users WHERE id = $1::uuid", teacher["id"]
+        )
+        if not user or not user["school_id"]:
+            return []
+        rows = await db.fetch(
+            """SELECT s.id, s.name, s.grade, s.section_label, s.teacher_id, s.created_at,
+                      (SELECT COUNT(*) FROM users st
+                       WHERE st.section_id = s.id AND st.school_role = 'student') AS student_count
+               FROM sections s
+               WHERE s.teacher_id = $1::uuid AND s.school_id = $2
+               ORDER BY s.grade NULLS LAST, s.section_label""",
+            teacher["id"], user["school_id"],
+        )
+    return [_section_row(dict(r)) for r in rows]

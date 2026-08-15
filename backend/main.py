@@ -673,6 +673,19 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS school_id UUID REFERENCES schools(id) ON DELETE SET NULL",
             # school_role: NULL=normal user, 'admin'=school admin, 'teacher'=school teacher, 'student'=school student
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS school_role TEXT",
+            # ── Sprint 3: Sections ────────────────────────────────────────────
+            """
+            CREATE TABLE IF NOT EXISTS sections (
+                id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                school_id     UUID NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+                name          TEXT NOT NULL,
+                grade         TEXT,
+                section_label TEXT,
+                teacher_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+                created_at    TIMESTAMPTZ DEFAULT NOW()
+            )
+            """,
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS section_id UUID REFERENCES sections(id) ON DELETE SET NULL",
             # ── Sprint 2: Teacher invites ─────────────────────────────────────
             """
             CREATE TABLE IF NOT EXISTS school_invites (
