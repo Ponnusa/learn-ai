@@ -15,7 +15,7 @@ interface SchoolInfo { name: string; code: string; }
 const NAV = [
   { href: '/school-admin/dashboard', icon: LayoutDashboard, label: 'Dashboard'  },
   { href: '/school-admin/teachers',  icon: GraduationCap,   label: 'Teachers'   },
-  { href: '/school-admin/sections',  icon: Layers,          label: 'Sections'   },
+  { href: '/school-admin/sections',  icon: Layers,          label: 'Classrooms' },
   { href: '/school-admin/students',  icon: Users,           label: 'Students'   },
   { href: '/school-admin/courses',   icon: BookOpen,        label: 'Courses'    },
   { href: '/school-admin/invites',   icon: Mail,            label: 'Invites'    },

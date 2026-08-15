@@ -88,13 +88,13 @@ export default function SectionsPage() {
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-[var(--tx1)] text-xl font-bold">Sections</h1>
+        <h1 className="text-[var(--tx1)] text-xl font-bold">Classrooms</h1>
         <button
           onClick={openNew}
           className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500
                      text-white text-sm rounded-xl transition-colors"
         >
-          <Plus size={15} /> New Section
+          <Plus size={15} /> New Classroom
         </button>
       </div>
 
@@ -102,15 +102,15 @@ export default function SectionsPage() {
       {showForm && (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-6">
           <h2 className="text-[var(--tx1)] font-semibold text-sm mb-4">
-            {editing ? 'Edit Section' : 'Create Section'}
+            {editing ? 'Edit Classroom' : 'Create Classroom'}
           </h2>
           <div className="grid grid-cols-2 gap-3 mb-3">
             <div className="col-span-2">
-              <label className="block text-xs text-[var(--tx6)] mb-1">Section Name *</label>
+              <label className="block text-xs text-[var(--tx6)] mb-1">Classroom Name *</label>
               <input
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                placeholder="e.g. Class IX - A"
+                placeholder="e.g. Class IX A"
                 className="w-full bg-[var(--ov2)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                            text-[var(--tx1)] placeholder:text-[var(--tx7)] outline-none focus:border-purple-500/60"
               />
@@ -173,7 +173,7 @@ export default function SectionsPage() {
       {sections.length === 0 ? (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 text-center">
           <Layers size={32} className="text-[var(--tx7)] mx-auto mb-3" />
-          <p className="text-[var(--tx5)] text-sm">No sections yet.</p>
+          <p className="text-[var(--tx5)] text-sm">No classrooms yet.</p>
         </div>
       ) : (
         <div className="flex flex-col gap-3">

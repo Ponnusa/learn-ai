@@ -167,6 +167,58 @@ async def list_school_teachers(authorization: str = Header(...)):
     return [{"id": str(r["id"]), "name": r["name"], "email": r["email"]} for r in rows]
 
 
+class CreateTeacherLoginRequest(BaseModel):
+    name: str
+    email: str
+    password: str | None = None  # auto-generated if omitted
+
+
+@router.post("/teachers/create")
+async def create_teacher_login(req: CreateTeacherLoginRequest, authorization: str = Header(...)):
+    """
+    School admin creates a teacher account directly — no invite flow needed.
+    If an account with that email already exists it is upgraded to teacher and
+    linked to this school. Returns the temp password so admin can share it.
+    """
+    admin = await _require_school_admin(authorization)
+
+    import secrets as _sec
+    temp_password = req.password or _sec.token_urlsafe(8)
+    pwd_hash = _hash_password(temp_password)
+
+    async with get_db() as db:
+        existing = await db.fetchrow("SELECT id, school_id FROM users WHERE email = $1", req.email)
+        if existing:
+            if existing["school_id"] and str(existing["school_id"]) != str(admin["school_id"]):
+                raise HTTPException(409, "User already belongs to another school")
+            await db.execute(
+                """UPDATE users SET name = COALESCE(name, $1), account_type = 'teacher',
+                   password_hash = COALESCE(password_hash, $2),
+                   school_id = $3, school_role = 'teacher', is_active = true
+                   WHERE id = $4""",
+                req.name, pwd_hash, admin["school_id"], existing["id"],
+            )
+            user_id = str(existing["id"])
+        else:
+            row = await db.fetchrow(
+                """INSERT INTO users
+                     (name, email, account_type, knowledge_level, password_hash,
+                      school_id, school_role, is_active)
+                   VALUES ($1, $2, 'teacher', 'intermediate', $3, $4, 'teacher', true)
+                   RETURNING id""",
+                req.name, req.email, pwd_hash, admin["school_id"],
+            )
+            user_id = str(row["id"])
+
+    return {
+        "ok":           True,
+        "teacher_id":   user_id,
+        "email":        req.email,
+        "temp_password": temp_password,
+        "note":         "Share email + password with the teacher. They can change it from Settings.",
+    }
+
+
 @router.delete("/teachers/{teacher_id}")
 async def remove_teacher_from_school(teacher_id: str, authorization: str = Header(...)):
     """Unlink a teacher from this school (doesn't delete their account)."""

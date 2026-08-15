@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Users, Loader2, Upload, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { Users, Loader2, Upload, Plus, Trash2 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -220,7 +220,7 @@ export default function StudentsPage() {
           className="bg-[var(--ov2)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                      text-[var(--tx2)] outline-none focus:border-purple-500/60"
         >
-          <option value="">All Sections</option>
+          <option value="">All Classrooms</option>
           {sections.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <span className="text-[var(--tx7)] text-sm">{students.length} students</span>

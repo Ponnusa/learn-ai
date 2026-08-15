@@ -158,7 +158,7 @@ export default function CoursesPage() {
 
               {/* Assign to sections */}
               <div className="border-t border-[var(--bd)] px-5 py-3">
-                <p className="text-xs text-[var(--tx6)] mb-2">Assign to sections:</p>
+                <p className="text-xs text-[var(--tx6)] mb-2">Assign to classrooms:</p>
                 <div className="flex flex-wrap gap-2">
                   {sections.map(sec => {
                     const secCourses = sectionCourses[sec.id] ?? [];

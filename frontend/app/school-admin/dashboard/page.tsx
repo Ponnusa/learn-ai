@@ -62,7 +62,7 @@ export default function SchoolAdminDashboard() {
         {[
           { label: 'Teachers',  value: stats?.teachers ?? 0, icon: GraduationCap, href: '/school-admin/teachers' },
           { label: 'Students',  value: stats?.students ?? 0, icon: Users,         href: '/school-admin/students' },
-          { label: 'Sections',  value: stats?.sections ?? 0, icon: Layers,        href: '/school-admin/sections' },
+          { label: 'Classrooms', value: stats?.sections ?? 0, icon: Layers,        href: '/school-admin/sections' },
           { label: 'Courses',   value: stats?.courses  ?? 0, icon: BookOpen,      href: '/school-admin/courses'  },
         ].map(s => (
           <button
@@ -80,7 +80,7 @@ export default function SchoolAdminDashboard() {
 
       {/* Sections */}
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-[var(--tx1)] font-semibold">Sections</h2>
+        <h2 className="text-[var(--tx1)] font-semibold">Classrooms</h2>
         <button
           onClick={() => router.push('/school-admin/sections')}
           className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1"
@@ -92,12 +92,12 @@ export default function SchoolAdminDashboard() {
       {(!data?.sections || data.sections.length === 0) ? (
         <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-8 text-center">
           <Layers size={32} className="text-[var(--tx7)] mx-auto mb-3" />
-          <p className="text-[var(--tx5)] text-sm">No sections yet.</p>
+          <p className="text-[var(--tx5)] text-sm">No classrooms yet.</p>
           <button
             onClick={() => router.push('/school-admin/sections')}
             className="mt-3 px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-sm rounded-xl transition-colors"
           >
-            Create a Section
+            Create a Classroom
           </button>
         </div>
       ) : (
