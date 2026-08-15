@@ -229,8 +229,9 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
-  const isTeacher  = ['teacher', 'institution_admin'].includes(user?.account_type ?? '');
-  const isSuperAdmin = user?.account_type === 'super_admin';
+  const isTeacher        = ['teacher', 'institution_admin'].includes(user?.account_type ?? '');
+  const isInstitutionAdmin = user?.account_type === 'institution_admin';
+  const isSuperAdmin     = user?.account_type === 'super_admin';
 
   // Individual learning — same for every role
   const individualItems = [
@@ -244,23 +245,31 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
 
   // Classroom / role-specific
   const classroomItems = [
-    ...(isTeacher
-      ? [{ icon: <LayoutDashboard size={18} />, label: t.sidebar.dashboard, href: '/teacher/dashboard' }]
-      : []),
+    ...(isInstitutionAdmin
+      ? [{ icon: <LayoutDashboard size={18} />, label: t.sidebar.dashboard, href: '/school-admin/dashboard' }]
+      : isTeacher
+        ? [{ icon: <LayoutDashboard size={18} />, label: t.sidebar.dashboard, href: '/teacher/dashboard' }]
+        : []),
     ...(isSuperAdmin
       ? [{ icon: <LayoutDashboard size={18} />, label: t.sidebar.admin, href: '/admin' }]
       : []),
-    { icon: <Mail size={18} />, label: t.sidebar.messages, href: '/messages', badge: unreadMessages },
-    ...(isTeacher || isSuperAdmin
+    ...(!isInstitutionAdmin
+      ? [{ icon: <Mail size={18} />, label: t.sidebar.messages, href: '/messages', badge: unreadMessages }]
+      : []),
+    ...(isInstitutionAdmin
       ? [
-          { icon: <Users size={18} />,         label: t.sidebar.classrooms,   href: '/teacher/classrooms' },
-          { icon: <BookOpen size={18} />,      label: t.sidebar.courseBuilder, href: '/teacher/courses'    },
-          { icon: <GraduationCap size={18} />, label: t.sidebar.students,      href: '/teacher/students'   },
+          { icon: <BookOpen size={18} />, label: t.sidebar.courseBuilder, href: '/teacher/courses' },
         ]
-      : [
-          { icon: <Users size={18} />,         label: t.sidebar.classrooms,  href: '/classrooms'  },
-          { icon: <ClipboardList size={18} />, label: t.sidebar.assignments, href: '/assignments'  },
-        ]),
+      : isTeacher || isSuperAdmin
+        ? [
+            { icon: <Users size={18} />,         label: t.sidebar.classrooms,   href: '/teacher/classrooms' },
+            { icon: <BookOpen size={18} />,      label: t.sidebar.courseBuilder, href: '/teacher/courses'    },
+            { icon: <GraduationCap size={18} />, label: t.sidebar.students,      href: '/teacher/students'   },
+          ]
+        : [
+            { icon: <Users size={18} />,         label: t.sidebar.classrooms,  href: '/classrooms'  },
+            { icon: <ClipboardList size={18} />, label: t.sidebar.assignments, href: '/assignments'  },
+          ]),
     { icon: <Settings size={18} />, label: t.sidebar.settings, href: '/settings' },
   ];
 

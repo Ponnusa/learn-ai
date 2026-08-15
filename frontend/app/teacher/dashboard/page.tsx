@@ -12,6 +12,7 @@ export default function TeacherDashboard() {
 
   useEffect(() => {
     if (!user) { router.replace('/auth/teacher'); return; }
+    if (user.account_type === 'institution_admin') { router.replace('/school-admin/dashboard'); return; }
     if (!['teacher', 'institution_admin', 'super_admin'].includes(user.account_type ?? '')) {
       router.replace('/');
     }
