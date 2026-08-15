@@ -153,16 +153,18 @@ export default function InstitutionDashboard() {
 
         <div className="grid grid-cols-2 gap-4">
           {[
-            { label: 'Manage Teachers', icon: GraduationCap, href: '/institution/teachers', soon: true },
-            { label: 'Manage Students', icon: Users,         href: '/institution/students', soon: true },
+            { label: 'School Admin Panel', icon: GraduationCap, href: '/school-admin', soon: false },
+            { label: 'Manage Students',    icon: Users,          href: '/school-admin/students', soon: false },
           ].map(card => (
             <button
               key={card.label}
-              className="p-5 bg-[var(--surface)] border border-[var(--bd)] rounded-2xl text-left opacity-50 cursor-not-allowed"
+              onClick={() => !card.soon && router.push(card.href)}
+              className={`p-5 bg-[var(--surface)] border border-[var(--bd)] rounded-2xl text-left transition-all
+                ${card.soon ? 'opacity-50 cursor-not-allowed' : 'hover:border-purple-500/40 cursor-pointer'}`}
             >
               <card.icon size={22} className="text-purple-400 mb-3" />
               <p className="text-[var(--tx1)] text-sm font-medium">{card.label}</p>
-              <p className="text-[var(--tx7)] text-xs mt-0.5">Coming in Sprint 1</p>
+              {!card.soon && <p className="text-[var(--tx7)] text-xs mt-0.5">Manage teachers, sections, courses</p>}
             </button>
           ))}
         </div>
