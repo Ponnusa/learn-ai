@@ -168,11 +168,11 @@ export default function TeacherCoursesPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <h3 className="text-[var(--tx1)] font-semibold">{c.name}</h3>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      c.status === 'published'
-                        ? 'bg-green-500/15 text-green-400'
-                        : 'bg-[var(--ov1)] text-[var(--tx7)]'
-                    }`}>{c.status}</span>
+                    {c.status !== 'published' && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--ov1)] text-[var(--tx7)]">
+                        {c.status}
+                      </span>
+                    )}
                     {c.is_published
                       ? <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">
                           <Globe size={10} /> Published
