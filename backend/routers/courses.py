@@ -382,7 +382,8 @@ async def list_my_courses(authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         rows = await db.fetch("""
-            SELECT c.id, c.name, c.description, c.subject, c.grade, c.board, c.status, c.created_at,
+            SELECT c.id, c.name, c.description, c.subject, c.grade, c.board, c.status,
+                   c.is_published, c.created_at,
                    COUNT(DISTINCT cu.id) AS unit_count,
                    COUNT(DISTINCT cc.id) AS concept_count,
                    COUNT(DISTINCT cc.id) FILTER (
@@ -405,6 +406,19 @@ async def list_my_courses(authorization: str = Header(...)):
         }
         for r in rows
     ]
+
+
+@router.post("/{course_id}/publish")
+async def publish_course(course_id: str, authorization: str = Header(...)):
+    """Mark a course as published so it can be added to the school catalog."""
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        await _assert_course_access(course_id, teacher_id, db)
+        await db.execute(
+            "UPDATE courses SET is_published = true WHERE id = $1::uuid",
+            course_id,
+        )
+    return {"ok": True}
 
 
 @router.get("/progress-overview")
@@ -6255,12 +6269,13 @@ async def serve_concept_audio(concept_id: str):
 
 def _fmt_course(r):
     return {
-        "id":          str(r["id"]),
-        "name":        r["name"],
-        "description": r["description"],
-        "subject":     r["subject"],
-        "grade":       r["grade"],
-        "board":       r.get("board"),
-        "status":      r["status"],
-        "created_at":  r["created_at"].isoformat() if r.get("created_at") else None,
+        "id":           str(r["id"]),
+        "name":         r["name"],
+        "description":  r["description"],
+        "subject":      r["subject"],
+        "grade":        r["grade"],
+        "board":        r.get("board"),
+        "status":       r["status"],
+        "is_published": r.get("is_published", False),
+        "created_at":   r["created_at"].isoformat() if r.get("created_at") else None,
     }

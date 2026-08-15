@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, BookOpen, ArrowRight, Loader2, FileText, Layers, AlertTriangle, HelpCircle } from 'lucide-react';
+import { Plus, BookOpen, ArrowRight, Loader2, FileText, Layers, AlertTriangle, HelpCircle, Globe } from 'lucide-react';
 import { TeacherCoursesTour } from '@/components/onboarding/TeacherCoursesTour';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -16,6 +16,7 @@ interface Course {
   grade?: string;
   board?: string;
   status: string;
+  is_published: boolean;
   unit_count: number;
   concept_count: number;
   failed_count: number;
@@ -51,6 +52,12 @@ export default function TeacherCoursesPage() {
       const res = await fetch(`${API_BASE}/api/courses/mine`, { headers });
       if (res.ok) setCourses(await res.json());
     } finally { setLoading(false); }
+  }
+
+  async function publishCourse(e: React.MouseEvent, courseId: string) {
+    e.stopPropagation();
+    await fetch(`${API_BASE}/api/courses/${courseId}/publish`, { method: 'POST', headers });
+    await load();
   }
 
   async function createCourse(e: React.FormEvent) {
@@ -166,6 +173,20 @@ export default function TeacherCoursesPage() {
                         ? 'bg-green-500/15 text-green-400'
                         : 'bg-[var(--ov1)] text-[var(--tx7)]'
                     }`}>{c.status}</span>
+                    {c.is_published
+                      ? <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">
+                          <Globe size={10} /> Published
+                        </span>
+                      : <button
+                          onClick={e => publishCourse(e, c.id)}
+                          className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full
+                                     bg-purple-600/15 text-purple-400 border border-purple-500/30
+                                     hover:bg-purple-600/30 transition-colors"
+                          title="Publish this course so it can be assigned to teachers"
+                        >
+                          <Globe size={10} /> Publish
+                        </button>
+                    }
                     {c.failed_count > 0 && (
                       <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-red-500/15 text-red-400">
                         <AlertTriangle size={10} /> {c.failed_count} failed

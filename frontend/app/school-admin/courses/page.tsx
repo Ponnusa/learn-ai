@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { BookOpen, Loader2, Plus, Trash2, Check } from 'lucide-react';
+import { BookOpen, Loader2, Plus, Trash2, Check, Lock } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -9,11 +9,12 @@ interface SchoolCourse {
   school_course_id: string; course_id: string; course_name: string;
   subject: string | null; grade: string | null;
 }
-interface Course { id: string; name: string; subject: string | null; grade: string | null; }
+interface Course { id: string; name: string; subject: string | null; grade: string | null; is_published: boolean; }
 interface Section { id: string; name: string; }
 
-// sectionMap: section_id → Set of assigned school_course_ids
-type SectionMap = Record<string, Set<string>>;
+// sectionMap: section_id → { assigned: Set<scId>, locked: Set<scId> }
+interface SectionEntry { assigned: Set<string>; locked: Set<string>; }
+type SectionMap = Record<string, SectionEntry>;
 
 export default function CoursesPage() {
   const { token } = useSessionStore();
@@ -24,7 +25,6 @@ export default function CoursesPage() {
   const [loading,       setLoading]       = useState(true);
   const [assignCourse,  setAssignCourse]  = useState('');
   const [saving,        setSaving]        = useState(false);
-  // track in-flight toggles: `${secId}:${scId}`
   const [toggling,      setToggling]      = useState<Set<string>>(new Set());
 
   const authH = { Authorization: `Bearer ${token}` };
@@ -40,9 +40,14 @@ export default function CoursesPage() {
     if (cRes.ok)   setAllCourses(await cRes.json());
     if (sRes.ok)   setSections(await sRes.json());
     if (mapRes.ok) {
-      const raw: Record<string, string[]> = await mapRes.json();
+      const raw: Record<string, { assigned: string[]; locked: string[] }> = await mapRes.json();
       const built: SectionMap = {};
-      for (const [sid, ids] of Object.entries(raw)) built[sid] = new Set(ids);
+      for (const [sid, val] of Object.entries(raw)) {
+        built[sid] = {
+          assigned: new Set(val.assigned ?? []),
+          locked:   new Set(val.locked   ?? []),
+        };
+      }
       setSectionMap(built);
     }
     setLoading(false);
@@ -50,7 +55,6 @@ export default function CoursesPage() {
 
   useEffect(() => { if (token) loadAll(); }, [token]);
 
-  // ── Add course to school ────────────────────────────────────────────────────
   async function assignToSchool() {
     if (!assignCourse) return;
     setSaving(true);
@@ -70,19 +74,20 @@ export default function CoursesPage() {
     await loadAll();
   }
 
-  // ── Toggle classroom assignment ─────────────────────────────────────────────
   async function toggleSection(secId: string, scId: string) {
     const key = `${secId}:${scId}`;
     if (toggling.has(key)) return;
 
-    const assigned = sectionMap[secId]?.has(scId) ?? false;
+    const assigned = sectionMap[secId]?.assigned.has(scId) ?? false;
+    const locked   = sectionMap[secId]?.locked.has(scId)   ?? false;
+    if (locked) return; // UI guard (B handled by backend too)
 
-    // Optimistic update
+    // Optimistic update (assigned set only)
     setSectionMap(prev => {
       const next = { ...prev };
-      const s = new Set(next[secId] ?? []);
-      assigned ? s.delete(scId) : s.add(scId);
-      next[secId] = s;
+      const entry = { assigned: new Set(next[secId]?.assigned ?? []), locked: new Set(next[secId]?.locked ?? []) };
+      assigned ? entry.assigned.delete(scId) : entry.assigned.add(scId);
+      next[secId] = entry;
       return next;
     });
     setToggling(prev => new Set(prev).add(key));
@@ -101,14 +106,15 @@ export default function CoursesPage() {
           body: JSON.stringify({ school_course_id: scId }),
         });
         ok = res.ok;
+        if (ok) await loadAll(); // refresh locked status after copy is created
       }
       if (!ok) {
         // Roll back on failure
         setSectionMap(prev => {
           const next = { ...prev };
-          const s = new Set(next[secId] ?? []);
-          assigned ? s.add(scId) : s.delete(scId);
-          next[secId] = s;
+          const entry = { assigned: new Set(next[secId]?.assigned ?? []), locked: new Set(next[secId]?.locked ?? []) };
+          assigned ? entry.assigned.add(scId) : entry.assigned.delete(scId);
+          next[secId] = entry;
           return next;
         });
       }
@@ -117,7 +123,10 @@ export default function CoursesPage() {
     }
   }
 
-  const unassignedCourses = allCourses.filter(c => !schoolCourses.some(sc => sc.course_id === c.id));
+  // Only published courses that aren't already in the school catalog
+  const unassignedCourses = allCourses.filter(
+    c => c.is_published && !schoolCourses.some(sc => sc.course_id === c.id)
+  );
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -141,7 +150,7 @@ export default function CoursesPage() {
             className="flex-1 bg-[var(--ov2)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
                        text-[var(--tx1)] outline-none focus:border-purple-500/60"
           >
-            <option value="">— Select a course —</option>
+            <option value="">— Select a published course —</option>
             {unassignedCourses.map(c => (
               <option key={c.id} value={c.id}>{c.name}{c.subject ? ` (${c.subject})` : ''}</option>
             ))}
@@ -155,7 +164,11 @@ export default function CoursesPage() {
           </button>
         </div>
         {unassignedCourses.length === 0 && allCourses.length > 0 && (
-          <p className="text-xs text-[var(--tx7)] mt-2">All courses are already added to the school.</p>
+          <p className="text-xs text-[var(--tx7)] mt-2">
+            {allCourses.some(c => !c.is_published)
+              ? 'No published courses available. Publish a course in the course builder first.'
+              : 'All published courses are already added to the school.'}
+          </p>
         )}
       </div>
 
@@ -200,28 +213,37 @@ export default function CoursesPage() {
                     <p className="text-xs text-[var(--tx6)] mb-2">Assign to classrooms:</p>
                     <div className="flex flex-wrap gap-2">
                       {sections.map(sec => {
-                        const assigned = sectionMap[sec.id]?.has(sc.school_course_id) ?? false;
+                        const assigned = sectionMap[sec.id]?.assigned.has(sc.school_course_id) ?? false;
+                        const locked   = sectionMap[sec.id]?.locked.has(sc.school_course_id)   ?? false;
                         const key = `${sec.id}:${sc.school_course_id}`;
                         const busy = toggling.has(key);
                         return (
                           <button
                             key={sec.id}
                             onClick={() => toggleSection(sec.id, sc.school_course_id)}
-                            disabled={busy}
-                            title={assigned ? `Remove from ${sec.name}` : `Assign to ${sec.name}`}
+                            disabled={busy || locked}
+                            title={
+                              locked   ? `Active for ${sec.name} — cannot remove once assigned`
+                              : assigned ? `Remove from ${sec.name}`
+                              : `Assign to ${sec.name}`
+                            }
                             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border transition-all ${
                               busy
                                 ? 'opacity-50 cursor-wait border-[var(--bd)] text-[var(--tx6)]'
-                                : assigned
-                                  ? 'bg-purple-600/20 border-purple-500/40 text-purple-300 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400'
-                                  : 'bg-[var(--ov2)] border-[var(--bd)] text-[var(--tx5)] hover:border-purple-500/40 hover:text-purple-300'
+                                : locked
+                                  ? 'bg-purple-600/20 border-purple-500/40 text-purple-300 cursor-not-allowed opacity-70'
+                                  : assigned
+                                    ? 'bg-purple-600/20 border-purple-500/40 text-purple-300 hover:bg-red-500/10 hover:border-red-500/30 hover:text-red-400'
+                                    : 'bg-[var(--ov2)] border-[var(--bd)] text-[var(--tx5)] hover:border-purple-500/40 hover:text-purple-300'
                             }`}
                           >
                             {busy
                               ? <Loader2 size={10} className="animate-spin" />
-                              : assigned
-                                ? <Check size={10} />
-                                : <Plus size={10} />
+                              : locked
+                                ? <Lock size={10} />
+                                : assigned
+                                  ? <Check size={10} />
+                                  : <Plus size={10} />
                             }
                             {sec.name}
                           </button>

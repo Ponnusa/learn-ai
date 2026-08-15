@@ -719,6 +719,10 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE courses ADD COLUMN IF NOT EXISTS source_course_id UUID REFERENCES courses(id) ON DELETE SET NULL",
             "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS source_concept_id UUID REFERENCES course_concepts(id) ON DELETE SET NULL",
             "ALTER TABLE section_courses ADD COLUMN IF NOT EXISTS teacher_course_id UUID REFERENCES courses(id) ON DELETE SET NULL",
+            # ── Course publish gate ───────────────────────────────────────────
+            "ALTER TABLE courses ADD COLUMN IF NOT EXISTS is_published BOOLEAN NOT NULL DEFAULT false",
+            # Auto-publish all pre-existing courses so current setups aren't broken
+            "UPDATE courses SET is_published = true WHERE is_published = false",
             # ── Sprint 2: Teacher invites ─────────────────────────────────────
             """
             CREATE TABLE IF NOT EXISTS school_invites (

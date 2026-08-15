@@ -652,14 +652,16 @@ def _course_row(r) -> dict:
 
 @router.post("/courses/assign")
 async def assign_course_to_school(req: AssignCourseRequest, authorization: str = Header(...)):
-    """Admin designates an existing course as a school master course."""
+    """Admin designates a published course as a school master course."""
     admin = await _require_school_admin(authorization)
     async with get_db() as db:
         course = await db.fetchrow(
-            "SELECT id, name FROM courses WHERE id = $1::uuid", req.course_id
+            "SELECT id, name, is_published FROM courses WHERE id = $1::uuid", req.course_id
         )
         if not course:
             raise HTTPException(404, "Course not found")
+        if not course["is_published"]:
+            raise HTTPException(400, "Course must be published before it can be added to the school catalog")
         row = await db.fetchrow(
             """INSERT INTO school_courses (school_id, course_id, assigned_by)
                VALUES ($1, $2::uuid, $3::uuid)
@@ -787,11 +789,13 @@ async def _copy_course_to_teacher(school_course_id: str, section_id: str, db) ->
                 concept["id"])
             new_concept_id = str(new_concept["id"])
 
-            # ── 4. Copy textbook content blocks ──────────────────────────────
+            # ── 4. Copy textbook content blocks (including audio) ─────────────
             await db.execute("""
                 INSERT INTO concept_content_blocks
-                  (concept_id, type, position, title, body, video_id, created_by, in_textbook)
-                SELECT $1::uuid, type, position, title, body, video_id, $2::uuid, in_textbook
+                  (concept_id, type, position, title, body, video_id, created_by, in_textbook,
+                   audio_data, audio_status, audio_script)
+                SELECT $1::uuid, type, position, title, body, video_id, $2::uuid, in_textbook,
+                   audio_data, audio_status, audio_script
                 FROM concept_content_blocks
                 WHERE concept_id = $3::uuid
                   AND in_textbook = true
@@ -882,20 +886,28 @@ async def list_section_courses(section_id: str, authorization: str = Header(...)
 
 @router.get("/section-courses-map")
 async def get_section_courses_map(authorization: str = Header(...)):
-    """Return {section_id: [school_course_id, ...]} for every section in the school."""
+    """Return {section_id: {assigned: [...scIds], locked: [...scIds]}} for every section.
+    locked = teacher copy already created (cannot unassign).
+    """
     admin = await _require_school_admin(authorization)
     async with get_db() as db:
         rows = await db.fetch(
-            """SELECT scc.section_id, scc.school_course_id
+            """SELECT scc.section_id, scc.school_course_id,
+                      (scc.teacher_course_id IS NOT NULL) AS locked
                FROM section_courses scc
                JOIN sections sec ON sec.id = scc.section_id
                WHERE sec.school_id = $1""",
             admin["school_id"],
         )
-    result: dict[str, list[str]] = {}
+    result: dict[str, dict] = {}
     for r in rows:
         sid = str(r["section_id"])
-        result.setdefault(sid, []).append(str(r["school_course_id"]))
+        scid = str(r["school_course_id"])
+        if sid not in result:
+            result[sid] = {"assigned": [], "locked": []}
+        result[sid]["assigned"].append(scid)
+        if r["locked"]:
+            result[sid]["locked"].append(scid)
     return result
 
 
@@ -905,7 +917,7 @@ async def unassign_course_from_section(
     school_course_id: str,
     authorization: str = Header(...),
 ):
-    """Remove a course from a specific section."""
+    """Remove a course from a specific section and delete the teacher's copied course."""
     admin = await _require_school_admin(authorization)
     async with get_db() as db:
         section = await db.fetchrow(
@@ -914,10 +926,21 @@ async def unassign_course_from_section(
         )
         if not section:
             raise HTTPException(404, "Section not found")
+
+        # Block unassign once the teacher has their copy (option B hard guard)
+        sc_row = await db.fetchrow(
+            "SELECT teacher_course_id FROM section_courses WHERE section_id=$1::uuid AND school_course_id=$2::uuid",
+            section_id, school_course_id,
+        )
+        if sc_row and sc_row["teacher_course_id"]:
+            raise HTTPException(400, "Cannot remove a course that is already active for this class")
+
+        # Remove the section assignment
         await db.execute(
             "DELETE FROM section_courses WHERE section_id = $1::uuid AND school_course_id = $2::uuid",
             section_id, school_course_id,
         )
+
     return {"ok": True}
 
 
