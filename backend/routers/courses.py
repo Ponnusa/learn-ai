@@ -1318,10 +1318,11 @@ class ConceptChatMessage(BaseModel):
 
 @router.get("/concepts/{concept_id}/concept-chat")
 async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
-    await _require_teacher(authorization)
+    teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         conv = await db.fetchrow(
-            "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+            "SELECT id FROM conversations WHERE concept_id = $1::uuid AND user_id = $2::uuid",
+            concept_id, teacher_id,
         )
         if not conv:
             return []
@@ -1486,7 +1487,8 @@ async def send_concept_chat_message(
 
     async with get_db() as db:
         conv = await db.fetchrow(
-            "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+            "SELECT id FROM conversations WHERE concept_id = $1::uuid AND user_id = $2::uuid",
+            concept_id, teacher_id,
         )
         if not conv:
             conv = await db.fetchrow("""
@@ -3521,7 +3523,8 @@ async def _bulk_generate_bg(
                 try:
                     async with get_db() as db:
                         existing_conv = await db.fetchrow(
-                            "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+                            "SELECT id FROM conversations WHERE concept_id = $1::uuid AND user_id = $2::uuid",
+                            concept_id, teacher_id,
                         )
                     if not existing_conv:
                         async with get_db() as db:
@@ -5273,7 +5276,10 @@ async def generate_quiz_from_chat(
         await db.execute(
             "UPDATE course_concepts SET quiz_status = 'ready' WHERE id = $1::uuid", concept_id
         )
-        conv = await db.fetchrow("SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id)
+        conv = await db.fetchrow(
+            "SELECT id FROM conversations WHERE concept_id = $1::uuid AND user_id = $2::uuid",
+            concept_id, teacher_id,
+        )
         if not conv:
             conv = await db.fetchrow("""
                 INSERT INTO conversations (user_id, title, subject, concept_id, conversation_type)
@@ -5354,7 +5360,10 @@ async def generate_flashcards_from_chat(
         await db.execute(
             "UPDATE course_concepts SET flashcard_status = 'ready' WHERE id = $1::uuid", concept_id
         )
-        conv = await db.fetchrow("SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id)
+        conv = await db.fetchrow(
+            "SELECT id FROM conversations WHERE concept_id = $1::uuid AND user_id = $2::uuid",
+            concept_id, teacher_id,
+        )
         if not conv:
             conv = await db.fetchrow("""
                 INSERT INTO conversations (user_id, title, subject, concept_id, conversation_type)
@@ -5790,7 +5799,8 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                         block_id = str(block["id"])
 
                         conv = await db.fetchrow(
-                            "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+                            "SELECT id FROM conversations WHERE concept_id = $1::uuid AND user_id = $2::uuid",
+                            concept_id, teacher_id,
                         )
                         if not conv:
                             course_info = await db.fetchrow("""
@@ -5855,7 +5865,8 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                     block_id = str(block["id"])
 
                     conv = await db.fetchrow(
-                        "SELECT id FROM conversations WHERE concept_id = $1::uuid", concept_id
+                        "SELECT id FROM conversations WHERE concept_id = $1::uuid AND user_id = $2::uuid",
+                        concept_id, teacher_id,
                     )
                     if not conv:
                         course_info = await db.fetchrow("""
