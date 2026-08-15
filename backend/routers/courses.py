@@ -330,6 +330,33 @@ async def _require_teacher_full(authorization: str) -> dict:
     return dict(row)
 
 
+# SQL fragment reused in _course_access_clause
+_SECTION_COURSE_SUBQ = """
+    EXISTS (
+        SELECT 1 FROM section_courses sc
+        JOIN school_courses sco ON sco.id = sc.school_course_id
+        JOIN sections       sec ON sec.id = sc.section_id
+        WHERE sco.course_id = c.id AND sec.teacher_id = $2::uuid
+    )
+"""
+
+
+async def _assert_course_access(course_id: str, teacher_id: str, db, cols: str = "id") -> dict:
+    """
+    Fetch a course row if the teacher owns it OR it is assigned to one of their sections.
+    Raises 404 if not accessible.
+    """
+    row = await db.fetchrow(
+        f"""SELECT {cols} FROM courses c
+            WHERE c.id = $1::uuid
+              AND (c.teacher_id = $2::uuid OR {_SECTION_COURSE_SUBQ})""",
+        course_id, teacher_id,
+    )
+    if not row:
+        raise HTTPException(404, "Course not found")
+    return dict(row)
+
+
 async def _get_block_section_context(user_id: str, concept_id: str, db) -> tuple[str | None, bool]:
     """
     Returns (section_id, is_admin_origin) for a teacher writing a block.
@@ -444,6 +471,13 @@ async def list_my_courses(authorization: str = Header(...)):
             LEFT JOIN course_units    cu ON cu.course_id = c.id
             LEFT JOIN course_concepts cc ON cc.unit_id   = cu.id
             WHERE c.teacher_id = $1::uuid
+               OR c.id IN (
+                   SELECT sco.course_id
+                   FROM section_courses sc
+                   JOIN school_courses  sco ON sco.id = sc.school_course_id
+                   JOIN sections        sec ON sec.id = sc.section_id
+                   WHERE sec.teacher_id = $1::uuid
+               )
             GROUP BY c.id
             ORDER BY c.created_at DESC
         """, teacher_id)
@@ -741,12 +775,7 @@ async def create_curriculum_context(req: CreateCurriculumContextRequest, authori
 async def get_course(course_id: str, authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT * FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
-        if not course:
-            raise HTTPException(404, "Course not found")
+        course = await _assert_course_access(course_id, teacher_id, db, cols="*")
 
         units = await db.fetch("""
             SELECT id, title, description, position, chapter_ref FROM course_units
@@ -839,12 +868,7 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
     """
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT id, name FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
-        if not course:
-            raise HTTPException(404, "Course not found")
+        course = await _assert_course_access(course_id, teacher_id, db, cols="id, name")
 
         concepts = await db.fetch("""
             SELECT cc.id, cc.title, cu.title AS unit_title, cu.position AS unit_position, cc.position
@@ -1121,12 +1145,7 @@ class UnitRequest(BaseModel):
 async def add_unit(course_id: str, req: UnitRequest, authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT id FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
-        if not course:
-            raise HTTPException(404, "Course not found")
+        await _assert_course_access(course_id, teacher_id, db)
 
         if req.position is None:
             max_pos = await db.fetchval(
@@ -2448,13 +2467,8 @@ async def import_syllabus(
     """
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT id, name, subject, grade, board FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
+        course = await _assert_course_access(course_id, teacher_id, db, cols="id, name, subject, grade, board")
         teacher_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
-    if not course:
-        raise HTTPException(404, "Course not found")
 
     teacher_language = teacher_lang or 'en'
 
@@ -2547,12 +2561,7 @@ async def confirm_import(
     """Persist the (possibly edited) import preview into the DB."""
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT id FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
-        if not course:
-            raise HTTPException(404, "Course not found")
+        await _assert_course_access(course_id, teacher_id, db)
 
         # Clear existing structure
         await db.execute(
@@ -2706,12 +2715,7 @@ async def auto_rename_concepts(course_id: str, authorization: str = Header(...))
     """
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT id FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
-    if not course:
-        raise HTTPException(404, "Course not found")
+        await _assert_course_access(course_id, teacher_id, db)
 
     async with get_db() as db:
         concepts = await db.fetch("""
@@ -3368,12 +3372,7 @@ async def upload_chapter(
     later by cropping regions from the PDF or via /chapters/{id}/suggest-concepts."""
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT id, name, subject, grade, board FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
-    if not course:
-        raise HTTPException(404, "Course not found")
+        course = await _assert_course_access(course_id, teacher_id, db, cols="id, name, subject, grade, board")
 
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Only PDF files are supported")
@@ -3382,7 +3381,7 @@ async def upload_chapter(
     if len(file_bytes) > 30 * 1024 * 1024:
         raise HTTPException(400, "File too large — max 30 MB")
 
-    return await _create_chapter_only(course_id, dict(course), file_bytes, file.filename)
+    return await _create_chapter_only(course_id, course, file_bytes, file.filename)
 
 
 @router.post("/chapters/{chapter_id}/suggest-concepts")
@@ -3790,13 +3789,8 @@ async def detect_chapter_toc(
     """
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        course = await db.fetchval(
-            "SELECT id FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
+        await _assert_course_access(course_id, teacher_id, db)
         toc_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
-    if not course:
-        raise HTTPException(404, "Course not found")
 
     toc_language = toc_lang or 'en'
 
@@ -4129,13 +4123,8 @@ async def bulk_split_chapters(
     """
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        course = await db.fetchrow(
-            "SELECT id, name, subject, grade, board FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
+        course = await _assert_course_access(course_id, teacher_id, db, cols="id, name, subject, grade, board")
         bulk_lang = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
-    if not course:
-        raise HTTPException(404, "Course not found")
 
     bulk_language = bulk_lang or 'en'
 
@@ -4207,12 +4196,7 @@ async def bulk_split_chapters(
 async def get_pipeline_status(course_id: str, authorization: str = Header(...)):
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        ok = await db.fetchval(
-            "SELECT 1 FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
-            course_id, teacher_id,
-        )
-        if not ok:
-            raise HTTPException(404, "Course not found")
+        await _assert_course_access(course_id, teacher_id, db)
 
         rows = await db.fetch("""
             SELECT cc.id, cc.title, cc.pipeline_status, cc.approved_at,
