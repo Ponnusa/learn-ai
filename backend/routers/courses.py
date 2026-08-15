@@ -357,6 +357,33 @@ async def _assert_course_access(course_id: str, teacher_id: str, db, cols: str =
     return dict(row)
 
 
+async def _resolve_block_scope(user_id: str, db) -> tuple[str, str | None]:
+    """
+    Return (sql_extra, section_id) scoping block writes/deletes/reorders to the caller's
+    own workspace.
+      school_admin  → ("AND section_id IS NULL", None)
+      school teacher → ("AND section_id = '<uuid>'", "<uuid>")   -- looks up via sections.teacher_id
+      standalone     → ("", None)
+    Raises 403 if the caller is a school teacher but has no section assigned.
+    """
+    user = await db.fetchrow(
+        "SELECT school_id, school_role FROM users WHERE id = $1::uuid", user_id
+    )
+    if not user or not user["school_id"]:
+        return "", None  # standalone teacher — no school context
+    if user["school_role"] in ("school_admin", "super_admin"):
+        return "AND section_id IS NULL", None
+    # School teacher: find their section via sections.teacher_id
+    row = await db.fetchrow(
+        "SELECT id FROM sections WHERE teacher_id = $1::uuid AND school_id = $2 LIMIT 1",
+        user_id, user["school_id"],
+    )
+    if not row:
+        raise HTTPException(403, "Not assigned to a section")
+    sid = str(row["id"])
+    return f"AND section_id = '{sid}'", sid
+
+
 async def _get_block_section_context(user_id: str, concept_id: str, db) -> tuple[str | None, bool]:
     """
     Returns (section_id, is_admin_origin) for a teacher writing a block.
@@ -2004,19 +2031,7 @@ async def update_content_block(
     if not sets:
         raise HTTPException(400, "Nothing to update")
     async with get_db() as db:
-        user = await db.fetchrow(
-            "SELECT school_id, school_role, section_id FROM users WHERE id = $1::uuid", teacher_id
-        )
-        # Build a WHERE clause that scopes edits to the caller's own blocks
-        if user and user["school_id"]:
-            if user["school_role"] == "school_admin":
-                extra = "AND section_id IS NULL"
-            else:
-                if not user["section_id"]:
-                    raise HTTPException(403, "Not assigned to a section")
-                extra = f"AND section_id = '{user['section_id']}'"
-        else:
-            extra = ""  # standalone teacher: own course, no further restriction
+        extra, _ = await _resolve_block_scope(teacher_id, db)
         await db.execute(
             f"UPDATE concept_content_blocks SET {', '.join(sets)} "
             f"WHERE id = $1::uuid AND concept_id = $2::uuid {extra}",
@@ -2033,18 +2048,7 @@ async def delete_content_block(
 ):
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        user = await db.fetchrow(
-            "SELECT school_id, school_role, section_id FROM users WHERE id = $1::uuid", teacher_id
-        )
-        if user and user["school_id"]:
-            if user["school_role"] == "school_admin":
-                extra = "AND section_id IS NULL"
-            else:
-                if not user["section_id"]:
-                    raise HTTPException(403, "Not assigned to a section")
-                extra = f"AND section_id = '{user['section_id']}'"
-        else:
-            extra = ""
+        extra, _ = await _resolve_block_scope(teacher_id, db)
         await db.execute(
             f"DELETE FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid {extra}",
             block_id, concept_id,
@@ -2062,11 +2066,13 @@ async def reorder_content_blocks(
     items:         list[BlockReorderItem],
     authorization: str = Header(...),
 ):
-    await _require_teacher(authorization)
+    teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
+        extra, _ = await _resolve_block_scope(teacher_id, db)
         for item in items:
             await db.execute(
-                "UPDATE concept_content_blocks SET position = $1 WHERE id = $2::uuid AND concept_id = $3::uuid",
+                f"UPDATE concept_content_blocks SET position = $1 "
+                f"WHERE id = $2::uuid AND concept_id = $3::uuid {extra}",
                 item.position, item.id, concept_id,
             )
     return {"ok": True}
@@ -2104,10 +2110,11 @@ async def add_block_to_textbook(
     authorization: str = Header(...),
 ):
     """Mark a studio-generated video block as visible in the textbook and move it to the end."""
-    await _require_teacher(authorization)
+    teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
+        extra, _ = await _resolve_block_scope(teacher_id, db)
         max_pos = await db.fetchval(
-            "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+            f"SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid {extra}",
             concept_id,
         )
         row = await db.fetchrow("""
