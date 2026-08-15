@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { BookOpen, Loader2, Plus, Trash2, Check, X } from 'lucide-react';
+import { BookOpen, Loader2, Plus, Trash2, Check } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -31,13 +31,13 @@ export default function CoursesPage() {
 
   const loadAll = useCallback(async () => {
     const [scRes, cRes, sRes, mapRes] = await Promise.all([
-      fetch(`${API}/api/school/courses`,           { headers: authH }),
-      fetch(`${API}/api/courses`,                   { headers: authH }),
-      fetch(`${API}/api/school/sections`,           { headers: authH }),
+      fetch(`${API}/api/school/courses`,             { headers: authH }),
+      fetch(`${API}/api/courses/mine`,               { headers: authH }),
+      fetch(`${API}/api/school/sections`,             { headers: authH }),
       fetch(`${API}/api/school/section-courses-map`, { headers: authH }),
     ]);
     if (scRes.ok)  setSchoolCourses(await scRes.json());
-    if (cRes.ok)   setAllCourses((await cRes.json()).courses ?? []);
+    if (cRes.ok)   setAllCourses(await cRes.json());
     if (sRes.ok)   setSections(await sRes.json());
     if (mapRes.ok) {
       const raw: Record<string, string[]> = await mapRes.json();
