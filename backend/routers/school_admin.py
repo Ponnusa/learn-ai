@@ -527,3 +527,206 @@ async def get_my_sections(authorization: str = Header(...)):
             teacher["id"], user["school_id"],
         )
     return [_section_row(dict(r)) for r in rows]
+
+
+# ── Sprint 4: Course assignment ───────────────────────────────────────────────
+
+class AssignCourseRequest(BaseModel):
+    course_id: str
+
+
+class AssignSectionCourseRequest(BaseModel):
+    school_course_id: str
+
+
+def _course_row(r) -> dict:
+    return {
+        "school_course_id": str(r["school_course_id"]),
+        "course_id":        str(r["course_id"]),
+        "course_name":      r["course_name"],
+        "subject":          r.get("subject"),
+        "grade":            r.get("grade"),
+        "created_at":       r["created_at"].isoformat(),
+    }
+
+
+@router.post("/courses/assign")
+async def assign_course_to_school(req: AssignCourseRequest, authorization: str = Header(...)):
+    """Admin designates an existing course as a school master course."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT id, name FROM courses WHERE id = $1::uuid", req.course_id
+        )
+        if not course:
+            raise HTTPException(404, "Course not found")
+        row = await db.fetchrow(
+            """INSERT INTO school_courses (school_id, course_id, assigned_by)
+               VALUES ($1, $2::uuid, $3::uuid)
+               ON CONFLICT (school_id, course_id) DO UPDATE SET assigned_by = EXCLUDED.assigned_by
+               RETURNING id, created_at""",
+            admin["school_id"], req.course_id, admin["id"],
+        )
+    return {"school_course_id": str(row["id"]), "course_name": course["name"]}
+
+
+@router.get("/courses")
+async def list_school_courses(authorization: str = Header(...)):
+    """Admin lists all courses assigned to their school."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        rows = await db.fetch(
+            """SELECT sc.id AS school_course_id, sc.course_id, sc.created_at,
+                      c.name AS course_name, c.subject, c.grade
+               FROM school_courses sc
+               JOIN courses c ON c.id = sc.course_id
+               WHERE sc.school_id = $1
+               ORDER BY c.name""",
+            admin["school_id"],
+        )
+    return [_course_row(dict(r)) for r in rows]
+
+
+@router.delete("/courses/{school_course_id}")
+async def unassign_course_from_school(school_course_id: str, authorization: str = Header(...)):
+    """Remove a course from the school (cascades to all section assignments)."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        result = await db.execute(
+            "DELETE FROM school_courses WHERE id = $1::uuid AND school_id = $2",
+            school_course_id, admin["school_id"],
+        )
+    if result == "DELETE 0":
+        raise HTTPException(404, "School course not found")
+    return {"ok": True}
+
+
+@router.post("/sections/{section_id}/courses")
+async def assign_course_to_section(
+    section_id: str,
+    req: AssignSectionCourseRequest,
+    authorization: str = Header(...),
+):
+    """Assign a school master course to a specific section."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        section = await db.fetchrow(
+            "SELECT id FROM sections WHERE id = $1::uuid AND school_id = $2",
+            section_id, admin["school_id"],
+        )
+        if not section:
+            raise HTTPException(404, "Section not found")
+        sc = await db.fetchrow(
+            "SELECT id FROM school_courses WHERE id = $1::uuid AND school_id = $2",
+            req.school_course_id, admin["school_id"],
+        )
+        if not sc:
+            raise HTTPException(404, "School course not found")
+        await db.execute(
+            """INSERT INTO section_courses (section_id, school_course_id)
+               VALUES ($1::uuid, $2::uuid)
+               ON CONFLICT (section_id, school_course_id) DO NOTHING""",
+            section_id, req.school_course_id,
+        )
+    return {"ok": True}
+
+
+@router.get("/sections/{section_id}/courses")
+async def list_section_courses(section_id: str, authorization: str = Header(...)):
+    """Admin sees which courses are assigned to a section."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        section = await db.fetchrow(
+            "SELECT id FROM sections WHERE id = $1::uuid AND school_id = $2",
+            section_id, admin["school_id"],
+        )
+        if not section:
+            raise HTTPException(404, "Section not found")
+        rows = await db.fetch(
+            """SELECT sc.id AS school_course_id, sc.course_id, sc.created_at,
+                      c.name AS course_name, c.subject, c.grade
+               FROM section_courses scc
+               JOIN school_courses sc ON sc.id = scc.school_course_id
+               JOIN courses c ON c.id = sc.course_id
+               WHERE scc.section_id = $1::uuid
+               ORDER BY c.name""",
+            section_id,
+        )
+    return [_course_row(dict(r)) for r in rows]
+
+
+@router.delete("/sections/{section_id}/courses/{school_course_id}")
+async def unassign_course_from_section(
+    section_id: str,
+    school_course_id: str,
+    authorization: str = Header(...),
+):
+    """Remove a course from a specific section."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        section = await db.fetchrow(
+            "SELECT id FROM sections WHERE id = $1::uuid AND school_id = $2",
+            section_id, admin["school_id"],
+        )
+        if not section:
+            raise HTTPException(404, "Section not found")
+        await db.execute(
+            "DELETE FROM section_courses WHERE section_id = $1::uuid AND school_course_id = $2::uuid",
+            section_id, school_course_id,
+        )
+    return {"ok": True}
+
+
+# ── Teacher: see courses for their sections ───────────────────────────────────
+
+@router.get("/my-courses")
+async def get_my_section_courses(authorization: str = Header(...)):
+    """
+    Teacher calls this to see all courses assigned to their sections, grouped by section.
+    Existing self-created courses are fetched separately via /api/courses.
+    """
+    teacher = await get_current_teacher(authorization)
+    async with get_db() as db:
+        user = await db.fetchrow(
+            "SELECT school_id, school_role FROM users WHERE id = $1::uuid", teacher["id"]
+        )
+        if not user or not user["school_id"]:
+            return []
+        rows = await db.fetch(
+            """SELECT
+                  s.id            AS section_id,
+                  s.name          AS section_name,
+                  s.grade,
+                  s.section_label,
+                  sc.id           AS school_course_id,
+                  c.id            AS course_id,
+                  c.name          AS course_name,
+                  c.subject,
+                  c.grade         AS course_grade
+               FROM sections s
+               JOIN section_courses scc ON scc.section_id = s.id
+               JOIN school_courses sc   ON sc.id = scc.school_course_id
+               JOIN courses c           ON c.id  = sc.course_id
+               WHERE s.teacher_id = $1::uuid AND s.school_id = $2
+               ORDER BY s.grade NULLS LAST, s.section_label, c.name""",
+            teacher["id"], user["school_id"],
+        )
+
+    sections: dict[str, dict] = {}
+    for r in rows:
+        sid = str(r["section_id"])
+        if sid not in sections:
+            sections[sid] = {
+                "section_id":    sid,
+                "section_name":  r["section_name"],
+                "grade":         r["grade"],
+                "section_label": r["section_label"],
+                "courses":       [],
+            }
+        sections[sid]["courses"].append({
+            "school_course_id": str(r["school_course_id"]),
+            "course_id":        str(r["course_id"]),
+            "course_name":      r["course_name"],
+            "subject":          r["subject"],
+        })
+    return list(sections.values())
