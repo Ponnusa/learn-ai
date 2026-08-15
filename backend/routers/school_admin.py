@@ -1022,6 +1022,222 @@ async def student_login(req: StudentLoginRequest):
     }
 
 
+# ── Sprint 7: Admin dashboard ─────────────────────────────────────────────────
+
+@router.get("/dashboard")
+async def get_admin_dashboard(authorization: str = Header(...)):
+    """
+    Full dashboard snapshot for school admin:
+    school info, aggregate stats, per-section breakdown with teacher + courses.
+    """
+    admin = await _require_school_admin(authorization)
+    sid = admin["school_id"]
+
+    async with get_db() as db:
+        school = await db.fetchrow(
+            "SELECT id, name, city, country, code, created_at FROM schools WHERE id = $1", sid
+        )
+
+        teacher_count = await db.fetchval(
+            "SELECT COUNT(*) FROM users WHERE school_id = $1 AND school_role = 'teacher'", sid
+        )
+        student_count = await db.fetchval(
+            "SELECT COUNT(*) FROM users WHERE school_id = $1 AND school_role = 'student'", sid
+        )
+        section_count = await db.fetchval(
+            "SELECT COUNT(*) FROM sections WHERE school_id = $1", sid
+        )
+        course_count = await db.fetchval(
+            "SELECT COUNT(*) FROM school_courses WHERE school_id = $1", sid
+        )
+
+        # Per-section: teacher name, student count, assigned courses
+        sections = await db.fetch(
+            """SELECT
+                  s.id, s.name, s.grade, s.section_label,
+                  t.id   AS teacher_id,
+                  t.name AS teacher_name,
+                  t.email AS teacher_email,
+                  (SELECT COUNT(*) FROM users st
+                   WHERE st.section_id = s.id AND st.school_role = 'student') AS student_count
+               FROM sections s
+               LEFT JOIN users t ON t.id = s.teacher_id
+               WHERE s.school_id = $1
+               ORDER BY s.grade NULLS LAST, s.section_label, s.name""",
+            sid,
+        )
+
+        # Courses per section
+        section_ids = [str(r["id"]) for r in sections]
+        section_courses_rows = []
+        if section_ids:
+            section_courses_rows = await db.fetch(
+                """SELECT scc.section_id, c.id AS course_id, c.name AS course_name, c.subject
+                   FROM section_courses scc
+                   JOIN school_courses sc ON sc.id = scc.school_course_id
+                   JOIN courses c ON c.id = sc.course_id
+                   WHERE scc.section_id = ANY($1::uuid[])
+                   ORDER BY c.name""",
+                [r["id"] for r in sections],
+            )
+
+    # Group courses by section
+    courses_by_section: dict[str, list] = {}
+    for r in section_courses_rows:
+        k = str(r["section_id"])
+        courses_by_section.setdefault(k, []).append({
+            "course_id":   str(r["course_id"]),
+            "course_name": r["course_name"],
+            "subject":     r["subject"],
+        })
+
+    section_list = [
+        {
+            "id":            str(s["id"]),
+            "name":          s["name"],
+            "grade":         s["grade"],
+            "section_label": s["section_label"],
+            "teacher":       {"id": str(s["teacher_id"]), "name": s["teacher_name"], "email": s["teacher_email"]} if s["teacher_id"] else None,
+            "student_count": int(s["student_count"]),
+            "courses":       courses_by_section.get(str(s["id"]), []),
+        }
+        for s in sections
+    ]
+
+    return {
+        "school": {
+            "id":         str(school["id"]),
+            "name":       school["name"],
+            "city":       school["city"],
+            "country":    school["country"],
+            "code":       school["code"],
+            "created_at": school["created_at"].isoformat(),
+        },
+        "stats": {
+            "teachers": int(teacher_count),
+            "students": int(student_count),
+            "sections": int(section_count),
+            "courses":  int(course_count),
+        },
+        "sections": section_list,
+    }
+
+
+# ── Sprint 7: View + promote teacher content ──────────────────────────────────
+
+@router.get("/sections/{section_id}/teacher-content")
+async def list_section_teacher_content(
+    section_id: str,
+    concept_id: str,
+    authorization: str = Header(...),
+):
+    """
+    Admin views teacher-authored blocks for a specific concept in a section.
+    Returns only origin='teacher' blocks so admin can decide what to promote.
+    """
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        section = await db.fetchrow(
+            "SELECT id FROM sections WHERE id = $1::uuid AND school_id = $2",
+            section_id, admin["school_id"],
+        )
+        if not section:
+            raise HTTPException(404, "Section not found")
+
+        rows = await db.fetch(
+            """SELECT cb.id, cb.type, cb.position, cb.title, cb.body, cb.origin,
+                      cb.created_at, u.name AS created_by_name
+               FROM concept_content_blocks cb
+               LEFT JOIN users u ON u.id = cb.created_by
+               WHERE cb.concept_id = $1::uuid
+                 AND cb.section_id = $2::uuid
+                 AND cb.origin = 'teacher'
+                 AND cb.in_textbook = true
+               ORDER BY cb.position, cb.created_at""",
+            concept_id, section_id,
+        )
+    return [
+        {
+            "id":              str(r["id"]),
+            "type":            r["type"],
+            "position":        r["position"],
+            "title":           r["title"],
+            "body":            r["body"],
+            "origin":          r["origin"],
+            "created_by_name": r["created_by_name"],
+            "created_at":      r["created_at"].isoformat(),
+        }
+        for r in rows
+    ]
+
+
+@router.post("/content-blocks/{block_id}/promote")
+async def promote_block_to_admin(block_id: str, authorization: str = Header(...)):
+    """
+    Admin promotes a teacher-authored block to admin origin.
+    Effect: origin='admin', section_id=NULL — now visible to ALL sections that have this course.
+    The original section-local block is effectively replaced by the promoted master.
+    """
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        # Confirm the block belongs to a concept in a section owned by this school
+        block = await db.fetchrow(
+            """SELECT cb.id, cb.concept_id, cb.origin, cb.section_id,
+                      s.school_id
+               FROM concept_content_blocks cb
+               LEFT JOIN sections s ON s.id = cb.section_id
+               WHERE cb.id = $1::uuid""",
+            block_id,
+        )
+        if not block:
+            raise HTTPException(404, "Block not found")
+        if block["origin"] == "admin":
+            return {"ok": True, "message": "Already an admin block"}
+        if block["school_id"] and str(block["school_id"]) != str(admin["school_id"]):
+            raise HTTPException(403, "Block belongs to a different school")
+
+        await db.execute(
+            "UPDATE concept_content_blocks SET origin = 'admin', section_id = NULL WHERE id = $1::uuid",
+            block_id,
+        )
+    return {"ok": True, "block_id": block_id}
+
+
+@router.post("/content-blocks/{block_id}/demote")
+async def demote_block_to_teacher(
+    block_id: str,
+    section_id: str,
+    authorization: str = Header(...),
+):
+    """
+    Admin reverts a promoted block back to section-local teacher content.
+    Requires the target section_id to re-assign it to.
+    """
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        block = await db.fetchrow(
+            "SELECT id, origin FROM concept_content_blocks WHERE id = $1::uuid",
+            block_id,
+        )
+        if not block:
+            raise HTTPException(404, "Block not found")
+        if block["origin"] != "admin":
+            raise HTTPException(400, "Block is not an admin block")
+
+        section = await db.fetchrow(
+            "SELECT id FROM sections WHERE id = $1::uuid AND school_id = $2",
+            section_id, admin["school_id"],
+        )
+        if not section:
+            raise HTTPException(404, "Section not found")
+
+        await db.execute(
+            "UPDATE concept_content_blocks SET origin = 'teacher', section_id = $1::uuid WHERE id = $2::uuid",
+            section_id, block_id,
+        )
+    return {"ok": True, "block_id": block_id}
+
+
 # ── Helper ────────────────────────────────────────────────────────────────────
 
 async def _get_school_code(school_id) -> str:
