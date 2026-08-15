@@ -487,47 +487,31 @@ async def _generate_video_bg(
         _multimodal = False
 
     if _multimodal:
-        _log.info(f"[pipeline] video {video_id}: multimodal enabled -> storyboard path")
+        _log.info(f"[pipeline] video {video_id}: multimodal enabled -> flagging for worker storyboard path")
+        # Deliberately does NOT call generate_storyboard() or insert video_segments
+        # here — that would require this backend process to import worker_pipeline/
+        # (a sibling directory of backend/, not guaranteed to be part of this
+        # service's Railway deployment) and its full dependency set (anthropic,
+        # google-genai, azure-cognitiveservices-speech, pydantic). Instead this
+        # just flags the row; the GCP worker (which already has worker_pipeline/
+        # proven working) generates the storyboard itself once it claims the job
+        # — see worker.py's render_video_with_storyboard(). This keeps Railway's
+        # only responsibility "flag + trigger", with zero new dependencies.
         try:
-            from worker_pipeline.storyboard import generate_storyboard
-            storyboard = await asyncio.to_thread(
-                generate_storyboard,
-                lesson_id=str(video_id),
-                topic=prompt,
-                verified_solution=solution_data["verified_solution"],
-                subject_area=subject or "general",
-                target_duration_seconds=max_secs,
-                enable_veo=False,
-                aspect_ratio=aspect_ratio,
-            )
             async with get_db() as db:
-                await db.executemany("""
-                    INSERT INTO video_segments
-                      (video_id, segment_id, segment_order, type,
-                       target_duration_seconds, subject_area, aspect_ratio,
-                       narration_text, generation_prompt,
-                       style_reference_segment_id, status)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
-                """, [
-                    (video_id, s.id, s.order, s.type,
-                     s.target_duration_seconds, s.subject_area, s.aspect_ratio,
-                     s.narration_text, s.generation_prompt,
-                     s.style_reference_segment_id)
-                    for s in storyboard.segments
-                ])
                 await db.execute(
-                    "UPDATE videos SET status='queued', updated_at=NOW() WHERE id=$1",
+                    "UPDATE videos SET use_storyboard = TRUE, status = 'queued', updated_at = NOW() WHERE id = $1",
                     video_id,
                 )
-            _log.info(f"[pipeline] video {video_id}: {len(storyboard.segments)} segments queued -> triggering render")
+            _log.info(f"[pipeline] video {video_id}: flagged use_storyboard=TRUE -> triggering render")
             _trigger_video_generation(video_id, {})
         except Exception as e:
-            _log.error(f"[pipeline] video {video_id}: storyboard generation failed - {e}", exc_info=True)
+            _log.error(f"[pipeline] video {video_id}: failed to flag for storyboard path - {e}", exc_info=True)
             try:
                 async with get_db() as db:
                     await db.execute(
                         "UPDATE videos SET status='failed', error_message=$1, updated_at=NOW() WHERE id=$2",
-                        f"Storyboard generation failed: {e}", video_id,
+                        f"Failed to queue storyboard path: {e}", video_id,
                     )
             except Exception:
                 pass

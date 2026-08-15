@@ -701,13 +701,50 @@ async def unassign_course_from_school(school_course_id: str, authorization: str 
     return {"ok": True}
 
 
+async def _copy_blocks_to_section(section_id: str, school_course_id: str, db) -> int:
+    """
+    Copy all in_textbook=true template blocks (section_id IS NULL) for a course
+    into a section's private workspace. Skips concepts that already have any
+    blocks in this section (idempotent). Returns number of blocks inserted.
+    """
+    sec = await db.fetchrow("SELECT teacher_id FROM sections WHERE id = $1::uuid", section_id)
+    teacher_id = sec["teacher_id"] if sec else None
+    result = await db.execute(
+        """
+        INSERT INTO concept_content_blocks
+          (concept_id, type, position, title, body, video_id,
+           created_by, in_textbook, origin, section_id)
+        SELECT cb.concept_id, cb.type, cb.position, cb.title, cb.body, cb.video_id,
+               $3::uuid, cb.in_textbook, 'teacher', $1::uuid
+        FROM school_courses sco
+        JOIN course_units    cu  ON cu.course_id  = sco.course_id
+        JOIN course_concepts cc  ON cc.unit_id    = cu.id
+        JOIN concept_content_blocks cb ON cb.concept_id = cc.id
+        WHERE sco.id             = $2::uuid
+          AND cb.section_id      IS NULL
+          AND cb.in_textbook     = true
+          AND NOT EXISTS (
+              SELECT 1 FROM concept_content_blocks cb2
+              WHERE cb2.concept_id = cb.concept_id
+                AND cb2.section_id = $1::uuid
+          )
+        """,
+        section_id, school_course_id, teacher_id,
+    )
+    # asyncpg returns "INSERT 0 N"
+    try:
+        return int(result.split()[-1])
+    except Exception:
+        return 0
+
+
 @router.post("/sections/{section_id}/courses")
 async def assign_course_to_section(
     section_id: str,
     req: AssignSectionCourseRequest,
     authorization: str = Header(...),
 ):
-    """Assign a school master course to a specific section."""
+    """Assign a school master course to a section and seed the teacher's content workspace."""
     admin = await _require_school_admin(authorization)
     async with get_db() as db:
         section = await db.fetchrow(
@@ -728,7 +765,36 @@ async def assign_course_to_section(
                ON CONFLICT (section_id, school_course_id) DO NOTHING""",
             section_id, req.school_course_id,
         )
-    return {"ok": True}
+        copied = await _copy_blocks_to_section(section_id, req.school_course_id, db)
+    return {"ok": True, "blocks_seeded": copied}
+
+
+@router.post("/sections/{section_id}/courses/{school_course_id}/sync")
+async def sync_section_course_blocks(
+    section_id: str,
+    school_course_id: str,
+    authorization: str = Header(...),
+):
+    """
+    Re-seed a section's content workspace with any new template blocks the admin
+    added after the initial assignment. Existing section blocks are never touched.
+    """
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        section = await db.fetchrow(
+            "SELECT id FROM sections WHERE id = $1::uuid AND school_id = $2",
+            section_id, admin["school_id"],
+        )
+        if not section:
+            raise HTTPException(404, "Section not found")
+        sc = await db.fetchrow(
+            "SELECT id FROM school_courses WHERE id = $1::uuid AND school_id = $2",
+            school_course_id, admin["school_id"],
+        )
+        if not sc:
+            raise HTTPException(404, "School course not found")
+        copied = await _copy_blocks_to_section(section_id, school_course_id, db)
+    return {"ok": True, "blocks_seeded": copied}
 
 
 @router.get("/sections/{section_id}/courses")

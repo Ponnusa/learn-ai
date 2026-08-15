@@ -397,18 +397,23 @@ async def _get_block_section_context(user_id: str, concept_id: str, db) -> tuple
 
 async def _get_read_section_filter(user_id: str, concept_id: str, db) -> str | None:
     """
-    Returns the section_id to filter content blocks for a reader.
-    None means: show all blocks (standalone teacher / no school).
-    Returns section_id string: show admin blocks + this section's blocks only.
+    Returns a filter token for content block reads:
+      "admin"    → school admin: show only template blocks (section_id IS NULL)
+      "<uuid>"   → school teacher / student: show this section's copied blocks
+      None       → standalone teacher: show all blocks (their own course, no school)
     """
     user = await db.fetchrow(
         "SELECT school_id, school_role, section_id FROM users WHERE id = $1::uuid", user_id
     )
     if not user or not user["school_id"]:
-        return None
+        return None  # standalone — no school context
 
-    # Teacher: find their section that has this course
-    teacher_section = await db.fetchrow(
+    # School admin: show the canonical template blocks only
+    if user["school_role"] == "school_admin":
+        return "admin"
+
+    # Teacher or student: find the section linked to this concept's course
+    section_row = await db.fetchrow(
         """SELECT s.id
            FROM sections s
            JOIN section_courses scc ON scc.section_id = s.id
@@ -421,12 +426,10 @@ async def _get_read_section_filter(user_id: str, concept_id: str, db) -> str | N
            LIMIT 1""",
         concept_id, user["school_id"], user_id, user["section_id"],
     )
-    if teacher_section:
-        return str(teacher_section["id"])
+    if section_row:
+        return str(section_row["id"])
 
-    # School admin — sees all blocks (no section filter)
-    if user["school_role"] in ("school_admin",):
-        return None
+    return None  # school user not matched to a section for this course
 
     return None
 
@@ -1878,34 +1881,40 @@ async def list_content_blocks(concept_id: str, authorization: str = Header(...))
     """List content blocks ordered by position — readable by students and teachers."""
     user_id = await _get_student(authorization)
 
+    _BLOCK_SELECT = """
+        SELECT cb.id, cb.type, cb.position, cb.title, cb.body,
+               cb.video_id, v.video_url, v.status AS video_status,
+               cb.audio_status, (cb.audio_data IS NOT NULL) AS has_audio,
+               cb.origin, cb.created_at
+        FROM concept_content_blocks cb
+        LEFT JOIN videos v ON v.id = cb.video_id
+    """
     async with get_db() as db:
-        # Section-aware filtering: if user belongs to a school section that has this
-        # course, show admin blocks + their section's blocks only. Otherwise show all.
-        section_id = await _get_read_section_filter(user_id, concept_id, db)
+        section_filter = await _get_read_section_filter(user_id, concept_id, db)
 
-        if section_id:
-            rows = await db.fetch("""
-                SELECT cb.id, cb.type, cb.position, cb.title, cb.body,
-                       cb.video_id, v.video_url, v.status AS video_status,
-                       cb.audio_status, (cb.audio_data IS NOT NULL) AS has_audio,
-                       cb.origin, cb.created_at
-                FROM concept_content_blocks cb
-                LEFT JOIN videos v ON v.id = cb.video_id
+        if section_filter == "admin":
+            # School admin sees the canonical template (no section_id)
+            rows = await db.fetch(
+                _BLOCK_SELECT + """
                 WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
-                  AND (cb.origin = 'admin' OR cb.section_id = $2::uuid)
-                ORDER BY cb.origin DESC, cb.position, cb.created_at
-            """, concept_id, section_id)
+                  AND cb.section_id IS NULL
+                ORDER BY cb.position, cb.created_at
+                """, concept_id)
+        elif section_filter:
+            # Teacher/student: see their section's private copy
+            rows = await db.fetch(
+                _BLOCK_SELECT + """
+                WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
+                  AND cb.section_id = $2::uuid
+                ORDER BY cb.position, cb.created_at
+                """, concept_id, section_filter)
         else:
-            rows = await db.fetch("""
-                SELECT cb.id, cb.type, cb.position, cb.title, cb.body,
-                       cb.video_id, v.video_url, v.status AS video_status,
-                       cb.audio_status, (cb.audio_data IS NOT NULL) AS has_audio,
-                       cb.origin, cb.created_at
-                FROM concept_content_blocks cb
-                LEFT JOIN videos v ON v.id = cb.video_id
+            # Standalone teacher (no school): see all blocks for their own course
+            rows = await db.fetch(
+                _BLOCK_SELECT + """
                 WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
                 ORDER BY cb.position, cb.created_at
-            """, concept_id)
+                """, concept_id)
 
     def _resolve_body(r) -> str | None:
         if r["type"] in ("pipeline_clip", "pipeline_image") and r["body"]:
@@ -1981,18 +1990,6 @@ async def update_content_block(
     authorization: str = Header(...),
 ):
     teacher_id = await _require_teacher(authorization)
-    async with get_db() as db:
-        blk = await db.fetchrow(
-            "SELECT origin FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
-            block_id, concept_id,
-        )
-        if blk and blk["origin"] == "admin":
-            user = await db.fetchrow(
-                "SELECT school_role FROM users WHERE id = $1::uuid", teacher_id
-            )
-            if not user or user["school_role"] not in ("school_admin",):
-                raise HTTPException(403, "Admin blocks cannot be edited by teachers")
-
     sets, params = [], [block_id, concept_id]
     for field, val in req.model_dump(exclude_none=True).items():
         params.append(val)
@@ -2000,8 +1997,22 @@ async def update_content_block(
     if not sets:
         raise HTTPException(400, "Nothing to update")
     async with get_db() as db:
+        user = await db.fetchrow(
+            "SELECT school_id, school_role, section_id FROM users WHERE id = $1::uuid", teacher_id
+        )
+        # Build a WHERE clause that scopes edits to the caller's own blocks
+        if user and user["school_id"]:
+            if user["school_role"] == "school_admin":
+                extra = "AND section_id IS NULL"
+            else:
+                if not user["section_id"]:
+                    raise HTTPException(403, "Not assigned to a section")
+                extra = f"AND section_id = '{user['section_id']}'"
+        else:
+            extra = ""  # standalone teacher: own course, no further restriction
         await db.execute(
-            f"UPDATE concept_content_blocks SET {', '.join(sets)} WHERE id = $1::uuid AND concept_id = $2::uuid",
+            f"UPDATE concept_content_blocks SET {', '.join(sets)} "
+            f"WHERE id = $1::uuid AND concept_id = $2::uuid {extra}",
             *params,
         )
     return {"ok": True}
@@ -2015,18 +2026,20 @@ async def delete_content_block(
 ):
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        blk = await db.fetchrow(
-            "SELECT origin FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
-            block_id, concept_id,
+        user = await db.fetchrow(
+            "SELECT school_id, school_role, section_id FROM users WHERE id = $1::uuid", teacher_id
         )
-        if blk and blk["origin"] == "admin":
-            user = await db.fetchrow(
-                "SELECT school_role FROM users WHERE id = $1::uuid", teacher_id
-            )
-            if not user or user["school_role"] not in ("school_admin",):
-                raise HTTPException(403, "Admin blocks cannot be deleted by teachers")
+        if user and user["school_id"]:
+            if user["school_role"] == "school_admin":
+                extra = "AND section_id IS NULL"
+            else:
+                if not user["section_id"]:
+                    raise HTTPException(403, "Not assigned to a section")
+                extra = f"AND section_id = '{user['section_id']}'"
+        else:
+            extra = ""
         await db.execute(
-            "DELETE FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
+            f"DELETE FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid {extra}",
             block_id, concept_id,
         )
     return {"ok": True}

@@ -718,6 +718,29 @@ async def lifespan(app: FastAPI):
             # section_id: NULL = global (admin blocks or standalone teacher), non-NULL = section-local
             "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS section_id UUID REFERENCES sections(id) ON DELETE CASCADE",
             "CREATE INDEX IF NOT EXISTS idx_content_blocks_section ON concept_content_blocks(section_id) WHERE section_id IS NOT NULL",
+            # ── Copy-on-assign: seed existing section_courses with copied blocks ─
+            # For every section that already has a course assigned but no copied blocks yet,
+            # copy the in_textbook template blocks (section_id IS NULL) into the section.
+            """
+            INSERT INTO concept_content_blocks
+              (concept_id, type, position, title, body, video_id,
+               created_by, in_textbook, origin, section_id)
+            SELECT cb.concept_id, cb.type, cb.position, cb.title, cb.body, cb.video_id,
+                   s.teacher_id, cb.in_textbook, 'teacher', s.id
+            FROM section_courses scc
+            JOIN sections s          ON s.id  = scc.section_id
+            JOIN school_courses sco  ON sco.id = scc.school_course_id
+            JOIN course_units cu     ON cu.course_id = sco.course_id
+            JOIN course_concepts cc  ON cc.unit_id   = cu.id
+            JOIN concept_content_blocks cb ON cb.concept_id = cc.id
+            WHERE cb.section_id IS NULL
+              AND cb.in_textbook = true
+              AND NOT EXISTS (
+                  SELECT 1 FROM concept_content_blocks cb2
+                  WHERE cb2.concept_id = cb.concept_id
+                    AND cb2.section_id = s.id
+              )
+            """,
             # ── Sprint 2: Teacher invites ─────────────────────────────────────
             """
             CREATE TABLE IF NOT EXISTS school_invites (
