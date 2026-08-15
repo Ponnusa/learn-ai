@@ -1,12 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, GraduationCap, Layers, Users,
   BookOpen, Mail, Settings, ExternalLink, Menu, X, School,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
+import { AuthGuard } from '@/components/layout/AuthGuard';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -21,23 +22,21 @@ const NAV = [
   { href: '/school-admin/invites',   icon: Mail,            label: 'Invites'    },
 ];
 
+const ADMIN_ROLES = ['institution_admin', 'super_admin'];
+
 export default function SchoolAdminLayout({ children }: { children: React.ReactNode }) {
-  const router   = useRouter();
   const pathname = usePathname();
-  const { user, token } = useSessionStore();
-  const [school,   setSchool]   = useState<SchoolInfo | null>(null);
+  const { token } = useSessionStore();
+  const [school,     setSchool]     = useState<SchoolInfo | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
-    if (!user) { router.replace('/auth/teacher'); return; }
-    if (!['institution_admin', 'super_admin'].includes(user.account_type ?? '')) {
-      router.replace('/'); return;
-    }
+    if (!token) return;
     fetch(`${API}/api/school/context`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d?.school) setSchool(d.school); })
       .catch(() => {});
-  }, [user]);
+  }, [token]);
 
   // close mobile sidebar on route change
   useEffect(() => { setMobileOpen(false); }, [pathname]);
@@ -103,6 +102,7 @@ export default function SchoolAdminLayout({ children }: { children: React.ReactN
   }
 
   return (
+    <AuthGuard requireRole={ADMIN_ROLES} loginPath="/auth/teacher">
     <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
 
       {/* Desktop sidebar */}
@@ -147,5 +147,6 @@ export default function SchoolAdminLayout({ children }: { children: React.ReactN
         </div>
       </main>
     </div>
+    </AuthGuard>
   );
 }
