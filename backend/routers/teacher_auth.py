@@ -3,14 +3,27 @@ Teacher auth router — applications and invite-code redemption.
 Standalone teachers apply here; super_admin approves in admin.py.
 """
 import secrets
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from database import get_db
-from routers.auth import create_jwt, _user_response, _hash_password
+from routers.auth import create_jwt, decode_jwt, _user_response, _hash_password
 from services.scoring import init_profile
 
 router = APIRouter(prefix="/api/teacher-auth", tags=["teacher-auth"])
+
+
+async def get_current_teacher(authorization: str) -> dict:
+    """Decode JWT and return the user row. Raises 403 if inactive."""
+    user_id = decode_jwt(authorization.removeprefix("Bearer ").strip())
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT id, email, name, account_type, is_active FROM users WHERE id = $1::uuid",
+            user_id,
+        )
+    if not row or not row["is_active"]:
+        raise HTTPException(403, "Account inactive or not found")
+    return dict(row)
 
 
 # ── Apply as standalone teacher ───────────────────────────────────────────────

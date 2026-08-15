@@ -1,18 +1,24 @@
 """
-School Admin router — Sprint 1 + 2
-Handles school creation, admin auth, teacher invites, school context.
+School Admin router — Sprints 1-6
+Handles school creation, admin auth, teacher invites, sections, course assignment,
+student management, and student login.
 All management endpoints require school_role = 'admin'.
 """
+import csv
+import io
 import logging
+import re
 import secrets
 import string
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Any
 
 from config import settings
 
 from database import get_db
+from routers.auth import create_jwt, _hash_password, _verify_password
 from routers.teacher_auth import get_current_teacher
 
 logger = logging.getLogger(__name__)
@@ -730,3 +736,294 @@ async def get_my_section_courses(authorization: str = Header(...)):
             "subject":          r["subject"],
         })
     return list(sections.values())
+
+
+# ── Sprint 6: Student management ──────────────────────────────────────────────
+
+def _make_roll_password(roll_number: str) -> str:
+    """Default first-login password = roll number itself (student must change)."""
+    return roll_number
+
+
+def _student_login_key(school_code: str, roll_number: str) -> str:
+    return f"{school_code.upper().strip()}:{roll_number.strip()}"
+
+
+class CreateStudentRequest(BaseModel):
+    name: str
+    roll_number: str
+    section_id: str | None = None
+    password: str | None = None  # defaults to roll number
+
+
+class BulkImportRequest(BaseModel):
+    section_id: str
+    # List of {name, roll_number} dicts — also accepts raw CSV text via csv_text
+    students: list[dict[str, str]] = Field(default_factory=list)
+    csv_text: str | None = None  # "name,roll_number\nAlice,001\nBob,002"
+
+
+class StudentLoginRequest(BaseModel):
+    school_code: str
+    roll_number: str
+    password: str
+
+
+def _student_row(r) -> dict:
+    return {
+        "id":          str(r["id"]),
+        "name":        r["name"],
+        "roll_number": r["roll_number"],
+        "section_id":  str(r["section_id"]) if r.get("section_id") else None,
+        "section_name": r.get("section_name"),
+        "is_active":   r["is_active"],
+        "created_at":  r["created_at"].isoformat(),
+    }
+
+
+@router.post("/students")
+async def create_student(req: CreateStudentRequest, authorization: str = Header(...)):
+    """Admin creates a single student account in their school."""
+    admin = await _require_school_admin(authorization)
+
+    if req.section_id:
+        async with get_db() as db:
+            ok = await db.fetchval(
+                "SELECT 1 FROM sections WHERE id = $1::uuid AND school_id = $2",
+                req.section_id, admin["school_id"],
+            )
+        if not ok:
+            raise HTTPException(404, "Section not found in this school")
+
+    school_code = await _get_school_code(admin["school_id"])
+    roll = req.roll_number.strip()
+    password = req.password or _make_roll_password(roll)
+
+    async with get_db() as db:
+        existing = await db.fetchval(
+            "SELECT 1 FROM users WHERE school_id = $1 AND roll_number = $2",
+            admin["school_id"], roll,
+        )
+        if existing:
+            raise HTTPException(409, f"Roll number {roll!r} already exists in this school")
+
+        row = await db.fetchrow(
+            """INSERT INTO users
+                 (name, account_type, school_id, school_role, section_id, roll_number,
+                  password_hash, is_active, tier, knowledge_level)
+               VALUES ($1, 'student', $2, 'student', $3::uuid, $4, $5, true, 'free', 'beginner')
+               RETURNING id, name, roll_number, section_id, is_active, created_at""",
+            req.name, admin["school_id"], req.section_id, roll, _hash_password(password),
+        )
+    return {**_student_row(dict(row)), "password_set": password}
+
+
+@router.post("/students/bulk-import")
+async def bulk_import_students(req: BulkImportRequest, authorization: str = Header(...)):
+    """
+    Bulk-create student accounts from a list or CSV text.
+    All students are assigned to the given section.
+    Returns per-row results so the admin can see which rows succeeded or failed.
+    """
+    admin = await _require_school_admin(authorization)
+
+    # Validate section
+    async with get_db() as db:
+        section = await db.fetchrow(
+            "SELECT id, name FROM sections WHERE id = $1::uuid AND school_id = $2",
+            req.section_id, admin["school_id"],
+        )
+    if not section:
+        raise HTTPException(404, "Section not found in this school")
+
+    school_code = await _get_school_code(admin["school_id"])
+
+    # Parse CSV if provided
+    students = list(req.students)
+    if req.csv_text:
+        reader = csv.DictReader(io.StringIO(req.csv_text.strip()))
+        for r in reader:
+            name = r.get("name") or r.get("Name") or ""
+            roll = r.get("roll_number") or r.get("roll") or r.get("Roll") or ""
+            if name.strip() and roll.strip():
+                students.append({"name": name.strip(), "roll_number": roll.strip()})
+
+    if not students:
+        raise HTTPException(400, "No students provided")
+
+    results = []
+    async with get_db() as db:
+        for s in students:
+            name = s.get("name", "").strip()
+            roll = s.get("roll_number", "").strip()
+            if not name or not roll:
+                results.append({"roll_number": roll, "status": "error", "reason": "Missing name or roll_number"})
+                continue
+            try:
+                existing = await db.fetchval(
+                    "SELECT 1 FROM users WHERE school_id = $1 AND roll_number = $2",
+                    admin["school_id"], roll,
+                )
+                if existing:
+                    results.append({"roll_number": roll, "status": "skipped", "reason": "Roll number already exists"})
+                    continue
+                password = _make_roll_password(roll)
+                await db.execute(
+                    """INSERT INTO users
+                         (name, account_type, school_id, school_role, section_id, roll_number,
+                          password_hash, is_active, tier, knowledge_level)
+                       VALUES ($1, 'student', $2, 'student', $3::uuid, $4, $5, true, 'free', 'beginner')""",
+                    name, admin["school_id"], req.section_id, roll, _hash_password(password),
+                )
+                results.append({
+                    "name":        name,
+                    "roll_number": roll,
+                    "password":    password,
+                    "status":      "created",
+                })
+            except Exception as exc:
+                results.append({"roll_number": roll, "status": "error", "reason": str(exc)})
+
+    created = sum(1 for r in results if r["status"] == "created")
+    return {"created": created, "total": len(students), "results": results}
+
+
+@router.get("/students")
+async def list_students(
+    authorization: str = Header(...),
+    section_id: str | None = None,
+):
+    """Admin lists all students in their school, optionally filtered by section."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        if section_id:
+            rows = await db.fetch(
+                """SELECT u.id, u.name, u.roll_number, u.section_id, u.is_active, u.created_at,
+                          s.name AS section_name
+                   FROM users u
+                   LEFT JOIN sections s ON s.id = u.section_id
+                   WHERE u.school_id = $1 AND u.school_role = 'student' AND u.section_id = $2::uuid
+                   ORDER BY u.name""",
+                admin["school_id"], section_id,
+            )
+        else:
+            rows = await db.fetch(
+                """SELECT u.id, u.name, u.roll_number, u.section_id, u.is_active, u.created_at,
+                          s.name AS section_name
+                   FROM users u
+                   LEFT JOIN sections s ON s.id = u.section_id
+                   WHERE u.school_id = $1 AND u.school_role = 'student'
+                   ORDER BY s.name NULLS LAST, u.name""",
+                admin["school_id"],
+            )
+    return [_student_row(dict(r)) for r in rows]
+
+
+@router.patch("/students/{student_id}")
+async def update_student(
+    student_id: str,
+    req: CreateStudentRequest,
+    authorization: str = Header(...),
+):
+    """Update a student's name, section, or reset their password."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        student = await db.fetchrow(
+            "SELECT id FROM users WHERE id = $1::uuid AND school_id = $2 AND school_role = 'student'",
+            student_id, admin["school_id"],
+        )
+        if not student:
+            raise HTTPException(404, "Student not found")
+
+        updates, params = [], [student_id]
+        def _set(col, val):
+            params.append(val)
+            updates.append(f"{col} = ${len(params)}")
+
+        if req.name:          _set("name",        req.name)
+        if req.roll_number:   _set("roll_number", req.roll_number.strip())
+        if req.section_id is not None:
+            _set("section_id", req.section_id or None)
+        if req.password:
+            _set("password_hash", _hash_password(req.password))
+
+        if updates:
+            await db.execute(
+                f"UPDATE users SET {', '.join(updates)} WHERE id = $1::uuid",
+                *params,
+            )
+    return {"ok": True}
+
+
+@router.delete("/students/{student_id}")
+async def delete_student(student_id: str, authorization: str = Header(...)):
+    """Remove a student account from the school."""
+    admin = await _require_school_admin(authorization)
+    async with get_db() as db:
+        result = await db.execute(
+            "DELETE FROM users WHERE id = $1::uuid AND school_id = $2 AND school_role = 'student'",
+            student_id, admin["school_id"],
+        )
+    if result == "DELETE 0":
+        raise HTTPException(404, "Student not found")
+    return {"ok": True}
+
+
+# ── Student login (school code + roll number) ─────────────────────────────────
+
+@router.post("/student-login")
+async def student_login(req: StudentLoginRequest):
+    """
+    Student logs in with school code + roll number + password.
+    Returns the same {token, user} shape as other login methods.
+    """
+    school_code = req.school_code.upper().strip()
+    roll = req.roll_number.strip()
+
+    async with get_db() as db:
+        school = await db.fetchrow(
+            "SELECT id FROM schools WHERE UPPER(code) = $1", school_code
+        )
+        if not school:
+            raise HTTPException(401, "Invalid school code")
+
+        user = await db.fetchrow(
+            """SELECT id, name, roll_number, password_hash, is_active,
+                      tier, theme, language, account_type, school_role, section_id
+               FROM users
+               WHERE school_id = $1 AND roll_number = $2 AND school_role = 'student'""",
+            school["id"], roll,
+        )
+        if not user:
+            raise HTTPException(401, "Invalid roll number or school code")
+        if not user["is_active"]:
+            raise HTTPException(403, "Account is inactive — contact your teacher")
+        if not user["password_hash"] or not _verify_password(req.password, user["password_hash"]):
+            raise HTTPException(401, "Incorrect password")
+
+        token = create_jwt(str(user["id"]))
+        await db.execute(
+            "UPDATE users SET last_seen_at = NOW() WHERE id = $1", user["id"]
+        )
+
+    return {
+        "token": token,
+        "user": {
+            "id":           str(user["id"]),
+            "name":         user["name"],
+            "roll_number":  user["roll_number"],
+            "account_type": user["account_type"],
+            "school_role":  user["school_role"],
+            "section_id":   str(user["section_id"]) if user["section_id"] else None,
+            "tier":         user["tier"],
+            "theme":        user["theme"] or "dark",
+            "language":     user["language"] or "en",
+        },
+    }
+
+
+# ── Helper ────────────────────────────────────────────────────────────────────
+
+async def _get_school_code(school_id) -> str:
+    async with get_db() as db:
+        return await db.fetchval("SELECT code FROM schools WHERE id = $1", school_id) or ""

@@ -706,6 +706,11 @@ async def lifespan(app: FastAPI):
                 UNIQUE (section_id, school_course_id)
             )
             """,
+            # ── Sprint 6: Student management ──────────────────────────────────
+            # roll_number: school-assigned identifier used with school code to log in
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS roll_number TEXT",
+            # Unique per school (not globally) — index enforces this
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_school_roll ON users(school_id, roll_number) WHERE roll_number IS NOT NULL",
             # ── Sprint 5: Content block layering ──────────────────────────────
             # origin: 'admin' = authored by school/platform admin, flows to all sections
             #         'teacher' = section-local (or standalone if section_id IS NULL)
