@@ -711,36 +711,14 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS roll_number TEXT",
             # Unique per school (not globally) — index enforces this
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_school_roll ON users(school_id, roll_number) WHERE roll_number IS NOT NULL",
-            # ── Sprint 5: Content block layering ──────────────────────────────
-            # origin: 'admin' = authored by school/platform admin, flows to all sections
-            #         'teacher' = section-local (or standalone if section_id IS NULL)
+            # ── Sprint 5: Content block layering (kept for backward compat) ───
             "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'teacher'",
-            # section_id: NULL = global (admin blocks or standalone teacher), non-NULL = section-local
             "ALTER TABLE concept_content_blocks ADD COLUMN IF NOT EXISTS section_id UUID REFERENCES sections(id) ON DELETE CASCADE",
             "CREATE INDEX IF NOT EXISTS idx_content_blocks_section ON concept_content_blocks(section_id) WHERE section_id IS NOT NULL",
-            # ── Copy-on-assign: seed existing section_courses with copied blocks ─
-            # For every section that already has a course assigned but no copied blocks yet,
-            # copy the in_textbook template blocks (section_id IS NULL) into the section.
-            """
-            INSERT INTO concept_content_blocks
-              (concept_id, type, position, title, body, video_id,
-               created_by, in_textbook, origin, section_id)
-            SELECT cb.concept_id, cb.type, cb.position, cb.title, cb.body, cb.video_id,
-                   s.teacher_id, cb.in_textbook, 'teacher', s.id
-            FROM section_courses scc
-            JOIN sections s          ON s.id  = scc.section_id
-            JOIN school_courses sco  ON sco.id = scc.school_course_id
-            JOIN course_units cu     ON cu.course_id = sco.course_id
-            JOIN course_concepts cc  ON cc.unit_id   = cu.id
-            JOIN concept_content_blocks cb ON cb.concept_id = cc.id
-            WHERE cb.section_id IS NULL
-              AND cb.in_textbook = true
-              AND NOT EXISTS (
-                  SELECT 1 FROM concept_content_blocks cb2
-                  WHERE cb2.concept_id = cb.concept_id
-                    AND cb2.section_id = s.id
-              )
-            """,
+            # ── Copy-on-assign v2: full course copy per teacher ───────────────
+            "ALTER TABLE courses ADD COLUMN IF NOT EXISTS source_course_id UUID REFERENCES courses(id) ON DELETE SET NULL",
+            "ALTER TABLE course_concepts ADD COLUMN IF NOT EXISTS source_concept_id UUID REFERENCES course_concepts(id) ON DELETE SET NULL",
+            "ALTER TABLE section_courses ADD COLUMN IF NOT EXISTS teacher_course_id UUID REFERENCES courses(id) ON DELETE SET NULL",
             # ── Sprint 2: Teacher invites ─────────────────────────────────────
             """
             CREATE TABLE IF NOT EXISTS school_invites (
@@ -761,6 +739,24 @@ async def lifespan(app: FastAPI):
                 _log.info("Migration OK: %s", sql.strip()[:60])
             except Exception as exc:
                 _log.error("Migration FAILED: %s — %s", sql.strip()[:60], exc)
+
+        # ── Backfill: copy courses for existing section_courses assignments ──
+        # Runs once per row (idempotent — _copy_course_to_teacher skips if already done)
+        from routers.school_admin import _copy_course_to_teacher
+        async with get_db() as db:
+            pending = await db.fetch(
+                "SELECT id, section_id, school_course_id FROM section_courses WHERE teacher_course_id IS NULL"
+            )
+        for row in pending:
+            try:
+                async with get_db() as db:
+                    new_cid = await _copy_course_to_teacher(
+                        str(row["school_course_id"]), str(row["section_id"]), db
+                    )
+                if new_cid:
+                    _log.info("Backfill: copied course for section_course %s → %s", row["id"], new_cid)
+            except Exception as exc:
+                _log.error("Backfill FAILED for section_course %s: %s", row["id"], exc)
     yield
     await close_pool()
 

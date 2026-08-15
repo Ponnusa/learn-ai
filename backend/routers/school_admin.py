@@ -701,41 +701,128 @@ async def unassign_course_from_school(school_course_id: str, authorization: str 
     return {"ok": True}
 
 
-async def _copy_blocks_to_section(section_id: str, school_course_id: str, db) -> int:
+async def _copy_course_to_teacher(school_course_id: str, section_id: str, db) -> str | None:
     """
-    Copy all in_textbook=true template blocks (section_id IS NULL) for a course
-    into a section's private workspace. Skips concepts that already have any
-    blocks in this section (idempotent). Returns number of blocks inserted.
+    Deep-copy an admin's course to a teacher's private workspace.
+
+    Copied with new IDs: course → units → concepts → content_blocks (in_textbook only)
+                         + quiz questions + flashcards
+    Shared (no copy):    course_chapters PDF bytes (concepts keep chapter_ref pointer)
+                         concept_images / concept_resources binary data
+                         (reads fall back via source_concept_id)
+    Videos:              block rows are copied, video_id reference is shared (teacher
+                         can regenerate their own later)
+
+    Returns new teacher_course_id, or None if section has no teacher assigned.
+    Idempotent: skips if teacher_course_id already set on the section_courses row.
     """
-    sec = await db.fetchrow("SELECT teacher_id FROM sections WHERE id = $1::uuid", section_id)
-    teacher_id = sec["teacher_id"] if sec else None
-    result = await db.execute(
-        """
-        INSERT INTO concept_content_blocks
-          (concept_id, type, position, title, body, video_id,
-           created_by, in_textbook, origin, section_id)
-        SELECT cb.concept_id, cb.type, cb.position, cb.title, cb.body, cb.video_id,
-               $3::uuid, cb.in_textbook, 'teacher', $1::uuid
-        FROM school_courses sco
-        JOIN course_units    cu  ON cu.course_id  = sco.course_id
-        JOIN course_concepts cc  ON cc.unit_id    = cu.id
-        JOIN concept_content_blocks cb ON cb.concept_id = cc.id
-        WHERE sco.id             = $2::uuid
-          AND cb.section_id      IS NULL
-          AND cb.in_textbook     = true
-          AND NOT EXISTS (
-              SELECT 1 FROM concept_content_blocks cb2
-              WHERE cb2.concept_id = cb.concept_id
-                AND cb2.section_id = $1::uuid
-          )
-        """,
-        section_id, school_course_id, teacher_id,
+    # Already copied?
+    existing = await db.fetchrow(
+        "SELECT teacher_course_id FROM section_courses WHERE section_id=$1::uuid AND school_course_id=$2::uuid",
+        section_id, school_course_id,
     )
-    # asyncpg returns "INSERT 0 N"
-    try:
-        return int(result.split()[-1])
-    except Exception:
-        return 0
+    if existing and existing["teacher_course_id"]:
+        return str(existing["teacher_course_id"])
+
+    # Resolve teacher and original course
+    sec = await db.fetchrow("SELECT teacher_id FROM sections WHERE id=$1::uuid", section_id)
+    teacher_id = sec["teacher_id"] if sec else None
+
+    sc = await db.fetchrow("SELECT course_id FROM school_courses WHERE id=$1::uuid", school_course_id)
+    if not sc:
+        return None
+    orig_course_id = str(sc["course_id"])
+
+    # ── 1. Copy course row ──────────────────────────────────────────────────
+    new_course = await db.fetchrow("""
+        INSERT INTO courses (name, description, subject, grade, board, status, teacher_id, source_course_id)
+        SELECT name, description, subject, grade, board, status, $1::uuid, id
+        FROM courses WHERE id = $2::uuid
+        RETURNING id
+    """, teacher_id, orig_course_id)
+    new_course_id = str(new_course["id"])
+
+    # ── 2. Copy units ────────────────────────────────────────────────────────
+    units = await db.fetch(
+        "SELECT id, title, description, position, chapter_ref FROM course_units WHERE course_id=$1::uuid ORDER BY position",
+        orig_course_id,
+    )
+    for unit in units:
+        new_unit = await db.fetchrow("""
+            INSERT INTO course_units (course_id, title, description, position, chapter_ref)
+            VALUES ($1::uuid, $2, $3, $4, $5::uuid) RETURNING id
+        """, new_course_id, unit["title"], unit["description"], unit["position"], unit["chapter_ref"])
+        new_unit_id = str(new_unit["id"])
+
+        # ── 3. Copy concepts ─────────────────────────────────────────────────
+        concepts = await db.fetch("""
+            SELECT id, title, description, source_text, ai_summary, ai_transcript,
+                   chapter_ref, page_start, position, source, quiz_mode,
+                   pipeline_status, quiz_status, flashcard_status,
+                   suggested_prompts, student_questions
+            FROM course_concepts WHERE unit_id=$1::uuid ORDER BY position
+        """, unit["id"])
+
+        for concept in concepts:
+            new_concept = await db.fetchrow("""
+                INSERT INTO course_concepts
+                  (unit_id, title, description, source_text, ai_summary, ai_transcript,
+                   chapter_ref, page_start, position, source, quiz_mode,
+                   pipeline_status, quiz_status, flashcard_status,
+                   audio_status, video_status,
+                   suggested_prompts, student_questions, source_concept_id)
+                VALUES ($1::uuid, $2, $3, $4, $5, $6,
+                        $7, $8, $9, $10, $11,
+                        $12, $13, $14,
+                        'none', 'none',
+                        $15, $16, $17::uuid)
+                RETURNING id
+            """, new_unit_id,
+                concept["title"], concept["description"],
+                concept["source_text"], concept["ai_summary"], concept["ai_transcript"],
+                concept["chapter_ref"], concept["page_start"], concept["position"],
+                concept["source"], concept["quiz_mode"],
+                concept["pipeline_status"], concept["quiz_status"], concept["flashcard_status"],
+                concept["suggested_prompts"], concept["student_questions"],
+                concept["id"])
+            new_concept_id = str(new_concept["id"])
+
+            # ── 4. Copy textbook content blocks ──────────────────────────────
+            await db.execute("""
+                INSERT INTO concept_content_blocks
+                  (concept_id, type, position, title, body, video_id, created_by, in_textbook)
+                SELECT $1::uuid, type, position, title, body, video_id, $2::uuid, in_textbook
+                FROM concept_content_blocks
+                WHERE concept_id = $3::uuid
+                  AND in_textbook = true
+                  AND section_id IS NULL
+            """, new_concept_id, teacher_id, concept["id"])
+
+            # ── 5. Copy quiz questions ────────────────────────────────────────
+            await db.execute("""
+                INSERT INTO concept_quiz_questions
+                  (concept_id, question, options, correct_idx, explanation, position, status, difficulty)
+                SELECT $1::uuid, question, options, correct_idx, explanation, position, status, difficulty
+                FROM concept_quiz_questions WHERE concept_id = $2::uuid
+            """, new_concept_id, concept["id"])
+
+            # ── 6. Copy flashcards ───────────────────────────────────────────
+            await db.execute("""
+                INSERT INTO concept_flashcards (concept_id, front, back, position, status)
+                SELECT $1::uuid, front, back, position, status
+                FROM concept_flashcards WHERE concept_id = $2::uuid
+            """, new_concept_id, concept["id"])
+
+            # concept_images and concept_resources are NOT copied —
+            # reads fall back to source_concept_id on the concept row.
+
+    # ── 7. Record teacher's course on the section_courses row ────────────────
+    await db.execute("""
+        UPDATE section_courses SET teacher_course_id = $1::uuid
+        WHERE section_id = $2::uuid AND school_course_id = $3::uuid
+    """, new_course_id, section_id, school_course_id)
+
+    return new_course_id
 
 
 @router.post("/sections/{section_id}/courses")
@@ -744,7 +831,7 @@ async def assign_course_to_section(
     req: AssignSectionCourseRequest,
     authorization: str = Header(...),
 ):
-    """Assign a school master course to a section and seed the teacher's content workspace."""
+    """Assign a school master course to a section and deep-copy it into the teacher's workspace."""
     admin = await _require_school_admin(authorization)
     async with get_db() as db:
         section = await db.fetchrow(
@@ -765,36 +852,8 @@ async def assign_course_to_section(
                ON CONFLICT (section_id, school_course_id) DO NOTHING""",
             section_id, req.school_course_id,
         )
-        copied = await _copy_blocks_to_section(section_id, req.school_course_id, db)
-    return {"ok": True, "blocks_seeded": copied}
-
-
-@router.post("/sections/{section_id}/courses/{school_course_id}/sync")
-async def sync_section_course_blocks(
-    section_id: str,
-    school_course_id: str,
-    authorization: str = Header(...),
-):
-    """
-    Re-seed a section's content workspace with any new template blocks the admin
-    added after the initial assignment. Existing section blocks are never touched.
-    """
-    admin = await _require_school_admin(authorization)
-    async with get_db() as db:
-        section = await db.fetchrow(
-            "SELECT id FROM sections WHERE id = $1::uuid AND school_id = $2",
-            section_id, admin["school_id"],
-        )
-        if not section:
-            raise HTTPException(404, "Section not found")
-        sc = await db.fetchrow(
-            "SELECT id FROM school_courses WHERE id = $1::uuid AND school_id = $2",
-            school_course_id, admin["school_id"],
-        )
-        if not sc:
-            raise HTTPException(404, "School course not found")
-        copied = await _copy_blocks_to_section(section_id, school_course_id, db)
-    return {"ok": True, "blocks_seeded": copied}
+        teacher_course_id = await _copy_course_to_teacher(req.school_course_id, section_id, db)
+    return {"ok": True, "teacher_course_id": teacher_course_id}
 
 
 @router.get("/sections/{section_id}/courses")

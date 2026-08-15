@@ -330,26 +330,10 @@ async def _require_teacher_full(authorization: str) -> dict:
     return dict(row)
 
 
-# SQL fragment reused in _course_access_clause
-_SECTION_COURSE_SUBQ = """
-    EXISTS (
-        SELECT 1 FROM section_courses sc
-        JOIN school_courses sco ON sco.id = sc.school_course_id
-        JOIN sections       sec ON sec.id = sc.section_id
-        WHERE sco.course_id = c.id AND sec.teacher_id = $2::uuid
-    )
-"""
-
-
 async def _assert_course_access(course_id: str, teacher_id: str, db, cols: str = "id") -> dict:
-    """
-    Fetch a course row if the teacher owns it OR it is assigned to one of their sections.
-    Raises 404 if not accessible.
-    """
+    """Fetch a course the teacher owns. Raises 404 if not found."""
     row = await db.fetchrow(
-        f"""SELECT {cols} FROM courses c
-            WHERE c.id = $1::uuid
-              AND (c.teacher_id = $2::uuid OR {_SECTION_COURSE_SUBQ})""",
+        f"SELECT {cols} FROM courses c WHERE c.id = $1::uuid AND c.teacher_id = $2::uuid",
         course_id, teacher_id,
     )
     if not row:
@@ -357,113 +341,16 @@ async def _assert_course_access(course_id: str, teacher_id: str, db, cols: str =
     return dict(row)
 
 
-async def _resolve_block_scope(user_id: str, db) -> tuple[str, str | None]:
+async def _src_concept_id(concept_id: str, db) -> str:
     """
-    Return (sql_extra, section_id) scoping block writes/deletes/reorders to the caller's
-    own workspace.
-      school_admin  → ("AND section_id IS NULL", None)
-      school teacher → ("AND section_id = '<uuid>'", "<uuid>")   -- looks up via sections.teacher_id
-      standalone     → ("", None)
-    Raises 403 if the caller is a school teacher but has no section assigned.
+    For shared-binary reads (concept_images, concept_resources):
+    return source_concept_id if this is a teacher copy, else concept_id itself.
     """
-    user = await db.fetchrow(
-        "SELECT school_id, school_role FROM users WHERE id = $1::uuid", user_id
-    )
-    if not user or not user["school_id"]:
-        return "", None  # standalone teacher — no school context
-    if user["school_role"] in ("school_admin", "super_admin"):
-        return "AND section_id IS NULL", None
-    # School teacher: find their section via sections.teacher_id
     row = await db.fetchrow(
-        "SELECT id FROM sections WHERE teacher_id = $1::uuid AND school_id = $2 LIMIT 1",
-        user_id, user["school_id"],
+        "SELECT COALESCE(source_concept_id, id) AS eid FROM course_concepts WHERE id = $1::uuid",
+        concept_id,
     )
-    if not row:
-        raise HTTPException(403, "Not assigned to a section")
-    sid = str(row["id"])
-    return f"AND section_id = '{sid}'", sid
-
-
-async def _get_block_section_context(user_id: str, concept_id: str, db) -> tuple[str | None, bool]:
-    """
-    Returns (section_id, is_admin_origin) for a teacher writing a block.
-    - section_id: the section that has this concept's course assigned to it AND the teacher is assigned to
-    - is_admin_origin: True if the user is a school_admin (their blocks are 'admin' origin)
-    """
-    user = await db.fetchrow(
-        "SELECT school_id, school_role FROM users WHERE id = $1::uuid", user_id
-    )
-    if not user or not user["school_id"]:
-        return None, False
-
-    is_admin = user["school_role"] in ("school_admin", "super_admin")
-
-    if is_admin:
-        # School admin writes template blocks — always section_id=NULL, origin='admin'
-        return None, True
-
-    # Find the teacher's section: prefer the one linked to this concept's course,
-    # fall back to any section where this teacher is the assigned teacher.
-    row = await db.fetchrow(
-        """SELECT s.id
-           FROM sections s
-           JOIN section_courses scc ON scc.section_id = s.id
-           JOIN school_courses sc   ON sc.id = scc.school_course_id
-           JOIN courses c           ON c.id  = sc.course_id
-           JOIN course_units cu     ON cu.course_id = c.id
-           JOIN course_concepts cc  ON cc.unit_id   = cu.id
-           WHERE cc.id = $1::uuid
-             AND s.teacher_id = $2::uuid
-             AND s.school_id  = $3
-           LIMIT 1""",
-        concept_id, user_id, user["school_id"],
-    )
-    if not row:
-        # Course not wired through school_courses yet — use teacher's section directly
-        row = await db.fetchrow(
-            "SELECT id FROM sections WHERE teacher_id = $1::uuid AND school_id = $2 LIMIT 1",
-            user_id, user["school_id"],
-        )
-    return (str(row["id"]) if row else None), False
-
-
-async def _get_read_section_filter(user_id: str, concept_id: str, db) -> str | None:
-    """
-    Returns a filter token for content block reads:
-      "admin"    → school admin: show only template blocks (section_id IS NULL)
-      "<uuid>"   → school teacher / student: show this section's copied blocks
-      None       → standalone teacher: show all blocks (their own course, no school)
-    """
-    user = await db.fetchrow(
-        "SELECT school_id, school_role, section_id FROM users WHERE id = $1::uuid", user_id
-    )
-    if not user or not user["school_id"]:
-        return None  # standalone — no school context
-
-    # School admin: show the canonical template blocks only
-    if user["school_role"] == "school_admin":
-        return "admin"
-
-    # Teacher or student: find the section linked to this concept's course
-    section_row = await db.fetchrow(
-        """SELECT s.id
-           FROM sections s
-           JOIN section_courses scc ON scc.section_id = s.id
-           JOIN school_courses sc   ON sc.id = scc.school_course_id
-           JOIN courses c           ON c.id  = sc.course_id
-           JOIN course_units cu     ON cu.course_id = c.id
-           JOIN course_concepts cc  ON cc.unit_id   = cu.id
-           WHERE cc.id = $1::uuid AND s.school_id = $2
-             AND (s.teacher_id = $3::uuid OR s.id = $4)
-           LIMIT 1""",
-        concept_id, user["school_id"], user_id, user["section_id"],
-    )
-    if section_row:
-        return str(section_row["id"])
-
-    return None  # school user not matched to a section for this course
-
-    return None
+    return str(row["eid"]) if row else concept_id
 
 
 # ── Course CRUD ───────────────────────────────────────────────────────────────
@@ -506,13 +393,6 @@ async def list_my_courses(authorization: str = Header(...)):
             LEFT JOIN course_units    cu ON cu.course_id = c.id
             LEFT JOIN course_concepts cc ON cc.unit_id   = cu.id
             WHERE c.teacher_id = $1::uuid
-               OR c.id IN (
-                   SELECT sco.course_id
-                   FROM section_courses sc
-                   JOIN school_courses  sco ON sco.id = sc.school_course_id
-                   JOIN sections        sec ON sec.id = sc.section_id
-                   WHERE sec.teacher_id = $1::uuid
-               )
             GROUP BY c.id
             ORDER BY c.created_at DESC
         """, teacher_id)
@@ -1528,10 +1408,11 @@ async def send_concept_chat_message(
             SELECT role, content FROM messages WHERE conversation_id = $1::uuid ORDER BY created_at
         """, conv_id)
 
+        src_cid = await _src_concept_id(concept_id, db)
         image_row = await db.fetchrow("""
             SELECT data, mime_type FROM concept_images
             WHERE concept_id = $1::uuid ORDER BY position LIMIT 1
-        """, concept_id)
+        """, src_cid)
 
         import json as _json
         _user_meta = {}
@@ -1727,10 +1608,8 @@ async def apply_concept_chat_message(
             blocks_to_insert = [(None, body, None)]
 
         async with get_db() as db:
-            section_id, is_admin_origin = await _get_block_section_context(teacher_id, concept_id, db)
-            origin = "admin" if is_admin_origin else "teacher"
             max_pos = await db.fetchval(
-                "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+                "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid AND section_id IS NULL",
                 concept_id,
             )
             first_block = None
@@ -1740,11 +1619,11 @@ async def apply_concept_chat_message(
                 block = await db.fetchrow("""
                     INSERT INTO concept_content_blocks
                       (concept_id, type, position, title, body, created_by,
-                       audio_script, audio_status, source_message_id, origin, section_id)
-                    VALUES ($1::uuid, 'text', $2, $3, $4, $5::uuid, $6, $7, $8::uuid, $9, $10::uuid)
+                       audio_script, audio_status, source_message_id)
+                    VALUES ($1::uuid, 'text', $2, $3, $4, $5::uuid, $6, $7, $8::uuid)
                     RETURNING id, type, position, title, body, audio_status, created_at
                 """, concept_id, int(max_pos) + 1 + i, blk_title, blk_body, teacher_id,
-                    blk_audio_script, blk_audio_status, req.message_id, origin, section_id)
+                    blk_audio_script, blk_audio_status, req.message_id)
                 if blk_audio_script:
                     audio_block_id = str(block["id"])
                 if first_block is None:
@@ -1915,40 +1794,18 @@ async def list_content_blocks(concept_id: str, authorization: str = Header(...))
     """List content blocks ordered by position — readable by students and teachers."""
     user_id = await _get_student(authorization)
 
-    _BLOCK_SELECT = """
-        SELECT cb.id, cb.type, cb.position, cb.title, cb.body,
-               cb.video_id, v.video_url, v.status AS video_status,
-               cb.audio_status, (cb.audio_data IS NOT NULL) AS has_audio,
-               cb.origin, cb.created_at
-        FROM concept_content_blocks cb
-        LEFT JOIN videos v ON v.id = cb.video_id
-    """
     async with get_db() as db:
-        section_filter = await _get_read_section_filter(user_id, concept_id, db)
-
-        if section_filter == "admin":
-            # School admin sees only their canonical template blocks (origin='admin')
-            rows = await db.fetch(
-                _BLOCK_SELECT + """
-                WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
-                  AND cb.origin = 'admin'
-                ORDER BY cb.position, cb.created_at
-                """, concept_id)
-        elif section_filter:
-            # Teacher/student: see their section's private copy
-            rows = await db.fetch(
-                _BLOCK_SELECT + """
-                WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
-                  AND cb.section_id = $2::uuid
-                ORDER BY cb.position, cb.created_at
-                """, concept_id, section_filter)
-        else:
-            # Standalone teacher (no school): see all blocks for their own course
-            rows = await db.fetch(
-                _BLOCK_SELECT + """
-                WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
-                ORDER BY cb.position, cb.created_at
-                """, concept_id)
+        rows = await db.fetch("""
+            SELECT cb.id, cb.type, cb.position, cb.title, cb.body,
+                   cb.video_id, v.video_url, v.status AS video_status,
+                   cb.audio_status, (cb.audio_data IS NOT NULL) AS has_audio,
+                   cb.origin, cb.created_at
+            FROM concept_content_blocks cb
+            LEFT JOIN videos v ON v.id = cb.video_id
+            WHERE cb.concept_id = $1::uuid AND cb.in_textbook = true
+              AND cb.section_id IS NULL
+            ORDER BY cb.position, cb.created_at
+        """, concept_id)
 
     def _resolve_body(r) -> str | None:
         if r["type"] in ("pipeline_clip", "pipeline_image") and r["body"]:
@@ -1982,22 +1839,19 @@ async def add_content_block(
 ):
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
-        section_id, is_admin_origin = await _get_block_section_context(teacher_id, concept_id, db)
-        origin = "admin" if is_admin_origin else "teacher"
-
         if req.position is None:
             max_pos = await db.fetchval(
-                "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+                "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid AND section_id IS NULL",
                 concept_id,
             )
             req.position = int(max_pos) + 1
         row = await db.fetchrow("""
             INSERT INTO concept_content_blocks
-              (concept_id, type, position, title, body, video_id, created_by, origin, section_id)
-            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid, $8, $9::uuid)
-            RETURNING id, type, position, title, body, video_id, origin, created_at
+              (concept_id, type, position, title, body, video_id, created_by)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::uuid)
+            RETURNING id, type, position, title, body, video_id, created_at
         """, concept_id, req.type, req.position, req.title, req.body,
-            req.video_id, teacher_id, origin, section_id)
+            req.video_id, teacher_id)
     return {
         "id":       str(row["id"]),
         "type":     row["type"],
@@ -2005,7 +1859,6 @@ async def add_content_block(
         "title":    row["title"],
         "body":     row["body"],
         "video_id": row["video_id"],
-        "origin":   row["origin"],
         "created_at": row["created_at"].isoformat(),
     }
 
@@ -2023,7 +1876,7 @@ async def update_content_block(
     req:           UpdateBlockRequest,
     authorization: str = Header(...),
 ):
-    teacher_id = await _require_teacher(authorization)
+    await _require_teacher(authorization)
     sets, params = [], [block_id, concept_id]
     for field, val in req.model_dump(exclude_none=True).items():
         params.append(val)
@@ -2031,10 +1884,9 @@ async def update_content_block(
     if not sets:
         raise HTTPException(400, "Nothing to update")
     async with get_db() as db:
-        extra, _ = await _resolve_block_scope(teacher_id, db)
         await db.execute(
             f"UPDATE concept_content_blocks SET {', '.join(sets)} "
-            f"WHERE id = $1::uuid AND concept_id = $2::uuid {extra}",
+            f"WHERE id = $1::uuid AND concept_id = $2::uuid AND section_id IS NULL",
             *params,
         )
     return {"ok": True}
@@ -2046,11 +1898,10 @@ async def delete_content_block(
     block_id:      str,
     authorization: str = Header(...),
 ):
-    teacher_id = await _require_teacher(authorization)
+    await _require_teacher(authorization)
     async with get_db() as db:
-        extra, _ = await _resolve_block_scope(teacher_id, db)
         await db.execute(
-            f"DELETE FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid {extra}",
+            "DELETE FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid AND section_id IS NULL",
             block_id, concept_id,
         )
     return {"ok": True}
@@ -2066,13 +1917,11 @@ async def reorder_content_blocks(
     items:         list[BlockReorderItem],
     authorization: str = Header(...),
 ):
-    teacher_id = await _require_teacher(authorization)
+    await _require_teacher(authorization)
     async with get_db() as db:
-        extra, _ = await _resolve_block_scope(teacher_id, db)
         for item in items:
             await db.execute(
-                f"UPDATE concept_content_blocks SET position = $1 "
-                f"WHERE id = $2::uuid AND concept_id = $3::uuid {extra}",
+                "UPDATE concept_content_blocks SET position = $1 WHERE id = $2::uuid AND concept_id = $3::uuid AND section_id IS NULL",
                 item.position, item.id, concept_id,
             )
     return {"ok": True}
@@ -2110,11 +1959,10 @@ async def add_block_to_textbook(
     authorization: str = Header(...),
 ):
     """Mark a studio-generated video block as visible in the textbook and move it to the end."""
-    teacher_id = await _require_teacher(authorization)
+    await _require_teacher(authorization)
     async with get_db() as db:
-        extra, _ = await _resolve_block_scope(teacher_id, db)
         max_pos = await db.fetchval(
-            f"SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid {extra}",
+            "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid AND section_id IS NULL",
             concept_id,
         )
         row = await db.fetchrow("""
@@ -2251,19 +2099,16 @@ async def add_pipeline_asset_to_textbook(
     title      = (req.narration_text or "")[:120] or "AI segment"
 
     async with get_db() as db:
-        section_id, is_admin_origin = await _get_block_section_context(teacher_id, concept_id, db)
-        origin = "admin" if is_admin_origin else "teacher"
         max_pos = await db.fetchval(
-            "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid",
+            "SELECT COALESCE(MAX(position), -1) FROM concept_content_blocks WHERE concept_id = $1::uuid AND section_id IS NULL",
             concept_id,
         )
         row = await db.fetchrow("""
             INSERT INTO concept_content_blocks
-              (concept_id, type, position, title, body, created_by, in_textbook, origin, section_id)
-            VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, true, $7, $8::uuid)
+              (concept_id, type, position, title, body, created_by, in_textbook)
+            VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, true)
             RETURNING id, position
-        """, concept_id, block_type, int(max_pos) + 1, title, req.r2_key, teacher_id,
-            origin, section_id)
+        """, concept_id, block_type, int(max_pos) + 1, title, req.r2_key, teacher_id)
 
     return {"id": str(row["id"]), "position": row["position"]}
 
@@ -4619,13 +4464,14 @@ async def list_concept_resources(concept_id: str, authorization: str = Header(..
     """Teacher: list supplementary resources for a concept."""
     await _require_teacher(authorization)
     async with get_db() as db:
+        src_cid = await _src_concept_id(concept_id, db)
         rows = await db.fetch("""
             SELECT id, type, title, mime_type, video_url, position,
                    (raw_text IS NOT NULL AND length(trim(raw_text)) > 10) AS text_extracted
             FROM concept_resources
             WHERE concept_id = $1::uuid
             ORDER BY position, created_at
-        """, concept_id)
+        """, src_cid)
     return [
         {
             "id":            str(r["id"]),
