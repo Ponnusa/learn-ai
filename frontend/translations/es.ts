@@ -456,6 +456,15 @@ export const es: Translation = {
     storedServers: 'Guardado en nuestros servidores',
     emailUpdates: 'Actualizaciones por correo',
     managePreferences: 'Gestiona tu cuenta y preferencias',
+    aboutLegal: 'Acerca de y Legal',
+    company: 'Empresa',
+    support: 'Soporte',
+    privacyPolicy: 'Política de privacidad',
+    termsOfService: 'Términos de servicio',
+    infoHelp: 'Info y ayuda',
+    setByInstitution: 'Establecido por tu institución',
+    restrictedByInstitution: 'Limitado por tu institución',
+    locked: 'bloqueado',
   },
 
   info: {

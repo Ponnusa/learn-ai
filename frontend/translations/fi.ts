@@ -456,6 +456,15 @@ export const fi: Translation = {
     storedServers: 'Tallennettu palvelimillemme',
     emailUpdates: 'Sähköpostiuutiset',
     managePreferences: 'Hallinnoi tiliäsi ja asetuksiasi',
+    aboutLegal: 'Tietoja ja käyttöehdot',
+    company: 'Yritys',
+    support: 'Tuki',
+    privacyPolicy: 'Tietosuojaseloste',
+    termsOfService: 'Käyttöehdot',
+    infoHelp: 'Tietoa ja ohjeita',
+    setByInstitution: 'Oppilaitoksesi asettama',
+    restrictedByInstitution: 'Oppilaitoksesi rajoittama',
+    locked: 'lukittu',
   },
 
   info: {

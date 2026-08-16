@@ -456,6 +456,15 @@ export const sv: Translation = {
     storedServers: 'Lagras på våra servrar',
     emailUpdates: 'E-postuppdateringar',
     managePreferences: 'Hantera ditt konto och dina inställningar',
+    aboutLegal: 'Om & Juridiskt',
+    company: 'Företag',
+    support: 'Support',
+    privacyPolicy: 'Integritetspolicy',
+    termsOfService: 'Användarvillkor',
+    infoHelp: 'Info och hjälp',
+    setByInstitution: 'Inställt av din institution',
+    restrictedByInstitution: 'Begränsat av din institution',
+    locked: 'låst',
   },
 
   info: {

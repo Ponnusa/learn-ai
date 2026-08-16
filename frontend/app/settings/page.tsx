@@ -135,7 +135,7 @@ export default function SettingsPage() {
                     <p className="text-[var(--tx2)] text-sm font-medium">{t.settings.language}</p>
                     <p className="text-[var(--tx6)] text-xs mt-0.5">
                       {institutionLanguages
-                        ? locked ? 'Set by your institution' : 'Restricted by your institution'
+                        ? locked ? t.settings.setByInstitution : t.settings.restrictedByInstitution
                         : t.settings.languageDesc}
                     </p>
                   </div>
@@ -156,7 +156,7 @@ export default function SettingsPage() {
                     </button>
                   ))}
                   {locked && (
-                    <span className="text-[10px] text-purple-400 bg-purple-500/20 px-1.5 py-0.5 rounded-md ml-1">locked</span>
+                    <span className="text-[10px] text-purple-400 bg-purple-500/20 px-1.5 py-0.5 rounded-md ml-1">{t.settings.locked}</span>
                   )}
                 </div>
               </div>
@@ -185,24 +185,24 @@ export default function SettingsPage() {
           <div className="rounded-2xl bg-[var(--surface)] border border-[var(--bd)] overflow-hidden">
             <div className="flex items-center gap-2 px-5 py-3 border-b border-[var(--bd2)]">
               <Info size={16} className="text-teal-500" />
-              <span className="text-[var(--tx6)] text-xs font-medium uppercase tracking-wider">About & Legal</span>
+              <span className="text-[var(--tx6)] text-xs font-medium uppercase tracking-wider">{t.settings.aboutLegal}</span>
             </div>
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--bd3)]">
-              <span className="text-[var(--tx3)] text-sm">Company</span>
+              <span className="text-[var(--tx3)] text-sm">{t.settings.company}</span>
               <span className="text-[var(--tx7)] text-sm">NordX Labs Oy · Espoo, Finland</span>
             </div>
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--bd3)]">
               <div className="flex items-center gap-1.5 text-[var(--tx3)] text-sm">
-                <Mail size={13} className="text-[var(--tx6)]" /> Support
+                <Mail size={13} className="text-[var(--tx6)]" /> {t.settings.support}
               </div>
               <a href="mailto:hello@animlearn.com" className="text-purple-400 hover:text-purple-300 text-sm transition-colors">
                 hello@animlearn.com
               </a>
             </div>
             <div className="flex items-center px-5 py-3.5 gap-4">
-              <Link href="/privacy" className="text-[var(--tx5)] hover:text-[var(--tx1)] text-sm transition-colors">Privacy Policy</Link>
-              <Link href="/terms" className="text-[var(--tx5)] hover:text-[var(--tx1)] text-sm transition-colors">Terms of Service</Link>
-              <Link href="/info" className="text-[var(--tx5)] hover:text-[var(--tx1)] text-sm transition-colors">Info & Help</Link>
+              <Link href="/privacy" className="text-[var(--tx5)] hover:text-[var(--tx1)] text-sm transition-colors">{t.settings.privacyPolicy}</Link>
+              <Link href="/terms" className="text-[var(--tx5)] hover:text-[var(--tx1)] text-sm transition-colors">{t.settings.termsOfService}</Link>
+              <Link href="/info" className="text-[var(--tx5)] hover:text-[var(--tx1)] text-sm transition-colors">{t.settings.infoHelp}</Link>
             </div>
           </div>
 

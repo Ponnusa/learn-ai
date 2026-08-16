@@ -430,6 +430,15 @@ export interface Translation {
     storedServers: string;
     emailUpdates: string;
     managePreferences: string;
+    aboutLegal: string;
+    company: string;
+    support: string;
+    privacyPolicy: string;
+    termsOfService: string;
+    infoHelp: string;
+    setByInstitution: string;
+    restrictedByInstitution: string;
+    locked: string;
   };
 
   info: {
