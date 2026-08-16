@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   MessageSquare, Library, BookOpen, BarChart2, Settings,
   Search, Menu, X, PenSquare, User, Users, LayoutDashboard, GraduationCap, ClipboardList, Mail,
-  ChevronRight,
+  ChevronRight, Info,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { listConversations } from '@/lib/api';
@@ -240,6 +240,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     ...(!isTeacher && !isSuperAdmin
       ? [{ icon: <BarChart2 size={18} />, label: t.sidebar.progress, href: '/progress' }]
       : []),
+    { icon: <Info size={18} />, label: 'Info & Help', href: '/info' },
   ];
 
   // Classroom / role-specific
