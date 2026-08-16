@@ -6,18 +6,16 @@ import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import {
   Info, Video, BookOpen, GraduationCap, Users, BarChart2,
   Brain, Sparkles, ClipboardList, FileText, Shield, Mail,
-  ExternalLink, Play,
+  ExternalLink,
 } from 'lucide-react';
 
-// Replace these with your actual Google Drive file IDs
-// Get the ID from the share link: https://drive.google.com/file/d/YOUR_FILE_ID/view
-const DEMO_VIDEO_IDS = [
-  { id: 'REPLACE_WITH_DRIVE_FILE_ID_1', title: 'LearnX-AI Overview' },
-  { id: 'REPLACE_WITH_DRIVE_FILE_ID_2', title: 'Teacher Walkthrough' },
+const DEMO_VIDEOS = [
+  { url: 'https://pub-ca784163fe614f62b1a3ebb8fe9ad1d3.r2.dev/promo/Teacher_New.mp4', title: 'Teacher Walkthrough' },
+  { url: 'https://pub-ca784163fe614f62b1a3ebb8fe9ad1d3.r2.dev/promo/Video%20Project%203.mp4', title: 'LearnX-AI Overview' },
 ];
 
 const STUDENT_FEATURES = [
-  { icon: <Brain size={18} />, title: 'AI Tutor — Pixel AI', desc: 'Ask anything across maths, physics, chemistry and more. Get step-by-step explanations tailored to your level.' },
+  { icon: <Brain size={18} />, title: 'AI Tutor', desc: 'Ask anything across maths, physics, chemistry and more. Get step-by-step explanations tailored to your level.' },
   { icon: <Video size={18} />, title: 'Animated Course Videos', desc: 'Watch auto-generated Manim animations that make abstract concepts visual and memorable.' },
   { icon: <Sparkles size={18} />, title: 'Diagrams & Visuals', desc: 'Generate custom educational diagrams for any concept in seconds.' },
   { icon: <BookOpen size={18} />, title: 'Study Sets', desc: 'Organise your AI conversations by topic for focused, exam-ready revision.' },
@@ -134,24 +132,15 @@ export default function InfoPage() {
             <section className="mb-10">
               <h2 className="text-[var(--tx1)] font-semibold text-sm mb-4 uppercase tracking-widest text-[var(--tx6)]">See it in action</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {DEMO_VIDEO_IDS.map(({ id, title }) => (
-                  <div key={id} className="rounded-xl overflow-hidden border border-[var(--bd)] bg-[var(--surface)]">
-                    <div className="relative bg-black aspect-video flex items-center justify-center">
-                      {id.startsWith('REPLACE') ? (
-                        <div className="flex flex-col items-center gap-2 text-center px-4">
-                          <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center">
-                            <Play size={18} className="text-white/60 ml-0.5" />
-                          </div>
-                          <p className="text-white/40 text-xs">Demo video coming soon</p>
-                        </div>
-                      ) : (
-                        <iframe
-                          src={`https://drive.google.com/file/d/${id}/preview`}
-                          className="w-full h-full"
-                          allow="autoplay"
-                          allowFullScreen
-                        />
-                      )}
+                {DEMO_VIDEOS.map(({ url, title }) => (
+                  <div key={url} className="rounded-xl overflow-hidden border border-[var(--bd)] bg-[var(--surface)]">
+                    <div className="relative bg-black aspect-video">
+                      <video
+                        src={url}
+                        controls
+                        preload="metadata"
+                        className="w-full h-full object-contain"
+                      />
                     </div>
                     <div className="px-4 py-3 flex items-center gap-2">
                       <Video size={14} className="text-[var(--tx6)] shrink-0" />

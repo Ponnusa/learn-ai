@@ -240,7 +240,6 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
     ...(!isTeacher && !isSuperAdmin
       ? [{ icon: <BarChart2 size={18} />, label: t.sidebar.progress, href: '/progress' }]
       : []),
-    { icon: <Info size={18} />, label: 'Info & Help', href: '/info' },
   ];
 
   // Classroom / role-specific
@@ -270,6 +269,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
             { icon: <Users size={18} />,         label: t.sidebar.classrooms,  href: '/classrooms'  },
             { icon: <ClipboardList size={18} />, label: t.sidebar.assignments, href: '/assignments'  },
           ]),
+    { icon: <Info size={18} />, label: 'Info & Help', href: '/info' },
     { icon: <Settings size={18} />, label: t.sidebar.settings, href: '/settings' },
   ];
 
