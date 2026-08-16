@@ -235,7 +235,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
 
   // Individual learning — same for every role
   const individualItems = [
-    { icon: <Library size={18} />,  label: 'My Assets',         href: '/assets'   },
+    { icon: <Library size={18} />,  label: t.sidebar.myAssets,  href: '/assets'   },
     { icon: <BookOpen size={18} />, label: t.sidebar.studySets, href: '/study'    },
     ...(!isTeacher && !isSuperAdmin
       ? [{ icon: <BarChart2 size={18} />, label: t.sidebar.progress, href: '/progress' }]
@@ -269,7 +269,7 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
             { icon: <Users size={18} />,         label: t.sidebar.classrooms,  href: '/classrooms'  },
             { icon: <ClipboardList size={18} />, label: t.sidebar.assignments, href: '/assignments'  },
           ]),
-    { icon: <Info size={18} />, label: 'Info & Help', href: '/info' },
+    { icon: <Info size={18} />, label: t.sidebar.infoHelp, href: '/info' },
     { icon: <Settings size={18} />, label: t.sidebar.settings, href: '/settings' },
   ];
 

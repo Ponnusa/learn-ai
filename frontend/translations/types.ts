@@ -87,6 +87,8 @@ export interface Translation {
     courseBuilder: string;
     students: string;
     assignments: string;
+    myAssets: string;
+    infoHelp: string;
   };
 
   chat: {
@@ -428,6 +430,24 @@ export interface Translation {
     storedServers: string;
     emailUpdates: string;
     managePreferences: string;
+  };
+
+  info: {
+    title: string;
+    subtitle: string;
+    whatYouCanDo: string;
+    forStudents: string;
+    forTeachers: string;
+    seeItInAction: string;
+    userGuides: string;
+    about: string;
+    platformDesc: string;
+    openGuide: string;
+    disclaimer: string;
+    studentFeatures: { title: string; desc: string }[];
+    teacherFeatures: { title: string; desc: string }[];
+    guides: { role: string; desc: string }[];
+    videoTitles: [string, string];
   };
 
   errors: {

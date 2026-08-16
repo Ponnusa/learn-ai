@@ -92,6 +92,8 @@ export const es: Translation = {
     courseBuilder: 'Constructor de cursos',
     students: 'Estudiantes',
     assignments: 'Tareas',
+    myAssets: 'Mis recursos',
+    infoHelp: 'Info y ayuda',
   },
 
   chat: {
@@ -454,6 +456,40 @@ export const es: Translation = {
     storedServers: 'Guardado en nuestros servidores',
     emailUpdates: 'Actualizaciones por correo',
     managePreferences: 'Gestiona tu cuenta y preferencias',
+  },
+
+  info: {
+    title: 'Info y ayuda',
+    subtitle: 'Todo sobre LearnX-AI',
+    whatYouCanDo: 'Qué puedes hacer',
+    forStudents: 'Para estudiantes',
+    forTeachers: 'Para profesores',
+    seeItInAction: 'Véalo en acción',
+    userGuides: 'Guías de usuario',
+    about: 'Acerca de',
+    platformDesc: 'Plataforma educativa impulsada por IA para escuelas y estudiantes.',
+    openGuide: 'Abrir guía',
+    disclaimer: 'LearnX-AI es una herramienta de apoyo al aprendizaje. El contenido generado por IA siempre debe verificarse con libros de texto, profesores o materiales curriculares oficiales. Usa LearnX-AI para el aprendizaje activo, no para copiar pasivamente respuestas.',
+    studentFeatures: [
+      { title: 'Tutor IA', desc: 'Pregunta sobre matemáticas, física, química y más. Obtén explicaciones paso a paso adaptadas a tu nivel.' },
+      { title: 'Videos de curso animados', desc: 'Ve animaciones auto-generadas que hacen los conceptos abstractos visuales y memorables.' },
+      { title: 'Diagramas y visuales', desc: 'Genera diagramas educativos personalizados para cualquier concepto en segundos.' },
+      { title: 'Conjuntos de estudio', desc: 'Organiza tus conversaciones de IA por tema para una revisión enfocada y lista para exámenes.' },
+      { title: 'Seguimiento del progreso', desc: 'Monitorea tu puntuación de dominio por concepto y ve tu tendencia de mejora a lo largo del tiempo.' },
+    ],
+    teacherFeatures: [
+      { title: 'Constructor de cursos', desc: 'Estructura tu programa en capítulos y conceptos — con contenido generado por IA para cada uno.' },
+      { title: 'Generador de videos', desc: 'Genera automáticamente videos animados de alta calidad para cualquier concepto desde tu programa.' },
+      { title: 'Gestión de clase', desc: 'Invita a estudiantes, gestiona inscripciones y organiza múltiples clases.' },
+      { title: 'Analítica de estudiantes', desc: 'Ve las puntuaciones de dominio, tendencias de aprendizaje y actividad de cada estudiante de un vistazo.' },
+      { title: 'Tareas', desc: 'Crea tareas adaptativas con ejercicios generados por IA y rastrea las completaciones.' },
+    ],
+    guides: [
+      { role: 'Guía del estudiante', desc: 'Comienza con tus cursos, tutor de IA y herramientas de estudio.' },
+      { role: 'Guía del profesor', desc: 'Construye cursos, genera videos y gestiona tu clase.' },
+      { role: 'Guía del administrador', desc: 'Configura tu escuela, gestiona profesores y ajusta la configuración.' },
+    ],
+    videoTitles: ['Tutorial para profesores', 'Descripción general de LearnX-AI'],
   },
 
   errors: {

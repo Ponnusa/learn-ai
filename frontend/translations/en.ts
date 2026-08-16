@@ -92,6 +92,8 @@ export const en: Translation = {
     courseBuilder: 'Course Builder',
     students: 'Students',
     assignments: 'Assignments',
+    myAssets: 'My Assets',
+    infoHelp: 'Info & Help',
   },
 
   chat: {
@@ -454,6 +456,40 @@ export const en: Translation = {
     storedServers: 'Stored on our servers',
     emailUpdates: 'Email updates',
     managePreferences: 'Manage your account and preferences',
+  },
+
+  info: {
+    title: 'Info & Help',
+    subtitle: 'Everything about LearnX-AI',
+    whatYouCanDo: 'What you can do',
+    forStudents: 'For Students',
+    forTeachers: 'For Teachers',
+    seeItInAction: 'See it in action',
+    userGuides: 'User Guides',
+    about: 'About',
+    platformDesc: 'AI-powered educational platform for schools and students.',
+    openGuide: 'Open guide',
+    disclaimer: 'LearnX-AI is a learning support tool. AI-generated content should always be verified with textbooks, teachers, or official curriculum materials. Use LearnX-AI for active learning, not passive copying of answers.',
+    studentFeatures: [
+      { title: 'AI Tutor', desc: 'Ask anything across maths, physics, chemistry and more. Get step-by-step explanations tailored to your level.' },
+      { title: 'Animated Course Videos', desc: 'Watch auto-generated Manim animations that make abstract concepts visual and memorable.' },
+      { title: 'Diagrams & Visuals', desc: 'Generate custom educational diagrams for any concept in seconds.' },
+      { title: 'Study Sets', desc: 'Organise your AI conversations by topic for focused, exam-ready revision.' },
+      { title: 'Progress Tracking', desc: 'Monitor your mastery score per concept and see your improvement trend over time.' },
+    ],
+    teacherFeatures: [
+      { title: 'Course Builder', desc: 'Structure your curriculum into chapters and concepts — with AI-generated content for each.' },
+      { title: 'Video Generator', desc: 'Generate high-quality animated videos for any concept automatically from your syllabus.' },
+      { title: 'Classroom Management', desc: 'Invite students, manage enrolments, and organise multiple classrooms.' },
+      { title: 'Student Analytics', desc: 'See individual student mastery scores, learning trends, and activity at a glance.' },
+      { title: 'Assignments', desc: 'Create adaptive assignments with AI-generated exercises and track completion.' },
+    ],
+    guides: [
+      { role: 'Student Guide', desc: 'Get started with your courses, AI tutor, and study tools.' },
+      { role: 'Teacher Guide', desc: 'Build courses, generate videos, and manage your classroom.' },
+      { role: 'Admin Guide', desc: 'Set up your school, manage teachers, and configure settings.' },
+    ],
+    videoTitles: ['Teacher Walkthrough', 'LearnX-AI Overview'],
   },
 
   errors: {

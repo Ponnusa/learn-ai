@@ -92,6 +92,8 @@ export const fi: Translation = {
     courseBuilder: 'Kurssinrakentaja',
     students: 'Oppilaat',
     assignments: 'Tehtävät',
+    myAssets: 'Omat materiaalit',
+    infoHelp: 'Tietoa ja ohjeita',
   },
 
   chat: {
@@ -454,6 +456,40 @@ export const fi: Translation = {
     storedServers: 'Tallennettu palvelimillemme',
     emailUpdates: 'Sähköpostiuutiset',
     managePreferences: 'Hallinnoi tiliäsi ja asetuksiasi',
+  },
+
+  info: {
+    title: 'Tietoa ja ohjeita',
+    subtitle: 'Kaikki LearnX-AI:sta',
+    whatYouCanDo: 'Mitä voit tehdä',
+    forStudents: 'Opiskelijoille',
+    forTeachers: 'Opettajille',
+    seeItInAction: 'Näe se toiminnassa',
+    userGuides: 'Käyttöoppaat',
+    about: 'Tietoja',
+    platformDesc: 'Tekoälypohjainen oppimisalusta kouluille ja opiskelijoille.',
+    openGuide: 'Avaa opas',
+    disclaimer: 'LearnX-AI on oppimisen tukityökalu. Tekoälyn tuottama sisältö tulee aina tarkistaa oppikirjoista, opettajilta tai virallisista opetussuunnitelmamateriaaleista. Käytä LearnX-AI:ta aktiiviseen oppimiseen, älä passiiviseen vastauksien kopioimiseen.',
+    studentFeatures: [
+      { title: 'Tekoälytutor', desc: 'Kysy mitä tahansa matematiikasta, fysiikasta, kemiasta ja muusta. Saat vaiheittaiset selitykset tasollesi sopivina.' },
+      { title: 'Animoidut kurssivideot', desc: 'Katso automaattisesti luotuja animaatioita, jotka tekevät abstrakteista käsitteistä visuaalisia ja mieleenpainuvia.' },
+      { title: 'Kaaviot ja visuaalit', desc: 'Luo mukautettuja oppimiskaavioita mille tahansa käsitteelle sekunneissa.' },
+      { title: 'Opiskelupaketit', desc: 'Järjestä tekoälykeskustelusi aiheittain kohdennettua, kokeisiin valmistautuvaa kertausta varten.' },
+      { title: 'Edistymisen seuranta', desc: 'Seuraa hallintapisteyttäsi käsitettä kohden ja näe edistymistrendisi ajan myötä.' },
+    ],
+    teacherFeatures: [
+      { title: 'Kurssirakentaja', desc: 'Rakenna opetussuunnitelmasi luvuiksi ja käsitteiksi — tekoälyn tuottamalla sisällöllä jokaiselle.' },
+      { title: 'Videogeneraattori', desc: 'Luo laadukkaita animoituja videoita automaattisesti mille tahansa käsitteelle opetussuunnitelmastasi.' },
+      { title: 'Luokkien hallinta', desc: 'Kutsu opiskelijoita, hallinnoi ilmoittautumisia ja järjestä useita luokkia.' },
+      { title: 'Opiskelijaanalytiikka', desc: 'Näe yksittäisten opiskelijoiden hallintapisteet, oppimistrendit ja aktiivisuus yhdellä silmäyksellä.' },
+      { title: 'Tehtävät', desc: 'Luo mukautuvia tehtäviä tekoälyn luomilla harjoituksilla ja seuraa suorituksia.' },
+    ],
+    guides: [
+      { role: 'Opiskelijan opas', desc: 'Aloita kurssiesi, tekoälytutorin ja opiskelutyökalujen käyttö.' },
+      { role: 'Opettajan opas', desc: 'Rakenna kursseja, luo videoita ja hallinnoi luokkaasi.' },
+      { role: 'Ylläpitäjän opas', desc: 'Perusta koulusi, hallinnoi opettajia ja konfiguroi asetuksia.' },
+    ],
+    videoTitles: ['Opettajan esittely', 'LearnX-AI yleiskatsaus'],
   },
 
   errors: {

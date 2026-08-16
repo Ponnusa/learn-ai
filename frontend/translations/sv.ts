@@ -92,6 +92,8 @@ export const sv: Translation = {
     courseBuilder: 'Kursbyggare',
     students: 'Elever',
     assignments: 'Uppgifter',
+    myAssets: 'Mina resurser',
+    infoHelp: 'Info och hjälp',
   },
 
   chat: {
@@ -454,6 +456,40 @@ export const sv: Translation = {
     storedServers: 'Lagras på våra servrar',
     emailUpdates: 'E-postuppdateringar',
     managePreferences: 'Hantera ditt konto och dina inställningar',
+  },
+
+  info: {
+    title: 'Info och hjälp',
+    subtitle: 'Allt om LearnX-AI',
+    whatYouCanDo: 'Vad du kan göra',
+    forStudents: 'För elever',
+    forTeachers: 'För lärare',
+    seeItInAction: 'Se det i aktion',
+    userGuides: 'Användarguider',
+    about: 'Om',
+    platformDesc: 'AI-driven utbildningsplattform för skolor och elever.',
+    openGuide: 'Öppna guide',
+    disclaimer: 'LearnX-AI är ett lärverktyg. AI-genererat innehåll bör alltid verifieras med läroböcker, lärare eller officiella kursmaterial. Använd LearnX-AI för aktivt lärande, inte passivt kopiering av svar.',
+    studentFeatures: [
+      { title: 'AI-handledare', desc: 'Fråga om vad som helst inom matematik, fysik, kemi och mer. Få steg-för-steg-förklaringar anpassade till din nivå.' },
+      { title: 'Animerade kursvideor', desc: 'Se automatiskt genererade animationer som gör abstrakta begrepp visuella och minnesvärda.' },
+      { title: 'Diagram och visualiseringar', desc: 'Skapa anpassade pedagogiska diagram för vilket begrepp som helst på sekunder.' },
+      { title: 'Studiepaket', desc: 'Organisera dina AI-samtal efter ämne för fokuserad, examensförberedande repetition.' },
+      { title: 'Framstegsspårning', desc: 'Övervaka din behärskandepoäng per begrepp och se din förbättringstrend över tid.' },
+    ],
+    teacherFeatures: [
+      { title: 'Kursbyggare', desc: 'Strukturera din läroplan i kapitel och begrepp — med AI-genererat innehåll för varje.' },
+      { title: 'Videogenerator', desc: 'Generera automatiskt animerade videor av hög kvalitet för vilket begrepp som helst från din kursplan.' },
+      { title: 'Klassrumshantering', desc: 'Bjud in elever, hantera registreringar och organisera flera klassrum.' },
+      { title: 'Elevanalys', desc: 'Se enskilda elevers behärskandepoäng, inlärningstrender och aktivitet på ett ögonblick.' },
+      { title: 'Uppgifter', desc: 'Skapa anpassningsbara uppgifter med AI-genererade övningar och följ upp slutföranden.' },
+    ],
+    guides: [
+      { role: 'Elevguide', desc: 'Kom igång med dina kurser, AI-handledare och studieverktyg.' },
+      { role: 'Lärarguide', desc: 'Bygg kurser, generera videor och hantera ditt klassrum.' },
+      { role: 'Adminguide', desc: 'Konfigurera din skola, hantera lärare och justera inställningar.' },
+    ],
+    videoTitles: ['Lärargenomgång', 'LearnX-AI översikt'],
   },
 
   errors: {
