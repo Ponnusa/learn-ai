@@ -358,6 +358,31 @@ async def delete_video(video_id: int):
     return {"deleted": True}
 
 
+@router.get("/{video_id}/watch")
+async def get_video_watch(video_id: int):
+    """
+    Public endpoint for the in-app watch page (/watch/{id}).
+    Returns only the fields needed for playback — no auth required.
+    Raw R2 URL is intentionally returned here so the watch page player can work,
+    but it is never embedded in exported files (those link to this page instead).
+    """
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "SELECT id, status, video_url, prompt, subject, duration_secs FROM videos WHERE id = $1",
+            video_id,
+        )
+    if not row or not row["video_url"]:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return {
+        "id":           row["id"],
+        "status":       row["status"],
+        "video_url":    row["video_url"],
+        "prompt":       row["prompt"],
+        "subject":      row["subject"],
+        "duration_secs": row["duration_secs"],
+    }
+
+
 @router.get("/conversation/{conversation_id}")
 async def get_conversation_videos(conversation_id: str):
     """

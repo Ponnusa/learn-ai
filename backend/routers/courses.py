@@ -12,6 +12,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request, 
 from fastapi.responses import Response, RedirectResponse
 from pydantic import BaseModel
 
+from config import settings
 from database import get_db
 from routers.auth import decode_jwt
 
@@ -1033,9 +1034,10 @@ async def export_course(
     await _require_teacher(authorization)
 
     base_url = str(request.base_url).rstrip("/") if request else ""
+    app_url  = settings.FRONTEND_URL.rstrip("/")
 
     if format == "scorm":
-        data = await export_scorm(course_id, base_url)
+        data = await export_scorm(course_id, base_url, app_url=app_url)
         if data is None:
             raise HTTPException(404, "Course not found")
         safe_name = re.sub(r"[^a-z0-9_-]", "_", course_id.lower())
@@ -1048,7 +1050,7 @@ async def export_course(
             },
         )
     else:
-        data = await export_html(course_id, base_url)
+        data = await export_html(course_id, base_url, app_url=app_url)
         if data is None:
             raise HTTPException(404, "Course not found")
         safe_name = re.sub(r"[^a-z0-9_-]", "_", course_id.lower())

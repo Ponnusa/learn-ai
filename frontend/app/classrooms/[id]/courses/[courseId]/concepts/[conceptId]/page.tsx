@@ -428,7 +428,9 @@ export default function StudentConceptDetailPage() {
           {/* Legacy single-asset view (only when no textbook blocks) */}
           {!hasBlocks && showVideo && (
             <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden mb-6">
-              <video controls src={`${API_BASE}${assets!.video_url}`} className="w-full aspect-video"
+              <video controls controlsList="nodownload" disablePictureInPicture
+                src={`${API_BASE}${assets!.video_url}`} className="w-full aspect-video"
+                onContextMenu={e => e.preventDefault()}
                 onTimeUpdate={handleLegacyVideoTimeUpdate}
                 onEnded={handleLegacyVideoEnded}
               />

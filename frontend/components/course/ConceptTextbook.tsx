@@ -108,7 +108,9 @@ function VideoBlock({ block, token, onWatchPct }: {
       </div>
       {videoUrl
         ? <>
-            <video src={videoUrl} controls className="w-full aspect-video bg-black" preload="metadata"
+            <video src={videoUrl} controls controlsList="nodownload" disablePictureInPicture
+              className="w-full aspect-video bg-black" preload="metadata"
+              onContextMenu={e => e.preventDefault()}
               onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
               onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
               onTimeUpdate={onWatchPct ? handleTimeUpdate : undefined}
@@ -204,7 +206,9 @@ function EmbedVideoBlock({ block }: { block: ContentBlock }) {
       {isYoutube
         ? <iframe src={embedUrl} className="w-full aspect-video" allowFullScreen
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" />
-        : <video src={embedUrl} controls className="w-full aspect-video bg-black" preload="metadata"
+        : <video src={embedUrl} controls controlsList="nodownload" disablePictureInPicture
+            className="w-full aspect-video bg-black" preload="metadata"
+            onContextMenu={e => e.preventDefault()}
             onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
             onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
           />}
@@ -415,7 +419,9 @@ function SortableBlock({ block, conceptId, token, editable, onDelete, onLightbox
         : block.type === 'embed_pdf'     ? <EmbedPdfBlock   block={block} onOpen={onPdf} />
         : block.type === 'pipeline_clip' ? (
           <div className="rounded-xl overflow-hidden bg-black">
-            <video src={block.body!} controls className="w-full" preload="metadata"
+            <video src={block.body!} controls controlsList="nodownload" disablePictureInPicture
+              className="w-full" preload="metadata"
+              onContextMenu={e => e.preventDefault()}
               onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
               onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
             />
@@ -521,7 +527,9 @@ export function ConceptTextbook({ conceptId, token, editable = false, onHasBlock
               : block.type === 'embed_pdf'     ? <EmbedPdfBlock   block={block} onOpen={(u,t) => setPdfModal({url:u,title:t})} />
               : block.type === 'pipeline_clip' ? (
                 <div className="rounded-xl overflow-hidden bg-black">
-                  <video src={block.body!} controls className="w-full" preload="metadata"
+                  <video src={block.body!} controls controlsList="nodownload" disablePictureInPicture
+              className="w-full" preload="metadata"
+              onContextMenu={e => e.preventDefault()}
               onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
               onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
             />

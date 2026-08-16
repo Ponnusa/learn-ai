@@ -281,7 +281,7 @@ _SCORM_JS = """\
 
 # ── Page renderer ─────────────────────────────────────────────────────────────
 
-def _render_concept(c: dict, base_url: str) -> str:
+def _render_concept(c: dict, base_url: str, app_url: str = "") -> str:
     parts = [f'<div class="concept">']
     parts.append(f'<div class="concept-title">📚 {_esc(c["title"])}</div>')
 
@@ -306,9 +306,15 @@ def _render_concept(c: dict, base_url: str) -> str:
             parts.append('<div class="video-block">')
             if b.get("title"):
                 parts.append(f'<div class="video-title">{_esc(b["title"])}</div>')
+            # Use in-app watch page so the raw R2 URL is never in the export
+            video_id = b.get("video_id")
+            if video_id and app_url:
+                watch_url = f"{app_url}/watch/{video_id}"
+            else:
+                watch_url = b.get("video_url", "#")
             parts.append(
-                f'<a class="video-link" href="{_esc(b["video_url"])}" target="_blank">'
-                '▶ Watch Video</a>'
+                f'<a class="video-link" href="{_esc(watch_url)}" target="_blank">'
+                '▶ Watch Video on LearnX AI</a>'
             )
             parts.append("</div>")
         parts.append("</div></details>")
@@ -393,7 +399,7 @@ def _render_concept(c: dict, base_url: str) -> str:
     return "\n".join(parts)
 
 
-def _render_html(data: dict, base_url: str, scorm: bool = False) -> str:
+def _render_html(data: dict, base_url: str, scorm: bool = False, app_url: str = "") -> str:
     course = data["course"]
     units  = data.get("units", [])
     name   = _esc(course.get("name", "Course Export"))
@@ -410,7 +416,7 @@ def _render_html(data: dict, base_url: str, scorm: bool = False) -> str:
     units_html_parts = []
     for unit in units:
         concepts_html = "\n".join(
-            _render_concept(c, base_url) for c in unit.get("concepts", [])
+            _render_concept(c, base_url, app_url) for c in unit.get("concepts", [])
         )
         units_html_parts.append(
             f'<div class="unit">'
@@ -519,7 +525,7 @@ async def gather_course_data(course_id: str) -> dict | None:
             SELECT cb.id::text, cb.concept_id::text, cb.type, cb.position,
                    cb.title, cb.body, cb.audio_status,
                    (cb.audio_data IS NOT NULL) AS has_audio,
-                   v.video_url
+                   v.video_url, v.id AS video_id
             FROM concept_content_blocks cb
             LEFT JOIN videos v ON v.id = cb.video_id AND v.status = 'completed'
             WHERE cb.concept_id = ANY($1::uuid[]) AND cb.in_textbook = true
@@ -605,19 +611,19 @@ async def gather_course_data(course_id: str) -> dict | None:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-async def export_html(course_id: str, base_url: str) -> bytes:
+async def export_html(course_id: str, base_url: str, app_url: str = "") -> bytes:
     data = await gather_course_data(course_id)
     if data is None:
         return None
-    return _render_html(data, base_url, scorm=False).encode("utf-8")
+    return _render_html(data, base_url, scorm=False, app_url=app_url).encode("utf-8")
 
 
-async def export_scorm(course_id: str, base_url: str) -> bytes:
+async def export_scorm(course_id: str, base_url: str, app_url: str = "") -> bytes:
     data = await gather_course_data(course_id)
     if data is None:
         return None
 
-    html_bytes  = _render_html(data, base_url, scorm=True).encode("utf-8")
+    html_bytes  = _render_html(data, base_url, scorm=True, app_url=app_url).encode("utf-8")
     course_name = data["course"]["name"]
     safe_id     = course_id.replace("-", "")
     manifest    = _render_manifest(safe_id, course_name).encode("utf-8")
