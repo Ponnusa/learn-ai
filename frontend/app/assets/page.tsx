@@ -9,7 +9,7 @@ import {
   ArrowLeft, Download, CheckCircle, XCircle, Loader,
   RefreshCw, FileText, X, Play, MessageSquare,
   ChevronLeft, ChevronRight, Video, Sparkles, ThumbsDown,
-  ZoomIn, Clock, Trash2, AlertCircle, Loader2, Library,
+  ZoomIn, Clock, Trash2, AlertCircle, Loader2,
 } from 'lucide-react';
 import { getVideoStatus, retryVideo, getUserVideos, getSessionVideos, generateVideo, improveVideo } from '@/lib/api';
 import { generateEduImage, getEduImageJob, listEduImages, deleteEduImage, retryEduImage, EduImageJob } from '@/lib/api';
@@ -571,31 +571,35 @@ function ImageLightbox({ src, title, description, onClose }: {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-4"
+    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm overflow-y-auto"
       onClick={onClose}>
-      <div className="absolute top-4 right-4 flex items-center gap-1.5">
+      {/* Fixed controls — stay visible while content scrolls */}
+      <div className="fixed top-4 right-4 z-10 flex items-center gap-1.5">
         <button onClick={e => { e.stopPropagation(); setZoom(z => Math.max(0.5, z - 0.3)); }}
-          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-black/60 hover:bg-black/80 text-white transition-colors backdrop-blur-sm">
           <span className="text-sm font-bold">−</span>
         </button>
-        <span className="text-white/40 text-xs w-10 text-center">{Math.round(zoom * 100)}%</span>
+        <span className="text-white/50 text-xs w-10 text-center">{Math.round(zoom * 100)}%</span>
         <button onClick={e => { e.stopPropagation(); setZoom(z => Math.min(4, z + 0.3)); }}
-          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-black/60 hover:bg-black/80 text-white transition-colors backdrop-blur-sm">
           <span className="text-sm font-bold">+</span>
         </button>
         <a href={src} download="educational-diagram.png" onClick={e => e.stopPropagation()}
-          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-black/60 hover:bg-black/80 text-white transition-colors backdrop-blur-sm">
           <Download size={15} />
         </a>
         <button onClick={onClose}
-          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-black/60 hover:bg-black/80 text-white transition-colors backdrop-blur-sm">
           <X size={15} />
         </button>
       </div>
-      <div className="flex flex-col items-center gap-4 max-w-3xl w-full" onClick={e => e.stopPropagation()}>
+
+      {/* Scrollable content — padded so it clears the fixed button row */}
+      <div className="min-h-full flex flex-col items-center justify-center gap-4 px-4 py-16 max-w-3xl mx-auto"
+        onClick={e => e.stopPropagation()}>
         <img src={src} alt={title}
-          style={{ transform: `scale(${zoom})`, transition: 'transform 0.15s ease', transformOrigin: 'center' }}
-          className="max-w-full max-h-[70vh] object-contain rounded-xl select-none cursor-zoom-in bg-white"
+          style={{ transform: `scale(${zoom})`, transition: 'transform 0.15s ease', transformOrigin: 'top center' }}
+          className="max-w-full object-contain rounded-xl select-none cursor-zoom-in bg-white w-full"
           onClick={() => setZoom(z => z === 1 ? 2 : 1)}
           draggable={false} />
         {description && (
