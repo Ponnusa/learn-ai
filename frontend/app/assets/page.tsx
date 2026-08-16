@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, Suspense, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -571,44 +572,45 @@ function ImageLightbox({ src, title, description, onClose }: {
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm overflow-y-auto"
-      onClick={onClose}>
-      {/* Fixed controls — stay visible while content scrolls */}
-      <div className="fixed top-4 right-4 z-10 flex items-center gap-1.5">
-        <button onClick={e => { e.stopPropagation(); setZoom(z => Math.max(0.5, z - 0.3)); }}
-          className="w-9 h-9 flex items-center justify-center rounded-xl bg-black/60 hover:bg-black/80 text-white transition-colors backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm">
+      {/* Controls row — always at top, never scrolls away */}
+      <div className="flex items-center justify-end gap-1.5 px-4 py-3 shrink-0">
+        <button onClick={() => setZoom(z => Math.max(0.5, z - 0.3))}
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
           <span className="text-sm font-bold">−</span>
         </button>
-        <span className="text-white/50 text-xs w-10 text-center">{Math.round(zoom * 100)}%</span>
-        <button onClick={e => { e.stopPropagation(); setZoom(z => Math.min(4, z + 0.3)); }}
-          className="w-9 h-9 flex items-center justify-center rounded-xl bg-black/60 hover:bg-black/80 text-white transition-colors backdrop-blur-sm">
+        <span className="text-white/40 text-xs w-10 text-center">{Math.round(zoom * 100)}%</span>
+        <button onClick={() => setZoom(z => Math.min(4, z + 0.3))}
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
           <span className="text-sm font-bold">+</span>
         </button>
-        <a href={src} download="educational-diagram.png" onClick={e => e.stopPropagation()}
-          className="w-9 h-9 flex items-center justify-center rounded-xl bg-black/60 hover:bg-black/80 text-white transition-colors backdrop-blur-sm">
+        <a href={src} download="educational-diagram.png"
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
           <Download size={15} />
         </a>
         <button onClick={onClose}
-          className="w-9 h-9 flex items-center justify-center rounded-xl bg-black/60 hover:bg-black/80 text-white transition-colors backdrop-blur-sm">
+          className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
           <X size={15} />
         </button>
       </div>
 
-      {/* Scrollable content — padded so it clears the fixed button row */}
-      <div className="min-h-full flex flex-col items-center justify-center gap-4 px-4 py-16 max-w-3xl mx-auto"
-        onClick={e => e.stopPropagation()}>
-        <img src={src} alt={title}
-          style={{ transform: `scale(${zoom})`, transition: 'transform 0.15s ease', transformOrigin: 'top center' }}
-          className="max-w-full object-contain rounded-xl select-none cursor-zoom-in bg-white w-full"
-          onClick={() => setZoom(z => z === 1 ? 2 : 1)}
-          draggable={false} />
-        {description && (
-          <div className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-left">
-            <p className="text-white/50 text-[10px] uppercase tracking-wide font-medium mb-2">About this diagram</p>
-            <p className="text-white/75 text-sm leading-relaxed whitespace-pre-wrap">{description}</p>
-          </div>
-        )}
-        <p className="text-white/20 text-xs">Click image to toggle zoom · Esc to close</p>
+      {/* Scrollable content — click backdrop area to close */}
+      <div className="flex-1 overflow-y-auto" onClick={onClose}>
+        <div className="flex flex-col items-center gap-4 px-4 py-6 max-w-3xl mx-auto"
+          onClick={e => e.stopPropagation()}>
+          <img src={src} alt={title}
+            style={{ transform: `scale(${zoom})`, transition: 'transform 0.15s ease', transformOrigin: 'top center' }}
+            className="max-w-full object-contain rounded-xl select-none cursor-zoom-in bg-white w-full"
+            onClick={() => setZoom(z => z === 1 ? 2 : 1)}
+            draggable={false} />
+          {description && (
+            <div className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-left">
+              <p className="text-white/50 text-[10px] uppercase tracking-wide font-medium mb-2">About this diagram</p>
+              <p className="text-white/75 text-sm leading-relaxed whitespace-pre-wrap">{description}</p>
+            </div>
+          )}
+          <p className="text-white/20 text-xs">Click image to toggle zoom · Esc to close</p>
+        </div>
       </div>
     </div>
   );
@@ -1484,22 +1486,26 @@ function AssetsContent() {
           <>
             <MobileTopBar />
             <div className="flex items-center gap-1 px-3 border-b border-[var(--bd)] shrink-0">
-              <button
-                onClick={() => router.replace('/assets')}
+              <Link
+                href="/assets"
+                replace
+                prefetch={false}
                 className={`flex items-center gap-1.5 px-3 py-3 text-xs font-medium border-b-2 transition-colors
                   ${activeTab === 'videos'
                     ? 'border-purple-500 text-purple-400'
                     : 'border-transparent text-[var(--tx5)] hover:text-[var(--tx2)]'}`}>
                 <Video size={13} /> Videos
-              </button>
-              <button
-                onClick={() => router.replace('/assets?tab=diagrams')}
+              </Link>
+              <Link
+                href="/assets?tab=diagrams"
+                replace
+                prefetch={false}
                 className={`flex items-center gap-1.5 px-3 py-3 text-xs font-medium border-b-2 transition-colors
                   ${activeTab === 'diagrams'
                     ? 'border-indigo-500 text-indigo-400'
                     : 'border-transparent text-[var(--tx5)] hover:text-[var(--tx2)]'}`}>
                 <Sparkles size={13} /> Diagrams
-              </button>
+              </Link>
             </div>
           </>
         )}
