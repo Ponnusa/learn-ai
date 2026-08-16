@@ -190,7 +190,9 @@ export default function AssignmentsPage() {
                     )}
 
                     {detail.status === 'ready' && detail.kind === 'video' && detail.video_url && (
-                      <video controls src={detail.video_url} className="w-full aspect-video rounded-xl" />
+                      <video controls controlsList="nodownload" disablePictureInPicture
+                        src={detail.video_url} className="w-full aspect-video rounded-xl"
+                        onContextMenu={e => e.preventDefault()} />
                     )}
                   </div>
                 )}

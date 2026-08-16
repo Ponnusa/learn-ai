@@ -1049,7 +1049,8 @@ function VideosContent() {
                 <div className="w-full max-w-3xl">
                   <div className="aspect-video rounded-2xl overflow-hidden bg-black
                                   shadow-2xl shadow-purple-500/10 mb-3">
-                    <video src={videoUrl} controls autoPlay className="w-full h-full" />
+                    <video src={videoUrl} controls autoPlay controlsList="nodownload" disablePictureInPicture
+                      className="w-full h-full" onContextMenu={e => e.preventDefault()} />
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[var(--tx5)] text-sm min-w-0 flex items-center gap-2 truncate">

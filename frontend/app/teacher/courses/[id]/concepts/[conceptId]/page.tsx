@@ -1298,7 +1298,9 @@ export default function ConceptEditorPage() {
                               )}
                               {vidReady && (
                                 <div>
-                                  <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata"
+                                  <video src={vid.videoUrl} controls controlsList="nodownload" disablePictureInPicture
+                                    className="w-full bg-black" preload="metadata"
+                                    onContextMenu={e => e.preventDefault()}
                                     onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
                                     onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
                                   />
@@ -1619,7 +1621,9 @@ export default function ConceptEditorPage() {
                                 {/* Ready — player + actions */}
                                 {vidReady && (
                                   <div>
-                                    <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata"
+                                    <video src={vid.videoUrl} controls controlsList="nodownload" disablePictureInPicture
+                                    className="w-full bg-black" preload="metadata"
+                                    onContextMenu={e => e.preventDefault()}
                                     onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
                                     onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
                                   />
@@ -2584,8 +2588,11 @@ export default function ConceptEditorPage() {
                                       <video
                                         src={seg.clip_url}
                                         controls
+                                        controlsList="nodownload"
+                                        disablePictureInPicture
                                         className="w-full bg-black"
                                         preload="metadata"
+                                        onContextMenu={e => e.preventDefault()}
                                         onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
                                         onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
                                       />
@@ -2669,7 +2676,9 @@ export default function ConceptEditorPage() {
                               )}
                               {vidReady && (
                                 <div>
-                                  <video src={vid.videoUrl} controls className="w-full bg-black" preload="metadata"
+                                  <video src={vid.videoUrl} controls controlsList="nodownload" disablePictureInPicture
+                                    className="w-full bg-black" preload="metadata"
+                                    onContextMenu={e => e.preventDefault()}
                                     onLoadedMetadata={(e) => { const v = e.currentTarget; if (isFinite(v.duration)) v.currentTime = Math.min(10, v.duration / 2); }}
                                     onPlay={(e) => { const v = e.currentTarget; if (!v.dataset.played) { v.dataset.played = '1'; v.currentTime = 0; } }}
                                   />
