@@ -1,0 +1,320 @@
+<title>LearnX AI – Opettajaopas</title>
+<style>
+:root {
+  --bg:#f5f9f6;--surface:#ffffff;--border:#d5e8db;--border2:#b8d9c3;
+  --accent:#16a34a;--accent-dk:#15803d;--accent-lo:#f0fdf4;--accent-md:#bbf7d0;
+  --tip-bg:#f0fdf4;--tip-bd:#bbf7d0;--warn-bg:#fffbeb;--warn-bd:#fde68a;--warn-tx:#92400e;
+  --tx1:#0a1f0f;--tx2:#1a3326;--tx3:#2d5040;--tx5:#5a7a68;--tx7:#8aab97;
+  --step-size:28px;--rail:220px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#081209;--surface:#0f1f12;--border:#1a3020;--border2:#254030;
+    --accent:#22c55e;--accent-dk:#4ade80;--accent-lo:#051a09;--accent-md:#14532d;
+    --tip-bg:#051a09;--tip-bd:#14532d;--warn-bg:#1c1500;--warn-bd:#3d2e00;--warn-tx:#fbbf24;
+    --tx1:#dcfce7;--tx2:#bbf7d0;--tx3:#86efac;--tx5:#4ade80;--tx7:#166534;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#081209;--surface:#0f1f12;--border:#1a3020;--border2:#254030;
+  --accent:#22c55e;--accent-dk:#4ade80;--accent-lo:#051a09;--accent-md:#14532d;
+  --tip-bg:#051a09;--tip-bd:#14532d;--warn-bg:#1c1500;--warn-bd:#3d2e00;--warn-tx:#fbbf24;
+  --tx1:#dcfce7;--tx2:#bbf7d0;--tx3:#86efac;--tx5:#4ade80;--tx7:#166534;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--tx1);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.75}
+.shell{display:flex;min-height:100vh}
+.rail{width:var(--rail);min-width:var(--rail);padding:2rem 1rem 2rem 1.5rem;border-right:1px solid var(--border);
+  position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0;align-self:flex-start;background:var(--surface)}
+.rail-logo{display:flex;align-items:center;gap:8px;margin-bottom:1.8rem}
+.rail-logo-mark{width:28px;height:28px;background:var(--accent);border-radius:7px;display:flex;align-items:center;
+  justify-content:center;color:#fff;font-size:13px;font-weight:800;flex-shrink:0}
+.rail-logo-name{font-size:0.82rem;font-weight:700;color:var(--tx1);line-height:1.2}
+.rail-logo-sub{font-size:0.65rem;color:var(--tx5);font-weight:400}
+.rail-label{font-size:0.6rem;letter-spacing:0.13em;text-transform:uppercase;font-weight:700;color:var(--tx7);margin:1.2rem 0 0.4rem 0.4rem}
+.rail a{display:block;font-size:0.78rem;color:var(--tx3);text-decoration:none;padding:0.28rem 0.6rem;
+  border-radius:5px;margin-bottom:1px;transition:color 0.12s,background 0.12s;line-height:1.4}
+.rail a:hover{color:var(--accent);background:var(--accent-lo)}
+.rail a.sub{padding-left:1.1rem;font-size:0.73rem;color:var(--tx5)}
+.rail a.sub:hover{color:var(--accent)}
+main{flex:1;min-width:0;padding:3rem 3rem 5rem;max-width:760px}
+.doc-header{padding-bottom:2rem;margin-bottom:2.5rem;border-bottom:1px solid var(--border)}
+.doc-eyebrow{display:inline-flex;align-items:center;gap:6px;font-size:0.68rem;letter-spacing:0.1em;
+  text-transform:uppercase;font-weight:700;color:var(--accent);margin-bottom:0.7rem}
+h1{font-size:1.75rem;font-weight:800;color:var(--tx1);line-height:1.2;letter-spacing:-0.025em;text-wrap:balance;margin-bottom:0.6rem}
+.doc-lead{font-size:0.95rem;color:var(--tx3);max-width:55ch;line-height:1.7}
+.doc-meta{display:flex;gap:1.5rem;margin-top:1.2rem;font-size:0.72rem;color:var(--tx5)}
+.section{margin-bottom:3rem;scroll-margin-top:1.5rem}
+.section-header{display:flex;align-items:center;gap:10px;margin-bottom:1.1rem}
+.section-num{width:26px;height:26px;background:var(--accent);color:#fff;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:800;flex-shrink:0}
+h2{font-size:1.15rem;font-weight:700;color:var(--tx1);letter-spacing:-0.015em;text-wrap:balance}
+.section-desc{font-size:0.875rem;color:var(--tx3);margin-bottom:1.4rem;max-width:62ch}
+h3{font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:0.06em;font-size:0.72rem;margin:1.6rem 0 0.7rem}
+p{font-size:0.875rem;color:var(--tx2);margin-bottom:0.75rem;max-width:65ch}
+p:last-child{margin-bottom:0}
+hr{border:none;border-top:1px solid var(--border);margin:2.5rem 0}
+.pill{display:inline-flex;align-items:center;font-size:0.65rem;font-weight:700;letter-spacing:0.04em;
+  text-transform:uppercase;padding:0.18rem 0.5rem;border-radius:20px;white-space:nowrap;vertical-align:middle;margin:0 1px}
+.pill-teacher{background:#dcfce7;color:#15803d}
+.tab-chip{display:inline-flex;align-items:center;font-size:0.72rem;font-weight:600;
+  padding:0.2rem 0.6rem;border-radius:6px;background:var(--accent-lo);border:1px solid var(--accent-md);
+  color:var(--accent-dk);margin:0 2px 4px}
+.steps{list-style:none;margin:1rem 0 1.4rem}
+.step{display:grid;grid-template-columns:var(--step-size) 1fr;gap:0.9rem;margin-bottom:1.1rem;align-items:start}
+.step-num{width:var(--step-size);height:var(--step-size);border-radius:50%;background:var(--accent-lo);
+  border:2px solid var(--accent-md);color:var(--accent-dk);font-size:0.72rem;font-weight:800;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+.step-body{padding-top:2px}
+.step-body strong{display:block;font-size:0.875rem;font-weight:600;color:var(--tx1);margin-bottom:0.2rem}
+.step-body span{font-size:0.82rem;color:var(--tx3);display:block;max-width:60ch}
+code{font-family:ui-monospace,"Cascadia Code",monospace;font-size:0.8em;background:var(--border);
+  padding:0.1em 0.4em;border-radius:3px;color:var(--accent-dk)}
+.callout{border-radius:8px;padding:0.8rem 1rem;margin:1rem 0;font-size:0.825rem;display:flex;gap:0.7rem;align-items:flex-start}
+.callout-tip{background:var(--tip-bg);border:1px solid var(--tip-bd)}
+.callout-warn{background:var(--warn-bg);border:1px solid var(--warn-bd)}
+.callout-icon{font-size:1rem;flex-shrink:0;line-height:1.5}
+.callout-body{color:var(--tx2);line-height:1.6}
+.callout-warn .callout-body{color:var(--warn-tx)}
+.callout-body strong{color:var(--tx1);font-weight:600}
+.callout-warn .callout-body strong{color:var(--warn-tx)}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:8px;margin:1rem 0}
+.cap-table{width:100%;border-collapse:collapse;font-size:0.8rem}
+.cap-table th{text-align:left;padding:0.5rem 0.75rem;background:var(--bg);color:var(--tx5);
+  font-size:0.65rem;letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid var(--border)}
+.cap-table td{padding:0.55rem 0.75rem;border-bottom:1px solid var(--border);color:var(--tx2);vertical-align:top}
+.cap-table tr:last-child td{border-bottom:none}
+.cap-table tr:hover td{background:var(--bg)}
+.cap-table td:first-child{font-weight:500;color:var(--tx1)}
+.check{color:#16a34a;font-size:0.9rem}.cross{color:#dc2626;font-size:0.9rem}
+.sc-ph{display:flex;align-items:center;justify-content:center;height:56px;margin:1.2rem 0;
+  border-radius:10px;border:1.5px dashed var(--border);color:var(--tx5);font-size:0.8rem;background:var(--surface)}
+@media(max-width:680px){.rail{display:none}main{padding:1.5rem 1.25rem 3rem}h1{font-size:1.4rem}}
+</style>
+
+<div class="shell">
+<nav class="rail">
+  <div class="rail-logo">
+    <div class="rail-logo-mark">L</div>
+    <div><div class="rail-logo-name">LearnX AI</div><div class="rail-logo-sub">Opettajaopas</div></div>
+  </div>
+  <div class="rail-label">Aloittaminen</div>
+  <a href="#overview">Mitä opettajat voivat tehdä</a>
+  <a href="#login">Kirjautuminen</a>
+  <div class="rail-label">Kurssit</div>
+  <a href="#course-list">Kurssisi</a>
+  <a href="#create-course">Kurssin luominen</a>
+  <a href="#concepts">Kurssin käsitteet</a>
+  <div class="rail-label">Käsite-välilehdet</div>
+  <a class="sub" href="#studio">Studio (AI-chat)</a>
+  <a class="sub" href="#textbook">Oppikirja</a>
+  <a class="sub" href="#resources">Resurssit</a>
+  <a class="sub" href="#labsheet">Laboratoriolomake</a>
+  <a class="sub" href="#assets">Resurssit &amp; Tehtävät</a>
+  <div class="rail-label">Luokkahuone</div>
+  <a href="#publish">Julkaiseminen</a>
+  <a href="#progress">Opiskelijoiden edistyminen</a>
+  <div class="rail-label">Pikaopas</div>
+  <a href="#permissions">Pikaopas</a>
+</nav>
+
+<main>
+
+<header class="doc-header">
+  <div class="doc-eyebrow">Opettajaopas</div>
+  <h1>Opettaminen LearnX AI:n avulla</h1>
+  <p class="doc-lead">Rakenna omia kursseja tai ota käyttöön ylläpitäjän jakama kopio — käytä sitten tekoälyä sisällön rikastamiseen, videoiden luomiseen, testien tuottamiseen ja opiskelijoille julkaisemiseen.</p>
+  <div class="doc-meta"><span>Rooli: <span class="pill pill-teacher">Opettaja</span></span><span>Elokuu 2026</span></div>
+</header>
+
+<section class="section" id="overview">
+  <div class="section-header"><div class="section-num">1</div><h2>Mitä opettajat voivat tehdä</h2></div>
+  <p class="section-desc">Opettajilla on täysi pääsy kurssin tekemistyökaluihin ja opiskelijoiden hallintaan omassa luokassaan.</p>
+  <div class="tbl-wrap"><table class="cap-table">
+    <thead><tr><th>Toiminto</th><th>Huomiot</th></tr></thead>
+    <tbody>
+      <tr><td><span class="check">✓</span> Luo kursseja alusta alkaen</td><td>Rakenna yksiköitä ja käsitteitä, tuota tekoälysisältöä alusta loppuun</td></tr>
+      <tr><td><span class="check">✓</span> Muokkaa jaettua kurssikopiota</td><td>Lisää, poista tai järjestele oppikirjan sisältölohkoja</td></tr>
+      <tr><td><span class="check">✓</span> Käytä Studio-tekoälyä sisällön luonnostamiseen</td><td>Jutustele tekoälyn kanssa yhteenvetojen, selitysten ja käsikirjoitusten kirjoittamiseksi</td></tr>
+      <tr><td><span class="check">✓</span> Tuota videoita, testejä ja muistikortteja</td><td>Käsitekohtaisesti — kaikki voidaan tuottaa uudelleen milloin tahansa</td></tr>
+      <tr><td><span class="check">✓</span> Lataa resursseja ja laboratoriolomakkeita</td><td>PDF-tiedostoja, työkirjoja ja viiteaineistoa kullekin käsitteelle</td></tr>
+      <tr><td><span class="check">✓</span> Julkaise kurssi opiskelijoillesi</td><td>Sinä päätät, milloin opiskelijat voivat nähdä sen</td></tr>
+      <tr><td><span class="check">✓</span> Lähetä tehtäviä opiskelijoille</td><td>Testit, muistikortit, videot tai opiskelusarjat luokalle</td></tr>
+      <tr><td><span class="check">✓</span> Seuraa opiskelijoiden edistymistä</td><td>Testipisteet ja käsitteiden suoritus opiskelijakohtaisesti</td></tr>
+      <tr><td><span class="cross">✗</span> Julkaise kurssi koulun luetteloon</td><td>Vain ylläpitäjille — vaaditaan ennen kuin muut opettajat voivat saada sen</td></tr>
+      <tr><td><span class="cross">✗</span> Lisää tai poista opiskelijoita</td><td>Opiskelijoiden hallinta on vain ylläpitäjille</td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout callout-tip"><span class="callout-icon">💡</span><div class="callout-body"><strong>Kaksi lähdettä, yksi työnkulku.</strong> Riippumatta siitä, loit kurssin itse tai sait ylläpitäjältä jaetun kopion, käytettävissäsi on samat välilehdet ja työkalut.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="login">
+  <div class="section-header"><div class="section-num">2</div><h2>Kirjautuminen</h2></div>
+  <p class="section-desc">Ylläpitäjäsi antaa sinulle kirjautumissähköpostin ja väliaikaisen salasanan, kun tilisi luodaan.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Siirry kirjautumissivulle</strong><span>Mene osoitteeseen <code>learnx-ai.com/auth/teacher</code> — sama URL kaikille henkilöstölle.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Syötä tunnuksesi</strong><span>Sähköpostisi näyttää tältä: <code>etunimi.koulusi@learnxai.app</code>. Käytä ylläpitäjäsi jakamaa väliaikaista salasanaa.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Saavut Opettaja-kojelaudallesi</strong><span>Näet luokkasi, viimeaikaiset toiminnot ja pikavalinnat Kurssirakentajaan ja opiskelijoiden edistymiseen.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Opettajan kojelauta</div>
+</section>
+
+<hr>
+
+<section class="section" id="course-list">
+  <div class="section-header"><div class="section-num">3</div><h2>Kurssisi</h2></div>
+  <p class="section-desc">Napsauta sivupalkissa <strong>Kurssirakentaja</strong> nähdäksesi kaikki kurssisi — sekä itse luomasi että ylläpitäjän jakamasi. Kukin kortti näyttää aineen, luokan ja tilan.</p>
+  <div class="sc-ph">📸 Kuvakaappaus – Opettajan kurssilista</div>
+  <div class="callout callout-tip"><span class="callout-icon">📋</span><div class="callout-body"><strong>Ei vielä kursseja?</strong> Joko luo uusi (seuraava osio) tai pyydä ylläpitäjääsi liittämään luettelokurssi luokkatilaasi. Se ilmestyy tähän automaattisesti.</div></div>
+</section>
+
+<section class="section" id="create-course">
+  <div class="section-header"><div class="section-num">4</div><h2>Kurssin luominen</h2></div>
+  <p class="section-desc">Opettajat voivat rakentaa kursseja alusta alkaen — lisätä yksiköitä, käsitteitä ja tekoälysisältöä aivan kuten ylläpitäjä.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta "+ Uusi kurssi" Kurssirakentajassa</strong><span>Täytä kurssin nimi, aine, luokka, opetussuunnitelma ja kieli.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta "Luo &amp; avaa"</strong><span>Kurssi avautuu heti rakentajassa. Lisää ensimmäinen yksikkösi aloittaaksesi.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Lisää yksiköitä ja käsitteitä</strong><span>Käytä <strong>Lataa luku</strong> tuodaksesi PDF:stä (tekoäly havaitsee käsitteet automaattisesti) tai lisää yksiköitä ja käsitteitä manuaalisesti.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Kurssin rakentaminen</div>
+</section>
+
+<section class="section" id="concepts">
+  <div class="section-header"><div class="section-num">5</div><h2>Kurssin käsitteet</h2></div>
+  <p class="section-desc">Kurssin sisällä yksiköt on lueteltu vasemmalla ja käsitteet kunkin yksikön alla. Napsauta käsitettä avataksesi sen muokkausvälilehdet.</p>
+  <div class="sc-ph">📸 Kuvakaappaus – Kurssin käsitteet</div>
+  <p>Jokaisella käsitteellä on viisi välilehteä: <span class="tab-chip">Studio</span><span class="tab-chip">Oppikirja</span><span class="tab-chip">Resurssit</span><span class="tab-chip">Laboratoriolomake</span><span class="tab-chip">Resurssit</span> — käsitellään seuraavissa osioissa.</p>
+</section>
+
+<hr>
+
+<section class="section" id="studio">
+  <div class="section-header"><div class="section-num">6</div><h2>Studio — AI-chat</h2></div>
+  <p class="section-desc">Studio on tekoälyn luonnostustyötilasi käsitteelle. Jutustele tekoälyn kanssa tuottaaksesi yhteenvetoja, selityksiä tai videokäsikirjoituksia. Tekoäly näkee lähde-PDF:n automaattisesti.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Avaa käsite ja napsauta Studio-välilehteä</strong><span>Kirjoita kehote, kuten "Tiivistä tämä käsite yksinkertaisella kielellä" tai "Kirjoita 2 minuutin videokäsikirjoitus".</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Tarkista tekoälyn luonnos</strong><span>Napsauta <strong>Lisää oppikirjaan</strong> siirtääksesi sisällön suoraan oppikirjaan uutena lohkona. Tai kopioi ja liitä se manuaalisesti.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Studio AI-chat</div>
+</section>
+
+<section class="section" id="textbook">
+  <div class="section-header"><div class="section-num">7</div><h2>Oppikirja</h2></div>
+  <p class="section-desc">Oppikirja-välilehti on se, mitä opiskelijat näkevät. Lisää, muokkaa ja järjestele sisältölohkoja — tekstiä, kuvia, ääninarraatiota ja upotettuja videoita.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta lohkoa muokataksesi sitä</strong><span>Richtext-editori aukeaa. LaTeX on tuettu yhtälöille. Muutokset tallentuvat automaattisesti — ei tallennuspainiketta.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta "+" lisätäksesi uuden lohkon</strong><span>Lisää teksti, kuva, ääninarraatio tai videolohko. Vedä lohkoja järjestelläksesi ne uudelleen.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Opiskelijat näkevät sen vasta julkaisun jälkeen</strong><span>Voit jatkaa muokkaamista julkaisun jälkeenkin — päivitykset näkyvät opiskelijoille välittömästi.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Oppikirjaeditori</div>
+</section>
+
+<section class="section" id="resources">
+  <div class="section-header"><div class="section-num">8</div><h2>Resurssit</h2></div>
+  <p class="section-desc">Lataa täydentävää materiaalia käsitteelle — viite-PDF:iä, lukulistoja, ratkaistuja esimerkkejä tai ulkoisia linkkejä — joita opiskelijat voivat käyttää oppikirjan rinnalla.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Avaa käsite ja siirry Resurssit-välilehdelle</strong><span>Napsauta <strong>Lataa</strong> lisätäksesi PDF:n tai liitä URL ulkoiselle resurssille.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Lisää otsikko ja kuvaus</strong><span>Opiskelijat näkevät otsikon ja kuvauksen oppikirjanäkymässään. Napsauta avataksesi tai ladataksesi.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Resurssit</div>
+</section>
+
+<section class="section" id="labsheet">
+  <div class="section-header"><div class="section-num">9</div><h2>Laboratoriolomake</h2></div>
+  <p class="section-desc">Laboratoriolomakkeet ovat jäsenneltyjä työkirjoja tai koejohteita käsitteelle. Opiskelijat avaavat ne oppikirjan rinnalla tunnilla tai laboratorioajalla.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Siirry Laboratoriolomake-välilehdelle</strong><span>Lataa laboratoriotehtävän PDF tai käytä tekoälyä luodaksesi sellaisen käsitteen sisällöstä.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta "Luo laboratoriolomake" tekoälyn luomia työkirjoja varten</strong><span>Tekoäly luonnostelee kysymykset, vaiheet ja havaintotaulukot, jotka sopivat käsitteeseen. Tarkista ja tallenna.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Laboratoriolomake</div>
+</section>
+
+<section class="section" id="assets">
+  <div class="section-header"><div class="section-num">10</div><h2>Resurssit &amp; Tehtävien jako</h2></div>
+  <p class="section-desc">Resurssit-välilehdellä luot ja hallitset kunkin käsitteen videoita, testejä ja muistikortteja — ja lähetät ne suoraan opiskelijoille tehtävinä.</p>
+  <h3>Resurssien tuottaminen</h3>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Siirry minkä tahansa käsitteen Resurssit-välilehdelle</strong><span>Näet kolme osiota: Video, Testi ja Muistikortit.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta "Luo" minkä tahansa resurssityypin kohdalla</strong><span>Video kestää 2–5 minuuttia. Testi ja muistikortit valmistuvat alle minuutissa. Voit luoda kaikki kolme itsenäisesti.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Tarkista luotu sisältö</strong><span>Testien osalta hyväksy tai hylkää kukin kysymys. Vain hyväksytyt kysymykset näkyvät opiskelijoille.</span></div></li>
+  </ul>
+  <h3>Tehtävien jako opiskelijoille</h3>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta "Jaa" valmiiden resurssien vierestä</strong><span>Valitse, mille luokkatilalle lähetät (jos opetit useampaa luokkaa).</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Opiskelijat löytävät sen Tehtävät-listastaan</strong><span>Testivastaukset tallentuvat automaattisesti tarkistettavaksi Opiskelijoiden edistyminen -osiossa.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Resurssit</div>
+  <div class="callout callout-tip"><span class="callout-icon">🎬</span><div class="callout-body"><strong>Lisää video oppikirjaan.</strong> Kun video on valmis Resursseissa, napsauta <strong>Lisää oppikirjaan</strong> upottaaksesi sen toistettavana lohkona opiskelijanäkymään.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="publish">
+  <div class="section-header"><div class="section-num">11</div><h2>Julkaiseminen opiskelijoille</h2></div>
+  <p class="section-desc">Kun olet valmis, julkaise kurssi. Luokkasi opiskelijat voivat heti avata sen ja aloittaa opiskelun.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Avaa kurssi Kurssirakentajassa</strong><span>Tilan merkki näyttää "Luonnos".</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta "Julkaise opiskelijoille"</strong><span>Vahvista pyydettäessä. Tila muuttuu <strong>Julkaistu</strong>-tilaan. Voit edelleen muokata sisältöä julkaisun jälkeen — päivitykset näkyvät opiskelijoille välittömästi.</span></div></li>
+  </ul>
+  <div class="callout callout-warn"><span class="callout-icon">⚠️</span><div class="callout-body"><strong>Julkaisu on yksisuuntainen.</strong> Julkaisun perumispainiketta ei ole — opiskelijat saattavat olla kesken oppitunnin. Tee korjauksia muokkaamalla julkaistua sisältöä, älä poistamalla kurssia.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="progress">
+  <div class="section-header"><div class="section-num">12</div><h2>Opiskelijoiden edistymisen seuranta</h2></div>
+  <p class="section-desc">Näe, mitä käsitteitä kukin opiskelija on lukenut, heidän testipisteensä ja kokonaissuoritusprosenttinsa.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Siirry sivupalkissa Luokkahuoneet-osioon</strong><span>Valitse luokkasi, napsauta sitten kurssia avataksesi sen edistymistarkastelun.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Tarkastele opiskelijakohtaista suoritusta</strong><span>Taulukko näyttää kunkin opiskelijan nimen, avatut käsitteet ja keskimääräisen testipisteiden. Napsauta opiskelijaa saadaksesi yksityiskohtaisen erittelyn.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Opiskelijoiden edistyminen</div>
+</section>
+
+<hr>
+
+<section class="section" id="permissions">
+  <div class="section-header"><div class="section-num">13</div><h2>Pikaopas</h2></div>
+  <div class="tbl-wrap"><table class="cap-table">
+    <thead><tr><th>Toiminto</th><th>Huomiot</th></tr></thead>
+    <tbody>
+      <tr><td><span class="check">✓</span> Luo kursseja</td><td>Suunnitelman tallennusrajoitusten mukaan</td></tr>
+      <tr><td><span class="check">✓</span> Muokkaa oppikirjan lohkoja</td><td>Muutokset tallentuvat automaattisesti; näkyvät julkaisun jälkeen</td></tr>
+      <tr><td><span class="check">✓</span> Käytä Studio-tekoälyä</td><td>Chat-pohjainen luonnostelu; sisältö siirretään suoraan oppikirjaan</td></tr>
+      <tr><td><span class="check">✓</span> Luo video, testi, muistikortit</td><td>Käsitekohtaisesti — kaikki voidaan luoda uudelleen milloin tahansa</td></tr>
+      <tr><td><span class="check">✓</span> Lataa resursseja &amp; laboratoriolomakkeita</td><td>PDF-tiedostoja ja linkkejä käsitekohtaisesti</td></tr>
+      <tr><td><span class="check">✓</span> Jaa resursseja opiskelijoille</td><td>Lähetetään valitulle luokalle; testipisteet tallennetaan</td></tr>
+      <tr><td><span class="check">✓</span> Julkaise opiskelijoille</td><td>Yksisuuntainen — ei julkaisun perumista</td></tr>
+      <tr><td><span class="check">✓</span> Seuraa edistymistä</td><td>Opiskelijakohtainen suoritus ja testipisteet</td></tr>
+      <tr><td><span class="cross">✗</span> Julkaise koulun luetteloon</td><td>Vain ylläpitäjille</td></tr>
+      <tr><td><span class="cross">✗</span> Lisää tai poista opiskelijoita</td><td>Vain ylläpitäjille</td></tr>
+    </tbody>
+  </table></div>
+  <div style="margin-top:2rem;padding:1rem;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+    <p style="font-size:0.8rem;color:var(--tx5);margin:0">Tarvitsetko apua? Ota yhteyttä osoitteeseen <a href="mailto:hello@animlearn.com" style="color:var(--accent);text-decoration:none">hello@animlearn.com</a></p>
+  </div>
+</section>
+
+</main>
+</div>
+<footer style="margin-top:4rem;padding:2rem 3rem;border-top:1px solid var(--border);background:var(--surface)">
+  <div style="max-width:760px;display:flex;flex-direction:column;gap:1rem">
+    <p style="font-size:0.75rem;color:var(--tx3);line-height:1.6;max-width:62ch">
+      LearnX-AI on oppimisen tukityökalu. Tekoälyn luoma sisältö tulee aina varmistaa oppikirjoista, opettajilta tai virallisista opetussuunnitelmamateriaaleista.
+    </p>
+    <div style="display:flex;flex-wrap:wrap;gap:1rem 1.5rem;align-items:center;justify-content:space-between">
+      <div style="display:flex;flex-direction:column;gap:0.2rem">
+        <span style="font-size:0.72rem;color:var(--tx5)">&copy; 2026 LearnX-AI.com. Kaikki oikeudet pidätetään.</span>
+        <span style="font-size:0.72rem;color:var(--tx5);white-space:nowrap">NordX Labs Oy &middot; Espoo, Suomi &middot; Y-tunnus: 3615236-4</span>
+      </div>
+      <div style="display:flex;gap:1.25rem;flex-wrap:wrap;align-items:center">
+        <a href="mailto:hello@animlearn.com" style="font-size:0.72rem;color:var(--tx5);text-decoration:none">hello@animlearn.com</a>
+        <a href="https://learnx-ai.com/privacy" style="font-size:0.72rem;color:var(--tx5);text-decoration:none">Tietosuojaseloste</a>
+        <a href="https://learnx-ai.com/terms" style="font-size:0.72rem;color:var(--tx5);text-decoration:none">Käyttöehdot</a>
+      </div>
+    </div>
+  </div>
+</footer>

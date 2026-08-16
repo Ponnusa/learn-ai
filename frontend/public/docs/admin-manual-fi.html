@@ -1,0 +1,348 @@
+<title>LearnX AI – Ylläpitäjäopas</title>
+<style>
+:root {
+  --bg:#f6f8fb;--surface:#ffffff;--border:#dde3ed;--accent:#2563eb;--accent-dk:#1d4ed8;
+  --accent-lo:#eff6ff;--accent-md:#bfdbfe;--tip-bg:#f0f7ff;--tip-bd:#bfdbfe;
+  --warn-bg:#fffbeb;--warn-bd:#fde68a;--warn-tx:#92400e;
+  --tx1:#0f172a;--tx2:#1e293b;--tx3:#334155;--tx5:#64748b;--tx7:#94a3b8;
+  --step-size:28px;--rail:220px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#0d1117;--surface:#161b22;--border:#21293a;--accent:#3b82f6;--accent-dk:#60a5fa;
+    --accent-lo:#0c1e38;--accent-md:#1e3a5f;--tip-bg:#0c1e38;--tip-bd:#1e3a5f;
+    --warn-bg:#1c1500;--warn-bd:#3d2e00;--warn-tx:#fbbf24;
+    --tx1:#e2e8f0;--tx2:#cbd5e1;--tx3:#94a3b8;--tx5:#64748b;--tx7:#334155;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#0d1117;--surface:#161b22;--border:#21293a;--accent:#3b82f6;--accent-dk:#60a5fa;
+  --accent-lo:#0c1e38;--accent-md:#1e3a5f;--tip-bg:#0c1e38;--tip-bd:#1e3a5f;
+  --warn-bg:#1c1500;--warn-bd:#3d2e00;--warn-tx:#fbbf24;
+  --tx1:#e2e8f0;--tx2:#cbd5e1;--tx3:#94a3b8;--tx5:#64748b;--tx7:#334155;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--tx1);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.75}
+.shell{display:flex;min-height:100vh}
+.rail{width:var(--rail);min-width:var(--rail);padding:2rem 1rem 2rem 1.5rem;border-right:1px solid var(--border);
+  position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0;align-self:flex-start;background:var(--surface)}
+.rail-logo{display:flex;align-items:center;gap:8px;margin-bottom:1.8rem}
+.rail-logo-mark{width:28px;height:28px;background:var(--accent);border-radius:7px;display:flex;align-items:center;
+  justify-content:center;color:#fff;font-size:13px;font-weight:800;flex-shrink:0}
+.rail-logo-name{font-size:0.82rem;font-weight:700;color:var(--tx1);line-height:1.2}
+.rail-logo-sub{font-size:0.65rem;color:var(--tx5);font-weight:400}
+.rail-label{font-size:0.6rem;letter-spacing:0.13em;text-transform:uppercase;font-weight:700;color:var(--tx7);margin:1.2rem 0 0.4rem 0.4rem}
+.rail a{display:block;font-size:0.78rem;color:var(--tx3);text-decoration:none;padding:0.28rem 0.6rem;
+  border-radius:5px;margin-bottom:1px;transition:color 0.12s,background 0.12s;line-height:1.4}
+.rail a:hover{color:var(--accent);background:var(--accent-lo)}
+.rail a.sub{padding-left:1.1rem;font-size:0.73rem;color:var(--tx5)}
+.rail a.sub:hover{color:var(--accent)}
+main{flex:1;min-width:0;padding:3rem 3rem 5rem;max-width:760px}
+.doc-header{padding-bottom:2rem;margin-bottom:2.5rem;border-bottom:1px solid var(--border)}
+.doc-eyebrow{font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;font-weight:700;color:var(--accent);margin-bottom:0.7rem;display:block}
+h1{font-size:1.75rem;font-weight:800;color:var(--tx1);line-height:1.2;letter-spacing:-0.025em;text-wrap:balance;margin-bottom:0.6rem}
+.doc-lead{font-size:0.95rem;color:var(--tx3);max-width:55ch;line-height:1.7}
+.doc-meta{display:flex;gap:1.5rem;margin-top:1.2rem;font-size:0.72rem;color:var(--tx5)}
+.section{margin-bottom:3rem;scroll-margin-top:1.5rem}
+.section-header{display:flex;align-items:center;gap:10px;margin-bottom:1.1rem}
+.section-num{width:26px;height:26px;background:var(--accent);color:#fff;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:800;flex-shrink:0}
+h2{font-size:1.15rem;font-weight:700;color:var(--tx1);letter-spacing:-0.015em;text-wrap:balance}
+.section-desc{font-size:0.875rem;color:var(--tx3);margin-bottom:1.4rem;max-width:62ch}
+h3{font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:0.06em;font-size:0.72rem;margin:1.6rem 0 0.7rem}
+p{font-size:0.875rem;color:var(--tx2);margin-bottom:0.75rem;max-width:65ch}
+p:last-child{margin-bottom:0}
+hr{border:none;border-top:1px solid var(--border);margin:2.5rem 0}
+.pill{display:inline-flex;align-items:center;font-size:0.65rem;font-weight:700;letter-spacing:0.04em;
+  text-transform:uppercase;padding:0.18rem 0.5rem;border-radius:20px;white-space:nowrap;vertical-align:middle;margin:0 1px}
+.pill-admin{background:#ede9fe;color:#5b21b6}
+.pill-teacher{background:#dcfce7;color:#15803d}
+.pill-student{background:#fff7ed;color:#c2410c}
+.steps{list-style:none;margin:1rem 0 1.4rem}
+.step{display:grid;grid-template-columns:var(--step-size) 1fr;gap:0.9rem;margin-bottom:1.1rem;align-items:start}
+.step-num{width:var(--step-size);height:var(--step-size);border-radius:50%;background:var(--accent-lo);
+  border:2px solid var(--accent-md);color:var(--accent-dk);font-size:0.72rem;font-weight:800;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+.step-body{padding-top:2px}
+.step-body strong{display:block;font-size:0.875rem;font-weight:600;color:var(--tx1);margin-bottom:0.2rem}
+.step-body span{font-size:0.82rem;color:var(--tx3);display:block;max-width:60ch}
+code{font-family:ui-monospace,"Cascadia Code",monospace;font-size:0.8em;background:var(--border);
+  padding:0.1em 0.4em;border-radius:3px;color:var(--accent-dk)}
+.callout{border-radius:8px;padding:0.8rem 1rem;margin:1rem 0;font-size:0.825rem;display:flex;gap:0.7rem;align-items:flex-start}
+.callout-tip{background:var(--tip-bg);border:1px solid var(--tip-bd)}
+.callout-warn{background:var(--warn-bg);border:1px solid var(--warn-bd)}
+.callout-icon{font-size:1rem;flex-shrink:0;line-height:1.5}
+.callout-body{color:var(--tx2);line-height:1.6}
+.callout-warn .callout-body{color:var(--warn-tx)}
+.callout-body strong{color:var(--tx1);font-weight:600}
+.callout-warn .callout-body strong{color:var(--warn-tx)}
+.flow-step{background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  padding:0.5rem 0.85rem;font-size:0.75rem;font-weight:600;color:var(--tx2);white-space:nowrap}
+.flow-step.active{background:var(--accent-lo);border-color:var(--accent-md);color:var(--accent-dk)}
+.flow-arrow{padding:0 0.4rem;color:var(--tx7);font-size:0.9rem}
+.tbl-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:8px;margin:1rem 0}
+.cap-table{width:100%;border-collapse:collapse;font-size:0.8rem}
+.cap-table th{text-align:left;padding:0.5rem 0.75rem;background:var(--bg);color:var(--tx5);
+  font-size:0.65rem;letter-spacing:0.08em;text-transform:uppercase;border-bottom:1px solid var(--border)}
+.cap-table td{padding:0.55rem 0.75rem;border-bottom:1px solid var(--border);color:var(--tx2);vertical-align:top}
+.cap-table tr:last-child td{border-bottom:none}
+.cap-table tr:hover td{background:var(--bg)}
+.cap-table td:first-child{font-weight:500;color:var(--tx1)}
+.check{color:#16a34a;font-size:0.9rem}.cross{color:#dc2626;font-size:0.9rem}
+.sc-ph{display:flex;align-items:center;justify-content:center;height:56px;margin:1.2rem 0;
+  border-radius:10px;border:1.5px dashed var(--border);color:var(--tx5);font-size:0.8rem;background:var(--surface)}
+@media(max-width:680px){.rail{display:none}main{padding:1.5rem 1.25rem 3rem}h1{font-size:1.4rem}}
+</style>
+
+<div class="shell">
+<nav class="rail">
+  <div class="rail-logo">
+    <div class="rail-logo-mark">L</div>
+    <div><div class="rail-logo-name">LearnX AI</div><div class="rail-logo-sub">Ylläpitäjäopas</div></div>
+  </div>
+  <div class="rail-label">Aloittaminen</div>
+  <a href="#overview">Mitä ylläpitäjät voivat tehdä</a>
+  <a href="#login">Kirjautuminen</a>
+  <div class="rail-label">Kurssit</div>
+  <a href="#create-course">Kurssin luominen</a>
+  <a class="sub" href="#add-units">Yksiköt &amp; Käsitteet</a>
+  <a class="sub" href="#ai-content">Tekoälysisältö</a>
+  <a class="sub" href="#publish-course">Julkaiseminen</a>
+  <a href="#catalog">Koulun luettelo</a>
+  <div class="rail-label">Henkilöstö</div>
+  <a href="#classrooms">Luokkatilat</a>
+  <a class="sub" href="#assign-course">Kurssin liittäminen</a>
+  <a href="#teachers">Opettajat</a>
+  <a href="#students">Opiskelijat</a>
+  <div class="rail-label">Pikaopas</div>
+  <a href="#flow">Täydellinen työnkulku</a>
+  <a href="#permissions">Oikeudet</a>
+</nav>
+
+<main>
+
+<header class="doc-header">
+  <span class="doc-eyebrow">Koulun ylläpitäjäopas</span>
+  <h1>Koulun hallinta LearnX AI:ssa</h1>
+  <p class="doc-lead">Tämä opas käy läpi kaiken, mitä koulun ylläpitäjä voi tehdä — tekoälykurssien rakentamisesta niiden jakamiseen luokkatiloille ja opettajille.</p>
+  <div class="doc-meta"><span>Rooli: <span class="pill pill-admin">Ylläpitäjä</span></span><span>Elokuu 2026</span></div>
+</header>
+
+<section class="section" id="overview">
+  <div class="section-header"><div class="section-num">1</div><h2>Mitä ylläpitäjät voivat tehdä</h2></div>
+  <p class="section-desc">Koulun ylläpitäjänä sinulla on täysi hallinta sisällöstä, luokkatiloista ja henkilöstöstä.</p>
+  <div class="tbl-wrap"><table class="cap-table">
+    <thead><tr><th>Toiminto</th><th><span class="pill pill-admin">Ylläpitäjä</span></th><th><span class="pill pill-teacher">Opettaja</span></th><th><span class="pill pill-student">Opiskelija</span></th></tr></thead>
+    <tbody>
+      <tr><td>Luo &amp; rakenna kursseja</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td><span class="cross">✗</span></td></tr>
+      <tr><td>Julkaise kurssi koulun luetteloon</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td><span class="cross">✗</span></td></tr>
+      <tr><td>Luo luokkatiloja/ryhmiä</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td><span class="cross">✗</span></td></tr>
+      <tr><td>Lisää &amp; hallitse opettajia ja opiskelijoita</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td><td><span class="cross">✗</span></td></tr>
+      <tr><td>Muokkaa jaettua kurssikopiota</td><td><span class="cross">✗</span></td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td></tr>
+      <tr><td>Julkaise kurssi opiskelijoille</td><td><span class="cross">✗</span></td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td></tr>
+      <tr><td>Katsele &amp; opiskele julkaistuja kursseja</td><td><span class="cross">✗</span></td><td><span class="cross">✗</span></td><td><span class="check">✓</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout callout-tip"><span class="callout-icon">💡</span><div class="callout-body"><strong>Kaksivaiheinen julkaisu.</strong> Sinä julkaiset luetteloon; opettaja julkaisee sitten oman kopionsa näkyväksi opiskelijoille.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="login">
+  <div class="section-header"><div class="section-num">2</div><h2>Kirjautuminen ylläpitäjänä</h2></div>
+  <p class="section-desc">Ylläpitäjätilit käyttävät samaa kirjautumissivua kuin opettajat. Tilityyppi määrittää, mille kojelaudalle saavut.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Siirry kirjautumissivulle</strong><span>Mene osoitteeseen <code>learnx-ai.com/auth/teacher</code> ja syötä ylläpitäjätunnuksesi.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Saavut Ylläpitäjä-kojelaudalle</strong><span>Sinut ohjataan osoitteeseen <code>/institution/dashboard</code> — suunnitelman tiedot, opettajien/opiskelijoiden määrät ja kaikki ylläpitäjän navigointi.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Ylläpitäjän kojelauta</div>
+</section>
+
+<hr>
+
+<section class="section" id="create-course">
+  <div class="section-header"><div class="section-num">3</div><h2>Kurssin luominen</h2></div>
+  <p class="section-desc">Kurssit ovat sisällön pääyksikkö. Luot ja omistat alkuperäisen kurssin; opettajat saavat oman muokattavan kopionsa, kun liität sen heille.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Avaa Kurssirakentaja sivupalkista</strong><span>Napsauta kirjakuvaketta — näet kaikki olemassa olevat kurssisi.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta "+ Uusi kurssi"</strong><span>Täytä kurssin nimi, kuvaus, aine, luokka, opetussuunnitelma (esim. CBSE, SCERT, TEKS) ja kieli.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Napsauta "Luo &amp; avaa"</strong><span>Kurssi avautuu rakentajassa, jossa voit aloittaa sisällön lisäämisen välittömästi.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Uuden kurssin lomake</div>
+</section>
+
+<section class="section" id="add-units">
+  <div class="section-header"><div class="section-num">4</div><h2>Yksiköiden &amp; käsitteiden lisääminen</h2></div>
+  <p class="section-desc">Kurssi sisältää <strong>yksiköitä</strong> (luvut) ja <strong>käsitteitä</strong> (yksittäiset aiheet). Kukin käsite saa oppikirjasisältöä, videon, testin ja muistikortit.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta "Lataa luku" tuodaksesi PDF:stä</strong><span>Tekoäly havaitsee sivuvälit, poimii käsitteet ja luo yhteenvedot ja resurssit automaattisesti.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Tai käytä "Luo" / "PDF:stä" yksikössä</strong><span>Luo käsiteluonnoksia tekoälyn avulla tai tuo tiettyjä PDF-sivuja yksikköön manuaalisesti.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Napsauta käsitettä avataksesi sen</strong><span>Siirtyy Studio-, Oppikirja-, Resurssit-, Resurssit- ja Laboratoriolomake-välilehdille.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Kurssirakentaja yksiköineen</div>
+</section>
+
+<section class="section" id="ai-content">
+  <div class="section-header"><div class="section-num">5</div><h2>Tekoälysisällön tuottaminen</h2></div>
+  <p class="section-desc">Studio-välilehti antaa sinun jutustella tekoälyn kanssa yhteenvetojen ja transkriptioiden luonnostamiseksi. Resurssit-välilehti hallitsee videoita, testejä ja muistikortteja.</p>
+  <h3>Studio — Tekoälyluonnostelu</h3>
+  <p>Avaa käsite ja siirry <strong>Studio</strong>-välilehdelle. Kirjoita kehote ja tekoäly luonnostelee sisältöä, jonka voit lisätä suoraan oppikirjaan. Se näkee lähde-PDF:n automaattisesti.</p>
+  <div class="sc-ph">📸 Kuvakaappaus – Studio-tekoälyluonnostelu</div>
+  <h3>Resurssit — Videon tuottaminen</h3>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Siirry Resurssit-välilehdelle → Videot, napsauta "Luo video"</strong><span>Tekoäly kirjoittaa animaatiokäsikirjoituksen ja rakentaa videon (60–180 sekuntia).</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Odota 2–5 minuuttia</strong><span>Tila näyttää "Rakennetaan animaatiota…". Jatka työskentelyä muiden käsitteiden parissa samalla kun se renderöityy.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Tila näyttää "Valmis"</strong><span>Esikatsele video, lisää se sitten oppikirjaan upotetuksi lohkoksi.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Videon resurssipaneeli</div>
+  <div class="callout callout-warn"><span class="callout-icon">⚠️</span><div class="callout-body"><strong>Tarkista aina tekoälyn luoma sisältö</strong> ennen julkaisua — erityisesti tenttikriittisen materiaalin osalta.</div></div>
+</section>
+
+<section class="section" id="publish-course">
+  <div class="section-header"><div class="section-num">6</div><h2>Kurssin julkaiseminen luetteloon</h2></div>
+  <p class="section-desc">Vain julkaistut kurssit voidaan lisätä koulun luetteloon ja jakaa luokkatiloille.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Avaa kurssi Kurssirakentajassa</strong><span>Oikeassa yläkulmassa napsauta <strong>Julkaise luetteloon</strong>.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Painike muuttuu vihreäksi — "Julkaistu luetteloon"</strong><span>Kurssi on nyt saatavilla liitettäväksi Koulun ylläpito → Kurssit -kautta.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Kurssi julkaistu luetteloon</div>
+  <div class="callout callout-warn"><span class="callout-icon">🔒</span><div class="callout-body"><strong>Julkaisu lukitsee rakenteen.</strong> Yksiköitä ja käsitteitä ei voi poistaa julkaisun jälkeen. Luo uusi versio kurssin rakenteen muuttamiseksi.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="catalog">
+  <div class="section-header"><div class="section-num">7</div><h2>Koulun luettelon hallinta</h2></div>
+  <p class="section-desc">Siirry kohtaan <strong>Koulun ylläpito → Kurssit</strong> lisätäksesi julkaistuja kursseja luetteloon ja liittääksesi niitä luokkatiloille.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Valitse julkaistu kurssi pudotusvalikosta, napsauta "Lisää"</strong><span>Kurssi ilmestyy luetteloon luokkatilan sirujen kanssa.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta luokkatilan sirua liittääksesi</strong><span>Sirut näyttävät "+ Luokka IX" ennen liittämistä ja lukon jälkeen.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Koulun luettelosivu</div>
+</section>
+
+<hr>
+
+<section class="section" id="classrooms">
+  <div class="section-header"><div class="section-num">8</div><h2>Luokkatilojen luominen</h2></div>
+  <p class="section-desc">Siirry kohtaan <strong>Koulun ylläpito → Luokkatilat</strong> luodaksesi ryhmiä ja liittääksesi opettajia.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta "+ Uusi luokkatila"</strong><span>Syötä luokkatilan nimi (esim. "Luokka IX A"), luokka, ryhmätunnus ja liitä opettaja.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta "Luo"</strong><span>Luokkatila ilmestyy listaan opettajan nimellä ja opiskelijamäärällä.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Luokkatilan luominen</div>
+</section>
+
+<section class="section" id="assign-course">
+  <div class="section-header"><div class="section-num">9</div><h2>Kurssin liittäminen luokkatilaan</h2></div>
+  <p class="section-desc">Liittäminen luo automaattisesti henkilökohtaisen muokattavan kopion luokkatilan opettajalle.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Siirry kohtaan Koulun ylläpito → Kurssit, etsi kurssi</strong><span>Napsauta "+ Luokka" -sirua liittääksesi sen kyseiseen luokkatilaan.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Siru muuttuu violetiksi ja lukolla</strong><span>Liittäminen vahvistettu. Opettaja näkee nyt kurssin Kurssirakentajassaan luonnoksena.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Luokkatilan liittämissirut</div>
+  <div class="callout callout-warn"><span class="callout-icon">🔒</span><div class="callout-body"><strong>Liittämiset ovat pysyviä.</strong> Kun kurssi on liitetty, sitä ei voi poistaa. Suunnittele huolellisesti.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="teachers">
+  <div class="section-header"><div class="section-num">10</div><h2>Opettajien hallinta</h2></div>
+  <p class="section-desc">Siirry kohtaan <strong>Koulun ylläpito → Opettajat</strong> luodaksesi opettajatilejä.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta "Luo kirjautumistiedot"</strong><span>Syötä koko nimi ja sähköposti. Jätä salasana tyhjäksi automaattista luontia varten.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta "Luo tili"</strong><span>Opettaja ilmestyy Aktiiviset opettajat -listaan. Jaa tunnukset — he voivat kirjautua välittömästi.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Opettajan lisääminen</div>
+</section>
+
+<hr>
+
+<section class="section" id="students">
+  <div class="section-header"><div class="section-num">11</div><h2>Opiskelijoiden hallinta</h2></div>
+  <p class="section-desc">Siirry kohtaan <strong>Koulun ylläpito → Opiskelijat</strong> lisätäksesi opiskelijoita ja liittääksesi heidät luokkatiloihin.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta "+ Lisää"</strong><span>Syötä koko nimi ja oppilastunnus. Sähköposti luodaan automaattisesti, jos se jätetään tyhjäksi. Oletussalasana = oppilastunnus.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Valitse luokkatila ja napsauta "Lisää opiskelija"</strong><span>Tai käytä <strong>Joukkotuonti</strong> monien opiskelijoiden lisäämiseen kerralla.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Opiskelijalista</div>
+</section>
+
+<hr>
+
+<section class="section" id="flow">
+  <div class="section-header"><div class="section-num">12</div><h2>Täydellinen työnkulku lyhyesti</h2></div>
+  <div style="overflow-x:auto;margin:1.2rem 0">
+    <div style="display:flex;flex-direction:column;gap:0.6rem;min-width:400px">
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <span class="pill pill-admin">Ylläpitäjä</span>
+        <div class="flow-step active">Luo kurssi</div><span class="flow-arrow">→</span>
+        <div class="flow-step active">Rakenna tekoälysisältöä</div><span class="flow-arrow">→</span>
+        <div class="flow-step active">Julkaise luetteloon</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;padding-left:3.5rem">
+        <span class="flow-arrow">↓</span><span style="font-size:0.72rem;color:var(--tx5)">Lisää luetteloon → liitä luokkatilaan</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <span class="pill pill-teacher">Opettaja</span>
+        <div class="flow-step">Saa luonnoskopio</div><span class="flow-arrow">→</span>
+        <div class="flow-step">Muokkaa &amp; mukauttaa</div><span class="flow-arrow">→</span>
+        <div class="flow-step">Julkaise opiskelijoille</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;padding-left:3.5rem">
+        <span class="flow-arrow">↓</span><span style="font-size:0.72rem;color:var(--tx5)">Kurssi näkyy opiskelijan luokkahuoneessa</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+        <span class="pill pill-student">Opiskelija</span>
+        <div class="flow-step">Avaa luokkahuoneen</div><span class="flow-arrow">→</span>
+        <div class="flow-step">Lukee &amp; katsoo videoita</div><span class="flow-arrow">→</span>
+        <div class="flow-step">Tekee testejä</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr>
+
+<section class="section" id="permissions">
+  <div class="section-header"><div class="section-num">13</div><h2>Pikaopas</h2></div>
+  <div class="tbl-wrap"><table class="cap-table">
+    <thead><tr><th>Toiminto</th><th>Huomiot</th></tr></thead>
+    <tbody>
+      <tr><td><span class="check">✓</span> Luo kursseja</td><td>Suunnitelman tallennusrajoitusten mukaan</td></tr>
+      <tr><td><span class="check">✓</span> Muokkaa kursseja milloin tahansa</td><td>Rakenteen muutokset lukittu julkaisun jälkeen</td></tr>
+      <tr><td><span class="check">✓</span> Hallinnoi koulun luetteloa</td><td>Ei voi poistaa, jos luokkatilalla on aktiivinen opettajakopio</td></tr>
+      <tr><td><span class="check">✓</span> Liitä kursseja luokkatiloihin</td><td>Luo opettajakopion automaattisesti</td></tr>
+      <tr><td><span class="check">✓</span> Lisää opettajia &amp; opiskelijoita</td><td>Perus: 10 opettajaa · Pro: 30 opettajaa</td></tr>
+      <tr><td><span class="check">✓</span> Vie HTML tai SCORM</td><td>Videot linkittyvät learnx-ai.com -sivulle — eivät upotettuna tiedostoon</td></tr>
+      <tr><td><span class="cross">✗</span> Muokkaa opettajan kurssikopiota</td><td>Opettajan kopio on heidän hallittavissaan</td></tr>
+      <tr><td><span class="cross">✗</span> Poista liittäminen jälkikäteen</td><td>Pysyvä — suojaa kesken olevaa työtä</td></tr>
+      <tr><td><span class="cross">✗</span> Poista yksiköitä/käsitteitä julkaisun jälkeen</td><td>Luo uusi kurssiversion sijaan</td></tr>
+    </tbody>
+  </table></div>
+  <div style="margin-top:2rem;padding:1rem;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+    <p style="font-size:0.8rem;color:var(--tx5);margin:0">Tarvitsetko apua? Ota yhteyttä osoitteeseen <a href="mailto:hello@animlearn.com" style="color:var(--accent);text-decoration:none">hello@animlearn.com</a></p>
+  </div>
+</section>
+
+</main>
+</div>
+<footer style="margin-top:4rem;padding:2rem 3rem;border-top:1px solid var(--border);background:var(--surface)">
+  <div style="max-width:760px;display:flex;flex-direction:column;gap:1rem">
+    <p style="font-size:0.75rem;color:var(--tx3);line-height:1.6;max-width:62ch">
+      LearnX-AI on oppimisen tukityökalu. Tekoälyn luoma sisältö tulee aina varmistaa oppikirjoista, opettajilta tai virallisista opetussuunnitelmamateriaaleista.
+    </p>
+    <div style="display:flex;flex-wrap:wrap;gap:1rem 1.5rem;align-items:center;justify-content:space-between">
+      <div style="display:flex;flex-direction:column;gap:0.2rem">
+        <span style="font-size:0.72rem;color:var(--tx5)">&copy; 2026 LearnX-AI.com. Kaikki oikeudet pidätetään.</span>
+        <span style="font-size:0.72rem;color:var(--tx5);white-space:nowrap">NordX Labs Oy &middot; Espoo, Suomi &middot; Y-tunnus: 3615236-4</span>
+      </div>
+      <div style="display:flex;gap:1.25rem;flex-wrap:wrap;align-items:center">
+        <a href="mailto:hello@animlearn.com" style="font-size:0.72rem;color:var(--tx5);text-decoration:none">hello@animlearn.com</a>
+        <a href="https://learnx-ai.com/privacy" style="font-size:0.72rem;color:var(--tx5);text-decoration:none">Tietosuojaseloste</a>
+        <a href="https://learnx-ai.com/terms" style="font-size:0.72rem;color:var(--tx5);text-decoration:none">Käyttöehdot</a>
+      </div>
+    </div>
+  </div>
+</footer>

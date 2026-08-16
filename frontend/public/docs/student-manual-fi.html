@@ -1,0 +1,284 @@
+<title>LearnX AI – Opiskelijaopas</title>
+<style>
+:root {
+  --bg:#fdf7f4;--surface:#ffffff;--border:#f0d9ce;--accent:#ea580c;--accent-dk:#c2410c;
+  --accent-lo:#fff7ed;--accent-md:#fed7aa;--tip-bg:#fff7ed;--tip-bd:#fed7aa;
+  --warn-bg:#fffbeb;--warn-bd:#fde68a;--warn-tx:#92400e;
+  --tx1:#1c0a00;--tx2:#3d1f0d;--tx3:#6b3a22;--tx5:#9a6348;--tx7:#c4957d;
+  --step-size:28px;--rail:220px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#120800;--surface:#1e0f05;--border:#3a1a08;--accent:#f97316;--accent-dk:#fb923c;
+    --accent-lo:#1c0e02;--accent-md:#431407;--tip-bg:#1c0e02;--tip-bd:#431407;
+    --warn-bg:#1c1500;--warn-bd:#3d2e00;--warn-tx:#fbbf24;
+    --tx1:#fde8d8;--tx2:#f5c4a0;--tx3:#e8a070;--tx5:#c47840;--tx7:#7a4020;
+  }
+}
+:root[data-theme="dark"] {
+  --bg:#120800;--surface:#1e0f05;--border:#3a1a08;--accent:#f97316;--accent-dk:#fb923c;
+  --accent-lo:#1c0e02;--accent-md:#431407;--tip-bg:#1c0e02;--tip-bd:#431407;
+  --warn-bg:#1c1500;--warn-bd:#3d2e00;--warn-tx:#fbbf24;
+  --tx1:#fde8d8;--tx2:#f5c4a0;--tx3:#e8a070;--tx5:#c47840;--tx7:#7a4020;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{font-size:15px;scroll-behavior:smooth}
+body{background:var(--bg);color:var(--tx1);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.75}
+.shell{display:flex;min-height:100vh}
+.rail{width:var(--rail);min-width:var(--rail);padding:2rem 1rem 2rem 1.5rem;border-right:1px solid var(--border);
+  position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0;align-self:flex-start;background:var(--surface)}
+.rail-logo{display:flex;align-items:center;gap:8px;margin-bottom:1.8rem}
+.rail-logo-mark{width:28px;height:28px;background:var(--accent);border-radius:7px;display:flex;align-items:center;
+  justify-content:center;color:#fff;font-size:13px;font-weight:800;flex-shrink:0}
+.rail-logo-name{font-size:0.82rem;font-weight:700;color:var(--tx1);line-height:1.2}
+.rail-logo-sub{font-size:0.65rem;color:var(--tx5);font-weight:400}
+.rail-label{font-size:0.6rem;letter-spacing:0.13em;text-transform:uppercase;font-weight:700;color:var(--tx7);margin:1.2rem 0 0.4rem 0.4rem}
+.rail a{display:block;font-size:0.78rem;color:var(--tx3);text-decoration:none;padding:0.28rem 0.6rem;
+  border-radius:5px;margin-bottom:1px;transition:color 0.12s,background 0.12s;line-height:1.4}
+.rail a:hover{color:var(--accent);background:var(--accent-lo)}
+.rail a.sub{padding-left:1.1rem;font-size:0.73rem;color:var(--tx5)}
+.rail a.sub:hover{color:var(--accent)}
+main{flex:1;min-width:0;padding:3rem 3rem 5rem;max-width:760px}
+.doc-header{padding-bottom:2rem;margin-bottom:2.5rem;border-bottom:1px solid var(--border)}
+.doc-eyebrow{font-size:0.68rem;letter-spacing:0.1em;text-transform:uppercase;font-weight:700;color:var(--accent);margin-bottom:0.7rem;display:block}
+h1{font-size:1.75rem;font-weight:800;color:var(--tx1);line-height:1.2;letter-spacing:-0.025em;text-wrap:balance;margin-bottom:0.6rem}
+.doc-lead{font-size:0.95rem;color:var(--tx3);max-width:55ch;line-height:1.7}
+.doc-meta{display:flex;gap:1.5rem;margin-top:1.2rem;font-size:0.72rem;color:var(--tx5)}
+.section{margin-bottom:3rem;scroll-margin-top:1.5rem}
+.section-header{display:flex;align-items:center;gap:10px;margin-bottom:1.1rem}
+.section-num{width:26px;height:26px;background:var(--accent);color:#fff;border-radius:7px;
+  display:flex;align-items:center;justify-content:center;font-size:0.72rem;font-weight:800;flex-shrink:0}
+h2{font-size:1.15rem;font-weight:700;color:var(--tx1);letter-spacing:-0.015em;text-wrap:balance}
+.section-desc{font-size:0.875rem;color:var(--tx3);margin-bottom:1.4rem;max-width:62ch}
+h3{font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:0.06em;font-size:0.72rem;margin:1.6rem 0 0.7rem}
+p{font-size:0.875rem;color:var(--tx2);margin-bottom:0.75rem;max-width:65ch}
+p:last-child{margin-bottom:0}
+hr{border:none;border-top:1px solid var(--border);margin:2.5rem 0}
+.pill{display:inline-flex;align-items:center;font-size:0.65rem;font-weight:700;letter-spacing:0.04em;
+  text-transform:uppercase;padding:0.18rem 0.5rem;border-radius:20px;white-space:nowrap;vertical-align:middle;margin:0 1px}
+.pill-student{background:#fff7ed;color:#c2410c}
+.feature-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0.75rem;margin:1rem 0 1.5rem}
+.feature-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:0.9rem 1rem}
+.feature-card-icon{font-size:1.3rem;margin-bottom:0.4rem}
+.feature-card-title{font-size:0.82rem;font-weight:700;color:var(--tx1);margin-bottom:0.25rem}
+.feature-card-desc{font-size:0.75rem;color:var(--tx5);line-height:1.5}
+.steps{list-style:none;margin:1rem 0 1.4rem}
+.step{display:grid;grid-template-columns:var(--step-size) 1fr;gap:0.9rem;margin-bottom:1.1rem;align-items:start}
+.step-num{width:var(--step-size);height:var(--step-size);border-radius:50%;background:var(--accent-lo);
+  border:2px solid var(--accent-md);color:var(--accent-dk);font-size:0.72rem;font-weight:800;
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}
+.step-body{padding-top:2px}
+.step-body strong{display:block;font-size:0.875rem;font-weight:600;color:var(--tx1);margin-bottom:0.2rem}
+.step-body span{font-size:0.82rem;color:var(--tx3);display:block;max-width:60ch}
+code{font-family:ui-monospace,"Cascadia Code",monospace;font-size:0.8em;background:var(--border);
+  padding:0.1em 0.4em;border-radius:3px;color:var(--accent-dk)}
+.callout{border-radius:8px;padding:0.8rem 1rem;margin:1rem 0;font-size:0.825rem;display:flex;gap:0.7rem;align-items:flex-start}
+.callout-tip{background:var(--tip-bg);border:1px solid var(--tip-bd)}
+.callout-warn{background:var(--warn-bg);border:1px solid var(--warn-bd)}
+.callout-icon{font-size:1rem;flex-shrink:0;line-height:1.5}
+.callout-body{color:var(--tx2);line-height:1.6}
+.callout-warn .callout-body{color:var(--warn-tx)}
+.callout-body strong{color:var(--tx1);font-weight:600}
+.sc-ph{display:flex;align-items:center;justify-content:center;height:56px;margin:1.2rem 0;
+  border-radius:10px;border:1.5px dashed var(--border);color:var(--tx5);font-size:0.8rem;background:var(--surface)}
+@media(max-width:680px){.rail{display:none}main{padding:1.5rem 1.25rem 3rem}h1{font-size:1.4rem}
+  .feature-grid{grid-template-columns:1fr 1fr}}
+</style>
+
+<div class="shell">
+<nav class="rail">
+  <div class="rail-logo">
+    <div class="rail-logo-mark">L</div>
+    <div><div class="rail-logo-name">LearnX AI</div><div class="rail-logo-sub">Opiskelijaopas</div></div>
+  </div>
+  <div class="rail-label">Aloittaminen</div>
+  <a href="#welcome">Mitä voit tehdä</a>
+  <a href="#login">Kirjautuminen</a>
+  <div class="rail-label">Opiskelu</div>
+  <a href="#classroom">Luokkasi</a>
+  <a href="#concept">Käsitteen oppiminen</a>
+  <a class="sub" href="#textbook">Oppikirja</a>
+  <a class="sub" href="#quizzes">Testi &amp; Muistikortit</a>
+  <a class="sub" href="#course-chat">AI-chat kurssilla</a>
+  <div class="rail-label">Tekoälytyökalut</div>
+  <a href="#dashboard-chat">Kojelaudan AI-chat</a>
+  <a href="#studysets">Opiskelusarjat</a>
+  <div class="rail-label">Luokkahuone</div>
+  <a href="#assignments">Tehtävät</a>
+  <a href="#message-teacher">Viesti opettajalle</a>
+  <a href="#progress">Edistymisesi</a>
+</nav>
+
+<main>
+
+<header class="doc-header">
+  <span class="doc-eyebrow">Opiskelijaopas</span>
+  <h1>Opiskelu LearnX AI:n avulla</h1>
+  <p class="doc-lead">Opettajasi on luonut tekoälyavusteiset oppitunnit luokallesi. Voit myös käyttää tekoälyä itsenäisesti — lataa omia muistiinpanojasi, luo opiskelusarjoja, juttele tekoälyn kanssa ja viestittele opettajallesi suoraan.</p>
+  <div class="doc-meta"><span>Rooli: <span class="pill pill-student">Opiskelija</span></span><span>Elokuu 2026</span></div>
+</header>
+
+<section class="section" id="welcome">
+  <div class="section-header"><div class="section-num">1</div><h2>Mitä voit tehdä LearnX AI:ssa</h2></div>
+  <p class="section-desc">LearnX AI on sekä luokkahuonealusta että henkilökohtainen tekoäly-oppimistyökalu — käytä sitä annettuja kurssitehtäviä varten tai tutustu aiheisiin itsenäisesti.</p>
+  <div class="feature-grid">
+    <div class="feature-card"><div class="feature-card-icon">📖</div><div class="feature-card-title">Oppikirja</div><div class="feature-card-desc">Lue tekoälyn kirjoittamia oppitunteja, joissa on käytännön esimerkkejä ja keskeisiä käsitteitä.</div></div>
+    <div class="feature-card"><div class="feature-card-icon">🎬</div><div class="feature-card-title">Videot</div><div class="feature-card-desc">Katso animoituja selityksiä jokaisesta aiheesta. Opettajasi on arvioinut ne ennen julkaisua.</div></div>
+    <div class="feature-card"><div class="feature-card-icon">🧩</div><div class="feature-card-title">Testi &amp; Muistikortit</div><div class="feature-card-desc">Testaa tietosi välittömällä palautteella varustetuilla testeillä ja muistikorteilla.</div></div>
+    <div class="feature-card"><div class="feature-card-icon">🤖</div><div class="feature-card-title">AI-chat</div><div class="feature-card-desc">Kysy tekoälyltä mistä tahansa käsitteestä kojelaudalta tai kurssin sisältä. Pyydä video tai kaavio heti.</div></div>
+    <div class="feature-card"><div class="feature-card-icon">📂</div><div class="feature-card-title">Opiskelusarjat</div><div class="feature-card-desc">Lataa omat muistiinpanosi tai oppikirjan sivut — tekoäly luo niistä muistikortit, testit ja chat-tutorin.</div></div>
+    <div class="feature-card"><div class="feature-card-icon">✉️</div><div class="feature-card-title">Viesti opettajalle</div><div class="feature-card-desc">Lähetä viesti suoraan opettajallesi LearnX AI:n sisältä.</div></div>
+    <div class="feature-card"><div class="feature-card-icon">✏️</div><div class="feature-card-title">Tehtävät</div><div class="feature-card-desc">Suorita opettajan lähettämät testit, muistikortit, videot ja opiskelusarjat.</div></div>
+    <div class="feature-card"><div class="feature-card-icon">📈</div><div class="feature-card-title">Edistyminen</div><div class="feature-card-desc">Näe milloin olet opiskellut käsitteitä ja mitkä ovat testipisteidesi tulokset.</div></div>
+  </div>
+</section>
+
+<hr>
+
+<section class="section" id="login">
+  <div class="section-header"><div class="section-num">2</div><h2>Kirjautuminen</h2></div>
+  <p class="section-desc">Koulusi ylläpitäjä tai opettajasi antaa sinulle kirjautumissähköpostin ja salasanan, kun sinut on lisätty järjestelmään.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Siirry kirjautumissivulle</strong><span>Mene osoitteeseen <code>learnx-ai.com/auth/teacher</code> — opiskelijat ja opettajat käyttävät samaa sivua. Järjestelmä tunnistaa tilityyppiisi automaattisesti.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Syötä sähköpostiosoitteesi ja salasanasi</strong><span>Sähköpostisi näyttää tältä: <code>nimesi.koulu@learnxai.app</code>. Oletussalasana on oppilastunnuksesi, ellei ylläpitäjä ole vaihtanut sitä.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Saavut Opiskelija-kojelaudallesi</strong><span>Näet luokkasi, viimeaikaisen toimintasi, odottavat tehtäväsi ja tekoälychatin.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Opiskelijan kojelauta</div>
+  <div class="callout callout-tip"><span class="callout-icon">🔑</span><div class="callout-body"><strong>Unohditko salasanasi?</strong> Pyydä opettajaasi tai koulun ylläpitäjää palauttamaan se — itsepalautusvaihtoehtoa ei ole.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="classroom">
+  <div class="section-header"><div class="section-num">3</div><h2>Luokkasi ja kurssisi</h2></div>
+  <p class="section-desc">Napsauta sivupalkissa <strong>Luokkahuoneet</strong> löytääksesi luokkasi. Luokkahuoneessa näet kaikki opettajasi julkaisemat kurssit.</p>
+  <div class="sc-ph">📸 Kuvakaappaus – Opiskelijan luokkahuonenäkymä</div>
+  <div class="callout callout-tip"><span class="callout-icon">👁️</span><div class="callout-body"><strong>Kurssi ei näy?</strong> Opettajasi ei ehkä ole vielä julkaissut sitä. Se ilmestyy automaattisesti, kun opettaja julkaisee sen.</div></div>
+</section>
+
+<section class="section" id="concept">
+  <div class="section-header"><div class="section-num">4</div><h2>Käsitteen oppiminen</h2></div>
+  <p class="section-desc">Napsauta kurssia nähdäksesi sen yksiköt ja käsitteet. Napsauta käsitettä avataksesi sen — näet välilehdet Oppikirja, Testi, Muistikortit ja Chat.</p>
+  <div class="sc-ph">📸 Kuvakaappaus – Käsitteen oppiminen</div>
+</section>
+
+<section class="section" id="textbook">
+  <div class="section-header"><div class="section-num">5</div><h2>Oppikirjan lukeminen</h2></div>
+  <p class="section-desc">Oppikirja-välilehti on pääoppitunti — jäsennellyt osiot, käytännön esimerkit, kaaviot ja opettajan lisäämät videot.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Lue ylhäältä alas</strong><span>Sisältö on jaettu selkeästi otsikoituihin osioihin. Käy ne järjestyksessä läpi parhaan ymmärryksen saavuttamiseksi.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Toista upotetut videot</strong><span>Videot näkyvät oppitunnin sisällä. Paina play — ei tarvetta siirtyä erilliselle välilehdelle.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Käytä vasemmalla olevaa käsitelistaa navigointiin</strong><span>Siirry mihin tahansa nykyisen yksikön käsitteeseen. Lukemisen edistymisesi tallennetaan automaattisesti.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Kurssin oppikirjanäkymä</div>
+</section>
+
+<section class="section" id="quizzes">
+  <div class="section-header"><div class="section-num">6</div><h2>Testi ja muistikortit</h2></div>
+  <p class="section-desc">Lukemisen jälkeen testaa tietosi testillä tai käy muistikortit läpi. Molemmat löytyvät käsitesivun yläosassa olevista välilehdistä.</p>
+  <h3>Testi</h3>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta Testi-välilehteä ja vastaa kysymyksiin</strong><span>Valitse oikea vaihtoehto — järjestelmä näyttää välittömästi vihreän (oikein) tai punaisen (väärin) selityksen kanssa.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Lue jokainen selitys</strong><span>Vaikka vastauksesi olisi oikein, selitys vahvistaa syyn. Pistesi tallennetaan — opettajasi näkee ne.</span></div></li>
+  </ul>
+  <h3>Muistikortit</h3>
+  <p>Siirry Muistikortit-välilehdelle. Napsauta korttia kääntääksesi sen ja paljastaaksesi vastauksen. Erinomainen tapa kerrata keskeisiä termejä ennen koetta.</p>
+  <div class="sc-ph">📸 Kuvakaappaus – Testi ja muistikortit</div>
+  <div class="callout callout-tip"><span class="callout-icon">💡</span><div class="callout-body"><strong>Tee testi uudelleen milloin tahansa.</strong> Palaa oppikirjaan, lue asiaan liittyvä osio uudelleen ja yritä sitten uudelleen — useampia yrityksiä kannustetaan.</div></div>
+</section>
+
+<section class="section" id="course-chat">
+  <div class="section-header"><div class="section-num">7</div><h2>AI-chat kurssilla</h2></div>
+  <p class="section-desc">Jokaisella käsitteellä on AI-chat-välilehti. Kysy tekoälyltä mitä tahansa kyseisestä aiheesta — se tuntee kurssimateriaalin ja osaa selittää asiat eri tavoin, antaa lisää esimerkkejä tai käydä ongelman läpi askel askeleelta.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta Chat-välilehteä millä tahansa käsitteellä</strong><span>Kirjoita kysymys — "Selitä tämä yksinkertaisemmin", "Anna minulle toinen esimerkki" tai "Mikä ero on X:n ja Y:n välillä?"</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Jatka keskustelua</strong><span>Tekoäly muistaa mitä kysyit aiemmin istunnon aikana. Sano "Voitko laajentaa tuota?" tai "Entä tämä tapaus?" ja se jatkaa siitä.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Kurssin AI-chat</div>
+  <div class="callout callout-tip"><span class="callout-icon">🎯</span><div class="callout-body"><strong>Kokeile ensin itse, sitten tarkista.</strong> Tekoäly on hyödyllisimmillään, kun yrität ensin itse ja pyydät sitten tekoälyä arvioimaan päättelyäsi.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="dashboard-chat">
+  <div class="section-header"><div class="section-num">8</div><h2>Kojelaudan AI-chat</h2></div>
+  <p class="section-desc">Kojelaudan pääasiallinen AI-chat ei rajoitu yhteen kurssiin — voit kysyä mistä tahansa aiheesta, pyytää käsitevideota tai pyytää tekoälyä piirtämään kaavion. Se toimii kuin henkilökohtainen tutor aina saatavilla.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Avaa chat-paneeli kojelaudallasi</strong><span>Chattiruutu näkyy etualalla, kun saavut aloitusnäyttöön.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Kysy mitä tahansa</strong><span>Aihekysymykset, käsitteiden selitykset, tenttivinkit, ongelmanratkaisut — tekoäly käsittelee ne kaikki.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Pyydä video tai kuva</strong><span>Kirjoita "Tee lyhyt video Newtonin toisesta laista" tai "Piirrä kaavio veden kiertokulusta". Tekoäly luo sen heti ja voit katsoa sen siinä samassa.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Kojelaudan chat</div>
+</section>
+
+<section class="section" id="studysets">
+  <div class="section-header"><div class="section-num">9</div><h2>Opiskelusarjat — Itsenäinen opiskelu tekoälyn avulla</h2></div>
+  <p class="section-desc">Opiskelusarjat ovat oma henkilökohtainen oppimistilasi. Lataa muistiinpanosi, luvun PDF-tiedosto tai muu kertausaineisto — tekoäly lukee sen, jakaa sen käsitteisiin ja rakentaa muistikortit, testit ja chat-tutorin, aivan kuten opettaja tekisi.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta sivupalkissa "Opiskelusarjat"</strong><span>Napsauta <strong>+ Uusi opiskelusarja</strong> ja anna sille nimi (esim. "Luku 5 Kertaus — Voimat").</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Lataa materiaalisi</strong><span>Vedä muistiinpanojesi PDF, vanha koe tai oppikirjan luku sisään. Voit lisätä useita tiedostoja yhteen opiskelusarjaan.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Tekoäly käsittelee sen</strong><span>Minuutissa tekoäly poimii keskeisiä käsitteitä, luo yhteenvedon, tuottaa muistikortit ja rakentaa testin materiaalistasi.</span></div></li>
+    <li class="step"><div class="step-num">4</div><div class="step-body"><strong>Juttele tekoälyn kanssa materiaalisi pohjalta</strong><span>Vaihda opiskelusarjasi sisällä Chat-välilehdelle — tekoäly on lukenut asiakirjasi ja osaa vastata nimenomaan lataamaasi sisältöä koskeviin kysymyksiin.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Opiskelusarjat</div>
+  <div class="callout callout-tip"><span class="callout-icon">📂</span><div class="callout-body"><strong>Täysin yksityinen.</strong> Opiskelusarjasi näkyvät vain sinulle — ei opettajallesi tai luokkatovereillesi. Käytä niitä henkilökohtaiseen kertaukseen, vanhoihin kokeisiin tai aiheisiin, joita haluat tutkia opetussuunnitelman ulkopuolelta.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="assignments">
+  <div class="section-header"><div class="section-num">10</div><h2>Tehtävien suorittaminen</h2></div>
+  <p class="section-desc">Opettajasi voi lähettää sinulle suoraan kohdennettua harjoittelua — testin, muistikortit, videon tai opiskelusarjan. Löydät kaiken sivupalkissa kohdasta <strong>Tehtävät</strong>.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta sivupalkissa "Tehtävät"</strong><span>Kaikki opettajasi lähettämät tehtävät näkyvät täällä tyypillään (Testi, Muistikortit, Video, Opiskelusarja) ja käsitteellä, jota ne koskevat.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Napsauta avataksesi ja suorittaaksesi sen</strong><span>Tehtävä aukeaa sivun sisällä — vastaa testiin, käy muistikortit läpi tai katso video poistumatta sivulta.</span></div></li>
+    <li class="step"><div class="step-num">3</div><div class="step-body"><strong>Vastauksesi tallentuvat automaattisesti</strong><span>Testivastaukset tallentuvat heti vastattuasi. Opettajasi näkee pisteesi — lähetyspainiketta ei ole.</span></div></li>
+  </ul>
+  <div class="sc-ph">📸 Kuvakaappaus – Tehtävät</div>
+</section>
+
+<section class="section" id="message-teacher">
+  <div class="section-header"><div class="section-num">11</div><h2>Viesti opettajallesi</h2></div>
+  <p class="section-desc">Voit lähettää suoran viestin opettajallesi LearnX AI:n sisältä — sähköpostia tai WhatsAppia ei tarvita.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Napsauta sivupalkissa Viestit-kuvaketta</strong><span>Tämä avaa suoran viestinäkymän, jossa opettajasi nimi on listattuna.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Kirjoita viestisi ja lähetä</strong><span>Opettajasi saa sen ja voi vastata omasta Viestit-paneelistaan. Näet heidän vastauksensa samassa ketjussa.</span></div></li>
+  </ul>
+  <div class="callout callout-tip"><span class="callout-icon">💬</span><div class="callout-body"><strong>Käytä opillisiin kysymyksiin.</strong> Jos olet jumissa jonkin käsitteen kanssa tai tarvitset selvennystä tehtävästä, tämä on paras tapa tavoittaa opettajasi.</div></div>
+</section>
+
+<hr>
+
+<section class="section" id="progress">
+  <div class="section-header"><div class="section-num">12</div><h2>Edistymisesi seuranta</h2></div>
+  <p class="section-desc">LearnX AI seuraa automaattisesti, mitä käsitteitä olet opiskellut ja testipisteitäsi. Voit tarkastella omaa edistymistäsi milloin tahansa.</p>
+  <ul class="steps">
+    <li class="step"><div class="step-num">1</div><div class="step-body"><strong>Avaa kurssi luokkahuoneestasi</strong><span>Kurssin rakenne näyttää rastin avaamiesi käsitteiden kohdalla. Suoritetuista testeistä näkyy viimeisin pisteesi.</span></div></li>
+    <li class="step"><div class="step-num">2</div><div class="step-body"><strong>Tee testi uudelleen parantaaksesi pisteitäsi</strong><span>Molemmat yritykset näkyvät, joten näet kehityksesi ajan myötä.</span></div></li>
+  </ul>
+  <div class="callout callout-tip"><span class="callout-icon">📈</span><div class="callout-body"><strong>Opettajasi näkee tämän myös.</strong> Testipisteet ja käsitteiden suoritus näkyvät opettajallesi. Tehtävien suorittaminen ajallaan auttaa heitä tietämään, missä he voivat tukea sinua.</div></div>
+  <div style="margin-top:2.5rem;padding:1rem;background:var(--surface);border:1px solid var(--border);border-radius:8px">
+    <p style="font-size:0.8rem;color:var(--tx5);margin:0">Tarvitsetko apua? Käänny ensin opettajasi puoleen. Teknisistä ongelmista he voivat ottaa yhteyttä osoitteeseen <a href="mailto:hello@animlearn.com" style="color:var(--accent);text-decoration:none">hello@animlearn.com</a>.</p>
+  </div>
+</section>
+
+</main>
+</div>
+<footer style="margin-top:4rem;padding:2rem 3rem;border-top:1px solid var(--border);background:var(--surface)">
+  <div style="max-width:760px;display:flex;flex-direction:column;gap:1rem">
+    <p style="font-size:0.75rem;color:var(--tx3);line-height:1.6;max-width:62ch">
+      LearnX-AI on oppimisen tukityökalu. Tekoälyn luoma sisältö tulee aina varmistaa oppikirjoista, opettajilta tai virallisista opetussuunnitelmamateriaaleista. Käytä LearnX AI:ta aktiiviseen oppimiseen, älä vastausten passiiviseen kopioimiseen.
+    </p>
+    <div style="display:flex;flex-wrap:wrap;gap:1rem 1.5rem;align-items:center;justify-content:space-between">
+      <div style="display:flex;flex-direction:column;gap:0.2rem">
+        <span style="font-size:0.72rem;color:var(--tx5)">&copy; 2026 LearnX-AI.com. Kaikki oikeudet pidätetään.</span>
+        <span style="font-size:0.72rem;color:var(--tx5);white-space:nowrap">NordX Labs Oy &middot; Espoo, Suomi &middot; Y-tunnus: 3615236-4</span>
+      </div>
+      <div style="display:flex;gap:1.25rem;flex-wrap:wrap;align-items:center">
+        <a href="mailto:hello@animlearn.com" style="font-size:0.72rem;color:var(--tx5);text-decoration:none">hello@animlearn.com</a>
+        <a href="https://learnx-ai.com/privacy" style="font-size:0.72rem;color:var(--tx5);text-decoration:none">Tietosuojaseloste</a>
+        <a href="https://learnx-ai.com/terms" style="font-size:0.72rem;color:var(--tx5);text-decoration:none">Käyttöehdot</a>
+      </div>
+    </div>
+  </div>
+</footer>
