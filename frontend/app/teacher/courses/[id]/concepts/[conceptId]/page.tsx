@@ -2171,12 +2171,8 @@ export default function ConceptEditorPage() {
                           <Video size={20} className="text-purple-400 shrink-0" />
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-[var(--tx1)] font-medium truncate">{r.title}</p>
-                            <p className="text-xs text-[var(--tx7)] truncate">{r.video_url}</p>
+                            <p className="text-xs text-[var(--tx7)]">Video resource</p>
                           </div>
-                          {r.video_url && (
-                            <a href={r.video_url} target="_blank" rel="noreferrer"
-                              className="text-xs text-purple-400 hover:text-purple-300 shrink-0">Open</a>
-                          )}
                         </div>
                       )}
                       <div className="flex items-center justify-between px-3 py-2 border-t border-[var(--bd)]">
