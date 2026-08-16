@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  MessageSquare, Video, BookOpen, BarChart2, Settings,
-  Search, Menu, X, PenSquare, User, Sparkles, Users, LayoutDashboard, GraduationCap, ClipboardList, Mail,
+  MessageSquare, Library, BookOpen, BarChart2, Settings,
+  Search, Menu, X, PenSquare, User, Users, LayoutDashboard, GraduationCap, ClipboardList, Mail,
   ChevronRight,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
@@ -235,9 +235,8 @@ export function Sidebar({ selectedConversationId, onNewChat, onConversationSelec
 
   // Individual learning — same for every role
   const individualItems = [
-    { icon: <Video size={18} />,    label: t.sidebar.myVideos,  href: '/videos'   },
+    { icon: <Library size={18} />,  label: 'My Assets',         href: '/assets'   },
     { icon: <BookOpen size={18} />, label: t.sidebar.studySets, href: '/study'    },
-    { icon: <Sparkles size={18} />, label: t.progress.diagrams, href: '/images'   },
     ...(!isTeacher && !isSuperAdmin
       ? [{ icon: <BarChart2 size={18} />, label: t.sidebar.progress, href: '/progress' }]
       : []),
