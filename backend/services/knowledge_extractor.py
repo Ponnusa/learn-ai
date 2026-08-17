@@ -73,10 +73,8 @@ async def extract_knowledge_model(concept: str) -> dict:
             ],
             max_tokens=1200,
             temperature=0.3,
+            json_mode=True,
         )
-        if raw.startswith("```"):
-            parts = raw.split("```")
-            raw = parts[1][4:].strip() if parts[1].startswith("json") else parts[1].strip()
         model = json.loads(raw)
         logger.info("[know] domain=%s concept_type=%s", model.get("domain"), model.get("concept_type"))
         return model

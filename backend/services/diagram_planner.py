@@ -59,10 +59,8 @@ Labels must include all entity names, variable values, and units."""
             messages=[{"role": "user", "content": user_msg}],
             max_tokens=700,
             temperature=0.3,
+            json_mode=True,
         )
-        if raw.startswith("```"):
-            parts = raw.split("```")
-            raw = parts[1][4:].strip() if parts[1].startswith("json") else parts[1].strip()
         plan = json.loads(raw)
         logger.info("[plan] type=%s panels=%d labels=%d",
                     plan.get("diagram_type"), len(plan.get("panels", [])), len(plan.get("labels", [])))

@@ -146,6 +146,7 @@ async def run_vision_critic(
     image_bytes:     bytes,
     knowledge_model: dict,
     diagram_plan:    dict,
+    mime_type:       str = "image/jpeg",
 ) -> dict:
     """
     Send the generated PNG to the vision critic for scientific accuracy review.
@@ -194,7 +195,7 @@ Return ONLY valid JSON:
             if not gemini_client:
                 raise RuntimeError("Gemini Vertex client not initialised")
             parts = [
-                gemini_types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                gemini_types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
                 gemini_types.Part(text=prompt),
             ]
             resp = await gemini_client.aio.models.generate_content(
@@ -272,15 +273,17 @@ async def generate_with_critic(
         )
         # Extract the first image part from the response
         image_bytes: bytes | None = None
+        image_mime:  str   = "image/jpeg"
         for part in resp.candidates[0].content.parts:
             if getattr(part, "inline_data", None) and part.inline_data.mime_type.startswith("image/"):
                 raw = part.inline_data.data
                 image_bytes = base64.b64decode(raw) if isinstance(raw, str) else raw
+                image_mime  = part.inline_data.mime_type
                 break
         if not image_bytes:
             raise RuntimeError(f"Nano Banana returned no image on attempt {attempt}")
 
-        critic_report = await run_vision_critic(image_bytes, knowledge_model, diagram_plan)
+        critic_report = await run_vision_critic(image_bytes, knowledge_model, diagram_plan, mime_type=image_mime)
         critic_report["attempt"] = attempt
 
         final_bytes  = image_bytes
