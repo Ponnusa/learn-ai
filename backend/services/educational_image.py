@@ -281,10 +281,21 @@ async def generate_with_critic(
                         i, idata is not None, repr(getattr(part, 'text', None))[:60] if getattr(part, 'text', None) else None)
             if idata and idata.mime_type.startswith("image/"):
                 raw = idata.data
-                logger.info("[img] image part: mime=%s raw_type=%s raw_len=%s",
+                logger.info("[img] image part: mime=%s raw_type=%s raw_len=%s first4=%s",
                             idata.mime_type, type(raw).__name__,
-                            len(raw) if raw is not None else None)
-                image_bytes = base64.b64decode(raw) if isinstance(raw, str) else raw
+                            len(raw) if raw is not None else None,
+                            raw[:4] if raw else None)
+                if isinstance(raw, str):
+                    image_bytes = base64.b64decode(raw)
+                elif raw and not (raw[:4] == b'\x89PNG' or raw[:2] == b'\xff\xd8' or raw[:4] == b'RIFF'):
+                    # Bytes don't start with a known image header — likely base64-encoded bytes
+                    try:
+                        image_bytes = base64.b64decode(raw)
+                        logger.info("[img] base64-decoded image bytes: %d -> %d bytes", len(raw), len(image_bytes))
+                    except Exception:
+                        image_bytes = raw
+                else:
+                    image_bytes = raw
                 image_mime  = idata.mime_type
                 break
         if not image_bytes:

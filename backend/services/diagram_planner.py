@@ -57,7 +57,7 @@ Labels must include all entity names, variable values, and units."""
         raw = await ai_complete(
             system=_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
-            max_tokens=1500,
+            max_tokens=3000,
             temperature=0.3,
             json_mode=True,
         )
