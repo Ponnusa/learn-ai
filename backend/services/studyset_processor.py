@@ -73,9 +73,7 @@ async def extract_text_vision(file_bytes: bytes) -> tuple[str, int]:
             for idx in range(batch_start, batch_end):
                 pix = doc[idx].get_pixmap(matrix=mat)
                 parts.append(gemini_types.Part(text=f"--- Page {idx + 1} ---"))
-                parts.append(gemini_types.Part.from_bytes(
-                    data=pix.tobytes("png"), mime_type="image/png"
-                ))
+                parts.append(gemini_types.Part(inline_data=gemini_types.Blob(data=pix.tobytes("png"), mime_type="image/png")))
             parts.append(gemini_types.Part(text=OCR_PROMPT))
             resp = await gemini_client.aio.models.generate_content(
                 model="gemini-2.5-flash",

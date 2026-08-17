@@ -3808,9 +3808,7 @@ async def _detect_toc_vision(file_bytes: bytes, page_count: int) -> list[dict]:
             for idx in range(scan_pages):
                 pix = doc[idx].get_pixmap(matrix=mat)
                 parts.append(gemini_types.Part(text=f"Page {idx + 1}:"))
-                parts.append(gemini_types.Part.from_bytes(
-                    data=pix.tobytes("png"), mime_type="image/png"
-                ))
+                parts.append(gemini_types.Part(inline_data=gemini_types.Blob(data=pix.tobytes("png"), mime_type="image/png")))
             doc.close()
             parts.append(gemini_types.Part(text=toc_prompt))
             resp = await gemini_client.aio.models.generate_content(

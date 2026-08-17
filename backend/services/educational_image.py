@@ -195,7 +195,7 @@ Return ONLY valid JSON:
             if not gemini_client:
                 raise RuntimeError("Gemini Vertex client not initialised")
             parts = [
-                gemini_types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                gemini_types.Part(inline_data=gemini_types.Blob(data=image_bytes, mime_type=mime_type)),
                 gemini_types.Part(text=prompt),
             ]
             resp = await gemini_client.aio.models.generate_content(

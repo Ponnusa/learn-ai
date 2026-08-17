@@ -94,7 +94,17 @@ async def ai_complete(
             contents=contents,
             config=cfg,
         )
-        return resp.text.strip()
+        # Extract text explicitly from parts — resp.text can miss parts with thinking models
+        parts_text = []
+        for part in resp.candidates[0].content.parts:
+            t = getattr(part, "text", None)
+            if t:
+                parts_text.append(t)
+        result = "".join(parts_text).strip()
+        if not result:
+            logger.warning("[ai_router] Gemini returned empty text; resp.text=%r", resp.text)
+            result = (resp.text or "").strip()
+        return result
 
     # Default: Claude Haiku
     resp = await claude_client.messages.create(
