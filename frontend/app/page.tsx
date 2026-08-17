@@ -19,7 +19,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useLanguageStore } from '@/store/languageStore';
 import { useGradeStore } from '@/store/gradeStore';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, listEduImages, getStudentProfile, uploadRegionImage } from '@/lib/api';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, getStudentProfile, uploadRegionImage } from '@/lib/api';
 import { ProfileNudgeCard } from '@/components/profile/ProfileNudgeCard';
 import { GradePrompt } from '@/components/chat/GradePrompt';
 import { HomeTour } from '@/components/onboarding/HomeTour';
@@ -135,13 +135,11 @@ export default function HomePage() {
     setActiveConversationId(id);
     setMessages([]);
     setVideoByMsgId({});
-    setImageByMsgId({});
     setExplanationLang(null);
     try {
-      const [rows, videos, images] = await Promise.all([
+      const [rows, videos] = await Promise.all([
         getMessages(id, token ?? undefined),
         getConversationVideos(id, token ?? undefined).catch(() => []),
-        listEduImages({ conversation_id: id }, token ?? undefined).catch(() => []),
       ]);
 
       const loadedMessages = rows.map((m: any) => {
@@ -189,20 +187,6 @@ export default function HomePage() {
       }
 
       if (Object.keys(restored).length > 0) setVideoByMsgId(restored);
-
-      // Restore inline image cards — DB first, then localStorage fallback
-      const restoredImages: Record<string, string> = {};
-      for (const img of images) {
-        if (img.message_id && img.id) restoredImages[img.message_id] = img.id;
-      }
-      for (const m of loadedMessages) {
-        if (m.role !== 'assistant') continue;
-        try {
-          const stored = localStorage.getItem(`learnai_image_${m.id}`);
-          if (stored && !restoredImages[m.id]) restoredImages[m.id] = stored;
-        } catch {}
-      }
-      if (Object.keys(restoredImages).length > 0) setImageByMsgId(restoredImages);
 
       const conv = conversations.find(c => c.id === id);
       if (conv?.subject) setCurrentSubject({ subject: conv.subject, subtopic: conv.subtopic });
