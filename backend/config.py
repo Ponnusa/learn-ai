@@ -32,8 +32,9 @@ class Settings(BaseSettings):
     VIDEO_MODEL_PROVIDER: str = "claude"   # "claude" | "gemini"
     GEMINI_MODEL_NAME: str = "gemini-2.5-flash"       # enhanced tier (students)
     GEMINI_MODEL_NAME_LITE: str = "gemini-3.5-flash-lite"  # standard tier (anonymous)
-    # Azure OpenAI — set these in EU deployments; when present, all OpenAI calls
-    # route through Azure instead of the direct OpenAI API.
+    # Azure OpenAI — set USE_AZURE_OPENAI=true in EU deployments to route all
+    # OpenAI calls through Azure instead of the direct OpenAI API.
+    USE_AZURE_OPENAI: bool = False
     AZURE_OPENAI_ENDPOINT: str = ""
     AZURE_OPENAI_API_KEY: str = ""
     AZURE_OPENAI_API_VERSION: str = ""

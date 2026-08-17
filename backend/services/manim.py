@@ -42,7 +42,7 @@ _claude_sync = anthropic.Anthropic(
     api_key=settings.ANTHROPIC_API_KEY,
     timeout=600.0,
 )
-if settings.AZURE_OPENAI_ENDPOINT:
+if settings.USE_AZURE_OPENAI:
     _openai_sync = _openai_module.AzureOpenAI(
         azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
         api_key=settings.AZURE_OPENAI_API_KEY,

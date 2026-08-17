@@ -1,9 +1,9 @@
 """
 AI model routing — central place for all model assignments and client creation.
 
-Provider selection is automatic:
-  - AZURE_OPENAI_ENDPOINT set → AsyncAzureOpenAI (EU, GDPR-compliant)
-  - AZURE_OPENAI_ENDPOINT empty → AsyncOpenAI direct (US)
+Provider selection:
+  - USE_AZURE_OPENAI=true → AsyncAzureOpenAI (EU, GDPR-compliant)
+  - USE_AZURE_OPENAI=false (default) → AsyncOpenAI direct (US)
 
 Change model assignments here without touching any other file.
 """
@@ -13,7 +13,7 @@ from config import settings
 # ── OpenAI client factory ─────────────────────────────────────────────────────
 
 def _make_openai_client():
-    if settings.AZURE_OPENAI_ENDPOINT:
+    if settings.USE_AZURE_OPENAI:
         from openai import AsyncAzureOpenAI
         return AsyncAzureOpenAI(
             azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
@@ -36,7 +36,7 @@ _AZURE_MODEL_MAP = {
 
 def resolve_model(model: str) -> str:
     """Return the correct model/deployment name for the active provider."""
-    if settings.AZURE_OPENAI_ENDPOINT:
+    if settings.USE_AZURE_OPENAI:
         return _AZURE_MODEL_MAP.get(model, model)
     return model
 
