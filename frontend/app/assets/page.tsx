@@ -573,8 +573,9 @@ function ImageLightbox({ src, title, description, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-sm">
-      {/* Controls row — always at top, never scrolls away */}
-      <div className="flex items-center justify-end gap-1.5 px-4 py-3 shrink-0">
+      {/* Controls row */}
+      <div className="flex items-center gap-2 px-4 py-3 shrink-0">
+        <p className="flex-1 text-white/60 text-sm truncate">{title}</p>
         <button onClick={() => setZoom(z => Math.max(0.5, z - 0.3))}
           className="w-9 h-9 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors">
           <span className="text-sm font-bold">−</span>
@@ -594,24 +595,23 @@ function ImageLightbox({ src, title, description, onClose }: {
         </button>
       </div>
 
-      {/* Scrollable content — click backdrop area to close */}
-      <div className="flex-1 overflow-y-auto" onClick={onClose}>
-        <div className="flex flex-col items-center gap-4 px-4 py-6 max-w-3xl mx-auto"
-          onClick={e => e.stopPropagation()}>
-          <img src={src} alt={title}
-            style={{ transform: `scale(${zoom})`, transition: 'transform 0.15s ease', transformOrigin: 'top center' }}
-            className="max-w-full object-contain rounded-xl select-none cursor-zoom-in bg-white w-full"
-            onClick={() => setZoom(z => z === 1 ? 2 : 1)}
-            draggable={false} />
-          {description && (
-            <div className="w-full bg-white/5 border border-white/10 rounded-xl px-5 py-4 text-left">
-              <p className="text-white/50 text-[10px] uppercase tracking-wide font-medium mb-2">About this diagram</p>
-              <p className="text-white/75 text-sm leading-relaxed whitespace-pre-wrap">{description}</p>
-            </div>
-          )}
-          <p className="text-white/20 text-xs">Click image to toggle zoom · Esc to close</p>
-        </div>
+      {/* Image — takes all remaining space, click to zoom */}
+      <div className="flex-1 flex items-center justify-center overflow-hidden p-4"
+        onClick={onClose}>
+        <img src={src} alt={title}
+          style={{ transform: `scale(${zoom})`, transition: 'transform 0.15s ease' }}
+          className="max-w-full max-h-full object-contain rounded-xl select-none cursor-zoom-in bg-white"
+          onClick={e => { e.stopPropagation(); setZoom(z => z === 1 ? 2 : 1); }}
+          draggable={false} />
       </div>
+
+      {/* Description — always pinned to bottom, scrollable if long */}
+      {description && (
+        <div className="shrink-0 border-t border-white/10 bg-black/70 px-6 py-4 max-h-[35vh] overflow-y-auto">
+          <p className="text-white/40 text-[10px] uppercase tracking-wide font-medium mb-1.5">About this diagram</p>
+          <p className="text-white/80 text-sm leading-relaxed whitespace-pre-wrap">{description}</p>
+        </div>
+      )}
     </div>
   );
 }
