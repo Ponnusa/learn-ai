@@ -42,10 +42,18 @@ _claude_sync = anthropic.Anthropic(
     api_key=settings.ANTHROPIC_API_KEY,
     timeout=600.0,
 )
-_openai_sync = _openai_module.OpenAI(
-    api_key=settings.OPENAI_API_KEY,
-    timeout=120.0,
-)
+if settings.AZURE_OPENAI_ENDPOINT:
+    _openai_sync = _openai_module.AzureOpenAI(
+        azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
+        api_key=settings.AZURE_OPENAI_API_KEY,
+        api_version=settings.AZURE_OPENAI_API_VERSION,
+        timeout=120.0,
+    )
+else:
+    _openai_sync = _openai_module.OpenAI(
+        api_key=settings.OPENAI_API_KEY,
+        timeout=120.0,
+    )
 
 # ── Models for Manim pipeline ────────────────────────────────────────────────────────
 # All generation passes (storyboard, SVG, setup block, beats) — Opus for quality

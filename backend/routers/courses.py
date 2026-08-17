@@ -1,5 +1,5 @@
-"""
-Course builder router — teachers create courses (units + concepts),
+﻿"""
+Course builder router â€” teachers create courses (units + concepts),
 optionally imported from a syllabus PDF, then assign to classrooms.
 """
 import asyncio
@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from config import settings
 from database import get_db
 from routers.auth import decode_jwt
+from services.ai_router import openai_client, resolve_model
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/courses", tags=["courses"])
@@ -24,9 +25,6 @@ _LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'Fre
 
 async def _summarize_one_concept(concept_id: str, course: dict | None):
     """Generate AI summary + transcript for a single concept ('Generate explanation')."""
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-
     try:
         async with get_db() as db:
             concept = await db.fetchrow(
@@ -68,32 +66,32 @@ Source material (from the chapter):
 {source}
 ---
 
-STEP 1 — Classify the source:
-A) WORKED EXAMPLE / CALCULATION — source contains formulas, numbered steps, given values, a solution procedure, or a numerical answer.
-B) CONCEPTUAL — source explains ideas, definitions, or principles without a specific problem to solve.
+STEP 1 â€” Classify the source:
+A) WORKED EXAMPLE / CALCULATION â€” source contains formulas, numbered steps, given values, a solution procedure, or a numerical answer.
+B) CONCEPTUAL â€” source explains ideas, definitions, or principles without a specific problem to solve.
 
-STEP 2 — Create a SUMMARY and TRANSCRIPT based on the type:
+STEP 2 â€” Create a SUMMARY and TRANSCRIPT based on the type:
 
 If type A (worked example / calculation):
-  SUMMARY — use this exact structure, each section on its own line:
+  SUMMARY â€” use this exact structure, each section on its own line:
   [One sentence stating what the problem asks for]
 
   Tunnetut suureet / Given:
-  [Each known value on its own line, exactly as written in source, e.g. "NA = 6,022 · 10²³ kpl/mol"]
+  [Each known value on its own line, exactly as written in source, e.g. "NA = 6,022 Â· 10Â²Â³ kpl/mol"]
 
   Kaava / Formula:
-  [The relevant formula(s), e.g. "N = n · NA"]
+  [The relevant formula(s), e.g. "N = n Â· NA"]
 
   Ratkaisu / Solution:
-  [Full substitution with real numbers from the source, e.g. "N = 667 mol · 6,022 · 10²³ kpl/mol"]
-  [Show the unrounded intermediate result on its own line, e.g. "= 4,0167 · 10²⁶ kpl"]
-  [Then the rounded result, e.g. "≈ 4,02 · 10²⁶ kpl"]
+  [Full substitution with real numbers from the source, e.g. "N = 667 mol Â· 6,022 Â· 10Â²Â³ kpl/mol"]
+  [Show the unrounded intermediate result on its own line, e.g. "= 4,0167 Â· 10Â²â¶ kpl"]
+  [Then the rounded result, e.g. "â‰ˆ 4,02 Â· 10Â²â¶ kpl"]
 
   Vastaus / Answer:
-  [Final answer with symbol, value, and unit, e.g. "N(N₂) = 4,02 · 10²⁶ kpl"]
+  [Final answer with symbol, value, and unit, e.g. "N(Nâ‚‚) = 4,02 Â· 10Â²â¶ kpl"]
 
-  Rules: copy every number exactly from the source — do NOT round early, do NOT skip the intermediate result, do NOT paraphrase the values.
-  Preserve all domain-specific notation verbatim: reaction arrows (→ ⇌), state symbols (aq) (s) (l) (g), unit symbols (mol, J, N, m³, kpl/mol), and mathematical operators exactly as they appear in the source.
+  Rules: copy every number exactly from the source â€” do NOT round early, do NOT skip the intermediate result, do NOT paraphrase the values.
+  Preserve all domain-specific notation verbatim: reaction arrows (â†’ â‡Œ), state symbols (aq) (s) (l) (g), unit symbols (mol, J, N, mÂ³, kpl/mol), and mathematical operators exactly as they appear in the source.
   Math formatting: use $...$ for inline math (e.g. $N_A = 6{{,}}022 \\times 10^{{23}}$) and $$...$$ for display equations (e.g. $$N = n \\times N_A$$). Never use \\[...\\] or bare brackets.
 
   TRANSCRIPT (teacher talking through the solution step by step):
@@ -107,7 +105,7 @@ If type B (conceptual):
   SUMMARY:
   - Plain-language definition first
   - Explain key ideas with examples from the source
-  - 3–4 paragraphs, accurate to the source, do not invent examples not present
+  - 3â€“4 paragraphs, accurate to the source, do not invent examples not present
 
   TRANSCRIPT:
   - Conversational spoken-word style
@@ -118,7 +116,7 @@ If type B (conceptual):
 Return ONLY valid JSON:
 {{"summary": "...", "transcript": "..."}}{lang_instruction}"""
 
-        response = await client.chat.completions.create(
+        response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
@@ -150,7 +148,6 @@ async def _generate_suggested_prompts_bg(concept_id: str) -> None:
     Called automatically after summarisation and via the manual endpoint.
     Silently skips if no source_text is available.
     """
-    from openai import AsyncOpenAI
     try:
         async with get_db() as db:
             row = await db.fetchrow("""
@@ -174,8 +171,7 @@ async def _generate_suggested_prompts_bg(concept_id: str) -> None:
             if language in _LANGUAGE_NAMES else ""
         )
 
-        client = AsyncOpenAI()
-        resp = await client.chat.completions.create(
+            resp = await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{
                 "role": "system",
@@ -223,7 +219,6 @@ async def _generate_student_questions_bg(concept_id: str) -> None:
     Background: generate 4 short starter questions a student might ask about this concept.
     Uses GPT-4o-mini. Stored in student_questions JSONB on the concept.
     """
-    from openai import AsyncOpenAI
     try:
         async with get_db() as db:
             row = await db.fetchrow("""
@@ -248,8 +243,7 @@ async def _generate_student_questions_bg(concept_id: str) -> None:
             if language in _LANGUAGE_NAMES else ""
         )
 
-        client = AsyncOpenAI()
-        resp = await client.chat.completions.create(
+            resp = await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{
                 "role": "system",
@@ -354,7 +348,7 @@ async def _src_concept_id(concept_id: str, db) -> str:
     return str(row["eid"]) if row else concept_id
 
 
-# ── Course CRUD ───────────────────────────────────────────────────────────────
+# â”€â”€ Course CRUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class CreateCourseRequest(BaseModel):
     name:        str
@@ -427,7 +421,7 @@ async def get_progress_overview(authorization: str = Header(...)):
     """
     Teacher-only summary across all of a teacher's courses: enrolled student
     count, average % of concepts visited, average quiz score, and failed-asset
-    count — used as the landing view for "Student Progress" before drilling
+    count â€” used as the landing view for "Student Progress" before drilling
     into a specific course's full grid (GET /{course_id}/progress).
     """
     teacher_id = await _require_teacher(authorization)
@@ -495,7 +489,7 @@ async def get_progress_overview(authorization: str = Header(...)):
 
 
 def _compute_risk(avg_quiz_score, visited_pct, concept_count, last_seen_at) -> str:
-    """Deterministic risk flag — no AI call, just thresholds on existing progress data."""
+    """Deterministic risk flag â€” no AI call, just thresholds on existing progress data."""
     now = datetime.now(tz=timezone.utc)
     days_inactive = (now - last_seen_at).days if last_seen_at else None
 
@@ -827,7 +821,7 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             WHERE cu.course_id = $1::uuid
         """, course_id)
 
-        # Quiz attempt history per (student, concept) — up to 5 most recent
+        # Quiz attempt history per (student, concept) â€” up to 5 most recent
         attempt_rows = await db.fetch("""
             SELECT qa.student_id, qa.concept_id, qa.score
             FROM concept_quiz_attempts qa
@@ -837,7 +831,7 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             ORDER BY qa.student_id, qa.concept_id, qa.taken_at ASC
         """, course_id)
 
-        # Total video content blocks per concept (≠ legacy single-video)
+        # Total video content blocks per concept (â‰  legacy single-video)
         video_block_total_rows = await db.fetch("""
             SELECT ccb.concept_id, COUNT(*) AS total
             FROM concept_content_blocks ccb
@@ -847,7 +841,7 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             GROUP BY ccb.concept_id
         """, course_id)
 
-        # How many of those blocks each student has watched ≥ 75 %
+        # How many of those blocks each student has watched â‰¥ 75 %
         video_watched_rows = await db.fetch("""
             SELECT vw.student_id, vw.concept_id, COUNT(*) AS watched
             FROM concept_video_watches vw
@@ -859,7 +853,7 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             GROUP BY vw.student_id, vw.concept_id
         """, course_id)
 
-        # Flashcard mastery: latest review rating per (student, flashcard) → % mastered (≥3)
+        # Flashcard mastery: latest review rating per (student, flashcard) â†’ % mastered (â‰¥3)
         flashcard_rows = await db.fetch("""
             WITH total_cards AS (
                 SELECT cf.concept_id, COUNT(*) AS total
@@ -1006,7 +1000,7 @@ async def delete_course(course_id: str, authorization: str = Header(...)):
         if not row:
             raise HTTPException(404, "Course not found")
         if row["status"] == "published":
-            raise HTTPException(409, "Cannot delete a published course — archive it instead")
+            raise HTTPException(409, "Cannot delete a published course â€” archive it instead")
         await db.execute(
             "DELETE FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
             course_id, teacher_id,
@@ -1014,7 +1008,7 @@ async def delete_course(course_id: str, authorization: str = Header(...)):
     return {"ok": True}
 
 
-# ── Export ────────────────────────────────────────────────────────────────────
+# â”€â”€ Export â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/{course_id}/export")
 async def export_course(
@@ -1026,8 +1020,8 @@ async def export_course(
     """
     Export all student materials for a course.
 
-    ?format=html   → single self-contained HTML file (default)
-    ?format=scorm  → SCORM 1.2 ZIP importable into any LMS
+    ?format=html   â†’ single self-contained HTML file (default)
+    ?format=scorm  â†’ SCORM 1.2 ZIP importable into any LMS
     """
     from services.export import export_html, export_scorm
 
@@ -1064,7 +1058,7 @@ async def export_course(
         )
 
 
-# ── Units ─────────────────────────────────────────────────────────────────────
+# â”€â”€ Units â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class UnitRequest(BaseModel):
     title:       str
@@ -1123,7 +1117,7 @@ async def delete_unit(unit_id: str, authorization: str = Header(...)):
     return {"ok": True}
 
 
-# ── Concepts ──────────────────────────────────────────────────────────────────
+# â”€â”€ Concepts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ConceptRequest(BaseModel):
     title:       str
@@ -1221,7 +1215,7 @@ async def summarize_concept(
     bg:            BackgroundTasks,
     authorization: str = Header(...),
 ):
-    """On-demand 'Generate explanation' — works for any concept (AI or manual-origin),
+    """On-demand 'Generate explanation' â€” works for any concept (AI or manual-origin),
     any time. Unlocks audio/video generation once it completes."""
     await _require_teacher(authorization)
     async with get_db() as db:
@@ -1245,7 +1239,7 @@ async def summarize_concept(
     return {"ok": True, "pipeline_status": "summarizing"}
 
 
-# ── Per-concept authoring chat (teacher-only — never shown to students) ───────
+# â”€â”€ Per-concept authoring chat (teacher-only â€” never shown to students) â”€â”€â”€â”€â”€â”€â”€
 
 class ConceptChatMessage(BaseModel):
     message:          str
@@ -1343,7 +1337,7 @@ async def get_concept_chat(concept_id: str, authorization: str = Header(...)):
                     video_source_id = meta.get("source_msg_id", "")
                     vid_info        = block_video_map.get(video_block_id, {})
                     if not vid_info:
-                        # Content block deleted — recover from video_id stored in metadata
+                        # Content block deleted â€” recover from video_id stored in metadata
                         fallback_vid = meta.get("video_id")
                         if fallback_vid:
                             vid_info = fallback_video_map.get(int(fallback_vid), {})
@@ -1399,7 +1393,7 @@ async def send_concept_chat_message(
     authorization: str = Header(...),
 ):
     """
-    Teacher-only authoring chat for a concept — ask AI to draft a summary/transcript,
+    Teacher-only authoring chat for a concept â€” ask AI to draft a summary/transcript,
     request revisions, give style examples. Grounded in source_text (+ full chapter
     text if available) and the concept's cropped image (if any), so the AI can
     actually see diagrams that plain OCR'd text loses (e.g. a diagonal-sum grid).
@@ -1432,7 +1426,7 @@ async def send_concept_chat_message(
             conv = await db.fetchrow("""
                 INSERT INTO conversations (user_id, title, subject, concept_id, conversation_type)
                 VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
-            """, teacher_id, f"{concept['title']} — Authoring chat", concept["subject"], concept_id)
+            """, teacher_id, f"{concept['title']} â€” Authoring chat", concept["subject"], concept_id)
         conv_id = conv["id"]
 
         history = await db.fetch("""
@@ -1473,7 +1467,7 @@ async def send_concept_chat_message(
         concept_lang_note = f"\n\nIMPORTANT: Write ALL content in {lang_name}. Do not use English."
 
     system_prompt = f"""You are helping a teacher draft and refine the student-facing explanation for one
-concept in their course. This conversation is teacher-only — students never see it.
+concept in their course. This conversation is teacher-only â€” students never see it.
 
 Concept: {concept['title']}
 Subject: {concept['subject'] or 'General'}
@@ -1484,7 +1478,7 @@ Source material (the textbook content this concept is based on):
 ---
 
 Help the teacher draft, revise, and improve content for this concept. Ground everything in
-the source material above — and in the attached image, if one is provided, which may show a
+the source material above â€” and in the attached image, if one is provided, which may show a
 diagram or worked example that plain text can't fully capture.
 
 Whenever the teacher asks for a draft or a full revision, respond with exactly these two sections:
@@ -1495,14 +1489,14 @@ Whenever the teacher asks for a draft or a full revision, respond with exactly t
 ### TRANSCRIPT
 <a short spoken-style narration script that reads out formulas and calculation steps aloud>
 
-Math formatting: use $...$ for inline math and $$...$$ for display equations. Never use \\[...\\] or bare brackets. Preserve all domain-specific notation verbatim (→ ⇌ (aq) (s) mol J N m³).
+Math formatting: use $...$ for inline math and $$...$$ for display equations. Never use \\[...\\] or bare brackets. Preserve all domain-specific notation verbatim (â†’ â‡Œ (aq) (s) mol J N mÂ³).
 
-For anything else (questions, brainstorming, partial feedback), just respond conversationally —
+For anything else (questions, brainstorming, partial feedback), just respond conversationally â€”
 only use the SUMMARY/TRANSCRIPT format when giving a full draft the teacher can apply.
 
 IMPORTANT: At the very end of EVERY response, append this block on its own line with no surrounding text:
 <suggestions>["short follow-up 1", "short follow-up 2", "short follow-up 3"]</suggestions>
-Make the suggestions specific to what you just said — they should feel like natural next steps.
+Make the suggestions specific to what you just said â€” they should feel like natural next steps.
 Keep each suggestion under 8 words. Do not mention this block in your visible response.{concept_lang_note}"""
 
     ai_messages = [{"role": "system", "content": system_prompt}]
@@ -1525,11 +1519,9 @@ Keep each suggestion under 8 words. Do not mention this block in your visible re
         ]
     ai_messages.append({"role": "user", "content": user_content})
 
-    from openai import AsyncOpenAI
     import json as _json
     import re as _re
-    client = AsyncOpenAI()
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=ai_messages,
         max_tokens=2000,
@@ -1537,7 +1529,7 @@ Keep each suggestion under 8 words. Do not mention this block in your visible re
     )
     raw_reply = response.choices[0].message.content or ""
 
-    # Extract <suggestions>[...]</suggestions> — strip from visible content, store in metadata
+    # Extract <suggestions>[...]</suggestions> â€” strip from visible content, store in metadata
     suggestions: list[str] = []
     _sugg_match = _re.search(r'<suggestions>\s*(\[.*?\])\s*</suggestions>', raw_reply, _re.DOTALL)
     if _sugg_match:
@@ -1605,7 +1597,7 @@ async def apply_concept_chat_message(
         auto_audio_script: str | None = None
 
         if summary_match and transcript_match:
-            # Two distinct sections — Summary → textbook block, Transcript → audio only
+            # Two distinct sections â€” Summary â†’ textbook block, Transcript â†’ audio only
             summary_body    = content[summary_match.end():transcript_match.start()].strip()
             transcript_body = content[transcript_match.end():].strip()
             auto_audio_script = transcript_body or None
@@ -1622,18 +1614,18 @@ async def apply_concept_chat_message(
             if prev_q and prev_q["content"]:
                 q = prev_q["content"].strip().rstrip("?").strip()
                 if len(q) > 120:
-                    q = q[:120].rsplit(" ", 1)[0] + "…"
+                    q = q[:120].rsplit(" ", 1)[0] + "â€¦"
                 heading_body = f"## {q}"
             else:
                 heading_body = None
 
-            # blocks: (title, body, audio_script) — transcript becomes audio, NOT a separate block
+            # blocks: (title, body, audio_script) â€” transcript becomes audio, NOT a separate block
             blocks_to_insert: list[tuple[str | None, str, str | None]] = []
             if heading_body:
                 blocks_to_insert.append((None, heading_body, None))
             blocks_to_insert.append(("Summary", summary_body, auto_audio_script))
         else:
-            # Single-section message → one block, strip any stray header
+            # Single-section message â†’ one block, strip any stray header
             body = _CHAT_SUMMARY_RE.sub('', content)
             body = _CHAT_TRANSCRIPT_RE.sub('', body).strip()
             blocks_to_insert = [(None, body, None)]
@@ -1659,7 +1651,7 @@ async def apply_concept_chat_message(
                     audio_block_id = str(block["id"])
                 if first_block is None:
                     first_block = block
-            # Silently set ai_summary if not yet populated — powers quiz/flashcard generation
+            # Silently set ai_summary if not yet populated â€” powers quiz/flashcard generation
             existing_summary = await db.fetchval(
                 "SELECT ai_summary FROM course_concepts WHERE id = $1::uuid", concept_id
             )
@@ -1685,7 +1677,7 @@ async def apply_concept_chat_message(
             "blocks_added": len(blocks_to_insert),
         }
 
-    # 'summary' or 'transcript' — extract the relevant section from the message
+    # 'summary' or 'transcript' â€” extract the relevant section from the message
     summary_match    = _CHAT_SUMMARY_RE.search(content)
     transcript_match = _CHAT_TRANSCRIPT_RE.search(content)
 
@@ -1750,7 +1742,7 @@ async def generate_chat_video_from_message(
 
     transcript = (msg["content"] or "").strip()
     if not transcript:
-        raise HTTPException(400, "Message is empty — cannot generate video")
+        raise HTTPException(400, "Message is empty â€” cannot generate video")
 
     async with get_db() as db:
         concept = await db.fetchrow("""
@@ -1810,7 +1802,7 @@ async def generate_chat_video_from_message(
     }
 
 
-# ── Concept content blocks (textbook-style ordered blocks per concept) ────────
+# â”€â”€ Concept content blocks (textbook-style ordered blocks per concept) â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ContentBlockRequest(BaseModel):
     type:     str       = 'text'   # 'text' | 'video'
@@ -1822,7 +1814,7 @@ class ContentBlockRequest(BaseModel):
 
 @router.get("/concepts/{concept_id}/content-blocks")
 async def list_content_blocks(concept_id: str, authorization: str = Header(...)):
-    """List content blocks ordered by position — readable by students and teachers."""
+    """List content blocks ordered by position â€” readable by students and teachers."""
     user_id = await _get_student(authorization)
 
     async with get_db() as db:
@@ -2007,7 +1999,7 @@ async def add_block_to_textbook(
     return {"id": str(row["id"]), "position": row["position"], "in_textbook": row["in_textbook"]}
 
 
-# ── Pipeline assets (AI-generated segment clips + images) ─────────────────────
+# â”€â”€ Pipeline assets (AI-generated segment clips + images) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _r2_url(r2_key: str) -> str:
     """Return a fresh, accessible URL for an R2 key.
@@ -2028,7 +2020,7 @@ def _r2_url(r2_key: str) -> str:
 async def get_pipeline_assets(concept_id: str, authorization: str = Header(...)):
     """Return all AI-generated segment assets for a concept, grouped by video run (newest first).
 
-    Joins generated_assets → video_segments → videos so only assets that were
+    Joins generated_assets â†’ video_segments â†’ videos so only assets that were
     actually uploaded to R2 are surfaced. URLs are freshly minted from r2_key
     so they never expire.
     """
@@ -2072,7 +2064,7 @@ async def get_pipeline_assets(concept_id: str, authorization: str = Header(...))
         for marker in ("/learnai-storage/", "/learnai-videos/"):
             if marker in path:
                 return path.split(marker, 1)[1]
-        # pub-xxx.r2.dev/<r2_key> — no bucket segment
+        # pub-xxx.r2.dev/<r2_key> â€” no bucket segment
         return path.split("/", 3)[-1] if path.count("/") >= 3 else None
 
     # Group by video_id preserving most-recent-first order
@@ -2178,9 +2170,7 @@ async def retry_block_video(
 
 
 async def _generate_block_audio_bg(concept_id: str, block_id: str):
-    """Background: TTS via OpenAI — converts a content block's body to MP3 and stores as bytea."""
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
+    """Background: TTS via OpenAI â€” converts a content block's body to MP3 and stores as bytea."""
     try:
         async with get_db() as db:
             block = await db.fetchrow(
@@ -2197,8 +2187,8 @@ async def _generate_block_audio_bg(concept_id: str, block_id: str):
                     "UPDATE concept_content_blocks SET audio_status = 'failed' WHERE id = $1::uuid", block_id
                 )
             return
-        response = await client.audio.speech.create(
-            model="tts-1", voice="nova", input=script[:4096],
+        response = await openai_client.audio.speech.create(
+            model=resolve_model("tts-1"), voice="nova", input=script[:4096],
         )
         audio_bytes = response.content
         async with get_db() as db:
@@ -2241,7 +2231,7 @@ async def generate_block_audio(
 
 @router.get("/concepts/{concept_id}/content-blocks/{block_id}/audio")
 async def serve_block_audio(concept_id: str, block_id: str):
-    """Serve audio bytes for a content block — no auth (UUID is unguessable, <audio> can't send headers)."""
+    """Serve audio bytes for a content block â€” no auth (UUID is unguessable, <audio> can't send headers)."""
     async with get_db() as db:
         row = await db.fetchrow(
             "SELECT audio_data FROM concept_content_blocks WHERE id = $1::uuid AND concept_id = $2::uuid",
@@ -2258,7 +2248,7 @@ async def serve_block_audio(concept_id: str, block_id: str):
     )
 
 
-# ── Teacher Studio: chapter-level authoring chat ──────────────────────────────
+# â”€â”€ Teacher Studio: chapter-level authoring chat â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class StudioChatRequest(BaseModel):
     message:        str
@@ -2323,7 +2313,7 @@ Help the teacher draft explanations and video scripts for their students. When g
 ### VIDEO SCRIPT
 <short spoken narration script, 60-90 seconds when read aloud>
 
-For conversational questions or partial feedback, just respond naturally — only use the headers when giving a full draft the teacher can save.{lang_note}"""
+For conversational questions or partial feedback, just respond naturally â€” only use the headers when giving a full draft the teacher can save.{lang_note}"""
 
     messages: list[dict] = [{"role": "system", "content": system_prompt}]
     for h in (req.history or []):
@@ -2343,9 +2333,7 @@ For conversational questions or partial feedback, just respond naturally — onl
             pass
     messages.append({"role": "user", "content": user_content})
 
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=messages,
         max_tokens=2000,
@@ -2355,7 +2343,7 @@ For conversational questions or partial feedback, just respond naturally — onl
     return {"role": "assistant", "content": reply}
 
 
-# ── Syllabus import ───────────────────────────────────────────────────────────
+# â”€â”€ Syllabus import â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/{course_id}/import-syllabus")
 async def import_syllabus(
@@ -2364,7 +2352,7 @@ async def import_syllabus(
     file:          UploadFile = File(...),
 ):
     """
-    Upload a syllabus PDF → extract units + concepts via GPT-4o.
+    Upload a syllabus PDF â†’ extract units + concepts via GPT-4o.
     Returns a preview; nothing is saved yet.
     Call /confirm-import to persist.
     """
@@ -2380,10 +2368,9 @@ async def import_syllabus(
 
     file_bytes = await file.read()
     if len(file_bytes) > 20 * 1024 * 1024:
-        raise HTTPException(400, "File too large — max 20 MB")
+        raise HTTPException(400, "File too large â€” max 20 MB")
 
     from services.studyset_processor import extract_text_from_pdf
-    from openai import AsyncOpenAI
 
     text, page_count = extract_text_from_pdf(file_bytes)
     truncated = text[:80_000]
@@ -2392,7 +2379,6 @@ async def import_syllabus(
     if teacher_language in _LANGUAGE_NAMES:
         syllabus_lang_note = f"\nIMPORTANT: Write ALL titles and descriptions in {_LANGUAGE_NAMES[teacher_language]}."
 
-    client = AsyncOpenAI()
     _syl_grade = f"\nGrade: {course['grade']}" if course.get("grade") else ""
     _syl_board = f"\nCurriculum Board: {course['board']}" if course.get("board") else ""
     prompt = f"""You are an expert curriculum designer. Analyze the syllabus/textbook below and extract a structured course outline.
@@ -2400,7 +2386,7 @@ async def import_syllabus(
 Course name: {course["name"]}
 Subject: {course["subject"] or "General"}{_syl_grade}{_syl_board}
 
-Return ONLY valid JSON — no prose, no markdown fences:
+Return ONLY valid JSON â€” no prose, no markdown fences:
 {{
   "units": [
     {{
@@ -2425,7 +2411,7 @@ Requirements:
 --- SYLLABUS ---
 {truncated}"""
 
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
@@ -2486,7 +2472,7 @@ async def confirm_import(
     return {"ok": True, "unit_count": len(req.units)}
 
 
-# ── Assign to classroom ───────────────────────────────────────────────────────
+# â”€â”€ Assign to classroom â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class AssignRequest(BaseModel):
     classroom_id: str
@@ -2521,7 +2507,7 @@ async def unassign_from_classroom(course_id: str, classroom_id: str, authorizati
     return {"ok": True}
 
 
-# ── Student: view course with progress ────────────────────────────────────────
+# â”€â”€ Student: view course with progress â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def _get_student(authorization: str):
     user_id = decode_jwt(authorization.removeprefix("Bearer ").strip())
@@ -2537,7 +2523,7 @@ async def _get_student(authorization: str):
 @router.get("/{course_id}/curriculum-context")
 async def get_course_curriculum_context(course_id: str):
     """
-    Returns curriculum context for a course (public — UUID is scoped to the course).
+    Returns curriculum context for a course (public â€” UUID is scoped to the course).
     Returns {} when no curriculum context is linked (zero effect for non-pilot courses).
     """
     from services.curriculum import get_curriculum_context
@@ -2634,21 +2620,19 @@ async def auto_rename_concepts(course_id: str, authorization: str = Header(...))
     if not concepts:
         return {"renamed": 0, "concepts": []}
 
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
 
     updates = []
     for concept in concepts:
         try:
-            resp = await client.chat.completions.create(
+            resp = await openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[
                     {
                         "role": "system",
                         "content": (
                             "You generate concise inquiry-style lesson titles for a science course. "
-                            "Given a lesson's content, produce a single question title (8–14 words) that captures "
-                            "what students will investigate — the kind of question a student would ask. "
+                            "Given a lesson's content, produce a single question title (8â€“14 words) that captures "
+                            "what students will investigate â€” the kind of question a student would ask. "
                             "Return ONLY the title, no quotes, no explanation, no period at the end."
                         ),
                     },
@@ -2682,7 +2666,7 @@ async def auto_rename_concepts(course_id: str, authorization: str = Header(...))
 @router.get("/{course_id}/student")
 async def get_course_student_view(course_id: str, authorization: str = Header(...)):
     """
-    Student view of a course — units + concepts with their own progress overlay.
+    Student view of a course â€” units + concepts with their own progress overlay.
     """
     student_id = await _get_student(authorization)
 
@@ -2955,8 +2939,8 @@ class HeartbeatRequest(BaseModel):
 @router.post("/concepts/{concept_id}/heartbeat")
 async def concept_heartbeat(concept_id: str, req: HeartbeatRequest, authorization: str = Header(...)):
     """
-    Student time-on-page signal — client sends every 30 s while the page is open.
-    Accumulates into concept_time_logs (one row per student × concept × day).
+    Student time-on-page signal â€” client sends every 30 s while the page is open.
+    Accumulates into concept_time_logs (one row per student Ã— concept Ã— day).
     Capped at 3 600 s per call to guard against tab-left-open drift.
     """
     student_id = await _get_student(authorization)
@@ -2972,14 +2956,14 @@ async def concept_heartbeat(concept_id: str, req: HeartbeatRequest, authorizatio
 
 
 class VideoProgressRequest(BaseModel):
-    pct: float              # 0–100, the watch percentage reached
+    pct: float              # 0â€“100, the watch percentage reached
     block_id: str = 'legacy'  # content-block UUID, or 'legacy' for old single-video concepts
 
 
 @router.post("/concepts/{concept_id}/video-progress")
 async def concept_video_progress(concept_id: str, req: VideoProgressRequest, authorization: str = Header(...)):
     """
-    Student video-watch signal — records the highest % watched per content block.
+    Student video-watch signal â€” records the highest % watched per content block.
     Tracked per (student, concept, block_id) so multiple videos in one concept are
     counted independently. Only advances pct, never regresses (GREATEST).
     """
@@ -3052,11 +3036,11 @@ async def review_concept_flashcard(
     return {"ok": True, "due_at": due_at.isoformat(), "interval_days": interval_days}
 
 
-# ── Chapter upload → AI pipeline ─────────────────────────────────────────────
+# â”€â”€ Chapter upload â†’ AI pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async def _create_chapter_only(course_id: str, course: dict, file_bytes: bytes, filename: str) -> dict:
     """
-    Create the course_chapters row (with the PDF bytes) and an empty unit for it —
+    Create the course_chapters row (with the PDF bytes) and an empty unit for it â€”
     no AI call, no concepts. Concepts are added later either by the teacher
     cropping regions from the PDF or by running _extract_concepts_for_chapter.
     """
@@ -3098,7 +3082,6 @@ async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: d
     AI omits page_number. Sets source='ai' on each concept.
     """
     from services.studyset_processor import extract_pages_from_pdf, extract_text_from_pdf, is_sparse_text, extract_text_vision
-    from openai import AsyncOpenAI
 
     pages = extract_pages_from_pdf(file_bytes)
 
@@ -3112,7 +3095,7 @@ async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: d
     # Scanned PDF fallback: if PyMuPDF returned almost no text, use Claude vision
     # to OCR the pages so concept extraction works on scanned books too.
     if is_sparse_text(paged_text, len(pages)):
-        logger.info("[chapter] sparse text (%d chars / %d pages) — switching to vision OCR",
+        logger.info("[chapter] sparse text (%d chars / %d pages) â€” switching to vision OCR",
                     len(paged_text), len(pages))
         ocr_text, _ = await extract_text_vision(file_bytes)
         paged_text = ocr_text
@@ -3123,7 +3106,6 @@ async def _extract_concepts_for_chapter(chapter_id: str, unit_id: str, course: d
     if language in _LANGUAGE_NAMES:
         concept_lang_note = f"\nIMPORTANT: Write ALL titles and descriptions in {_LANGUAGE_NAMES[language]}. The source_text must remain verbatim from the document (strip any '--- Page N ---' markers from it)."
 
-    client = AsyncOpenAI()
     _ext_grade = f"\nGrade: {course['grade']}" if course.get("grade") else ""
     _ext_board = f"\nCurriculum Board: {course['board']}" if course.get("board") else ""
     extract_prompt = f"""You are an expert educator. Analyze this chapter and extract the key concepts students must learn.
@@ -3133,11 +3115,11 @@ Subject: {course['subject'] or 'General'}{_ext_grade}{_ext_board}
 
 The text below is divided by page markers like "--- Page 3 ---". Use these markers to record which page each concept starts on.
 
-STEP 1 — Check for numbered sub-sections.
+STEP 1 â€” Check for numbered sub-sections.
 If the chapter contains numbered headings like "1.1 Title", "1.2 Title", "2.3 Title" etc., create EXACTLY ONE concept per sub-section. Use the sub-section title verbatim as the concept title. Do NOT merge or skip sub-sections.
 
-STEP 2 — Fallback (no numbered structure).
-If there are no numbered sub-sections, identify 4–8 distinct learnable ideas in reading order.
+STEP 2 â€” Fallback (no numbered structure).
+If there are no numbered sub-sections, identify 4â€“8 distinct learnable ideas in reading order.
 
 For EACH concept, include the EXACT verbatim paragraph(s) from the text it is based on (do NOT include the "--- Page N ---" marker in source_text).
 
@@ -3155,7 +3137,7 @@ Return ONLY valid JSON:
 }}
 
 Rules:
-- Follow numbered sub-section structure when present (this takes priority over the 4–12 range)
+- Follow numbered sub-section structure when present (this takes priority over the 4â€“12 range)
 - source_text must be a direct quote from the document, without page markers
 - page_number is the integer from the nearest "--- Page N ---" marker above this concept's content
 - Each concept = one distinct learnable idea{concept_lang_note}
@@ -3163,7 +3145,7 @@ Rules:
 --- CHAPTER ---
 {truncated}"""
 
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": extract_prompt}],
         response_format={"type": "json_object"},
@@ -3219,7 +3201,7 @@ async def _create_chapter_from_pdf(course_id: str, course: dict, file_bytes: byt
     """
     Shared by the bulk-split flow: create the chapter+unit, then immediately
     AI-extract concepts for it. Single-chapter upload (upload_chapter below) no
-    longer auto-extracts — it calls _create_chapter_only and leaves extraction
+    longer auto-extracts â€” it calls _create_chapter_only and leaves extraction
     as an opt-in "Suggest concepts" action.
     """
     base = await _create_chapter_only(course_id, course, file_bytes, filename)
@@ -3231,7 +3213,7 @@ async def _create_chapter_from_pdf(course_id: str, course: dict, file_bytes: byt
 
 async def _extract_and_summarize_chapter_bg(chapter_id: str, unit_id: str, course: dict, language: str) -> None:
     """Background task: load chapter PDF from DB, extract concepts, then summarize.
-    Updates chapter status to 'processing' → 'complete' / 'failed'."""
+    Updates chapter status to 'processing' â†’ 'complete' / 'failed'."""
     try:
         async with get_db() as db:
             row = await db.fetchrow(
@@ -3273,7 +3255,7 @@ async def upload_chapter(
     authorization: str        = Header(...),
     file:          UploadFile = File(...),
 ):
-    """Upload a single chapter PDF — lands with an empty unit. Concepts are added
+    """Upload a single chapter PDF â€” lands with an empty unit. Concepts are added
     later by cropping regions from the PDF or via /chapters/{id}/suggest-concepts."""
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
@@ -3284,7 +3266,7 @@ async def upload_chapter(
 
     file_bytes = await file.read()
     if len(file_bytes) > 30 * 1024 * 1024:
-        raise HTTPException(400, "File too large — max 30 MB")
+        raise HTTPException(400, "File too large â€” max 30 MB")
 
     return await _create_chapter_only(course_id, course, file_bytes, file.filename)
 
@@ -3317,7 +3299,7 @@ async def suggest_concepts(
     return {"concept_ids": concept_ids, "concept_count": len(concept_ids)}
 
 
-# ── Magic-wand bulk asset generation ──────────────────────────────────────────
+# â”€â”€ Magic-wand bulk asset generation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class BulkGenerateRequest(BaseModel):
     types:         list[str]   # "summary" | "quiz" | "flashcard" | "audio" | "video" | "suggest"
@@ -3347,7 +3329,7 @@ async def _bulk_generate_bg(
                 )
             if row and row["pdf_data"]:
                 # Mark as processing so the pipeline endpoint reports is_processing=True
-                # while extraction runs (can take 10-30s — longer than the first poll interval).
+                # while extraction runs (can take 10-30s â€” longer than the first poll interval).
                 async with get_db() as db:
                     await db.execute(
                         "UPDATE course_chapters SET status='processing' WHERE id=$1",
@@ -3384,7 +3366,7 @@ async def _bulk_generate_bg(
             if not c:
                 return
 
-            # --- Summary (must come first — audio/video depend on it) ---
+            # --- Summary (must come first â€” audio/video depend on it) ---
             summary_just_generated = False
             if 'summary' in gen_types and (not skip_existing or not c["ai_summary"]):
                 async with get_db() as db:
@@ -3402,7 +3384,7 @@ async def _bulk_generate_bg(
 
             # Inject summary into the concept's authoring chat so the teacher
             # immediately sees a draft when they open the Studio tab.
-            # Runs whether summary was just generated or already existed — either way,
+            # Runs whether summary was just generated or already existed â€” either way,
             # if there's no chat yet and a summary is available, seed it.
             if 'summary' in gen_types and teacher_id and c and c["ai_summary"]:
                 try:
@@ -3430,7 +3412,7 @@ async def _bulk_generate_bg(
                                       (user_id, title, subject, concept_id, conversation_type)
                                     VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
                                 """, teacher_id,
-                                    f"{info['title']} — Authoring chat",
+                                    f"{info['title']} â€” Authoring chat",
                                     info["subject"], concept_id)
                                 await db.execute(
                                     "INSERT INTO messages (conversation_id, role, content) "
@@ -3541,7 +3523,7 @@ async def create_concept_from_region(
 ):
     """
     Teacher crops a region of the chapter PDF (captured as a PNG, not a text
-    selection — PDF text layers are unreliable for some of these textbooks).
+    selection â€” PDF text layers are unreliable for some of these textbooks).
     Vision-transcribes it to source_text, creates a draft concept, stores the
     crop as the concept's first image, and seeds a chat study set immediately.
     """
@@ -3570,8 +3552,6 @@ async def create_concept_from_region(
     if region_language in _LANGUAGE_NAMES:
         region_lang_note = f"\n\nWrite the title in {_LANGUAGE_NAMES[region_language]}. The source_text must remain verbatim from the image."
 
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
     vision_prompt = f"""This is a cropped region of a textbook page, selected by a teacher to become one
 learning concept. Transcribe the text in this image verbatim (preserve numbers, symbols and
 equations exactly as shown). If the image is mostly a diagram/illustration with little or no
@@ -3581,7 +3561,7 @@ Also suggest a concise 3-6 word title for this as a learning concept.{region_lan
 
 Return ONLY valid JSON: {{"title": "...", "source_text": "..."}}"""
 
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         max_tokens=1000,
         messages=[{
@@ -3630,7 +3610,7 @@ Return ONLY valid JSON: {{"title": "...", "source_text": "..."}}"""
 async def check_chapter_coverage(chapter_id: str, authorization: str = Header(...)):
     """
     Manual, on-demand sanity check: does anything from the chapter look like it's
-    not covered by any concept yet? Topic-level, not page-accurate — good enough
+    not covered by any concept yet? Topic-level, not page-accurate â€” good enough
     to point the teacher at what's left without forcing them to re-read the PDF.
     """
     coverage_teacher_id = await _require_teacher(authorization)
@@ -3650,7 +3630,7 @@ async def check_chapter_coverage(chapter_id: str, authorization: str = Header(..
     full_text, _ = extract_text_from_pdf(bytes(chapter["pdf_data"]))
 
     if not concepts:
-        return {"coverage_summary": "No concepts have been created for this chapter yet — nothing is covered."}
+        return {"coverage_summary": "No concepts have been created for this chapter yet â€” nothing is covered."}
 
     covered = "\n\n".join(f"- {c['title']}: {(c['source_text'] or '')[:500]}" for c in concepts)
 
@@ -3658,8 +3638,6 @@ async def check_chapter_coverage(chapter_id: str, authorization: str = Header(..
     if (coverage_lang or 'en') in _LANGUAGE_NAMES:
         coverage_lang_note = f"\n\nWrite your answer in {_LANGUAGE_NAMES[coverage_lang]}."
 
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
     prompt = f"""Here is the full text of a textbook chapter, and a list of concepts a teacher has
 already created from it (title + excerpt each).
 
@@ -3673,7 +3651,7 @@ already covered, just answer "Fully covered."{coverage_lang_note}
 --- CONCEPTS ALREADY CREATED ---
 {covered[:8_000]}"""
 
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=400,
@@ -3690,7 +3668,7 @@ async def detect_chapter_toc(
 ):
     """
     Preview-only: look for a table of contents in an uploaded textbook PDF and
-    propose a chapter/page-range split. Makes no DB writes — the teacher reviews
+    propose a chapter/page-range split. Makes no DB writes â€” the teacher reviews
     and edits the result, then POSTs the confirmed list to /chapters/bulk-split.
     """
     teacher_id = await _require_teacher(authorization)
@@ -3705,14 +3683,14 @@ async def detect_chapter_toc(
 
     file_bytes = await file.read()
     if len(file_bytes) > 30 * 1024 * 1024:
-        raise HTTPException(400, "File too large — max 30 MB")
+        raise HTTPException(400, "File too large â€” max 30 MB")
 
     import fitz
     from services.studyset_processor import extract_pages_from_pdf
 
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     page_count = len(doc)
-    outline = doc.get_toc()  # [[level, title, page], ...] — 1-indexed page numbers
+    outline = doc.get_toc()  # [[level, title, page], ...] â€” 1-indexed page numbers
     doc.close()
 
     entries: list[dict] = []
@@ -3721,7 +3699,7 @@ async def detect_chapter_toc(
 
     top_level = [o for o in outline if o[0] == 1] if outline else []
     # Drop obvious front-matter/back-matter bookmarks (publishers often bookmark
-    # a cover, TOC, or Index page) — these aren't real chapters and would
+    # a cover, TOC, or Index page) â€” these aren't real chapters and would
     # otherwise eat the first chapter's pages as their own.
     top_level = [o for o in top_level if not _FRONT_MATTER_RE.search(o[1])]
     if len(top_level) >= 4:
@@ -3729,7 +3707,7 @@ async def detect_chapter_toc(
         method = "outline"
         entries = [{"title": o[1].strip(), "start_page": int(o[2])} for o in top_level]
     elif outline:
-        # Fewer than 4 level-1 chapters — also inspect level-2 in case the real
+        # Fewer than 4 level-1 chapters â€” also inspect level-2 in case the real
         # chapters are nested under a structural bookmark (e.g. "Contents").
         level2 = [o for o in outline if o[0] == 2 and not _FRONT_MATTER_RE.search(o[1])]
         best = top_level if len(top_level) >= len(level2) else level2
@@ -3772,7 +3750,7 @@ async def detect_chapter_toc(
     # Embedded outline labels are often internal filename slugs, or a
     # transliteration in a different script/language than the book's own
     # content (e.g. "Vargangal" for a Malayalam chapter actually titled with
-    # Malayalam script on the page) — neither case is reliably detectable from
+    # Malayalam script on the page) â€” neither case is reliably detectable from
     # the label text alone, so always cross-check every outline title against
     # that chapter's actual first-page text rather than guessing which ones
     # look "messy".
@@ -3796,7 +3774,7 @@ _FRONT_MATTER_RE = re.compile(
 )
 
 _TOC_HEADER_RE = re.compile(
-    r"CONTENTS?|SISÄLLYS(LUETTELO)?|INNEHÅLL(SFÖRTECKNING)?|INHALTS?VERZEICHNIS|SOMMAIRE|INDICE",
+    r"CONTENTS?|SISÃ„LLYS(LUETTELO)?|INNEHÃ…LL(SFÃ–RTECKNING)?|INHALTS?VERZEICHNIS|SOMMAIRE|INDICE",
     re.IGNORECASE,
 )
 
@@ -3830,7 +3808,7 @@ async def _detect_toc_vision(file_bytes: bytes, page_count: int) -> list[dict]:
         "calculate its physical page: find which physical page the first chapter starts on, "
         "subtract its printed page number from the TOC, and add that offset to each chapter's "
         "printed page number.\n\n"
-        "Return ONLY valid JSON — no prose, no markdown fences:\n"
+        "Return ONLY valid JSON â€” no prose, no markdown fences:\n"
         "{\"chapters\": [{\"title\": \"...\", \"start_page\": <physical_page_int>}]}"
     )})
 
@@ -3869,7 +3847,7 @@ async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
                 found_toc_start = True
                 toc_start_idx = i
         # Once TOC is found, collect this page + up to 10 more regardless of
-        # score — an embedded image on the TOC page produces score=0 and would
+        # score â€” an embedded image on the TOC page produces score=0 and would
         # otherwise cut the scan short, missing chapters listed after the image.
         if found_toc_start:
             toc_chunks.append(p)
@@ -3879,14 +3857,12 @@ async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
     if not toc_chunks:
         return []
     contents_page_text = "\n\n".join(toc_chunks)
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
     try:
-        response = await client.chat.completions.create(
+        response = await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": (
                 "Extract the chapter list from this textbook Contents page as JSON. "
-                "Ignore sub-sections (e.g. '1.1', '1.2') and exercise labels — only top-level chapters.\n\n"
+                "Ignore sub-sections (e.g. '1.1', '1.2') and exercise labels â€” only top-level chapters.\n\n"
                 "Return ONLY valid JSON: {\"chapters\": [{\"title\": \"...\", \"start_page\": <int>}]}\n\n"
                 f"--- CONTENTS ---\n{contents_page_text[:6000]}"
             )}],
@@ -3902,7 +3878,7 @@ async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
         logger.warning("[detect-toc] contents-page parse failed: %s", exc)
         return []
 
-    # Calibrate printed page numbers → physical PDF page positions.
+    # Calibrate printed page numbers â†’ physical PDF page positions.
     # Textbooks number front-matter separately (roman numerals or skipped),
     # so "Atoms  4" in the TOC means printed page 4 but the actual PDF page
     # is at a different physical position (e.g. physical page 9).
@@ -3923,11 +3899,11 @@ async def _detect_toc_from_text(pages: list[str]) -> list[dict]:
             # Skip TOC/index lines that end with a standalone page number.
             if re.search(r'\b\d{1,3}\s*$', line_lower):
                 continue
-            # Found the chapter heading — calculate and apply the offset.
+            # Found the chapter heading â€” calculate and apply the offset.
             physical = i + 1  # 1-indexed
             offset = physical - entries[0]["start_page"]
             if offset != 0:
-                logger.info("[detect-toc] front-matter offset %+d (printed %d → physical %d)",
+                logger.info("[detect-toc] front-matter offset %+d (printed %d â†’ physical %d)",
                             offset, entries[0]["start_page"], physical)
                 entries = [{"title": e["title"], "start_page": max(1, e["start_page"] + offset)}
                            for e in entries]
@@ -3957,7 +3933,7 @@ def _find_page_in_pages(pages: list[str], snippet: str) -> int | None:
 def _toc_page_score(text: str) -> int:
     """Count lines that have the structural signature of a TOC entry: starts with a
     number (chapter/section), has some text, and ends with a page number.
-    Language-agnostic — works for any textbook regardless of the heading word used."""
+    Language-agnostic â€” works for any textbook regardless of the heading word used."""
     count = 0
     for line in text.splitlines():
         line = line.strip()
@@ -3979,14 +3955,12 @@ async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages:
 
     target_lang = _LANGUAGE_NAMES.get(language, 'English')
     try:
-        from openai import AsyncOpenAI
-        client = AsyncOpenAI()
-        response = await client.chat.completions.create(
+                response = await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": (
                 "Each item below is a chapter label from a PDF's bookmarks, paired with the actual "
                 "text from that chapter's first page. The label may be an internal filename slug, or "
-                "a transliteration of the book's own (possibly non-English) heading — labels can look "
+                "a transliteration of the book's own (possibly non-English) heading â€” labels can look "
                 "like perfectly normal words and still need fixing for this reason, so always check "
                 "against the page text rather than trusting the label's shape.\n\n"
                 f"For each item, return a clean, concise chapter title in {target_lang}, derived from the "
@@ -4024,7 +3998,7 @@ async def bulk_split_chapters(
     """
     Slice an uploaded textbook PDF into the teacher-confirmed chapter page ranges
     and run the normal per-chapter pipeline (_create_chapter_from_pdf) once per
-    chapter. The file is re-uploaded here (stateless — no server-side temp storage
+    chapter. The file is re-uploaded here (stateless â€” no server-side temp storage
     needed between /detect-toc and this call).
     """
     teacher_id = await _require_teacher(authorization)
@@ -4043,13 +4017,13 @@ async def bulk_split_chapters(
 
     file_bytes = await file.read()
     if len(file_bytes) > 30 * 1024 * 1024:
-        raise HTTPException(400, "File too large — max 30 MB")
+        raise HTTPException(400, "File too large â€” max 30 MB")
 
     import fitz
     source_doc = fitz.open(stream=file_bytes, filetype="pdf")
     page_count = len(source_doc)
 
-    # ── Phase 1: slice PDFs and create DB rows (fast, done before returning) ──
+    # â”€â”€ Phase 1: slice PDFs and create DB rows (fast, done before returning) â”€â”€
     results      = []
     chapters_info: list[dict] = []
     for spec in chapter_specs:
@@ -4085,7 +4059,7 @@ async def bulk_split_chapters(
                 chapter_ids,
             )
 
-    # ── Phase 2: queue parallel extraction as a background task, return now ──
+    # â”€â”€ Phase 2: queue parallel extraction as a background task, return now â”€â”€
     if chapters_info:
         bg.add_task(_process_chapters_parallel_bg, chapters_info, dict(course), bulk_language)
 
@@ -4096,7 +4070,7 @@ async def bulk_split_chapters(
     }
 
 
-# ── Pipeline status (teacher polls while concepts are summarizing) ─────────────
+# â”€â”€ Pipeline status (teacher polls while concepts are summarizing) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/{course_id}/pipeline")
 async def get_pipeline_status(course_id: str, authorization: str = Header(...)):
@@ -4118,7 +4092,7 @@ async def get_pipeline_status(course_id: str, authorization: str = Header(...)):
         counts[r["pipeline_status"]] = counts.get(r["pipeline_status"], 0) + 1
 
     # Also check whether any chapters are still being processed in the background
-    # (concept extraction phase — no concepts exist in DB yet for those chapters).
+    # (concept extraction phase â€” no concepts exist in DB yet for those chapters).
     async with get_db() as db:
         processing_chapters = await db.fetchval("""
             SELECT COUNT(*) FROM course_chapters ch
@@ -4183,7 +4157,7 @@ async def get_pipeline_status(course_id: str, authorization: str = Header(...)):
     }
 
 
-# ── Chapter PDF ───────────────────────────────────────────────────────────────
+# â”€â”€ Chapter PDF â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/chapters/{chapter_id}/pdf")
 async def get_chapter_pdf(chapter_id: str, authorization: str = Header(...)):
@@ -4203,7 +4177,7 @@ async def get_chapter_pdf(chapter_id: str, authorization: str = Header(...)):
     )
 
 
-# ── Syllabus PDF ──────────────────────────────────────────────────────────────
+# â”€â”€ Syllabus PDF â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/{course_id}/syllabus")
 async def get_course_syllabus(course_id: str, authorization: str = Header(...)):
@@ -4215,7 +4189,7 @@ async def get_course_syllabus(course_id: str, authorization: str = Header(...)):
             course_id, teacher_id,
         )
     if not row or not row["syllabus_pdf"]:
-        raise HTTPException(404, "No syllabus PDF on file — import a syllabus first")
+        raise HTTPException(404, "No syllabus PDF on file â€” import a syllabus first")
     fname = (row["syllabus_filename"] or "syllabus.pdf").replace('"', '')
     return Response(
         content=bytes(row["syllabus_pdf"]),
@@ -4224,7 +4198,7 @@ async def get_course_syllabus(course_id: str, authorization: str = Header(...)):
     )
 
 
-# ── Concept detail (teacher write, student read) ───────────────────────────────
+# â”€â”€ Concept detail (teacher write, student read) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ConceptDetailPatch(BaseModel):
     content_text:  str | None = None
@@ -4346,7 +4320,7 @@ async def update_concept_detail(
 
 
 async def _create_seeded_study_set(title: str, subject: str | None, material_text: str) -> str:
-    """Creates a study_sets row + a ready study_materials row seeded with material_text — no upload step needed."""
+    """Creates a study_sets row + a ready study_materials row seeded with material_text â€” no upload step needed."""
     async with get_db() as db:
         study_set = await db.fetchrow("""
             INSERT INTO study_sets (title, subject, description, status)
@@ -4364,7 +4338,7 @@ async def _create_seeded_study_set(title: str, subject: str | None, material_tex
 @router.post("/concepts/{concept_id}/studyset")
 async def create_concept_studyset(concept_id: str, authorization: str = Header(...)):
     """
-    Auto-seed a study set for this concept from material we already have — the
+    Auto-seed a study set for this concept from material we already have â€” the
     chapter's full extracted text if it came from the chapter-upload pipeline,
     falling back to the concept's own source_text excerpt otherwise. No-op (just
     returns the existing one) if the concept already has a study set linked.
@@ -4405,7 +4379,7 @@ async def create_concept_studyset(concept_id: str, authorization: str = Header(.
     return {"study_set_id": study_set_id}
 
 
-# ── Concept images ────────────────────────────────────────────────────────────
+# â”€â”€ Concept images â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.post("/concepts/{concept_id}/images")
 async def upload_concept_image(
@@ -4420,7 +4394,7 @@ async def upload_concept_image(
         raise HTTPException(400, "Only image files are supported")
     data = await file.read()
     if len(data) > 10 * 1024 * 1024:
-        raise HTTPException(400, "Image too large — max 10 MB")
+        raise HTTPException(400, "Image too large â€” max 10 MB")
 
     async with get_db() as db:
         max_pos = await db.fetchval(
@@ -4478,7 +4452,7 @@ async def delete_concept_image(
 
 @router.get("/concepts/images/{image_id}")
 async def serve_concept_image(image_id: str):
-    """Serve a concept image — no auth needed (UUID is unguessable)."""
+    """Serve a concept image â€” no auth needed (UUID is unguessable)."""
     async with get_db() as db:
         row = await db.fetchrow(
             "SELECT data, mime_type FROM concept_images WHERE id = $1::uuid", image_id
@@ -4572,7 +4546,7 @@ async def add_concept_resource(
         # endpoint knows to fall back to vision rendering instead.
         raw_text = extracted.strip() or None
     else:
-        raise HTTPException(400, "Unsupported file type — upload an image or PDF")
+        raise HTTPException(400, "Unsupported file type â€” upload an image or PDF")
 
     async with get_db() as db:
         max_pos = await db.fetchval(
@@ -4623,7 +4597,7 @@ async def delete_concept_resource(concept_id: str, resource_id: str, authorizati
 
 @router.get("/concepts/resources/{resource_id}/file")
 async def serve_concept_resource_file(resource_id: str):
-    """Serve a concept resource binary (image or PDF). No auth — UUID is unguessable."""
+    """Serve a concept resource binary (image or PDF). No auth â€” UUID is unguessable."""
     from fastapi.responses import Response
     async with get_db() as db:
         row = await db.fetchrow(
@@ -4642,7 +4616,7 @@ class StudentChatRequest(BaseModel):
     message:         str
     resource_id:     str | None = None  # concept_resources.id to ground/visualise
     conversation_id: str | None = None
-    direct:          bool = False       # True → give direct answer (skip Socratic guidance)
+    direct:          bool = False       # True â†’ give direct answer (skip Socratic guidance)
     language:        str = 'en'
 
 
@@ -4690,11 +4664,10 @@ async def post_student_chat(
     the grounding context for that turn.
     """
     import base64
-    from openai import AsyncOpenAI
 
     student_id = await _get_student(authorization)
 
-    # ── 1. Load concept + auto-create study set ───────────────────────────────
+    # â”€â”€ 1. Load concept + auto-create study set â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async with get_db() as db:
         concept = await db.fetchrow("""
             SELECT cc.id, cc.title, cc.source_text, cc.study_set_id,
@@ -4727,7 +4700,7 @@ async def post_student_chat(
                 study_set_id, concept_id,
             )
 
-    # ── 2. Load PDF resources with extractable text for grounding ────────────
+    # â”€â”€ 2. Load PDF resources with extractable text for grounding â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async with get_db() as db:
         pdf_resources = await db.fetch("""
             SELECT id, title, raw_text FROM concept_resources
@@ -4735,7 +4708,7 @@ async def post_student_chat(
               AND raw_text IS NOT NULL AND length(trim(raw_text)) > 10
         """, concept_id)
 
-    # ── 3. Resolve the referenced resource (image or PDF) ────────────────────
+    # â”€â”€ 3. Resolve the referenced resource (image or PDF) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     resource_row    = None
     image_b64_url   = None   # single inline image (concept_image or image resource)
     focused_pdf     = None   # PDF resource with extractable text
@@ -4755,10 +4728,10 @@ async def post_student_chat(
                 image_b64_url = f"data:{mime};base64,{b64}"
             elif resource_row["type"] == "pdf" and resource_row["file_data"]:
                 if resource_row["raw_text"] and len(resource_row["raw_text"].strip()) > 10:
-                    # Text-based PDF — use raw_text as grounding
+                    # Text-based PDF â€” use raw_text as grounding
                     focused_pdf = resource_row
                 else:
-                    # Scanned/image PDF — render pages as vision content
+                    # Scanned/image PDF â€” render pages as vision content
                     import fitz
                     doc = fitz.open(stream=bytes(resource_row["file_data"]), filetype="pdf")
                     for i, page in enumerate(doc):
@@ -4769,7 +4742,7 @@ async def post_student_chat(
                         pdf_page_images.append(f"data:image/png;base64,{b64}")
                     doc.close()
 
-    # ── 4. Get or create conversation (keyed by study_set + student) ──────────
+    # â”€â”€ 4. Get or create conversation (keyed by study_set + student) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     conv_id = req.conversation_id
     if not conv_id:
         async with get_db() as db:
@@ -4785,10 +4758,10 @@ async def post_student_chat(
                 conv = await db.fetchrow("""
                     INSERT INTO conversations (user_id, title, study_set_id)
                     VALUES ($1::uuid, $2, $3::uuid) RETURNING id
-                """, student_id, f"{concept['title']} — Q&A", study_set_id)
+                """, student_id, f"{concept['title']} â€” Q&A", study_set_id)
             conv_id = str(conv["id"])
 
-    # ── 5. Load recent history ────────────────────────────────────────────────
+    # â”€â”€ 5. Load recent history â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async with get_db() as db:
         history = list(reversed(await db.fetch("""
             SELECT role, content FROM messages
@@ -4796,7 +4769,7 @@ async def post_student_chat(
             ORDER BY created_at DESC LIMIT 8
         """, conv_id)))
 
-    # ── 6. Build system prompt ────────────────────────────────────────────────
+    # â”€â”€ 6. Build system prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     grounding_parts = []
     if concept["source_text"]:
         grounding_parts.append(f"## Concept notes\n{concept['source_text']}")
@@ -4825,7 +4798,7 @@ async def post_student_chat(
         lang_name = _LANGUAGE_NAMES[effective_language]
         lang_note = f"\n\nRespond entirely in {lang_name}."
 
-    # Fetch curriculum context first — it determines the entire prompt structure
+    # Fetch curriculum context first â€” it determines the entire prompt structure
     curriculum = None
     if concept.get("course_id"):
         from services.curriculum import get_curriculum_context, build_curriculum_block, get_teks_descriptions
@@ -4837,27 +4810,27 @@ async def post_student_chat(
         # Inquiry-first: pedagogy rules lead the prompt; grounding follows as reference only.
         system_prompt = (
             f"You are an inquiry-based science tutor for a {grade_level} classroom. "
-            f"Students discover science principles through hands-on experiments and discussion — NOT through direct instruction.\n\n"
-            f"CRITICAL INSTRUCTION — INQUIRY PEDAGOGY:\n"
+            f"Students discover science principles through hands-on experiments and discussion â€” NOT through direct instruction.\n\n"
+            f"CRITICAL INSTRUCTION â€” INQUIRY PEDAGOGY:\n"
             f"NEVER directly explain scientific concepts or state key ideas as facts. "
             f"When a student asks a factual question, respond with a guiding question that helps them reason it out. "
             f"Examples of good responses:\n"
-            f"  • \"What did you notice when you tried that in your experiment?\"\n"
-            f"  • \"Why do you think one cup kept things colder than the other?\"\n"
-            f"  • \"What do you think causes that to happen?\"\n"
-            f"  • \"How does that connect to what you observed in class?\"\n"
-            f"Use unit vocabulary naturally in your questions. Guide students toward the ideas — never lecture or give away the answer.\n"
+            f"  â€¢ \"What did you notice when you tried that in your experiment?\"\n"
+            f"  â€¢ \"Why do you think one cup kept things colder than the other?\"\n"
+            f"  â€¢ \"What do you think causes that to happen?\"\n"
+            f"  â€¢ \"How does that connect to what you observed in class?\"\n"
+            f"Use unit vocabulary naturally in your questions. Guide students toward the ideas â€” never lecture or give away the answer.\n"
         )
         _teks_descs = await get_teks_descriptions(curriculum.get("teks_codes") or [])
         system_prompt += build_curriculum_block(curriculum, _teks_descs)
-        system_prompt += f"\n\n--- LESSON CONTENT (background context — do not recite as answers) ---\n{grounding[:8000]}"
+        system_prompt += f"\n\n--- LESSON CONTENT (background context â€” do not recite as answers) ---\n{grounding[:8000]}"
         if lang_note:
             system_prompt += lang_note
     elif req.direct:
-        # Student asked for a direct answer — give one, age-appropriately grounded in lesson content.
+        # Student asked for a direct answer â€” give one, age-appropriately grounded in lesson content.
         system_prompt = (
             f"You are a helpful science tutor for {grade_level} students. "
-            f"Give clear, direct, age-appropriate explanations. Be concise (3–5 sentences). "
+            f"Give clear, direct, age-appropriate explanations. Be concise (3â€“5 sentences). "
             f"Use simple language and a concrete example where helpful. "
             f"Ground your answer in the lesson content below.\n\n"
             f"--- LESSON CONTENT ---\n{grounding[:10000]}{lang_note}"
@@ -4871,8 +4844,8 @@ async def post_student_chat(
             f"- Respond to questions with a guiding question\n"
             f"- Ask what they've noticed, observed, or already know\n"
             f"- Use 'What do you think...?', 'Why might...?', 'What happens when...?'\n"
-            f"- Keep responses to 2–3 sentences\n\n"
-            f"Lesson content (for background — don't recite as answers):\n{grounding[:10000]}{lang_note}"
+            f"- Keep responses to 2â€“3 sentences\n\n"
+            f"Lesson content (for background â€” don't recite as answers):\n{grounding[:10000]}{lang_note}"
         )
 
     if image_b64_url:
@@ -4886,14 +4859,14 @@ async def post_student_chat(
             "The page images are attached below. Read them carefully and answer the student's question."
         )
 
-    # ── 7. Save user message ──────────────────────────────────────────────────
+    # â”€â”€ 7. Save user message â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async with get_db() as db:
         await db.execute(
             "INSERT INTO messages (conversation_id, role, content) VALUES ($1::uuid, 'user', $2)",
             conv_id, req.message,
         )
 
-    # ── 8. Build AI messages ──────────────────────────────────────────────────
+    # â”€â”€ 8. Build AI messages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     ai_messages = [{"role": "system", "content": system_prompt}]
     for h in history:
         ai_messages.append({"role": h["role"], "content": h["content"]})
@@ -4909,9 +4882,8 @@ async def post_student_chat(
         user_content = req.message
     ai_messages.append({"role": "user", "content": user_content})
 
-    # ── 9. Call AI ────────────────────────────────────────────────────────────
-    client = AsyncOpenAI()
-    response = await client.chat.completions.create(
+    # â”€â”€ 9. Call AI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=ai_messages,
         max_tokens=1200,
@@ -4919,7 +4891,7 @@ async def post_student_chat(
     )
     reply = response.choices[0].message.content
 
-    # ── 10. Save reply ────────────────────────────────────────────────────────
+    # â”€â”€ 10. Save reply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async with get_db() as db:
         await db.execute(
             "INSERT INTO messages (conversation_id, role, content) VALUES ($1::uuid, 'assistant', $2)",
@@ -4932,7 +4904,7 @@ async def post_student_chat(
 @router.get("/concepts/{concept_id}/video")
 async def serve_concept_video(concept_id: str):
     """
-    Redirect to the rendered video's R2/Cloudflare URL — no auth (UUID is unguessable).
+    Redirect to the rendered video's R2/Cloudflare URL â€” no auth (UUID is unguessable).
     The video itself is rendered by the Manim Cloud Run pipeline and stored in R2,
     not in Postgres, so the browser is sent straight to the CDN URL.
     """
@@ -4946,7 +4918,7 @@ async def serve_concept_video(concept_id: str):
     return RedirectResponse(row["video_url"])
 
 
-# ── Asset generation backgrounds ─────────────────────────────────────────────
+# â”€â”€ Asset generation backgrounds â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _shuffle_quiz_options(questions: list) -> list:
     """Randomly redistribute each question's options so the correct answer isn't always first."""
@@ -5024,7 +4996,7 @@ def build_quiz_prompt_studio(
     difficulty_instruction = {
         'easy':  'All questions should be straightforward recall or simple comprehension.',
         'medium':'Mix recall and comprehension questions.',
-        'hard':  'Questions should require analysis, application, or synthesis — no simple recall.',
+        'hard':  'Questions should require analysis, application, or synthesis â€” no simple recall.',
         'mixed': 'Vary difficulty: ~1/3 easy recall, ~1/3 comprehension, ~1/3 application. Add a "difficulty" field ("easy"|"medium"|"hard") to each question.',
     }.get(difficulty, 'Vary difficulty.')
     style_instruction = {
@@ -5052,7 +5024,7 @@ Source material:
 Rules:
 - Questions must be answerable from the source material
 - All options must be plausible (no obviously wrong distractors)
-- Include a 1–2 sentence explanation for the correct answer{lang_note}
+- Include a 1â€“2 sentence explanation for the correct answer{lang_note}
 
 Return ONLY valid JSON:
 {{"questions": [{{"question": "...", "options": ["A","B","C","D"], "correct_idx": 0, "explanation": "..."{diff_field}}}]}}"""
@@ -5081,7 +5053,7 @@ Source material:
 
 Rules:
 - Front: term, definition prompt, or short question (max 12 words)
-- Back: precise answer or definition (1–2 sentences){lang_note}
+- Back: precise answer or definition (1â€“2 sentences){lang_note}
 
 Return ONLY valid JSON:
 {{"flashcards": [{{"front": "...", "back": "..."}}]}}"""
@@ -5106,7 +5078,7 @@ async def generate_quiz_from_chat(
     req:           StudioQuizRequest,
     authorization: str = Header(...),
 ):
-    """Studio-driven quiz generation — inserts as drafts, stores a chat confirmation."""
+    """Studio-driven quiz generation â€” inserts as drafts, stores a chat confirmation."""
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         concept = await db.fetchrow("""
@@ -5128,16 +5100,14 @@ async def generate_quiz_from_chat(
         grade=concept.get("grade") or "", board=concept.get("board") or "",
     )
 
-    from openai import AsyncOpenAI
     import json as _json
-    client = AsyncOpenAI()
     user_content: object = prompt
     if req.image_data_urls:
         user_content = [
             *[{"type": "image_url", "image_url": {"url": u}} for u in req.image_data_urls],
             {"type": "text", "text": prompt},
         ]
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": user_content}],
         response_format={"type": "json_object"},
@@ -5170,13 +5140,13 @@ async def generate_quiz_from_chat(
             conv = await db.fetchrow("""
                 INSERT INTO conversations (user_id, title, subject, concept_id, conversation_type)
                 VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
-            """, teacher_id, f"{concept['title']} — Authoring chat", concept["subject"], concept_id)
+            """, teacher_id, f"{concept['title']} â€” Authoring chat", concept["subject"], concept_id)
         msg = await db.fetchrow("""
             INSERT INTO messages (conversation_id, role, content, metadata)
             VALUES ($1::uuid, 'assistant', $2, $3::jsonb)
             RETURNING id, role, content, created_at
         """, conv["id"],
-            f"Generated {len(questions)} quiz questions — review and approve them in the Assets tab.",
+            f"Generated {len(questions)} quiz questions â€” review and approve them in the Assets tab.",
             _json.dumps({"content_type": "quiz_draft", "count": len(questions)}))
 
     return {
@@ -5195,7 +5165,7 @@ async def generate_flashcards_from_chat(
     req:           StudioFlashcardRequest,
     authorization: str = Header(...),
 ):
-    """Studio-driven flashcard generation — inserts as drafts, stores a chat confirmation."""
+    """Studio-driven flashcard generation â€” inserts as drafts, stores a chat confirmation."""
     teacher_id = await _require_teacher(authorization)
     async with get_db() as db:
         concept = await db.fetchrow("""
@@ -5215,16 +5185,14 @@ async def generate_flashcards_from_chat(
         concept["title"], source, count=req.count, focus=req.focus, language=language,
     )
 
-    from openai import AsyncOpenAI
     import json as _json
-    client = AsyncOpenAI()
     user_content: object = prompt
     if req.image_data_urls:
         user_content = [
             *[{"type": "image_url", "image_url": {"url": u}} for u in req.image_data_urls],
             {"type": "text", "text": prompt},
         ]
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": user_content}],
         response_format={"type": "json_object"},
@@ -5254,13 +5222,13 @@ async def generate_flashcards_from_chat(
             conv = await db.fetchrow("""
                 INSERT INTO conversations (user_id, title, subject, concept_id, conversation_type)
                 VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
-            """, teacher_id, f"{concept['title']} — Authoring chat", concept["subject"], concept_id)
+            """, teacher_id, f"{concept['title']} â€” Authoring chat", concept["subject"], concept_id)
         msg = await db.fetchrow("""
             INSERT INTO messages (conversation_id, role, content, metadata)
             VALUES ($1::uuid, 'assistant', $2, $3::jsonb)
             RETURNING id, role, content, created_at
         """, conv["id"],
-            f"Generated {len(cards)} flashcards — review and approve them in the Assets tab.",
+            f"Generated {len(cards)} flashcards â€” review and approve them in the Assets tab.",
             _json.dumps({"content_type": "flashcard_draft", "count": len(cards)}))
 
     return {
@@ -5273,7 +5241,7 @@ async def generate_flashcards_from_chat(
     }
 
 
-# ── Quiz/flashcard per-item management ────────────────────────────────────────
+# â”€â”€ Quiz/flashcard per-item management â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class UpdateQuizQuestionRequest(BaseModel):
     status:     str | None = None
@@ -5394,8 +5362,6 @@ async def update_quiz_mode(
 
 async def _generate_quiz_bg(concept_id: str, course_id: str):
     """Background: generate quiz questions via GPT-4o, store in concept_quiz_questions."""
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
 
     try:
         async with get_db() as db:
@@ -5416,7 +5382,7 @@ async def _generate_quiz_bg(concept_id: str, course_id: str):
 
         prompt = build_quiz_prompt(concept["title"], subject, source, language=language, grade=grade, board=board)
 
-        response = await client.chat.completions.create(
+        response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
@@ -5451,8 +5417,6 @@ async def _generate_quiz_bg(concept_id: str, course_id: str):
 
 async def _generate_flashcards_bg(concept_id: str, course_id: str):
     """Background: generate flashcard pairs via GPT-4o."""
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
 
     try:
         async with get_db() as db:
@@ -5471,7 +5435,7 @@ async def _generate_flashcards_bg(concept_id: str, course_id: str):
 
         prompt = build_flashcard_prompt(concept["title"], source, language=language)
 
-        response = await client.chat.completions.create(
+        response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
@@ -5520,8 +5484,8 @@ def _map_manim_subject(course_subject: str | None) -> str:
 
 def _build_concept_video_prompt(title: str, source_text: str | None, summary: str | None, extra: str = "") -> str:
     """
-    Ground Stage 1 (GPT-4o) in the concept's actual source material — same idea as
-    build_studyset_prompt's "answer ONLY from the material" grounding — instead of
+    Ground Stage 1 (GPT-4o) in the concept's actual source material â€” same idea as
+    build_studyset_prompt's "answer ONLY from the material" grounding â€” instead of
     handing it a bare title. Falls back to the approved summary if no source text
     was captured for this concept. `extra` lets callers (e.g. per-student remedial
     assignments) add framing without duplicating this prompt.
@@ -5529,7 +5493,7 @@ def _build_concept_video_prompt(title: str, source_text: str | None, summary: st
     material = (source_text or summary or title)[:8000]
     return f"""Teach the concept "{title}" to students.
 {extra}
-Base your explanation strictly on the material below — do not invent facts,
+Base your explanation strictly on the material below â€” do not invent facts,
 numbers, or examples that aren't supported by it. If the material describes a
 worked example or process, use that as the CALCULATION/worked section.
 
@@ -5542,11 +5506,11 @@ SOURCE MATERIAL:
 async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id: str | None = None, target_duration: int | None = None):
     """
     Background: generate a real Manim-animated video for a concept by reusing the
-    AnimLearn pipeline (services/manim.py) — the exact two-phase flow used for
+    AnimLearn pipeline (services/manim.py) â€” the exact two-phase flow used for
     student-triggered study-set videos (routers/videos.py::_generate_video_bg),
     just sourced from the concept's approved material instead of a chat prompt.
-      Phase 1 (GPT-4o)  — structured solution + cinematic [BEAT]-marked script
-      Phase 2 (Claude)  — Manim scene code + SVG assets + critic pass
+      Phase 1 (GPT-4o)  â€” structured solution + cinematic [BEAT]-marked script
+      Phase 2 (Claude)  â€” Manim scene code + SVG assets + critic pass
     """
     from services.manim import (
         generate_solution_only, generate_manim_from_solution,
@@ -5565,7 +5529,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
             )
 
         if not concept or not (concept["ai_transcript"] or concept["ai_summary"]):
-            raise ValueError("No transcript or summary — generate and approve a summary first")
+            raise ValueError("No transcript or summary â€” generate and approve a summary first")
 
         subject     = _map_manim_subject(course["subject"] if course else None)
         grade       = (course.get("grade") or "") if course else ""
@@ -5573,7 +5537,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
         script      = concept["ai_transcript"] or concept["ai_summary"]
         duration    = target_duration if target_duration else max(45, min(120, len(script) // 12))
 
-        # ── Build grade + TEKS context for the video prompt ──────────────────
+        # â”€â”€ Build grade + TEKS context for the video prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         extra_parts: list[str] = []
         if grade:
             extra_parts.append(
@@ -5595,8 +5559,8 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                     for code in cc["teks_codes"]:
                         desc = teks_descs.get(code)
                         if desc:
-                            extra_parts.append(f"  • {code}: {desc}")
-                    extra_parts.append("Stay scoped to these standards — do not go beyond them.")
+                            extra_parts.append(f"  â€¢ {code}: {desc}")
+                    extra_parts.append("Stay scoped to these standards â€” do not go beyond them.")
         extra = "\n\n".join(extra_parts)
 
         prompt   = _build_concept_video_prompt(concept["title"], concept["source_text"], script, extra=extra)
@@ -5613,7 +5577,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                 video_id, concept_id,
             )
 
-        # ── Phase 1: GPT-4o structured solution + cinematic script ───────────
+        # â”€â”€ Phase 1: GPT-4o structured solution + cinematic script â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         logger.info("[video] concept %s: Phase 1 (GPT-4o solution) starting (video %s)", concept_id, video_id)
         solution_data = await generate_solution_only(prompt, course_lang, duration)
 
@@ -5630,7 +5594,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                 WHERE id = $3
             """, solution_data["transcript_markdown"], solution_data["verified_solution"], video_id)
 
-        # ── Storyboard branch (multimodal_video_enabled) ─────────────────────
+        # â”€â”€ Storyboard branch (multimodal_video_enabled) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         _multimodal = False
         if teacher_id:
             async with get_db() as db:
@@ -5700,7 +5664,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                                   (user_id, title, subject, concept_id, conversation_type)
                                 VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
                             """, teacher_id,
-                                f"{concept['title']} — Authoring chat",
+                                f"{concept['title']} â€” Authoring chat",
                                 (course_info["subject"] if course_info else None), concept_id)
 
                         await db.execute("""
@@ -5711,7 +5675,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                     logger.error("[video] concept %s: storyboard chat card inject failed: %s", concept_id, exc)
             return
 
-        # ── Phase 2: Claude Manim code + SVG assets + critic pass ────────────
+        # â”€â”€ Phase 2: Claude Manim code + SVG assets + critic pass â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         logger.info("[video] concept %s: Phase 2 (Manim code) starting (video %s)", concept_id, video_id)
         code_data = await asyncio.wait_for(
             generate_manim_from_solution(solution_data, course_lang, duration, "16:9"),
@@ -5766,7 +5730,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
                               (user_id, title, subject, concept_id, conversation_type)
                             VALUES ($1::uuid, $2, $3, $4::uuid, 'studio') RETURNING id
                         """, teacher_id,
-                            f"{concept['title']} — Authoring chat",
+                            f"{concept['title']} â€” Authoring chat",
                             (course_info["subject"] if course_info else None), concept_id)
 
                     await db.execute("""
@@ -5781,11 +5745,11 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
         async with get_db() as db:
             if video_id:
                 await db.execute(
-                    "UPDATE videos SET status = 'failed', error_message = 'Manim generation timed out — please retry', updated_at = NOW() WHERE id = $1",
+                    "UPDATE videos SET status = 'failed', error_message = 'Manim generation timed out â€” please retry', updated_at = NOW() WHERE id = $1",
                     video_id,
                 )
             await db.execute(
-                "UPDATE course_concepts SET video_status = 'failed', video_error = 'Manim generation timed out — please retry' WHERE id = $1::uuid",
+                "UPDATE course_concepts SET video_status = 'failed', video_error = 'Manim generation timed out â€” please retry' WHERE id = $1::uuid",
                 concept_id,
             )
     except Exception as exc:
@@ -5802,7 +5766,7 @@ async def _generate_concept_video_bg(concept_id: str, course_id: str, teacher_id
             )
 
 
-# ── Asset endpoints ───────────────────────────────────────────────────────────
+# â”€â”€ Asset endpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @router.get("/concepts/{concept_id}/assets")
 async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
@@ -5824,7 +5788,7 @@ async def get_concept_assets(concept_id: str, authorization: str = Header(...)):
         video_stage  = None
 
         # Video rendering happens out-of-band on Cloud Run, which writes directly
-        # to the `videos` table — sync that result onto the concept on read.
+        # to the `videos` table â€” sync that result onto the concept on read.
         if video_status == "generating" and concept["video_job_id"]:
             video_job = await db.fetchrow(
                 "SELECT status, video_url, error_message FROM videos WHERE id = $1",
@@ -6059,7 +6023,7 @@ async def generate_concept_video(
     if concept["video_status"] == "generating":
         raise HTTPException(409, "Video generation already in progress")
     if not concept["ai_transcript"] and not concept["ai_summary"]:
-        raise HTTPException(400, "Generate a summary first — the video is built from it")
+        raise HTTPException(400, "Generate a summary first â€” the video is built from it")
 
     async with get_db() as db:
         await db.execute(
@@ -6138,7 +6102,7 @@ async def _generate_block_video_bg(
                 WHERE id = $3
             """, transcript, solution_data["verified_solution"], video_id)
 
-        # ── Storyboard branch (multimodal_video_enabled) ─────────────────────
+        # â”€â”€ Storyboard branch (multimodal_video_enabled) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         _multimodal = False
         if user_id:
             async with get_db() as db:
@@ -6269,7 +6233,7 @@ async def generate_block_video(
 
 @router.get("/concepts/{concept_id}/audio")
 async def serve_concept_audio(concept_id: str):
-    """Serve concept audio MP3 — no auth (UUID is unguessable, audio tag can't send headers)."""
+    """Serve concept audio MP3 â€” no auth (UUID is unguessable, audio tag can't send headers)."""
     async with get_db() as db:
         row = await db.fetchrow(
             "SELECT audio_data FROM course_concepts WHERE id = $1::uuid AND audio_status IN ('ready','approved')",
@@ -6284,7 +6248,7 @@ async def serve_concept_audio(concept_id: str):
     )
 
 
-# ── Helper ────────────────────────────────────────────────────────────────────
+# â”€â”€ Helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _fmt_course(r):
     return {
@@ -6298,3 +6262,4 @@ def _fmt_course(r):
         "is_published": r.get("is_published", False),
         "created_at":   r["created_at"].isoformat() if r.get("created_at") else None,
     }
+

@@ -22,6 +22,7 @@ from routers.courses import (
     _map_manim_subject, _build_concept_video_prompt,
 )
 from routers.students import _require_teacher_of_student
+from services.ai_router import openai_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/assignments", tags=["assignments"])
@@ -199,10 +200,7 @@ async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, 
 
 
 async def _generate_assignment_quiz(assignment_id: str, title: str, subject: str, source: str, extra: str, language: str = 'en'):
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": build_quiz_prompt(title, subject, source, extra, language=language)}],
         response_format={"type": "json_object"},
@@ -219,10 +217,7 @@ async def _generate_assignment_quiz(assignment_id: str, title: str, subject: str
 
 
 async def _generate_assignment_flashcards(assignment_id: str, title: str, source: str, extra: str, language: str = 'en'):
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
-
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": build_flashcard_prompt(title, source, extra, language=language)}],
         response_format={"type": "json_object"},

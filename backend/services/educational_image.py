@@ -120,8 +120,7 @@ async def run_vision_critic(
     Send the generated PNG to GPT-4o for scientific accuracy review.
     Returns a critic report dict with score, issues, and correction_prompt.
     """
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
+    from services.ai_router import openai_client as client
 
     b64           = base64.b64encode(image_bytes).decode("utf-8")
     learning_goal = knowledge_model.get("learning_goal", "")
@@ -190,8 +189,7 @@ async def generate_with_critic(
     Generate image → critic → regenerate once if score < threshold.
     Returns (final_image_bytes, critic_report, final_prompt_used).
     """
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI()
+    from services.ai_router import openai_client as client
 
     critic_feedback = ""
     if validation_issues:

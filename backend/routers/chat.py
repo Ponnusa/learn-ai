@@ -9,7 +9,7 @@ import json
 from fastapi import APIRouter, BackgroundTasks, Response, UploadFile
 from pydantic import BaseModel
 from database import get_db
-from services.ai_router import openai_client, get_model
+from services.ai_router import openai_client, get_model, resolve_model
 from services.subject_detector import detect_subject
 from services.prompt_builder import build_chat_prompt, inject_conversation_context, CHAT_SYSTEM_PROMPT
 from services.profile_updater import update_student_profile
@@ -34,7 +34,7 @@ async def transcribe_audio(file: UploadFile, language: str = "en"):
         buf = io.BytesIO(audio_bytes)
         buf.name = filename
         result = await openai_client.audio.transcriptions.create(
-            model="whisper-1",
+            model=resolve_model("whisper-1"),
             file=buf,
             language=lang,
         )
@@ -451,7 +451,7 @@ async def get_message_audio(message_id: str, language: str = "en"):
     spoken = clean_resp.choices[0].message.content.strip()
 
     audio_resp = await openai_client.audio.speech.create(
-        model="tts-1", voice="nova", input=spoken[:4096],
+        model=resolve_model("tts-1"), voice="nova", input=spoken[:4096],
     )
     audio_bytes = audio_resp.content
 

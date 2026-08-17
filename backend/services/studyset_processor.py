@@ -5,6 +5,7 @@ concepts and flashcards. Runs as a FastAPI background task.
 """
 import json
 import logging
+from services.ai_router import openai_client
 
 logger = logging.getLogger(__name__)
 
@@ -98,10 +99,6 @@ async def generate_concepts_and_flashcards(
     Call GPT-4o with the extracted text and return structured JSON containing:
       summary, concepts[], flashcards[]
     """
-    from openai import AsyncOpenAI
-
-    client = AsyncOpenAI()
-
     # Truncate to ~80 000 chars ≈ 20 000 tokens — enough for ~40 pages
     truncated = text[:80_000]
 
@@ -142,7 +139,7 @@ Requirements:
 --- MATERIAL ---
 {truncated}"""
 
-    response = await client.chat.completions.create(
+    response = await openai_client.chat.completions.create(
         model="gpt-4o",
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
