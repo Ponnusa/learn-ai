@@ -274,11 +274,18 @@ async def generate_with_critic(
         # Extract the first image part from the response
         image_bytes: bytes | None = None
         image_mime:  str   = "image/jpeg"
-        for part in resp.candidates[0].content.parts:
-            if getattr(part, "inline_data", None) and part.inline_data.mime_type.startswith("image/"):
-                raw = part.inline_data.data
+        logger.info("[img] Nano Banana parts: %d", len(resp.candidates[0].content.parts))
+        for i, part in enumerate(resp.candidates[0].content.parts):
+            idata = getattr(part, "inline_data", None)
+            logger.info("[img] part[%d]: has_inline_data=%s text=%s",
+                        i, idata is not None, repr(getattr(part, 'text', None))[:60] if getattr(part, 'text', None) else None)
+            if idata and idata.mime_type.startswith("image/"):
+                raw = idata.data
+                logger.info("[img] image part: mime=%s raw_type=%s raw_len=%s",
+                            idata.mime_type, type(raw).__name__,
+                            len(raw) if raw is not None else None)
                 image_bytes = base64.b64decode(raw) if isinstance(raw, str) else raw
-                image_mime  = part.inline_data.mime_type
+                image_mime  = idata.mime_type
                 break
         if not image_bytes:
             raise RuntimeError(f"Nano Banana returned no image on attempt {attempt}")

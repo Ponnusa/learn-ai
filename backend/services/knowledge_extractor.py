@@ -71,7 +71,7 @@ async def extract_knowledge_model(concept: str) -> dict:
                 {"role": "assistant", "content": _EXAMPLE_OUTPUT},
                 {"role": "user",      "content": f"Extract knowledge model for:\n\n{concept}"},
             ],
-            max_tokens=1200,
+            max_tokens=2000,
             temperature=0.3,
             json_mode=True,
         )
