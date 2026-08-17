@@ -206,7 +206,9 @@ Return ONLY valid JSON:
                     response_mime_type="application/json",
                 ),
             )
-            raw_json = resp.text.strip()
+            raw_json = "".join(
+                p.text for p in resp.candidates[0].content.parts if getattr(p, "text", None)
+            ).strip()
         else:
             import anthropic
             b64 = base64.b64encode(image_bytes).decode("utf-8")

@@ -3,6 +3,7 @@ Diagram Planner — converts a knowledge model into a concrete diagram plan
 using domain templates + Claude Haiku for layout decisions.
 """
 import json
+import re
 import logging
 from services.ai_router import ai_complete
 from .domain_templates import CONCEPT_TYPE_REQUIREMENTS, DOMAIN_STYLES
@@ -61,6 +62,16 @@ Labels must include all entity names, variable values, and units."""
             temperature=0.3,
             json_mode=True,
         )
+        # Strip markdown fences if present
+        if "```" in raw:
+            m = re.search(r'```(?:json)?\s*([\s\S]+?)```', raw)
+            raw = m.group(1).strip() if m else raw
+        # Extract first {...} block (handles any preamble text)
+        m = re.search(r'\{[\s\S]*\}', raw)
+        if m:
+            raw = m.group()
+        # Remove trailing commas before } or ] (common Gemini quirk)
+        raw = re.sub(r',\s*([}\]])', r'\1', raw)
         plan = json.loads(raw)
         logger.info("[plan] type=%s panels=%d labels=%d",
                     plan.get("diagram_type"), len(plan.get("panels", [])), len(plan.get("labels", [])))

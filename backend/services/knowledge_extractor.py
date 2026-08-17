@@ -4,6 +4,7 @@ educational knowledge model.
 EU: Gemini 2.5 Flash on Vertex AI. US: Claude Haiku on Anthropic.
 """
 import json
+import re
 import logging
 from services.ai_router import ai_complete
 
@@ -75,6 +76,13 @@ async def extract_knowledge_model(concept: str) -> dict:
             temperature=0.3,
             json_mode=True,
         )
+        if "```" in raw:
+            m = re.search(r'```(?:json)?\s*([\s\S]+?)```', raw)
+            raw = m.group(1).strip() if m else raw
+        m = re.search(r'\{[\s\S]*\}', raw)
+        if m:
+            raw = m.group()
+        raw = re.sub(r',\s*([}\]])', r'\1', raw)
         model = json.loads(raw)
         logger.info("[know] domain=%s concept_type=%s", model.get("domain"), model.get("concept_type"))
         return model
