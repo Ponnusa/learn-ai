@@ -80,7 +80,7 @@ async def ai_complete(
             contents.append(
                 gemini_types.Content(
                     role=role,
-                    parts=[gemini_types.Part.from_text(m["content"])],
+                    parts=[gemini_types.Part(text=m["content"])],
                 )
             )
         cfg = gemini_types.GenerateContentConfig(

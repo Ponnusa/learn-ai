@@ -195,7 +195,7 @@ Return ONLY valid JSON:
                 raise RuntimeError("Gemini Vertex client not initialised")
             parts = [
                 gemini_types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
-                gemini_types.Part.from_text(prompt),
+                gemini_types.Part(text=prompt),
             ]
             resp = await gemini_client.aio.models.generate_content(
                 model=_IMAGE_CRITIC_GEMINI,
