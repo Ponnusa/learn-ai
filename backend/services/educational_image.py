@@ -2,17 +2,22 @@
 Educational Image Generator — Knowledge-Layer Pipeline.
 
 Flow:
-  1. Knowledge Extraction  (Claude Haiku) → rich knowledge model
-  2. Diagram Planning      (Claude Haiku) → structured diagram plan
-  3. Validation            (local)        → catch bad visuals pre-generation
-  4. Prompt Building       (local)        → domain-specific gpt-image-1 prompt
-  5. Image Generation      (gpt-image-1)  → PNG bytes
-  6. Vision Critic         (GPT-4o)       → score + issues
-  7. Auto-regenerate       (if score<85)  → one retry with correction prompt
-  8. R2 Upload             (boto3)        → permanent URL
-  9. DB update             (asyncpg)      → status=ready + all metadata
+  1. Knowledge Extraction  (ai_complete)        → rich knowledge model
+  2. Diagram Planning      (ai_complete)        → structured diagram plan
+  3. Validation            (local)              → catch bad visuals pre-generation
+  4. Prompt Building       (local)              → domain-specific image prompt
+  5. Image Generation      (Gemini Nano Banana) → PNG bytes  [always US direct API]
+  6. Vision Critic         (Gemini Flash / Claude Haiku) → score + issues
+  7. Auto-regenerate       (if score<85)        → one retry with correction prompt
+  8. R2 Upload             (boto3)              → permanent URL
+  9. DB update             (asyncpg)            → status=ready + all metadata
 
 Public entry point: process_image_job()
+
+Model names — update here when models are deprecated:
+  _IMAGE_GEN_MODEL      image generation (Gemini Nano Banana, US-only direct API)
+  _IMAGE_CRITIC_GEMINI  vision critic when USE_VERTEX_GEMINI=true  (Vertex EU)
+  _IMAGE_CRITIC_CLAUDE  vision critic when USE_VERTEX_GEMINI=false (Anthropic US)
 """
 import base64
 import json
@@ -20,8 +25,34 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-_CRITIC_THRESHOLD     = 85   # score below this triggers regeneration
-_MAX_GEN_ATTEMPTS     = 2    # max attempts including the retry
+# ── Model names ───────────────────────────────────────────────────────────────
+_IMAGE_GEN_MODEL     = "gemini-3.1-flash-image"       # Nano Banana, US-only
+_IMAGE_CRITIC_GEMINI = "gemini-2.5-flash"              # Vertex EU vision critic
+_IMAGE_CRITIC_CLAUDE = "claude-haiku-4-5-20251001"     # Anthropic US vision critic
+
+_CRITIC_THRESHOLD    = 85   # score below this triggers regeneration
+_MAX_GEN_ATTEMPTS    = 2    # max attempts including the retry
+
+# ── Gemini direct client (US, for Nano Banana image gen) ─────────────────────
+_gemini_img_client = None
+_gemini_img_types  = None
+
+def _init_gemini_img_client():
+    global _gemini_img_client, _gemini_img_types
+    try:
+        from config import settings
+        if not settings.GEMINI_API_KEY:
+            logger.warning("[edu-img] GEMINI_API_KEY not set — image generation unavailable")
+            return
+        from google import genai as _genai
+        from google.genai import types as _gtypes
+        _gemini_img_client = _genai.Client(api_key=settings.GEMINI_API_KEY)
+        _gemini_img_types  = _gtypes
+        logger.info("[edu-img] Gemini direct client ready (model=%s)", _IMAGE_GEN_MODEL)
+    except Exception as exc:
+        logger.error("[edu-img] Gemini direct init failed: %s", exc)
+
+_init_gemini_img_client()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,15 +148,15 @@ async def run_vision_critic(
     diagram_plan:    dict,
 ) -> dict:
     """
-    Send the generated PNG to GPT-4o for scientific accuracy review.
+    Send the generated PNG to the vision critic for scientific accuracy review.
+    EU (USE_VERTEX_GEMINI): Gemini Flash on Vertex. US: Claude Haiku.
     Returns a critic report dict with score, issues, and correction_prompt.
     """
-    from services.ai_router import openai_client as client
+    from config import settings
 
-    b64           = base64.b64encode(image_bytes).decode("utf-8")
-    learning_goal = knowledge_model.get("learning_goal", "")
-    must_show     = knowledge_model.get("must_show", [])
-    must_not_show = knowledge_model.get("must_not_show", [])
+    learning_goal  = knowledge_model.get("learning_goal", "")
+    must_show      = knowledge_model.get("must_show", [])
+    must_not_show  = knowledge_model.get("must_not_show", [])
     misconceptions = knowledge_model.get("common_misconceptions", [])
 
     prompt = f"""Review this educational diagram for scientific accuracy and educational quality.
@@ -153,27 +184,49 @@ Return ONLY valid JSON:
   "correction_prompt": "<specific one-paragraph instruction to fix issues in the next attempt>"
 }}"""
 
+    _fallback = {"score": 90, "issues": [], "missing": [], "misleading": [],
+                 "regenerate": False, "correction_prompt": ""}
     try:
-        response = await client.chat.completions.create(
-            model="gpt-4o",
-            max_tokens=600,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-                    {"type": "text",      "text": prompt},
-                ],
-            }],
-            response_format={"type": "json_object"},
-        )
-        report = json.loads(response.choices[0].message.content)
+        raw_json: str
+
+        if settings.USE_VERTEX_GEMINI:
+            from services.ai_router import gemini_client, gemini_types
+            if not gemini_client:
+                raise RuntimeError("Gemini Vertex client not initialised")
+            parts = [
+                gemini_types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+                gemini_types.Part.from_text(prompt),
+            ]
+            resp = await gemini_client.aio.models.generate_content(
+                model=_IMAGE_CRITIC_GEMINI,
+                contents=[gemini_types.Content(role="user", parts=parts)],
+                config=gemini_types.GenerateContentConfig(
+                    max_output_tokens=600,
+                    response_mime_type="application/json",
+                ),
+            )
+            raw_json = resp.text.strip()
+        else:
+            import anthropic
+            b64 = base64.b64encode(image_bytes).decode("utf-8")
+            client = anthropic.AsyncAnthropic()
+            resp = await client.messages.create(
+                model=_IMAGE_CRITIC_CLAUDE,
+                max_tokens=600,
+                messages=[{"role": "user", "content": [
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": b64}},
+                    {"type": "text",  "text": prompt},
+                ]}],
+            )
+            raw_json = resp.content[0].text.strip()
+
+        report = json.loads(raw_json)
         logger.info("[critic] score=%s regenerate=%s issues=%d",
                     report.get("score"), report.get("regenerate"), len(report.get("issues", [])))
         return report
     except Exception as e:
         logger.warning("[critic] vision critic failed (%s) — skipping", e)
-        return {"score": 90, "issues": [], "missing": [], "misleading": [],
-                "regenerate": False, "correction_prompt": ""}
+        return _fallback
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -186,10 +239,11 @@ async def generate_with_critic(
     validation_issues: list[str],
 ) -> tuple[bytes, dict, str]:
     """
-    Generate image → critic → regenerate once if score < threshold.
+    Generate image (Gemini Nano Banana) → critic → regenerate once if score < threshold.
     Returns (final_image_bytes, critic_report, final_prompt_used).
     """
-    from services.ai_router import openai_client as client
+    if not _gemini_img_client:
+        raise RuntimeError("Gemini image client not initialised — check GEMINI_API_KEY")
 
     critic_feedback = ""
     if validation_issues:
@@ -206,19 +260,26 @@ async def generate_with_critic(
             validation_issues=validation_issues if attempt == 1 else None,
         )
         final_prompt = prompt
+        logger.info("[img] attempt %d/%d — model=%s prompt_len=%d",
+                    attempt, _MAX_GEN_ATTEMPTS, _IMAGE_GEN_MODEL, len(prompt))
 
-        logger.info("[img] attempt %d/%d — prompt length=%d", attempt, _MAX_GEN_ATTEMPTS, len(prompt))
-
-        response = await client.images.generate(
-            model="gpt-image-1",
-            prompt=prompt,
-            size="1024x1024",
-            quality="medium",
-            n=1,
+        resp = await _gemini_img_client.aio.models.generate_content(
+            model=_IMAGE_GEN_MODEL,
+            contents=prompt,
+            config=_gemini_img_types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+            ),
         )
-        image_bytes = base64.b64decode(response.data[0].b64_json)
+        # Extract the first image part from the response
+        image_bytes: bytes | None = None
+        for part in resp.candidates[0].content.parts:
+            if getattr(part, "inline_data", None) and part.inline_data.mime_type.startswith("image/"):
+                raw = part.inline_data.data
+                image_bytes = base64.b64decode(raw) if isinstance(raw, str) else raw
+                break
+        if not image_bytes:
+            raise RuntimeError(f"Nano Banana returned no image on attempt {attempt}")
 
-        # Vision critic
         critic_report = await run_vision_critic(image_bytes, knowledge_model, diagram_plan)
         critic_report["attempt"] = attempt
 
@@ -230,7 +291,6 @@ async def generate_with_critic(
                 logger.info("[img] accepted after %d attempts, score=%s", attempt, critic_report.get("score"))
             break
 
-        # Prepare correction for next attempt
         critic_feedback = critic_report.get("correction_prompt", "")
         logger.info("[img] score=%s < %d — retrying with critic feedback",
                     critic_report.get("score"), _CRITIC_THRESHOLD)
@@ -280,8 +340,7 @@ async def generate_image_description(knowledge_model: dict, diagram_plan: dict, 
     This text is shown as an AI message next to the image — it replaces all
     the explanatory text that used to be embedded inside the image itself.
     """
-    from anthropic import AsyncAnthropic
-    client = AsyncAnthropic()
+    from services.ai_router import ai_complete
 
     title          = knowledge_model.get("title", "")
     learning_goal  = knowledge_model.get("learning_goal", "")
@@ -321,12 +380,12 @@ Do NOT use headers. Just flowing paragraphs."""
         prompt += f"\n\nWrite the entire explanation in {_DESC_LANGUAGE_NAMES[language]}."
 
     try:
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=600,
+        description = await ai_complete(
+            system="You are an expert science educator.",
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=600,
+            temperature=0.4,
         )
-        description = response.content[0].text.strip()
         logger.info("[desc] generated %d chars for '%s'", len(description), title)
         return description
     except Exception as e:

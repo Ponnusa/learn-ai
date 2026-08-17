@@ -1,13 +1,11 @@
 """
 Knowledge Extractor — converts a raw concept string into a structured
-educational knowledge model using Claude Haiku.
-
-The knowledge model is domain-agnostic scientific knowledge,
-NOT a description of what an image should look like.
+educational knowledge model.
+EU: Gemini 2.5 Flash on Vertex AI. US: Claude Haiku on Anthropic.
 """
 import json
 import logging
-from anthropic import AsyncAnthropic
+from services.ai_router import ai_complete
 
 logger = logging.getLogger(__name__)
 
@@ -63,21 +61,19 @@ _EXAMPLE_OUTPUT = """{
 async def extract_knowledge_model(concept: str) -> dict:
     """
     Extract a structured knowledge model from a concept string.
-    Falls back to a minimal model if Claude call fails.
+    Falls back to a minimal model if AI call fails.
     """
-    client = AsyncAnthropic()
     try:
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1200,
+        raw = await ai_complete(
             system=_SYSTEM,
             messages=[
-                {"role": "user",  "content": _EXAMPLE_INPUT},
+                {"role": "user",      "content": _EXAMPLE_INPUT},
                 {"role": "assistant", "content": _EXAMPLE_OUTPUT},
-                {"role": "user",  "content": f"Extract knowledge model for:\n\n{concept}"},
+                {"role": "user",      "content": f"Extract knowledge model for:\n\n{concept}"},
             ],
+            max_tokens=1200,
+            temperature=0.3,
         )
-        raw = response.content[0].text.strip()
         if raw.startswith("```"):
             parts = raw.split("```")
             raw = parts[1][4:].strip() if parts[1].startswith("json") else parts[1].strip()

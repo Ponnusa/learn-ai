@@ -29,15 +29,19 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GEMINI_API_KEY: str = ""
-    VIDEO_MODEL_PROVIDER: str = "claude"   # "claude" | "gemini"
-    GEMINI_MODEL_NAME: str = "gemini-2.5-flash"       # enhanced tier (students)
-    GEMINI_MODEL_NAME_LITE: str = "gemini-3.5-flash-lite"  # standard tier (anonymous)
     # Azure OpenAI — set USE_AZURE_OPENAI=true in EU deployments to route all
     # OpenAI calls through Azure instead of the direct OpenAI API.
     USE_AZURE_OPENAI: bool = False
     AZURE_OPENAI_ENDPOINT: str = ""
     AZURE_OPENAI_API_KEY: str = ""
     AZURE_OPENAI_API_VERSION: str = ""
+    # Vertex AI Gemini — set USE_VERTEX_GEMINI=true in EU deployments to route all
+    # Claude calls through Gemini on Vertex AI (europe-west1) instead of Anthropic.
+    # US deployments leave this false and use Claude via Anthropic API.
+    USE_VERTEX_GEMINI: bool = False
+    VERTEX_PROJECT: str = ""
+    VERTEX_LOCATION: str = "europe-west1"
+    GOOGLE_SERVICE_ACCOUNT_JSON: str = ""  # full JSON content of the service account key
 
     class Config:
         env_file = ".env"

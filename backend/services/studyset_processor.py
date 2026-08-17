@@ -46,39 +46,62 @@ def is_sparse_text(text: str, page_count: int) -> bool:
 
 
 async def extract_text_vision(file_bytes: bytes) -> tuple[str, int]:
-    """OCR a scanned PDF using Claude Haiku vision in batches of 5 pages.
+    """OCR a scanned PDF using vision AI in batches of 5 pages.
+    EU: Gemini 2.5 Flash on Vertex. US: Claude Haiku.
     Returns (full_text, page_count). Use when extract_text_from_pdf yields sparse text."""
     import fitz, base64
-    import anthropic
+    from config import settings
+    from services.ai_router import gemini_client, gemini_types
 
     doc = fitz.open(stream=file_bytes, filetype="pdf")
     page_count = len(doc)
     mat = fitz.Matrix(1.5, 1.5)
-    client = anthropic.AsyncAnthropic()
     all_text: list[str] = []
     BATCH = 5
+    OCR_PROMPT = (
+        "Extract all text from these pages exactly as written. "
+        "Preserve headings, equations, lists, and paragraph structure. "
+        "Return only the extracted text, no commentary."
+    )
 
     for batch_start in range(0, page_count, BATCH):
         batch_end = min(batch_start + BATCH, page_count)
-        content: list[dict] = []
-        for idx in range(batch_start, batch_end):
-            pix = doc[idx].get_pixmap(matrix=mat)
-            b64 = base64.standard_b64encode(pix.tobytes("png")).decode()
-            content.append({"type": "text", "text": f"--- Page {idx + 1} ---"})
-            content.append({"type": "image", "source": {
-                "type": "base64", "media_type": "image/png", "data": b64,
-            }})
-        content.append({"type": "text", "text": (
-            "Extract all text from these pages exactly as written. "
-            "Preserve headings, equations, lists, and paragraph structure. "
-            "Return only the extracted text, no commentary."
-        )})
-        resp = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=4096,
-            messages=[{"role": "user", "content": content}],
-        )
-        all_text.append(resp.content[0].text)
+
+        if settings.USE_VERTEX_GEMINI and gemini_client:
+            # Gemini vision (Vertex EU)
+            parts = []
+            for idx in range(batch_start, batch_end):
+                pix = doc[idx].get_pixmap(matrix=mat)
+                parts.append(gemini_types.Part.from_text(f"--- Page {idx + 1} ---"))
+                parts.append(gemini_types.Part.from_bytes(
+                    data=pix.tobytes("png"), mime_type="image/png"
+                ))
+            parts.append(gemini_types.Part.from_text(OCR_PROMPT))
+            resp = await gemini_client.aio.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=[gemini_types.Content(role="user", parts=parts)],
+                config=gemini_types.GenerateContentConfig(max_output_tokens=4096),
+            )
+            all_text.append(resp.text)
+        else:
+            # Claude Haiku vision (Anthropic US)
+            import anthropic
+            client = anthropic.AsyncAnthropic()
+            content: list[dict] = []
+            for idx in range(batch_start, batch_end):
+                pix = doc[idx].get_pixmap(matrix=mat)
+                b64 = base64.standard_b64encode(pix.tobytes("png")).decode()
+                content.append({"type": "text", "text": f"--- Page {idx + 1} ---"})
+                content.append({"type": "image", "source": {
+                    "type": "base64", "media_type": "image/png", "data": b64,
+                }})
+            content.append({"type": "text", "text": OCR_PROMPT})
+            resp = await client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": content}],
+            )
+            all_text.append(resp.content[0].text)
 
     doc.close()
     return "\n\n".join(all_text), page_count

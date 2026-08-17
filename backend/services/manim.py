@@ -61,33 +61,7 @@ _CLAUDE_MODEL = os.getenv("CLAUDE_MODEL_NAME", "claude-opus-5")
 # Repair passes only (critic, fix, improve) — Sonnet at 64K to avoid truncation
 _CLAUDE_MODEL_FAST = os.getenv("CLAUDE_MODEL_FAST", "claude-sonnet-5")
 
-# ── Alternate video generation provider ──────────────────────────────────────────────
-# Set VIDEO_MODEL_PROVIDER=gemini + GEMINI_API_KEY to route setup block + beats to Gemini.
-# All other passes (storyboard, SVG, critic, fix) remain on Claude regardless.
-_VIDEO_MODEL_PROVIDER    = settings.VIDEO_MODEL_PROVIDER   # "claude" | "gemini"
-_GEMINI_MODEL_NAME       = settings.GEMINI_MODEL_NAME      # enhanced tier (students)
-_GEMINI_MODEL_NAME_LITE  = settings.GEMINI_MODEL_NAME_LITE # standard tier (anonymous)
-_gemini_client = None       # google.genai.Client instance, set below if provider=gemini
-_gemini_types  = None       # google.genai.types module reference
-if _VIDEO_MODEL_PROVIDER == "gemini":
-    try:
-        from google import genai as _google_genai_mod
-        from google.genai import types as _google_genai_types
-        _gemini_client = _google_genai_mod.Client(api_key=settings.GEMINI_API_KEY)
-        _gemini_types  = _google_genai_types
-        # List available models so the right GEMINI_MODEL_NAME can be chosen
-        try:
-            _all_models = list(_gemini_client.models.list())
-            _model_names = [getattr(m, "name", str(m)) for m in _all_models]
-            logger.info(f"[gemini] Available models ({len(_model_names)} total): {_model_names}")
-        except Exception as _list_err:
-            logger.warning(f"[gemini] Could not list models: {type(_list_err).__name__}: {_list_err}")
-        logger.info(f"[video] Generation provider: Gemini — model={_GEMINI_MODEL_NAME}")
-    except Exception as _gemini_init_err:
-        logger.error(f"Gemini init failed ({_gemini_init_err}) — falling back to Claude")
-        _VIDEO_MODEL_PROVIDER = "claude"
-else:
-    logger.info(f"[video] Generation provider: Claude — model={_CLAUDE_MODEL}")
+logger.info("[video] Generation provider: Claude — model=%s", _CLAUDE_MODEL)
 
 
 def _first_text(message) -> str:
@@ -102,16 +76,8 @@ def _call_generation_pass(
     system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str,
     quality_tier: str = "premium",
 ) -> str:
-    """
-    Route setup block / beats to Claude or Gemini based on quality_tier.
-    premium  → always Claude (Opus)
-    enhanced → Gemini Flash  (if configured, else Claude)
-    standard → Gemini Flash Lite (if configured, else Claude)
-    """
-    if quality_tier == "premium" or _VIDEO_MODEL_PROVIDER != "gemini" or _gemini_client is None:
-        return _call_claude_generation(system_prompt, user_prompt, max_tokens, pass_name)
-    model = _GEMINI_MODEL_NAME_LITE if quality_tier == "standard" else _GEMINI_MODEL_NAME
-    return _call_gemini_generation(system_prompt, user_prompt, max_tokens, pass_name, model=model)
+    """All generation passes use Claude — video codegen contains no student data."""
+    return _call_claude_generation(system_prompt, user_prompt, max_tokens, pass_name)
 
 
 def _call_claude_generation(system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str) -> str:
@@ -149,52 +115,6 @@ def _call_claude_generation(system_prompt: str, user_prompt: str, max_tokens: in
     return _first_text(message).strip()
 
 
-def _call_gemini_generation(
-    system_prompt: str, user_prompt: str, max_tokens: int, pass_name: str,
-    model: str | None = None,
-) -> str:
-    """Gemini generation via google-genai SDK with retry."""
-    _model = model or _GEMINI_MODEL_NAME
-    _retry_delays = [5, 15, 45]
-    last_exc = None
-    for _attempt, _delay in enumerate([0] + _retry_delays, 1):
-        if _attempt > 1:
-            logger.warning(f"Gemini retry ({pass_name} attempt {_attempt}/4) in {_delay}s")
-            time.sleep(_delay)
-        try:
-            response = _gemini_client.models.generate_content(
-                model=_model,
-                contents=user_prompt,
-                config=_gemini_types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    max_output_tokens=min(max_tokens, 65536),
-                    temperature=1.0,
-                ),
-            )
-            candidate = response.candidates[0]
-            finish = getattr(candidate.finish_reason, "name", str(candidate.finish_reason))
-            if finish == "MAX_TOKENS":
-                logger.warning(f"⚠️  {pass_name} (Gemini) hit MAX_TOKENS — output may be incomplete")
-            usage = getattr(response, "usage_metadata", None)
-            if usage:
-                logger.info(
-                    f"[gemini] {pass_name} — "
-                    f"in={getattr(usage,'prompt_token_count',0)} "
-                    f"out={getattr(usage,'candidates_token_count',0)} "
-                    f"finish={finish}"
-                )
-            return response.text.strip()
-        except Exception as _exc:
-            last_exc = _exc
-            _exc_str = str(_exc)
-            logger.error(f"Gemini error ({pass_name} attempt {_attempt}/4): {type(_exc).__name__}: {_exc_str[:300]}")
-            # Don't retry billing/auth/model errors — they won't resolve themselves
-            if any(code in _exc_str for code in ("RESOURCE_EXHAUSTED", "prepayment", "API_KEY_INVALID", "PERMISSION_DENIED", "NOT_FOUND")):
-                logger.error(f"Gemini fatal error — not retrying: {_exc_str[:200]}")
-                break
-            if _attempt >= 4:
-                break
-    raise RuntimeError(f"{pass_name} (Gemini) failed after all retries: {last_exc}")
 
 # ── R2 / Cloudflare config (mirrors AnimLearn naming for verbatim function copy) ──────
 R2_BUCKET_NAME = settings.R2_BUCKET_NAME

@@ -4,7 +4,7 @@ using domain templates + Claude Haiku for layout decisions.
 """
 import json
 import logging
-from anthropic import AsyncAnthropic
+from services.ai_router import ai_complete
 from .domain_templates import CONCEPT_TYPE_REQUIREMENTS, DOMAIN_STYLES
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,6 @@ async def plan_diagram(knowledge_model: dict) -> dict:
     domain       = knowledge_model.get("domain", "general")
     template     = CONCEPT_TYPE_REQUIREMENTS.get(concept_type, {})
 
-    client = AsyncAnthropic()
     user_msg = f"""Knowledge model:
 {json.dumps(knowledge_model, indent=2)}
 
@@ -55,13 +54,12 @@ Design the diagram plan. Every element in 'panels' must be drawable.
 Labels must include all entity names, variable values, and units."""
 
     try:
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=700,
+        raw = await ai_complete(
             system=_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
+            max_tokens=700,
+            temperature=0.3,
         )
-        raw = response.content[0].text.strip()
         if raw.startswith("```"):
             parts = raw.split("```")
             raw = parts[1][4:].strip() if parts[1].startswith("json") else parts[1].strip()
