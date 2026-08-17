@@ -19,6 +19,7 @@ Model names — update here when models are deprecated:
   _IMAGE_CRITIC_GEMINI  vision critic when USE_VERTEX_GEMINI=true  (Vertex EU)
   _IMAGE_CRITIC_CLAUDE  vision critic when USE_VERTEX_GEMINI=false (Anthropic US)
 """
+import asyncio
 import base64
 import json
 import logging
@@ -428,16 +429,12 @@ Do NOT use headers. Just flowing paragraphs."""
 # Main pipeline — called by background task
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def process_image_job(
+async def _run_image_pipeline(
     job_id:     str,
     concept:    str,
     user_id:    str | None,
     session_id: str | None,
 ) -> None:
-    """
-    Full async pipeline. Status transitions: processing → ready | failed.
-    Saves intermediate state to DB so the frontend can show progress.
-    """
     from database import get_db
     from .knowledge_extractor import extract_knowledge_model
     from .diagram_planner     import plan_diagram
@@ -531,4 +528,31 @@ async def process_image_job(
             await db.execute(
                 "UPDATE educational_images SET status='failed', error_msg=$1 WHERE id=$2::uuid",
                 str(exc)[:500], job_id,
+            )
+
+
+async def process_image_job(
+    job_id:     str,
+    concept:    str,
+    user_id:    str | None,
+    session_id: str | None,
+) -> None:
+    """
+    Public entry point called by the background task.
+    Wraps _run_image_pipeline with a hard 120s timeout so a hung AI call
+    always resolves rather than leaving the job stuck in 'processing'.
+    """
+    logger.info("[edu-img] pipeline start job=%s concept_len=%d", job_id[:8], len(concept))
+    try:
+        await asyncio.wait_for(
+            _run_image_pipeline(job_id, concept, user_id, session_id),
+            timeout=120,
+        )
+    except asyncio.TimeoutError:
+        logger.error("[edu-img] %s timed out after 120s", job_id[:8])
+        from database import get_db as _get_db
+        async with _get_db() as db:
+            await db.execute(
+                "UPDATE educational_images SET status='failed', error_msg=$1 WHERE id=$2::uuid",
+                "Generation timed out — please retry", job_id,
             )
