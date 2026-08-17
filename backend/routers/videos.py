@@ -11,6 +11,7 @@ even when Manim code generation fails:
 import asyncio
 import json
 import logging
+import re
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from database import get_db
@@ -454,6 +455,29 @@ async def get_session_videos(session_id: str):
 # BACKGROUND TASKS
 # ─────────────────────────────────────────────────────────────────────────────
 
+_SUPPORTED_LANGS = {"fi", "sv", "es", "ta", "en"}
+
+def _detect_transcript_language(transcript: str, fallback: str) -> str:
+    """
+    Detect language from the transcript text using langdetect.
+    Returns a supported language code, or fallback if detection fails / unsupported.
+    Only overrides when the transcript is long enough to be reliable (≥80 chars).
+    """
+    if not transcript or len(transcript.strip()) < 80:
+        return fallback
+    try:
+        from langdetect import detect
+        detected = detect(transcript)
+        if detected in _SUPPORTED_LANGS and detected != fallback:
+            logging.getLogger(__name__).info(
+                "[pipeline] transcript language detected: %s (req had %s)", detected, fallback
+            )
+            return detected
+    except Exception:
+        pass
+    return fallback
+
+
 async def _generate_video_bg(
     video_id: int,
     prompt: str,
@@ -489,6 +513,20 @@ async def _generate_video_bg(
                 solution_data["verified_solution"], video_id)
 
         _log.info(f"[pipeline] video {video_id}: Phase 1 done → transcript_ready")
+
+        # Auto-detect language from transcript — overrides user setting when chat
+        # is in a different language (e.g. Finnish chat but English UI language)
+        detected_lang = _detect_transcript_language(
+            solution_data.get("transcript_markdown", ""), language
+        )
+        if detected_lang != language:
+            language = detected_lang
+            async with get_db() as db:
+                await db.execute(
+                    "UPDATE videos SET language=$1, updated_at=NOW() WHERE id=$2",
+                    language, video_id,
+                )
+            _log.info(f"[pipeline] video {video_id}: language overridden to {language!r} from transcript")
 
     except Exception as e:
         _log.error(f"[pipeline] video {video_id}: Phase 1 failed — {e}", exc_info=True)
