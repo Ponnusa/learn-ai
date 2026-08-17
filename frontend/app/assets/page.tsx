@@ -157,7 +157,7 @@ function TranscriptModal({ markdown, onClose }: { markdown: string; onClose: () 
             <X size={15} />
           </button>
         </div>
-        <div className="flex-1 chat-scroll px-6 py-5">
+        <div className="flex-1 min-h-0 chat-scroll px-6 py-5">
           <div className="ai-content text-sm leading-relaxed">
             <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
               {preprocessMath(markdown)}
@@ -641,6 +641,14 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
   const date = job.created_at ? formatRelDate(job.created_at) : '';
   const [deleting, setDeleting] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+
+  useEffect(() => {
+    if (!showInfo) return;
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') setShowInfo(false); }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showInfo]);
 
   async function handleDelete(e: React.MouseEvent) {
     e.stopPropagation();
@@ -660,6 +668,7 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
   }
 
   return (
+    <>
     <div onClick={job.status === 'ready' ? onClick : undefined}
       className={`group bg-[var(--surface)] border border-[var(--bd)] rounded-2xl overflow-hidden
                   transition-all duration-200 flex flex-col
@@ -719,7 +728,7 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
           </div>
           <div className="flex items-center gap-0.5 shrink-0">
             {job.description && (
-              <button onClick={e => { e.stopPropagation(); onClick(); }}
+              <button onClick={e => { e.stopPropagation(); setShowInfo(true); }}
                 className="w-7 h-7 flex items-center justify-center rounded-lg
                            text-[var(--tx5)] hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors"
                 title={t.images.aboutDiagram}>
@@ -752,6 +761,57 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
         </div>
       </div>
     </div>
+
+    {showInfo && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+        onClick={e => { e.stopPropagation(); if (e.target === e.currentTarget) setShowInfo(false); }}
+      >
+        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl
+                        w-full max-w-2xl max-h-[85vh] flex flex-col shadow-2xl shadow-black/40"
+          onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--bd)] shrink-0">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-indigo-600/20 flex items-center justify-center">
+                <FileText size={13} className="text-indigo-400" />
+              </div>
+              <h2 className="text-[var(--tx1)] font-semibold text-sm">{t.images.aboutDiagram}</h2>
+            </div>
+            <button onClick={() => setShowInfo(false)}
+              className="w-7 h-7 flex items-center justify-center rounded-lg
+                         text-[var(--tx6)] hover:text-[var(--tx1)] hover:bg-[var(--ov3)] transition-colors"
+              aria-label={t.close}>
+              <X size={15} />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 chat-scroll px-6 py-5 space-y-4">
+            {job.image_url && (
+              <img src={job.image_url} alt={job.concept}
+                className="w-full max-h-48 object-contain rounded-xl bg-white border border-[var(--bd)]" />
+            )}
+            <div className="space-y-1.5">
+              <p className="text-[var(--tx1)] font-semibold text-sm">{job.concept}</p>
+              {(job.domain || date) && (
+                <div className="flex items-center gap-2">
+                  {job.domain && (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium capitalize border ${badge}`}>
+                      {job.domain}
+                    </span>
+                  )}
+                  {date && <span className="text-[var(--tx6)] text-xs">{date}</span>}
+                </div>
+              )}
+            </div>
+            <div className="ai-content text-sm leading-relaxed text-[var(--tx2)]">
+              <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
+                {preprocessMath(job.description ?? '')}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 

@@ -177,7 +177,7 @@ function TranscriptModal({
         )}
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-4">
+        <div className="flex-1 min-h-0 chat-scroll px-6 py-4">
           <div className="ai-content text-sm leading-relaxed">
             <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
               {preprocessMath(content)}
