@@ -171,7 +171,7 @@ async def _generate_suggested_prompts_bg(concept_id: str) -> None:
             if language in _LANGUAGE_NAMES else ""
         )
 
-            resp = await openai_client.chat.completions.create(
+        resp = await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{
                 "role": "system",
@@ -243,7 +243,7 @@ async def _generate_student_questions_bg(concept_id: str) -> None:
             if language in _LANGUAGE_NAMES else ""
         )
 
-            resp = await openai_client.chat.completions.create(
+        resp = await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{
                 "role": "system",
@@ -3955,7 +3955,7 @@ async def _clean_outline_titles(chapters: list[dict], indices: list[int], pages:
 
     target_lang = _LANGUAGE_NAMES.get(language, 'English')
     try:
-                response = await openai_client.chat.completions.create(
+        response = await openai_client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": (
                 "Each item below is a chapter label from a PDF's bookmarks, paired with the actual "
