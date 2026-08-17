@@ -697,9 +697,16 @@ function ImageCard({ job, onClick, onGoToChat, onRemove }: {
         )}
       </div>
       <div className="p-3 flex flex-col gap-2 flex-1">
-        <p className="text-[var(--tx1)] text-sm font-medium line-clamp-2 leading-snug min-h-[2.5rem]">
-          {job.concept}
-        </p>
+        <div className="min-h-[2.5rem] space-y-1">
+          <p className="text-[var(--tx1)] text-sm font-medium line-clamp-2 leading-snug" title={job.concept}>
+            {job.concept}
+          </p>
+          {job.description && (
+            <p className="text-[var(--tx5)] text-xs line-clamp-2 leading-snug">
+              {job.description}
+            </p>
+          )}
+        </div>
         <div className="flex items-center justify-between gap-1 mt-auto">
           <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
             {job.domain && (
@@ -1360,13 +1367,6 @@ function VideosTabContent({ videoId }: { videoId: number | null }) {
                         <span className="hidden sm:inline">{t.video.solutionTranscript}</span>
                       </button>
                     )}
-                    <a href={videoUrl} download title="Download"
-                      className="flex items-center gap-2 px-3 sm:px-4 py-2
-                                 bg-[var(--ov3)] hover:bg-[var(--ov4)]
-                                 rounded-xl text-[var(--tx2)] text-sm transition-colors">
-                      <Download size={14} />
-                      <span className="hidden sm:inline">{t.download}</span>
-                    </a>
                     <button onClick={() => setShowFeedback(true)} title="Improve this video"
                       className="flex items-center gap-2 px-3 sm:px-4 py-2
                                  bg-[var(--ov3)] hover:bg-orange-500/15
