@@ -33,7 +33,7 @@ import { DiagramsGallery } from '@/components/chat/DiagramsGallery';
 import {
   getStudySet, uploadStudyMaterial, chatWithStudySet, reviewStudyCard,
   generateQuiz, generateVideo, getStudySetConversations, getMessages,
-  getConversationVideos, listEduImages, fetchMaterialPdf, uploadRegionImage, generateEduImage,
+  getConversationVideos, fetchMaterialPdf, uploadRegionImage,
   getQuiz,
   createSession,
   extractStudySetConcepts,
@@ -41,7 +41,6 @@ import {
   StudySetDetail, StudyFlashcard, StudySetConversation, StudyMaterial, StudyConcept,
 } from '@/lib/api';
 import { DebugPromptModal } from '@/components/chat/DebugPromptModal';
-import { ImageStatusCard } from '@/components/chat/MessageBubble';
 
 // Browser-only components — never SSR
 const PDFViewerModal = dynamic(
@@ -64,7 +63,6 @@ type ChatMsg = {
   content:           string;
   chips?:            string[];
   videoId?:          number;
-  imageJobId?:       string;
   imageUrl?:         string;
   id?:               string;
   quizId?:           string;
@@ -703,7 +701,6 @@ function ActiveChat({
   const [quizzing, setQuizzing]    = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [videoing, setVideoing]    = useState(false);
-  const [imageing, setImageing]    = useState(false);
   const [convId, setConvId]        = useState<string | null>(null);
   const [lastMsgId, setLastMsgId]  = useState<string | null>(null);
   const [debugData,  setDebugData] = useState<any>(null);
@@ -727,8 +724,7 @@ function ActiveChat({
     Promise.all([
       getMessages(loadConversation.id, token ?? undefined),
       getConversationVideos(loadConversation.id, token ?? undefined).catch(() => []),
-      listEduImages({ conversation_id: loadConversation.id }, token ?? undefined).catch(() => []),
-    ]).then(([rows, videos, images]) => {
+    ]).then(([rows, videos]) => {
       const lastAiId = [...rows].reverse().find((r: any) => r.role === 'assistant')?.id;
       const lastAiKey = lastAiId ? String(lastAiId) : null;
 
@@ -752,30 +748,11 @@ function ActiveChat({
         } catch {}
       }
 
-      const imgMap: Record<string, string> = {};
-      for (const img of images) {
-        if (img.message_id && img.id) imgMap[String(img.message_id)] = String(img.id);
-      }
-      // localStorage fallback for images (Sketch it writes these)
-      if (lastAiKey && !imgMap[lastAiKey]) {
-        try {
-          const stored = localStorage.getItem(`learnai_image_${lastAiKey}`);
-          if (stored) imgMap[lastAiKey] = stored;
-        } catch {}
-      }
-      if (lastAiKey && !imgMap[lastAiKey]) {
-        try {
-          const stored = localStorage.getItem(`learnai_conv_image_${loadConversation.id}`);
-          if (stored) imgMap[lastAiKey] = stored;
-        } catch {}
-      }
-
       const lastAiRowId = [...rows].reverse().find((r: any) => r.role === 'assistant')?.id;
       const loaded: ChatMsg[] = rows.map(r => ({
         role:              r.role as 'user' | 'assistant',
         content:           r.content,
         videoId:           vidMap[String(r.id)],
-        imageJobId:        imgMap[String(r.id)],
         imageUrl:          r.metadata?.image_url as string | undefined,
         id:                String(r.id),
         quizId:            r.metadata?.quiz_id as string | undefined,
@@ -826,7 +803,7 @@ function ActiveChat({
       setConvId(res.conversation_id);
       setLastMsgId(res.message_id);
       const ACTION_CHIPS = new Set(['Create a video', 'Quiz me on this']);
-      const defaultChips = ['Sketch it', 'Give me an example', 'Explain differently'];
+      const defaultChips = ['Give me an example', 'Explain differently'];
       const chips = (res.chips?.length ? res.chips : defaultChips).filter((c: string) => !ACTION_CHIPS.has(c));
       setMessages(prev => [...prev, { role: 'assistant', content: res.reply, chips, id: res.message_id }]);
     } catch {
@@ -909,43 +886,6 @@ function ActiveChat({
           }
         }
       } finally { setVideoing(false); }
-      return;
-    }
-    if (chip === 'Sketch it') {
-      setImageing(true);
-      try {
-        const lastAiContent = [...messages].reverse().find(m => m.role === 'assistant')?.content
-          ?? currentTopic();
-        const res = await generateEduImage({
-          concept:      lastAiContent.slice(0, 400),
-          conversation_id: convId ?? undefined,
-          study_set_id: ss.id,
-          message_id:   lastMsgId ?? undefined,
-          user_id:      user?.id,
-          session_id:   sessionId ?? undefined,
-        }, token ?? undefined);
-        setMessages(prev => {
-          const up = [...prev];
-          for (let i = up.length - 1; i >= 0; i--) {
-            if (up[i].role === 'assistant') { up[i] = { ...up[i], imageJobId: res.jobId }; break; }
-          }
-          return up;
-        });
-        if (lastMsgId) {
-          try { localStorage.setItem(`learnai_image_${lastMsgId}`, res.jobId); } catch {}
-        }
-        if (convId) {
-          try { localStorage.setItem(`learnai_conv_image_${convId}`, res.jobId); } catch {}
-        }
-      } catch (e: any) {
-        const isLimit = e?.message === 'session_limit_reached' || e?.message === 'Daily image limit reached';
-        if (isLimit) {
-          setMessages(prev => [...prev, {
-            role: 'assistant',
-            content: '⚠️ **Daily diagram limit reached.** Come back tomorrow or upgrade your plan.',
-          }]);
-        }
-      } finally { setImageing(false); }
       return;
     }
     await fireMessage(chip);
@@ -1096,15 +1036,6 @@ function ActiveChat({
                 />
               </div>
             )}
-            {m.role === 'assistant' && m.imageJobId && (
-              <div className="max-w-[88%] w-full mt-2">
-                <ImageStatusCard
-                  jobId={m.imageJobId}
-                  token={token ?? undefined}
-                  onDelete={() => setMessages(prev => prev.map((m2, j) => j === i ? { ...m2, imageJobId: undefined } : m2))}
-                />
-              </div>
-            )}
             {m.role === 'assistant' && m.quizId && (
               <div className="max-w-[88%] w-full mt-2">
                 <StudyQuizCard
@@ -1130,17 +1061,6 @@ function ActiveChat({
                     {tChat.chat.animateIt.replace('🎬 ', '')}
                   </button>
                 )}
-                {!m.imageJobId && i === messages.length - 1 && (
-                  <button
-                    onClick={() => handleChip('Sketch it')}
-                    disabled={imageing}
-                    className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
-                               bg-teal-500/10 hover:bg-teal-500/20 text-teal-400
-                               border border-teal-500/20 disabled:opacity-40">
-                    {imageing ? <Loader size={11} className="animate-spin" /> : <ImageIcon size={12} />}
-                    {tChat.chat.sketchIt.replace('🎨 ', '')}
-                  </button>
-                )}
                 <button
                   onClick={() => handlePerMessageAction('Quiz me on this', m.content, m.id, i)}
                   disabled={quizzing}
@@ -1155,12 +1075,7 @@ function ActiveChat({
             {/* Suggestion chips on last message — AI-generated contextual follow-up questions */}
             {m.role === 'assistant' && !m.quizId && i === messages.length - 1 && !loading && (
               <div className="max-w-[88%] mt-1 flex flex-wrap gap-1.5">
-                {imageing ? (
-                  <div className="flex items-center gap-1.5 text-xs text-[var(--tx6)] py-1">
-                    <Loader size={11} className="animate-spin" /> Generating diagram…
-                  </div>
-                ) : (
-                  <>
+                <>
                     {(m.chips ?? [])
                       .filter(c => !['Sketch it', 'Give me an example', 'Explain differently', 'Create a video', 'Quiz me on this'].includes(c))
                       .map(c => (
@@ -1180,7 +1095,6 @@ function ActiveChat({
                       💡 Show me an example
                     </button>
                   </>
-                )}
               </div>
             )}
           </div>

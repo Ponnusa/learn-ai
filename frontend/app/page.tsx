@@ -19,7 +19,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useLanguageStore } from '@/store/languageStore';
 import { useGradeStore } from '@/store/gradeStore';
 import { useSessionStore } from '@/store/sessionStore';
-import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, generateEduImage, listEduImages, getStudentProfile, uploadRegionImage } from '@/lib/api';
+import { sendMessage, createSession, generateVideo, generateQuiz, uploadFile, getMessages, getConversationVideos, listEduImages, getStudentProfile, uploadRegionImage } from '@/lib/api';
 import { ProfileNudgeCard } from '@/components/profile/ProfileNudgeCard';
 import { GradePrompt } from '@/components/chat/GradePrompt';
 import { HomeTour } from '@/components/onboarding/HomeTour';
@@ -48,8 +48,6 @@ export default function HomePage() {
   const [pdfFile, setPdfFile]               = useState<File | null>(null);
   /** Maps message ID → video ID so we can show inline status per message */
   const [videoByMsgId, setVideoByMsgId]     = useState<Record<string, number>>({});
-  /** Maps message ID → image job ID for inline diagram cards */
-  const [imageByMsgId, setImageByMsgId]     = useState<Record<string, string>>({});
   const [showNudge,      setShowNudge]        = useState(false);
   const [explanationLang, setExplanationLang] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -339,34 +337,6 @@ export default function HomePage() {
     } catch (e) { console.error(e); }
   }
 
-  async function handleMakeDiagram(content: string, messageId: string) {
-    try {
-      const res = await generateEduImage({
-        concept:         content.slice(0, 400),
-        conversation_id: conversationId ?? undefined,
-        message_id:      messageId,
-        user_id:         user?.id,
-        session_id:      sessionId ?? undefined,
-      }, token ?? undefined);
-
-      setImageByMsgId(prev => ({ ...prev, [messageId]: res.jobId }));
-      try { localStorage.setItem(`learnai_image_${messageId}`, res.jobId); } catch {}
-    } catch (e: any) {
-      const isLimit = e?.message === 'session_limit_reached' || e?.message === 'Daily image limit reached';
-      if (isLimit && !user) {
-        setSignupReason('session_limit');
-        setShowSignup(true);
-      } else if (isLimit && user) {
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(), role: 'assistant',
-          content: '⚠️ **Daily diagram limit reached.** Come back tomorrow or upgrade your plan.',
-        }]);
-      } else {
-        console.error(e);
-      }
-    }
-  }
-
   async function handleTestYourself(content: string, subject?: string) {
     if (!user && msgCount >= 8) { setSignupReason('session_limit'); setShowSignup(true); return; }
 
@@ -563,13 +533,10 @@ export default function HomePage() {
                   <MessageBubble message={msg}
                     onChipClick={handleSend}
                     onMakeVisual={(content, subject) => handleMakeVisual(content, subject, msg.id)}
-                    onMakeDiagram={(content, id) => handleMakeDiagram(content, id)}
                     onTestYourself={handleTestYourself}
                     onSimplify={() => handleSend('Can you simplify that explanation?')}
                     onGoDeeper={() => handleSend('Can you go deeper on that?')}
                     videoId={videoByMsgId[msg.id]}
-                    imageJobId={imageByMsgId[msg.id]}
-                    onDeleteImage={() => setImageByMsgId(prev => { const n = { ...prev }; delete n[msg.id]; return n; })}
                     onDeleteVideo={() => setVideoByMsgId(prev => { const n = { ...prev }; delete n[msg.id]; return n; })}
                     token={token ?? undefined}
                   />
