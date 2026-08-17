@@ -3780,26 +3780,26 @@ _TOC_HEADER_RE = re.compile(
 
 
 async def _detect_toc_vision(file_bytes: bytes, page_count: int) -> list[dict]:
-    “””Render the first 15 PDF pages as images and detect the Table of Contents.
-    EU: Gemini 2.5 Flash on Vertex. US: Claude Haiku.”””
+    """Render the first 15 PDF pages as images and detect the Table of Contents.
+    EU: Gemini 2.5 Flash on Vertex. US: Claude Haiku."""
     import fitz, base64
     from services.ai_router import gemini_client, gemini_types
 
-    doc = fitz.open(stream=file_bytes, filetype=”pdf”)
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
     scan_pages = min(15, page_count)
     mat = fitz.Matrix(1.2, 1.2)
 
     toc_prompt = (
-        f”These are the first {scan_pages} pages of a {page_count}-page textbook PDF.\n\n”
-        “1. Find the Table of Contents page.\n”
-        “2. List only TOP-LEVEL chapters (ignore sub-sections like 1.1, 1.2, exercises).\n”
-        “3. For each chapter, give the PHYSICAL page number where the chapter heading “
-        “actually appears in these images. If a chapter starts beyond the pages shown, “
-        “calculate its physical page: find which physical page the first chapter starts on, “
-        “subtract its printed page number from the TOC, and add that offset to each chapter's “
-        “printed page number.\n\n”
-        “Return ONLY valid JSON — no prose, no markdown fences:\n”
-        '{“chapters”: [{“title”: “...”, “start_page”: <physical_page_int>}]}'
+        f"These are the first {scan_pages} pages of a {page_count}-page textbook PDF.\n\n"
+        "1. Find the Table of Contents page.\n"
+        "2. List only TOP-LEVEL chapters (ignore sub-sections like 1.1, 1.2, exercises).\n"
+        "3. For each chapter, give the PHYSICAL page number where the chapter heading "
+        "actually appears in these images. If a chapter starts beyond the pages shown, "
+        "calculate its physical page: find which physical page the first chapter starts on, "
+        "subtract its printed page number from the TOC, and add that offset to each chapter's "
+        "printed page number.\n\n"
+        "Return ONLY valid JSON — no prose, no markdown fences:\n"
+        '{"chapters": [{"title": "...", "start_page": <physical_page_int>}]}'
     )
 
     try:
@@ -3807,15 +3807,15 @@ async def _detect_toc_vision(file_bytes: bytes, page_count: int) -> list[dict]:
             parts = []
             for idx in range(scan_pages):
                 pix = doc[idx].get_pixmap(matrix=mat)
-                parts.append(gemini_types.Part.from_text(f”Page {idx + 1}:”))
+                parts.append(gemini_types.Part.from_text(f"Page {idx + 1}:"))
                 parts.append(gemini_types.Part.from_bytes(
-                    data=pix.tobytes(“png”), mime_type=”image/png”
+                    data=pix.tobytes("png"), mime_type="image/png"
                 ))
             doc.close()
             parts.append(gemini_types.Part.from_text(toc_prompt))
             resp = await gemini_client.aio.models.generate_content(
-                model=”gemini-2.5-flash”,
-                contents=[gemini_types.Content(role=”user”, parts=parts)],
+                model="gemini-2.5-flash",
+                contents=[gemini_types.Content(role="user", parts=parts)],
                 config=gemini_types.GenerateContentConfig(max_output_tokens=800),
             )
             raw_text = resp.text
@@ -3824,30 +3824,30 @@ async def _detect_toc_vision(file_bytes: bytes, page_count: int) -> list[dict]:
             content: list[dict] = []
             for idx in range(scan_pages):
                 pix = doc[idx].get_pixmap(matrix=mat)
-                b64 = base64.standard_b64encode(pix.tobytes(“png”)).decode()
-                content.append({“type”: “text”, “text”: f”Page {idx + 1}:”})
-                content.append({“type”: “image”, “source”: {
-                    “type”: “base64”, “media_type”: “image/png”, “data”: b64,
+                b64 = base64.standard_b64encode(pix.tobytes("png")).decode()
+                content.append({"type": "text", "text": f"Page {idx + 1}:"})
+                content.append({"type": "image", "source": {
+                    "type": "base64", "media_type": "image/png", "data": b64,
                 }})
             doc.close()
-            content.append({“type”: “text”, “text”: toc_prompt})
+            content.append({"type": "text", "text": toc_prompt})
             client = anthropic.AsyncAnthropic()
             resp = await client.messages.create(
-                model=”claude-haiku-4-5-20251001”,
+                model="claude-haiku-4-5-20251001",
                 max_tokens=800,
-                messages=[{“role”: “user”, “content”: content}],
+                messages=[{"role": "user", "content": content}],
             )
             raw_text = resp.content[0].text
 
         raw = re.sub(r'```(?:json)?\s*|\s*```', '', raw_text)
         m = re.search(r'\{[\s\S]*\}', raw)
         if m:
-            parsed = json.loads(m.group()).get(“chapters”, [])
+            parsed = json.loads(m.group()).get("chapters", [])
             if len(parsed) >= 2:
-                return [{“title”: c[“title”].strip(), “start_page”: int(c[“start_page”])}
+                return [{"title": c["title"].strip(), "start_page": int(c["start_page"])}
                         for c in parsed]
     except Exception as exc:
-        logger.warning(“[detect-toc] vision failed: %s”, exc)
+        logger.warning("[detect-toc] vision failed: %s", exc)
         try:
             doc.close()
         except Exception:
