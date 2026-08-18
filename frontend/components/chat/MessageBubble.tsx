@@ -214,7 +214,6 @@ function statusToStepIdx(status: string): number {
 }
 
 export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number; token?: string; onDelete?: () => void }) {
-  const router = useRouter();
   const { t } = useTranslation();
   const VIDEO_STEPS = [
     t.video.writingScript,
@@ -228,6 +227,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
   const [transcript,    setTranscript]    = useState<string | null>(null);
   const [solution,      setSolution]      = useState<string | null>(null);
   const [showModal,     setShowModal]     = useState(false);
+  const [showPlayer,    setShowPlayer]    = useState(false);
   const [retrying,        setRetrying]        = useState(false);
   const [regenerating,    setRegenerating]    = useState(false);
   const [deleting,        setDeleting]        = useState(false);
@@ -366,12 +366,12 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <button
-                onClick={() => router.push(`/videos?id=${videoId}`)}
+                onClick={() => setShowPlayer(true)}
                 className="text-xs px-3 py-1.5 rounded-lg
                            bg-purple-600 hover:bg-purple-500 text-white font-medium
                            transition-colors flex items-center gap-1.5"
               >
-                {t.video.watchBtn} <span aria-hidden>→</span>
+                <Play size={11} /> {t.video.watchBtn}
               </button>
               <button
                 onClick={handleDelete}
@@ -396,6 +396,30 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
             solution={solution ?? undefined}
             onClose={closeModal}
           />
+        )}
+
+        {showPlayer && videoUrl && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm"
+            onClick={e => { if (e.target === e.currentTarget) setShowPlayer(false); }}
+          >
+            <div className="relative w-full max-w-3xl">
+              <button
+                onClick={() => setShowPlayer(false)}
+                className="absolute -top-10 right-0 flex items-center gap-1.5 text-xs
+                           text-white/60 hover:text-white transition-colors"
+              >
+                <X size={14} /> {t.close}
+              </button>
+              <video
+                src={videoUrl}
+                controls
+                autoPlay
+                className="w-full rounded-2xl shadow-2xl bg-black"
+                style={{ maxHeight: '80vh' }}
+              />
+            </div>
+          </div>
         )}
       </>
     );
