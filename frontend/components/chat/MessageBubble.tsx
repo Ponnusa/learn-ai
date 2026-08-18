@@ -415,6 +415,7 @@ export function VideoStatusCard({ videoId, token, onDelete }: { videoId: number;
                 src={videoUrl}
                 controls
                 autoPlay
+                controlsList="nodownload"
                 className="w-full rounded-2xl shadow-2xl bg-black"
                 style={{ maxHeight: '80vh' }}
               />
