@@ -392,17 +392,19 @@ _SITE_BASE = "https://www.learnx-ai.com"
 @router.get("/social/next")
 async def get_next_social_video(secret: str = Query(default="")):
     """
-    Returns the oldest completed video not yet posted to social media,
-    and atomically marks it so it's never claimed twice.
+    Returns the most recent completed multi-model video (enhanced/premium tier)
+    not yet posted to social media, and atomically marks it claimed.
+
+    Only enhanced/premium quality videos are picked — standard tier
+    (Gemini Flash Lite, anonymous users) is excluded as quality is lower.
 
     Protected by SOCIAL_POSTING_SECRET env var.
-    Returns 404 when nothing is queued, 204 when secret is wrong.
+    Returns 404 when nothing is queued.
     """
     if not _SOCIAL_SECRET or secret != _SOCIAL_SECRET:
         raise HTTPException(status_code=403, detail="Forbidden")
 
     async with get_db() as db:
-        # Run migration lazily on first call — safe due to IF NOT EXISTS
         await db.execute(
             "ALTER TABLE videos ADD COLUMN IF NOT EXISTS social_posted_at TIMESTAMPTZ"
         )
@@ -415,35 +417,99 @@ async def get_next_social_video(secret: str = Query(default="")):
                   AND  social_posted_at IS NULL
                   AND  transcript_markdown IS NOT NULL
                   AND  LENGTH(transcript_markdown) > 100
+                  AND  quality_tier IN ('enhanced', 'premium')
                 ORDER BY created_at DESC
                 LIMIT 1
             )
-            RETURNING id, prompt, subject, transcript_markdown, created_at
+            RETURNING id, prompt, subject, transcript_markdown, quality_tier, created_at
         """)
 
     if not row:
-        raise HTTPException(status_code=404, detail="No unposted videos available")
+        raise HTTPException(status_code=404, detail="No unposted enhanced/premium videos available")
 
     return {
-        "id":                 row["id"],
-        "prompt":             row["prompt"],
-        "subject":            row["subject"],
-        "transcript":         row["transcript_markdown"],
-        "shareable_link":     f"{_SITE_BASE}/watch/{row['id']}",
-        "created_at":         row["created_at"].isoformat(),
+        "id":             row["id"],
+        "prompt":         row["prompt"],
+        "subject":        row["subject"],
+        "quality_tier":   row["quality_tier"],
+        "transcript":     row["transcript_markdown"],
+        "shareable_link": f"{_SITE_BASE}/watch/{row['id']}",
+        "created_at":     row["created_at"].isoformat(),
+    }
+
+
+@router.get("/social/status")
+async def get_social_status(secret: str = Query(default=""), limit: int = Query(default=30)):
+    """
+    Returns a table of recent enhanced/premium videos showing social posting status.
+    Use this to see what's been posted, what's pending, and manage the queue.
+    """
+    if not _SOCIAL_SECRET or secret != _SOCIAL_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT id, prompt, subject, quality_tier, created_at, social_posted_at,
+                   status, LENGTH(transcript_markdown) AS transcript_len
+            FROM videos
+            WHERE quality_tier IN ('enhanced', 'premium')
+              AND status IN ('complete', 'completed')
+              AND transcript_markdown IS NOT NULL
+              AND LENGTH(transcript_markdown) > 100
+            ORDER BY created_at DESC
+            LIMIT $1
+        """, limit)
+
+    posted   = []
+    pending  = []
+    for r in rows:
+        entry = {
+            "id":               r["id"],
+            "topic":            r["prompt"][:80] if r["prompt"] else "",
+            "subject":          r["subject"],
+            "quality_tier":     r["quality_tier"],
+            "created_at":       r["created_at"].isoformat(),
+            "social_posted_at": r["social_posted_at"].isoformat() if r["social_posted_at"] else None,
+            "shareable_link":   f"{_SITE_BASE}/watch/{r['id']}",
+            "transcript_chars": r["transcript_len"],
+        }
+        if r["social_posted_at"]:
+            posted.append(entry)
+        else:
+            pending.append(entry)
+
+    return {
+        "summary": {
+            "posted_count":  len(posted),
+            "pending_count": len(pending),
+        },
+        "pending": pending,
+        "posted":  posted,
     }
 
 
 @router.post("/social/{video_id}/unmark")
 async def unmark_social_video(video_id: int, secret: str = Query(default="")):
-    """Reset social_posted_at so a video can be reposted (admin use)."""
+    """Reset social_posted_at so a video can be reposted (admin/manual use)."""
     if not _SOCIAL_SECRET or secret != _SOCIAL_SECRET:
         raise HTTPException(status_code=403, detail="Forbidden")
     async with get_db() as db:
         await db.execute(
             "UPDATE videos SET social_posted_at = NULL WHERE id = $1", video_id
         )
-    return {"ok": True}
+    return {"ok": True, "video_id": video_id}
+
+
+@router.post("/social/{video_id}/mark")
+async def mark_social_video(video_id: int, secret: str = Query(default="")):
+    """Manually mark a video as already posted (skip it in the queue)."""
+    if not _SOCIAL_SECRET or secret != _SOCIAL_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE videos SET social_posted_at = NOW() WHERE id = $1", video_id
+        )
+    return {"ok": True, "video_id": video_id}
 
 
 @router.get("/conversation/{conversation_id}")
