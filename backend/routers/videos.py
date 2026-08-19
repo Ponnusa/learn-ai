@@ -9,10 +9,13 @@ even when Manim code generation fails:
   Phase 2 → Claude Manim code + critic    → status: queued  (or failed)
 """
 import asyncio
+import datetime
 import json
 import logging
 import os
 import re
+
+import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 from database import get_db
@@ -387,6 +390,9 @@ async def get_video_watch(video_id: int):
 
 _SOCIAL_SECRET = os.getenv("SOCIAL_POSTING_SECRET", "")
 _SITE_BASE = "https://www.learnx-ai.com"
+_BUFFER_API_KEY = os.getenv("BUFFER_API_KEY", "")
+# Comma-separated Buffer channel IDs, e.g. "6a85ae2eccaf649a67d69434,6a85ae2eccaf649a67d69433"
+_BUFFER_CHANNELS = [c.strip() for c in os.getenv("BUFFER_CHANNEL_IDS", "").split(",") if c.strip()]
 
 
 @router.get("/social/next")
@@ -485,6 +491,126 @@ async def get_social_status(secret: str = Query(default=""), limit: int = Query(
         },
         "pending": pending,
         "posted":  posted,
+    }
+
+
+@router.post("/social/post-next")
+async def post_next_social_video(secret: str = Query(default="")):
+    """
+    Full pipeline triggered by external cron (cron-job.org daily):
+    1. Atomically claims the next unposted enhanced/premium video
+    2. Generates a LinkedIn post via Claude Haiku
+    3. Schedules it on Buffer for tomorrow at 05:00 UTC (08:00 Finnish/EEST)
+       across all channels in BUFFER_CHANNEL_IDS
+    """
+    if not _SOCIAL_SECRET or secret != _SOCIAL_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    if not _BUFFER_API_KEY or not _BUFFER_CHANNELS:
+        raise HTTPException(status_code=500, detail="Buffer not configured — set BUFFER_API_KEY and BUFFER_CHANNEL_IDS")
+
+    # 1. Claim next video atomically
+    async with get_db() as db:
+        await db.execute("ALTER TABLE videos ADD COLUMN IF NOT EXISTS social_posted_at TIMESTAMPTZ")
+        row = await db.fetchrow("""
+            UPDATE videos
+            SET    social_posted_at = NOW()
+            WHERE  id = (
+                SELECT id FROM videos
+                WHERE  status IN ('complete', 'completed')
+                  AND  social_posted_at IS NULL
+                  AND  transcript_markdown IS NOT NULL
+                  AND  LENGTH(transcript_markdown) > 100
+                  AND  quality_tier IN ('enhanced', 'premium')
+                ORDER BY created_at DESC
+                LIMIT 1
+            )
+            RETURNING id, prompt, subject, transcript_markdown, quality_tier, created_at
+        """)
+
+    if not row:
+        return {"ok": False, "reason": "No unposted enhanced/premium videos available"}
+
+    video_id = row["id"]
+    shareable_link = f"{_SITE_BASE}/watch/{video_id}"
+
+    # 2. Generate LinkedIn post via Claude Haiku (cheap, fast)
+    import anthropic as _anthropic
+    transcript_excerpt = (row["transcript_markdown"] or "")[:3000]
+    try:
+        ai = _anthropic.AsyncAnthropic()
+        ai_resp = await ai.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            messages=[{
+                "role": "user",
+                "content": (
+                    f"Write an engaging LinkedIn post (max 200 words) about this short educational AI-generated video.\n"
+                    f"Topic: {row['prompt']}\n"
+                    f"Transcript excerpt:\n{transcript_excerpt}\n\n"
+                    f"Requirements:\n"
+                    f"- Strong hook in first line (do not start with 'I')\n"
+                    f"- Briefly explain what viewers will learn\n"
+                    f"- End with: Watch it free → {shareable_link}\n"
+                    f"- 3-5 relevant hashtags at the end\n"
+                    f"- Max 2 emojis total\n"
+                    f"Output ONLY the post text, nothing else."
+                ),
+            }],
+        )
+        post_text = ai_resp.content[0].text.strip()
+    except Exception as exc:
+        async with get_db() as db:
+            await db.execute("UPDATE videos SET social_posted_at = NULL WHERE id = $1", video_id)
+        raise HTTPException(status_code=500, detail=f"Claude API error: {exc}")
+
+    # 3. Schedule on Buffer: tomorrow at 05:00 UTC (= 08:00 Finnish EEST)
+    tomorrow_8am = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(days=1)).replace(
+        hour=5, minute=0, second=0, microsecond=0
+    )
+    due_at = tomorrow_8am.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+    _GQL_CREATE_POST = """
+    mutation CreatePost($input: CreatePostInput!) {
+      createPost(input: $input) {
+        ... on PostActionSuccess { post { id status dueAt } }
+        ... on PostActionFailure { message }
+      }
+    }
+    """
+
+    buffer_results = []
+    async with httpx.AsyncClient(timeout=30) as http:
+        for channel_id in _BUFFER_CHANNELS:
+            r = await http.post(
+                "https://api.buffer.com/graphql",
+                json={
+                    "query": _GQL_CREATE_POST,
+                    "variables": {
+                        "input": {
+                            "channelId": channel_id,
+                            "content": {"text": post_text},
+                            "schedulingType": "automatic",
+                            "mode": "customScheduled",
+                            "dueAt": due_at,
+                        }
+                    },
+                },
+                headers={
+                    "Authorization": f"Bearer {_BUFFER_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+            )
+            buffer_results.append({"channel_id": channel_id, "response": r.json()})
+
+    return {
+        "ok": True,
+        "video_id": video_id,
+        "topic": row["prompt"],
+        "quality_tier": row["quality_tier"],
+        "scheduled_for_utc": due_at,
+        "channels": len(_BUFFER_CHANNELS),
+        "post_preview": post_text[:120] + "…",
+        "buffer": buffer_results,
     }
 
 
