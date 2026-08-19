@@ -588,7 +588,7 @@ async def post_next_social_video(secret: str = Query(default="")):
                     "variables": {
                         "input": {
                             "channelId": channel_id,
-                            "content": {"text": post_text},
+                            "text": post_text,
                             "schedulingType": "automatic",
                             "mode": "customScheduled",
                             "dueAt": due_at,
