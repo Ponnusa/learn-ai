@@ -11,8 +11,9 @@ even when Manim code generation fails:
 import asyncio
 import json
 import logging
+import os
 import re
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel
 from database import get_db
 from services.tier_config import get_limit, video_supported_for
@@ -382,6 +383,67 @@ async def get_video_watch(video_id: int):
         "subject":      row["subject"],
         "duration_secs": row["duration_secs"],
     }
+
+
+_SOCIAL_SECRET = os.getenv("SOCIAL_POSTING_SECRET", "")
+_SITE_BASE = "https://www.learnx-ai.com"
+
+
+@router.get("/social/next")
+async def get_next_social_video(secret: str = Query(default="")):
+    """
+    Returns the oldest completed video not yet posted to social media,
+    and atomically marks it so it's never claimed twice.
+
+    Protected by SOCIAL_POSTING_SECRET env var.
+    Returns 404 when nothing is queued, 204 when secret is wrong.
+    """
+    if not _SOCIAL_SECRET or secret != _SOCIAL_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    async with get_db() as db:
+        # Run migration lazily on first call — safe due to IF NOT EXISTS
+        await db.execute(
+            "ALTER TABLE videos ADD COLUMN IF NOT EXISTS social_posted_at TIMESTAMPTZ"
+        )
+        row = await db.fetchrow("""
+            UPDATE videos
+            SET    social_posted_at = NOW()
+            WHERE  id = (
+                SELECT id FROM videos
+                WHERE  status IN ('complete', 'completed')
+                  AND  social_posted_at IS NULL
+                  AND  transcript_markdown IS NOT NULL
+                  AND  LENGTH(transcript_markdown) > 100
+                ORDER BY created_at DESC
+                LIMIT 1
+            )
+            RETURNING id, prompt, subject, transcript_markdown, created_at
+        """)
+
+    if not row:
+        raise HTTPException(status_code=404, detail="No unposted videos available")
+
+    return {
+        "id":                 row["id"],
+        "prompt":             row["prompt"],
+        "subject":            row["subject"],
+        "transcript":         row["transcript_markdown"],
+        "shareable_link":     f"{_SITE_BASE}/watch/{row['id']}",
+        "created_at":         row["created_at"].isoformat(),
+    }
+
+
+@router.post("/social/{video_id}/unmark")
+async def unmark_social_video(video_id: int, secret: str = Query(default="")):
+    """Reset social_posted_at so a video can be reposted (admin use)."""
+    if not _SOCIAL_SECRET or secret != _SOCIAL_SECRET:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE videos SET social_posted_at = NULL WHERE id = $1", video_id
+        )
+    return {"ok": True}
 
 
 @router.get("/conversation/{conversation_id}")
