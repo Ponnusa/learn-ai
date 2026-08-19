@@ -454,6 +454,7 @@ async def get_social_status(secret: str = Query(default=""), limit: int = Query(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     async with get_db() as db:
+        await db.execute("ALTER TABLE videos ADD COLUMN IF NOT EXISTS social_posted_at TIMESTAMPTZ")
         rows = await db.fetch("""
             SELECT id, prompt, subject, quality_tier, created_at, social_posted_at,
                    status, LENGTH(transcript_markdown) AS transcript_len
