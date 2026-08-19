@@ -574,7 +574,6 @@ async def post_next_social_video(secret: str = Query(default="")):
     mutation CreatePost($input: CreatePostInput!) {
       createPost(input: $input) {
         ... on PostActionSuccess { post { id status dueAt } }
-        ... on PostActionFailure { message }
       }
     }
     """
