@@ -35,6 +35,11 @@ export const fr: Translation = {
     'Reconversion professionnelle', 'Curiosité / Loisir', 'Développement professionnel',
   ],
 
+  loginGate: {
+    title: 'Connectez-vous pour continuer',
+    body: 'Créez un compte gratuit pour utiliser cette fonctionnalité — aucune carte de crédit requise.',
+  },
+
   auth: {
     signIn: 'Se connecter',
     signUp: 'S\'inscrire',

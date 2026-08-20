@@ -30,6 +30,11 @@ export interface Translation {
   grades: string[];
   goals: string[];
 
+  loginGate: {
+    title: string;
+    body: string;
+  };
+
   auth: {
     signIn: string;
     signUp: string;

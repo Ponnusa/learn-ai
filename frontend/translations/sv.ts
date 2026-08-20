@@ -35,6 +35,11 @@ export const sv: Translation = {
     'Karriärbyte', 'Nyfikenhet / Hobby', 'Professionell utveckling',
   ],
 
+  loginGate: {
+    title: 'Logga in för att fortsätta',
+    body: 'Skapa ett gratis konto för att använda den här funktionen — inget kreditkort behövs.',
+  },
+
   auth: {
     signIn: 'Logga in',
     signUp: 'Skapa konto',

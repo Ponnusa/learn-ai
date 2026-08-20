@@ -7,6 +7,8 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { Copy, Check, CheckCircle, Loader, Play, XCircle, X, FileText, RefreshCw, Trash2, ZoomIn, Volume2, Square, ThumbsDown } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { SignupModal } from '@/components/gates/SignupModal';
 import { SubjectBadge } from './SubjectBadge';
 import { MakeVisualButton } from './MakeVisualButton';
 import { preprocessMath } from '@/lib/preprocessMath';
@@ -602,6 +604,7 @@ export function MessageBubble({
   const [ttsPlaying, setTtsPlaying] = useState(false);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const { t, language } = useTranslation();
+  const { requireAuth, showGate, closeGate } = useAuthGuard();
   const isUser  = message.role === 'user';
 
   function stopTts() {
@@ -736,17 +739,18 @@ export function MessageBubble({
                 {videoId == null && (
                   <MakeVisualButton
                     subject={subject?.subject ?? null}
-                    onClick={() => onMakeVisual?.(message.content, subject?.subject)}
+                    onClick={() => requireAuth(() => onMakeVisual?.(message.content, subject?.subject))}
                   />
                 )}
                 <button
-                  onClick={() => onTestYourself?.(message.content, subject?.subject)}
+                  onClick={() => requireAuth(() => onTestYourself?.(message.content, subject?.subject))}
                   className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
                              bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
                              border border-indigo-500/20"
                 >
                   {t.chat.quizMe}
                 </button>
+                {showGate && <SignupModal reason="feature_gate" onClose={closeGate} />}
 
                 <button
                   onClick={handleSpeak}

@@ -7,7 +7,7 @@ import { sendMagicLink } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
 
 interface Props {
-  reason?: 'session_limit' | 'daily_limit' | 'soft_nudge' | 'video_gate';
+  reason?: 'session_limit' | 'daily_limit' | 'soft_nudge' | 'video_gate' | 'feature_gate';
   onClose?: () => void;
   savedItems?: string[];
 }
@@ -21,7 +21,7 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
   const { sessionId } = useSessionStore();
   const router = useRouter();
 
-  const isDismissible = reason === 'soft_nudge';
+  const isDismissible = reason === 'soft_nudge' || reason === 'feature_gate';
 
   async function handleSend() {
     if (!email.trim()) return;
@@ -42,6 +42,7 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
     daily_limit:   "You've hit today's limit",
     soft_nudge:    "Don't lose this conversation",
     video_gate:    "Create a free account to generate videos",
+    feature_gate:  t.loginGate.title,
   };
 
   const subtitles: Record<string, string> = {
@@ -49,6 +50,7 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
     daily_limit:   "Come back tomorrow, or sign up for more daily credits.",
     soft_nudge:    "Save your progress with a free account.",
     video_gate:    "Video generation is free — just needs an account.",
+    feature_gate:  t.loginGate.body,
   };
 
   return (

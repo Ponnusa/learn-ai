@@ -28,6 +28,8 @@ import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { useSessionStore } from '@/store/sessionStore';
 import { useLanguageStore } from '@/store/languageStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { SignupModal } from '@/components/gates/SignupModal';
 import { VideoStatusCard } from '@/components/chat/MessageBubble';
 import { DiagramsGallery } from '@/components/chat/DiagramsGallery';
 import {
@@ -102,6 +104,7 @@ function ProcessingBanner({ status }: { status: string }) {
 function UploadZone({ studySetId, onUploaded }: { studySetId: string; onUploaded: () => void }) {
   const { user, token } = useSessionStore();
   const { t } = useTranslation();
+  const { requireAuth, showGate, closeGate } = useAuthGuard();
   const inputRef        = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [err, setErr]             = useState('');
@@ -117,10 +120,11 @@ function UploadZone({ studySetId, onUploaded }: { studySetId: string; onUploaded
 
   return (
     <div>
+      {showGate && <SignupModal reason="feature_gate" onClose={closeGate} />}
       <div
-        onClick={() => !uploading && inputRef.current?.click()}
+        onClick={() => !uploading && requireAuth(() => inputRef.current?.click())}
         onDragOver={e => e.preventDefault()}
-        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFile(f); }}
+        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) requireAuth(() => handleFile(f)); }}
         className={`border-2 border-dashed rounded-2xl p-10 text-center transition-colors
           ${uploading ? 'border-indigo-500/40 bg-indigo-500/5'
                       : 'border-[var(--bd)] hover:border-indigo-500/40 hover:bg-indigo-500/5 cursor-pointer'}`}

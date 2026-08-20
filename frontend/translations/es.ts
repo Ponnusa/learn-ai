@@ -35,6 +35,11 @@ export const es: Translation = {
     'Cambio de carrera', 'Curiosidad / Hobby', 'Desarrollo profesional',
   ],
 
+  loginGate: {
+    title: 'Inicia sesión para continuar',
+    body: 'Crea una cuenta gratuita para usar esta función — no necesitas tarjeta de crédito.',
+  },
+
   auth: {
     signIn: 'Iniciar sesión',
     signUp: 'Registrarse',

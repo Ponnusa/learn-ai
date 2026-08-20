@@ -17,6 +17,8 @@ import { generateEduImage, getEduImageJob, listEduImages, deleteEduImage, retryE
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLanguageStore } from '@/store/languageStore';
+import { useAuthGuard } from '@/hooks/useAuthGuard';
+import { SignupModal } from '@/components/gates/SignupModal';
 import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { preprocessMath } from '@/lib/preprocessMath';
 import { KATEX_OPTIONS } from '@/lib/mathConfig';
@@ -823,6 +825,7 @@ function DiagramsTabContent() {
   const router = useRouter();
   const { user, token, sessionId } = useSessionStore();
   const { t } = useTranslation();
+  const { requireAuth, showGate, closeGate } = useAuthGuard();
   const [concept, setConcept]   = useState('');
   const [jobId,   setJobId]     = useState<string | null>(null);
   const [current, setCurrent]   = useState<EduImageJob | null>(null);
@@ -899,13 +902,14 @@ function DiagramsTabContent() {
             <div className="relative">
               <textarea data-tour="image-input" ref={inputRef}
                 value={concept} onChange={e => setConcept(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); requireAuth(handleGenerate); } }}
                 placeholder={t.images.inputPlaceholder} rows={2} disabled={isGenerating}
                 className="w-full px-4 py-3.5 pr-24 rounded-2xl bg-[var(--surface)] border border-[var(--bd)]
                            text-[var(--tx1)] text-sm placeholder-[var(--tx7)] resize-none
                            focus:outline-none focus:border-indigo-500/50 disabled:opacity-60 transition-colors
                            leading-relaxed" />
-              <button onClick={handleGenerate} disabled={!concept.trim() || isGenerating}
+              {showGate && <SignupModal reason="feature_gate" onClose={closeGate} />}
+              <button onClick={() => requireAuth(handleGenerate)} disabled={!concept.trim() || isGenerating}
                 className="absolute right-3 bottom-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold
                            bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white transition-colors">
                 {isGenerating ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
@@ -1110,6 +1114,7 @@ function VideosTabContent({ videoId }: { videoId: number | null }) {
   const { t }   = useTranslation();
   const { language } = useLanguageStore();
   const { token, user, sessionId, setActiveConversationId } = useSessionStore();
+  const { requireAuth: requireAuthVideo, showGate: showVideoGate, closeGate: closeVideoGate } = useAuthGuard();
 
   const STEPS = [
     t.video.writingScript,
@@ -1290,13 +1295,14 @@ function VideosTabContent({ videoId }: { videoId: number | null }) {
               <div className="relative">
                 <textarea data-tour="video-input"
                   value={genTopic} onChange={e => setGenTopic(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleGenerate(); } }}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); requireAuthVideo(handleGenerate); } }}
                   placeholder={t.video.generatePlaceholder} rows={2} disabled={generating}
                   className="w-full px-4 py-3.5 pr-28 rounded-2xl bg-[var(--surface)] border border-[var(--bd)]
                              text-[var(--tx1)] text-sm placeholder-[var(--tx7)] resize-none
                              focus:outline-none focus:border-purple-500/50 disabled:opacity-60 transition-colors
                              leading-relaxed" />
-                <button onClick={handleGenerate} disabled={!genTopic.trim() || generating}
+                {showVideoGate && <SignupModal reason="feature_gate" onClose={closeVideoGate} />}
+                <button onClick={() => requireAuthVideo(handleGenerate)} disabled={!genTopic.trim() || generating}
                   className="absolute right-3 bottom-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl
                              text-xs font-semibold bg-purple-600 hover:bg-purple-500
                              disabled:opacity-40 text-white transition-colors">

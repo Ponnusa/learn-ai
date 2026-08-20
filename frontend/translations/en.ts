@@ -35,6 +35,11 @@ export const en: Translation = {
     'Career change', 'Curiosity / Hobby', 'Professional development',
   ],
 
+  loginGate: {
+    title: 'Sign in to continue',
+    body: 'Create a free account to use this feature — no credit card needed.',
+  },
+
   auth: {
     signIn: 'Sign in',
     signUp: 'Sign up',

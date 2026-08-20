@@ -35,6 +35,11 @@ export const fi: Translation = {
     'Uranvaihto', 'Uteliaisuus / Harrastus', 'Ammatillinen kehitys',
   ],
 
+  loginGate: {
+    title: 'Kirjaudu sisään jatkaaksesi',
+    body: 'Luo ilmainen tili käyttääksesi tätä toimintoa — ei luottokorttia tarvita.',
+  },
+
   auth: {
     signIn: 'Kirjaudu sisään',
     signUp: 'Luo tili',
