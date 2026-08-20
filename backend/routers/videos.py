@@ -576,13 +576,14 @@ async def post_next_social_video(secret: str = Query(default="")):
     )
     due_at = tomorrow_8am.strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
-    _GQL_CREATE_POST = """
-    mutation CreatePost($input: CreatePostInput!) {
-      createPost(input: $input) {
-        ... on PostActionSuccess { post { id status dueAt } }
-      }
-    }
-    """
+    _GQL_CREATE_POST = (
+        "mutation CreatePost($input: CreatePostInput!) {"
+        "  createPost(input: $input) {"
+        "    __typename"
+        "    ... on PostActionSuccess { post { id status dueAt } }"
+        "  }"
+        "}"
+    )
 
     buffer_results = []
     video_url = row.get("video_url")
