@@ -525,7 +525,7 @@ async def post_next_social_video(secret: str = Query(default="")):
                 ORDER BY created_at DESC
                 LIMIT 1
             )
-            RETURNING id, prompt, subject, transcript_markdown, quality_tier, thumbnail_url, created_at
+            RETURNING id, prompt, subject, transcript_markdown, quality_tier, thumbnail_url, video_url, created_at
         """)
 
     if not row:
@@ -585,6 +585,7 @@ async def post_next_social_video(secret: str = Query(default="")):
     """
 
     buffer_results = []
+    video_url = row.get("video_url")
     thumbnail_url = row.get("thumbnail_url")
     async with httpx.AsyncClient(timeout=30) as http:
         for channel_id in _BUFFER_CHANNELS:
@@ -595,7 +596,13 @@ async def post_next_social_video(secret: str = Query(default="")):
                 "mode": "customScheduled",
                 "dueAt": due_at,
             }
-            if thumbnail_url:
+            if video_url:
+                # Native video gets 3-5x more LinkedIn engagement than image posts
+                asset: dict = {"video": {"url": video_url}}
+                if thumbnail_url:
+                    asset["video"]["thumbnailUrl"] = thumbnail_url
+                post_input["assets"] = [asset]
+            elif thumbnail_url:
                 post_input["assets"] = [{"image": {"url": thumbnail_url}}]
 
             r = await http.post(
