@@ -560,11 +560,17 @@ async def post_next_social_video(secret: str = Query(default="")):
                     f"6. 3-5 relevant hashtags\n\n"
                     f"Tone: inspiring, educational, not salesy. Feel like a real insight, not an ad.\n"
                     f"Max 2 emojis total.\n"
+                    f"IMPORTANT: Plain text only — no markdown, no **bold**, no *italic*, no bullet dashes, no #headings.\n"
                     f"Output ONLY the post text, nothing else."
                 ),
             }],
         )
+        import re as _re
         post_text = ai_resp.content[0].text.strip()
+        # Strip markdown that Buffer/LinkedIn rejects
+        post_text = _re.sub(r"\*\*(.+?)\*\*", r"\1", post_text)  # **bold**
+        post_text = _re.sub(r"\*(.+?)\*", r"\1", post_text)       # *italic*
+        post_text = _re.sub(r"^#{1,6}\s+", "", post_text, flags=_re.MULTILINE)  # # headings
     except Exception as exc:
         async with get_db() as db:
             await db.execute("UPDATE videos SET social_posted_at = NULL WHERE id = $1", video_id)
