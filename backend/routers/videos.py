@@ -427,7 +427,7 @@ async def get_next_social_video(secret: str = Query(default="")):
                 ORDER BY created_at DESC
                 LIMIT 1
             )
-            RETURNING id, prompt, subject, transcript_markdown, quality_tier, created_at
+            RETURNING id, prompt, subject, transcript_markdown, quality_tier, thumbnail_url, created_at
         """)
 
     if not row:
@@ -525,7 +525,7 @@ async def post_next_social_video(secret: str = Query(default="")):
                 ORDER BY created_at DESC
                 LIMIT 1
             )
-            RETURNING id, prompt, subject, transcript_markdown, quality_tier, created_at
+            RETURNING id, prompt, subject, transcript_markdown, quality_tier, thumbnail_url, created_at
         """)
 
     if not row:
@@ -585,22 +585,22 @@ async def post_next_social_video(secret: str = Query(default="")):
     """
 
     buffer_results = []
+    thumbnail_url = row.get("thumbnail_url")
     async with httpx.AsyncClient(timeout=30) as http:
         for channel_id in _BUFFER_CHANNELS:
+            post_input: dict = {
+                "channelId": channel_id,
+                "text": post_text,
+                "schedulingType": "automatic",
+                "mode": "customScheduled",
+                "dueAt": due_at,
+            }
+            if thumbnail_url:
+                post_input["assets"] = [{"image": {"url": thumbnail_url}}]
+
             r = await http.post(
                 "https://api.buffer.com/graphql",
-                json={
-                    "query": _GQL_CREATE_POST,
-                    "variables": {
-                        "input": {
-                            "channelId": channel_id,
-                            "text": post_text,
-                            "schedulingType": "automatic",
-                            "mode": "customScheduled",
-                            "dueAt": due_at,
-                        }
-                    },
-                },
+                json={"query": _GQL_CREATE_POST, "variables": {"input": post_input}},
                 headers={
                     "Authorization": f"Bearer {_BUFFER_API_KEY}",
                     "Content-Type": "application/json",
