@@ -545,15 +545,21 @@ async def post_next_social_video(secret: str = Query(default="")):
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Write an engaging LinkedIn post (max 200 words) about this short educational AI-generated video.\n"
+                    f"Write an engaging LinkedIn post (max 220 words) for LearnX AI about a student who used the platform to understand this topic.\n\n"
                     f"Topic: {row['prompt']}\n"
-                    f"Transcript excerpt:\n{transcript_excerpt}\n\n"
-                    f"Requirements:\n"
-                    f"- Strong hook in first line (do not start with 'I')\n"
-                    f"- Briefly explain what viewers will learn\n"
-                    f"- End with: Watch it free → {shareable_link}\n"
-                    f"- 3-5 relevant hashtags at the end\n"
-                    f"- Max 2 emojis total\n"
+                    f"Transcript excerpt (what the student learned):\n{transcript_excerpt}\n\n"
+                    f"Structure the post like this:\n"
+                    f"1. Strong hook about the topic or a learning insight (do not start with 'I')\n"
+                    f"2. Share 1-2 specific things from the transcript that make this topic click — "
+                    f"frame it as what a student discovered or understood using LearnX AI\n"
+                    f"3. Briefly mention how LearnX AI made this possible: "
+                    f"AI-generated video lessons that break down complex topics visually, "
+                    f"created in seconds, personalised to the student's question\n"
+                    f"4. Call to action: try it free at https://learnx-ai.com\n"
+                    f"5. Link to this specific video: {shareable_link}\n"
+                    f"6. 3-5 relevant hashtags\n\n"
+                    f"Tone: inspiring, educational, not salesy. Feel like a real insight, not an ad.\n"
+                    f"Max 2 emojis total.\n"
                     f"Output ONLY the post text, nothing else."
                 ),
             }],
