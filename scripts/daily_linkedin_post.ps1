@@ -2,6 +2,11 @@
 # Uses Claude Code CLI (claude.ai subscription) - no API tokens consumed
 # Schedule via Windows Task Scheduler: daily at 05:00 UTC (08:00 Finnish)
 
+# Force UTF-8 so Claude's output (em-dashes, special chars) isn't mangled
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+chcp 65001 | Out-Null
+
 $BUFFER_KEY = $env:BUFFER_API_KEY
 $CHANNELS = @(
     "6a85ae2eccaf649a67d69433"
