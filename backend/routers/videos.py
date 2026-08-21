@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+from typing import Optional
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
@@ -496,10 +497,10 @@ async def get_social_status(secret: str = Query(default=""), limit: int = Query(
 
 
 @router.post("/social/post-next")
-async def post_next_social_video(secret: str = Query(default="")):
+async def post_next_social_video(secret: str = Query(default=""), video_id: Optional[int] = Query(default=None)):
     """
     Full pipeline triggered by external cron (cron-job.org daily):
-    1. Atomically claims the next unposted enhanced/premium video
+    1. Atomically claims the next unposted enhanced/premium video (or a specific video_id)
     2. Generates a LinkedIn post via Claude Haiku
     3. Schedules it on Buffer for tomorrow at 05:00 UTC (08:00 Finnish/EEST)
        across all channels in BUFFER_CHANNEL_IDS
@@ -509,24 +510,34 @@ async def post_next_social_video(secret: str = Query(default="")):
     if not _BUFFER_API_KEY or not _BUFFER_CHANNELS:
         raise HTTPException(status_code=500, detail="Buffer not configured — set BUFFER_API_KEY and BUFFER_CHANNEL_IDS")
 
-    # 1. Claim next video atomically
+    # 1. Claim video atomically — specific ID or next in queue
     async with get_db() as db:
         await db.execute("ALTER TABLE videos ADD COLUMN IF NOT EXISTS social_posted_at TIMESTAMPTZ")
-        row = await db.fetchrow("""
-            UPDATE videos
-            SET    social_posted_at = NOW()
-            WHERE  id = (
-                SELECT id FROM videos
-                WHERE  status IN ('complete', 'completed')
-                  AND  social_posted_at IS NULL
-                  AND  transcript_markdown IS NOT NULL
-                  AND  LENGTH(transcript_markdown) > 100
-                  AND  quality_tier IN ('enhanced', 'premium')
-                ORDER BY created_at DESC
-                LIMIT 1
-            )
-            RETURNING id, prompt, subject, transcript_markdown, quality_tier, created_at
-        """)
+        if video_id is not None:
+            row = await db.fetchrow("""
+                UPDATE videos
+                SET    social_posted_at = NOW()
+                WHERE  id = $1
+                RETURNING id, prompt, subject, transcript_markdown, quality_tier, created_at
+            """, video_id)
+            if not row:
+                return {"ok": False, "reason": f"Video {video_id} not found"}
+        else:
+            row = await db.fetchrow("""
+                UPDATE videos
+                SET    social_posted_at = NOW()
+                WHERE  id = (
+                    SELECT id FROM videos
+                    WHERE  status IN ('complete', 'completed')
+                      AND  social_posted_at IS NULL
+                      AND  transcript_markdown IS NOT NULL
+                      AND  LENGTH(transcript_markdown) > 100
+                      AND  quality_tier IN ('enhanced', 'premium')
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                )
+                RETURNING id, prompt, subject, transcript_markdown, quality_tier, created_at
+            """)
 
     if not row:
         return {"ok": False, "reason": "No unposted enhanced/premium videos available"}
