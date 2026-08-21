@@ -1,7 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { X, Mail, Loader } from 'lucide-react';
+import { X, Mail, Loader, LogIn, UserPlus } from 'lucide-react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { sendMagicLink } from '@/lib/api';
 import { useSessionStore } from '@/store/sessionStore';
@@ -52,6 +52,48 @@ export function SignupModal({ reason = 'soft_nudge', onClose, savedItems = [] }:
     video_gate:    "Video generation is free — just needs an account.",
     feature_gate:  t.loginGate.body,
   };
+
+  if (reason === 'feature_gate') {
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+        onClick={e => { if (e.target === e.currentTarget) onClose?.(); }}
+      >
+        <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl w-full max-w-sm shadow-2xl">
+          <div className="flex items-start justify-between p-6 pb-4">
+            <div>
+              <h2 className="text-[var(--tx1)] font-bold text-base">{headlines[reason]}</h2>
+              <p className="text-[var(--tx5)] text-sm mt-1">{subtitles[reason]}</p>
+            </div>
+            {onClose && (
+              <button onClick={onClose} className="text-[var(--tx8)] hover:text-[var(--tx1)] ml-4 mt-0.5 shrink-0">
+                <X size={18} />
+              </button>
+            )}
+          </div>
+          <div className="px-6 pb-6 flex flex-col gap-2.5">
+            <button
+              onClick={() => router.push('/auth/login')}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl
+                         bg-purple-600 hover:bg-purple-500 text-white text-sm font-medium transition-colors"
+            >
+              <LogIn size={15} />
+              {t.auth.signIn}
+            </button>
+            <button
+              onClick={() => router.push('/auth/login?mode=signup')}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl
+                         bg-[var(--ov2)] hover:bg-[var(--ov4)] border border-[var(--bd)]
+                         text-[var(--tx2)] text-sm font-medium transition-colors"
+            >
+              <UserPlus size={15} />
+              {t.auth.createAccountBtn}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
