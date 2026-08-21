@@ -1,6 +1,6 @@
 'use client';
-import { useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Mail, Lock, User, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -11,11 +11,15 @@ type PwdMode = 'signin' | 'register';
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { setUser, sessionId } = useSessionStore();
   const { t } = useTranslation();
 
-  const [pwdMode,  setPwdMode]  = useState<PwdMode>(searchParams.get('mode') === 'signup' ? 'register' : 'signin');
+  const [pwdMode,  setPwdMode]  = useState<PwdMode>('signin');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') === 'signup') setPwdMode('register');
+  }, []);
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
   const [name,     setName]     = useState('');
