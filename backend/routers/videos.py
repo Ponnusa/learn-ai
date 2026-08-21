@@ -175,34 +175,40 @@ async def retry_video_manim(video_id: int, bg: BackgroundTasks):
 
 
 @router.post("/{video_id}/regenerate")
-async def regenerate_video(video_id: int, bg: BackgroundTasks):
-    """Full regeneration — clears cached transcript/solution and reruns the entire pipeline."""
+async def regenerate_video(
+    video_id: int,
+    bg: BackgroundTasks,
+    tier: Optional[str] = Query(default=None, description="Override quality tier: standard | enhanced | premium"),
+):
+    """Full regeneration — clears cached transcript/solution and reruns the entire pipeline.
+    Pass ?tier=enhanced or ?tier=premium to upgrade a standard video to multi-model."""
     async with get_db() as db:
         row = await db.fetchrow("""
-            SELECT prompt, user_id, subject, language, aspect_ratio, quality_tier
+            SELECT prompt, user_id, subject, language, aspect_ratio, quality_tier, max_duration
             FROM videos WHERE id = $1
         """, video_id)
     if not row:
         raise HTTPException(status_code=404, detail="Video not found")
+
+    qt = tier if tier in ("standard", "enhanced", "premium") else (row["quality_tier"] or "premium")
 
     async with get_db() as db:
         await db.execute("""
             UPDATE videos
             SET status = 'pending', error_message = NULL,
                 generated_code = NULL, transcript_markdown = NULL,
-                verified_solution = NULL, updated_at = NOW()
+                verified_solution = NULL, quality_tier = $2, updated_at = NOW()
             WHERE id = $1
-        """, video_id)
+        """, video_id, qt)
 
     prompt  = row["prompt"] or ""
     uid     = str(row["user_id"]) if row["user_id"] else None
     max_dur = row["max_duration"] or 180
-    qt      = row["quality_tier"] or "premium"
     bg.add_task(
         _generate_video_bg, video_id, prompt, uid,
         row["subject"], row["language"] or "en", row["aspect_ratio"] or "16:9", max_dur, None, qt,
     )
-    return {"status": "pending", "video_id": video_id}
+    return {"status": "pending", "video_id": video_id, "quality_tier": qt}
 
 
 class VideoImproveRequest(BaseModel):
