@@ -22,14 +22,14 @@ async def _refresh_tier_cache():
 
 
 _FALLBACK_LIMITS: dict[str, dict[str, int]] = {
-    "anonymous": {"messages_total": 8,  "quiz_total": 1,  "videos_total": 1,  "images_total": 1,
-                  "quiz_questions_max": 3, "video_max_secs": 180},
+    "anonymous": {"messages_total": 8,  "quiz_total": 1,  "videos_total": 0,  "images_total": 1,
+                  "quiz_questions_max": 3, "video_max_secs": 0},
     "free":      {"messages_daily": 25, "quiz_daily": 5,  "videos_daily": 3,  "images_daily": 3,
-                  "quiz_questions_max": 5, "video_max_secs": 180},
+                  "quiz_questions_max": 5, "video_max_secs": 60},
     "learner":   {"messages_daily": 100,"quiz_daily": -1, "videos_daily": 5,  "images_daily": 10,
-                  "quiz_questions_max": 10,"video_max_secs": 240},
+                  "quiz_questions_max": 10,"video_max_secs": 120},
     "pro":       {"messages_daily": -1, "quiz_daily": -1, "videos_daily": 10, "images_daily": -1,
-                  "quiz_questions_max": 15,"video_max_secs": 360},
+                  "quiz_questions_max": 15,"video_max_secs": 180},
 }
 
 

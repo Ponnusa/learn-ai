@@ -40,12 +40,12 @@ from services.manim import (
 router = APIRouter(prefix="/api/videos", tags=["videos"])
 
 
+# When True every logged-in user uses the multimodal storyboard pipeline.
+# Set to False to fall back to per-user multimodal_video_enabled flag (Manim path re-enabled).
+MULTIMODAL_ALL = True
+
+
 def _resolve_quality_tier(tier: str, total_video_count: int) -> str:
-    """
-    anonymous          → standard  (Gemini Flash Lite)
-    pro                → premium   (Claude Opus, always)
-    free / learner     → premium   on first video, enhanced thereafter
-    """
     if tier == "anonymous":
         return "standard"
     if tier == "pro":
@@ -85,7 +85,11 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
             "message": f"Video generation for {subject_label} is coming soon. We currently support Mathematics, Physics, and Chemistry.",
         }
 
-    # ── 2. Credit check + quality tier resolution ────────────────────────────
+    # ── 2. Auth gate — anonymous users cannot generate videos ───────────────
+    if not req.user_id:
+        raise HTTPException(status_code=401, detail="Sign in to generate videos")
+
+    # ── 3. Credit check + quality tier resolution ────────────────────────────
     tier = "anonymous"
     quality_tier = "standard"
     if req.user_id:
@@ -101,7 +105,7 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
     max_secs = await get_limit(tier, "video_max_secs")
     await _check_video_credit(req.user_id, req.session_id, tier)
 
-    # ── 3. Create video record ───────────────────────────────────────────────
+    # ── 4. Create video record ───────────────────────────────────────────────
     async with get_db() as db:
         video = await db.fetchrow("""
             INSERT INTO videos
@@ -114,7 +118,7 @@ async def generate_video(req: VideoRequest, bg: BackgroundTasks):
 
     video_id = video["id"]
 
-    # ── 4. Run pipeline in background (Phase 1 → Phase 2) ───────────────────
+    # ── 5. Run pipeline in background (Phase 1 → Phase 2) ───────────────────
     bg.add_task(
         _generate_video_bg,
         video_id, req.prompt, req.user_id, subject, req.language, req.aspect_ratio, max_secs,
@@ -820,14 +824,9 @@ async def _generate_video_bg(
             _log.error(f"[pipeline] video {video_id}: also failed to write Phase 1 error — {_db_err}")
         return
 
-    # ── Phase 1.5: storyboard branch — multimodal_video_enabled users ───────
-    if user_id:
-        async with get_db() as db:
-            _multimodal = await db.fetchval(
-                "SELECT multimodal_video_enabled FROM users WHERE id = $1::uuid", user_id
-            )
-    else:
-        _multimodal = False
+    # ── Phase 1.5: storyboard branch — all logged-in users when MULTIMODAL_ALL ─
+    # Set MULTIMODAL_ALL = False to revert to per-user multimodal_video_enabled flag.
+    _multimodal = MULTIMODAL_ALL and bool(user_id)
 
     if _multimodal:
         _log.info(f"[pipeline] video {video_id}: multimodal enabled -> flagging for worker storyboard path")

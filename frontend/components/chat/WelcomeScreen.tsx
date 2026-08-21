@@ -143,22 +143,24 @@ export function WelcomeScreen({ user, onSend }: Props) {
         </div>
       </div>
 
-      {/* Starter prompts */}
-      <div data-tour="starter-prompts" className="flex flex-wrap gap-2 justify-center max-w-lg">
-        {prompts.map((p, i) => (
-          <button
-            key={i}
-            onClick={() => onSend(p)}
-            className="px-4 py-2.5 rounded-xl text-sm transition-all
-                       bg-[var(--surface)] hover:bg-[var(--ov4)]
-                       border border-[var(--bd)] hover:border-[var(--bd2)]
-                       text-[var(--tx3)] hover:text-[var(--tx1)]
-                       shadow-sm"
-          >
-            {p}
-          </button>
-        ))}
-      </div>
+      {/* Starter prompts — anonymous only */}
+      {!user && (
+        <div data-tour="starter-prompts" className="flex flex-wrap gap-2 justify-center max-w-lg">
+          {prompts.map((p, i) => (
+            <button
+              key={i}
+              onClick={() => onSend(p)}
+              className="px-4 py-2.5 rounded-xl text-sm transition-all
+                         bg-[var(--surface)] hover:bg-[var(--ov4)]
+                         border border-[var(--bd)] hover:border-[var(--bd2)]
+                         text-[var(--tx3)] hover:text-[var(--tx1)]
+                         shadow-sm"
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+      )}
 
       <button
         onClick={() => window.dispatchEvent(new CustomEvent('start-home-tour'))}
