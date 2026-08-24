@@ -19,3 +19,12 @@ pydantic>=2.0.0
 anthropic>=0.40.0
 google-genai>=1.0.0
 azure-cognitiveservices-speech>=1.38.0
+Pillow>=10.0.0
+
+# Also required for Pillow-rendered image labels (image_renderer.py's
+# render_labels_onto_image): a Unicode-capable TTF font must exist on the VM
+# so non-English labels (Finnish a/o, Swedish a/o, Spanish n-tilde, French
+# accents) render correctly. Debian/Ubuntu:
+#   sudo apt-get install -y fonts-dejavu-core
+# Installs to /usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf, which is
+# the default LABEL_FONT_PATH — override that env var if using a different font.

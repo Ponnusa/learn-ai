@@ -89,11 +89,14 @@ VISUAL BRIEF (follow this exactly, including whatever style it specifies — rea
 
 SUBJECT STYLE NOTES (apply only where they don't conflict with the visual brief's own style): {style}
 
-LABELLING RULES (only if the visual brief calls for on-image labels — skip entirely for a pure photo):
-- Each label is SHORT, directly on or next to its element (max 4 words)
-- Labels are identifiers only: element name + unit if applicable
-- NO title text block, NO subtitle, NO paragraph text, NO floating description
-- NO legend boxes with long text
+TEXT RULE (STRICT — applies even if the visual brief mentions labels):
+- Render ABSOLUTELY NO text, letters, numbers, or symbols anywhere in the image —
+  no labels, no titles, no captions, no legends, no watermarks, no signage text.
+- Image models render text unreliably (garbled words, wrong spelling) and this
+  product needs correctly-spelled, correctly-languaged labels — those are added
+  separately afterward by code, not by you. If the visual brief calls for labels
+  on specific elements, leave clear, uncluttered space near those elements
+  instead of drawing any text there yourself.
 
 NEVER INCLUDE (scientifically misleading):
 {forbidden}{correction}"""
@@ -142,9 +145,12 @@ SUBJECT: {segment.subject_area}
 
 Evaluate:
 1. Scientific accuracy — are all concepts shown correctly?
-2. Label completeness and correctness (spelling, units, notation)
+2. Contains NO text/letters/numbers/labels of any kind — this image must be
+   completely text-free (labels are added separately afterward, by code, not
+   by you). Any rendered text/letters — even correct ones — is a failure here.
 3. Misleading visuals — anything that could teach the wrong concept?
-4. Educational clarity — is it immediately clear to a student?
+4. Educational clarity — is it immediately clear to a student, and does it
+   leave clean, uncluttered space near elements that will need a label later?
 
 Return ONLY valid JSON, no markdown fences:
 {{"score": <integer 0-100>, "issues": ["<specific problem>"], "correction_prompt": "<one paragraph fix instruction>"}}"""
@@ -171,6 +177,130 @@ Return ONLY valid JSON, no markdown fences:
     except Exception as exc:
         logger.warning(f"[critic] vision critic failed ({exc}) — accepting as-is")
         return {"score": qa.CRITIC_THRESHOLD, "issues": [], "correction_prompt": ""}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Label planning + overlay — the image itself is generated text-free (see the
+# TEXT RULE in build_image_prompt); labels are planned by a vision call
+# against the actual generated pixels, then burned in with real font
+# rendering. This guarantees correct spelling/diacritics in the target
+# language, which image-model-generated text cannot guarantee (see the
+# "Trasor Normal Force" style garbling this replaces).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_LANGUAGE_NAMES = {
+    "en": "English", "fi": "Finnish", "sv": "Swedish", "es": "Spanish", "fr": "French",
+}
+
+
+def plan_labels(image_bytes: bytes, segment: Segment) -> list:
+    """
+    Ask Gemini to look at the (text-free) generated image and propose labels:
+    text (in the segment's language) + a normalized anchor point per label.
+    Returns [] if the visual brief doesn't call for labels, or on any failure —
+    label planning is a non-fatal enhancement; an unlabeled diagram is far
+    better than a failed render.
+    """
+    from google.genai import types
+
+    lang_name = _LANGUAGE_NAMES.get(segment.language, "English")
+    prompt = f"""Look at this educational image (deliberately generated with no text on it).
+If it needs on-image labels — short identifiers pointing at specific elements,
+e.g. force arrows, diagram parts, structures — propose them. If this is a plain
+photo needing no labels, return an empty list.
+
+VISUAL BRIEF THE IMAGE WAS GENERATED FOR: {segment.generation_prompt}
+
+LANGUAGE: label text MUST be written in {lang_name}, correctly spelled — never
+English unless the language IS English.
+
+Return ONLY valid JSON, no markdown fences:
+{{"labels": [{{"text": "<short label, max 4 words, in {lang_name}>", "x": <0.0-1.0>, "y": <0.0-1.0>, "anchor": "left|right|center"}}]}}
+x/y is the point in the image (0,0 = top-left, 1,1 = bottom-right) the label
+should sit next to — e.g. the tip of an arrow, or the center of a part.
+anchor says which side of that point to draw the text on, so it doesn't cover
+the element itself."""
+
+    try:
+        client = _get_genai_client()
+        print(f"[image_renderer] Gemini label-plan START  model={GEMINI_CRITIC_MODEL}", flush=True)
+        t0 = time.time()
+        response = client.models.generate_content(
+            model=GEMINI_CRITIC_MODEL,
+            contents=[types.Part.from_bytes(data=image_bytes, mime_type="image/png"), prompt],
+        )
+        text = response.text.strip()
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        data = json.loads(text)
+        labels = [l for l in data.get("labels", []) if isinstance(l, dict) and l.get("text")]
+        print(f"[image_renderer] Gemini label-plan DONE   elapsed={time.time()-t0:.1f}s "
+              f"labels={len(labels)}", flush=True)
+        return labels
+    except Exception as exc:
+        logger.warning(f"[image_renderer] label planning failed ({exc}) — rendering without labels")
+        return []
+
+
+def render_labels_onto_image(image_path: str, labels: list) -> None:
+    """
+    Burns real, correctly-spelled text onto image_path in place, via PIL —
+    guarantees correct glyphs/diacritics regardless of what the image model
+    can reliably render into pixels. No-op (with a warning) if the label font
+    isn't available on this machine — a missing font must never fail the
+    whole render, it just means this segment ships unlabeled.
+    """
+    if not labels:
+        return
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    font_path = os.getenv("LABEL_FONT_PATH", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+    if not os.path.exists(font_path):
+        logger.warning(
+            f"[image_renderer] label font not found at {font_path} (set LABEL_FONT_PATH) "
+            "— skipping label overlay for this segment"
+        )
+        return
+
+    img = Image.open(image_path).convert("RGBA")
+    draw = ImageDraw.Draw(img)
+    font_size = max(18, img.height // 22)
+    font = ImageFont.truetype(font_path, font_size)
+
+    for label in labels:
+        text = str(label.get("text", "")).strip()
+        if not text:
+            continue
+        try:
+            x = max(0.0, min(1.0, float(label.get("x", 0.5)))) * img.width
+            y = max(0.0, min(1.0, float(label.get("y", 0.5)))) * img.height
+        except (TypeError, ValueError):
+            continue
+        anchor = label.get("anchor", "left")
+
+        bbox = draw.textbbox((0, 0), text, font=font)
+        text_w, text_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        pad = 6
+        if anchor == "right":
+            tx = x - text_w - pad
+        elif anchor == "center":
+            tx = x - text_w / 2
+        else:
+            tx = x + pad
+        ty = y - text_h / 2
+
+        # Dark outline (drawn first) so white text stays legible over any background
+        for dx in (-2, -1, 0, 1, 2):
+            for dy in (-2, -1, 0, 1, 2):
+                if dx or dy:
+                    draw.text((tx + dx, ty + dy), text, font=font, fill=(0, 0, 0, 255))
+        draw.text((tx, ty), text, font=font, fill=(255, 255, 255, 255))
+
+    img.convert("RGB").save(image_path)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -283,6 +413,15 @@ class ImageRenderer(Renderer):
             image_path = os.path.join(self._work_dir, f"{segment.id}_{image_hash}.png")
             with open(image_path, "wb") as f:
                 f.write(image_bytes)
+
+            # Labels are planned + burned in here, before caching, so a cache
+            # hit on this (prompt, language) pair reuses the already-labeled
+            # image without a second Gemini call — image_hash already includes
+            # segment.language, so different languages never share a cache entry.
+            labels = plan_labels(image_bytes, segment)
+            if labels:
+                render_labels_onto_image(image_path, labels)
+
             source_ref = register_asset(image_path, segment.id, "image", image_hash)
             segment.source_asset_url = source_ref.url
 
