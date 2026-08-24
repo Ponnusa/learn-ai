@@ -191,6 +191,11 @@ def make_ken_burns_clip(
     fade_duration = min(0.5, duration_seconds / 4)
     total_frames = max(1, int(duration_seconds * fps))
     zoom_expr = "min(zoom+0.0008,1.15)"
+    # zoompan's x/y default to 0 (top-left corner) when unset, so the crop
+    # window drifts toward the top-left as zoom increases instead of staying
+    # on the subject. Keep the crop centered at every zoom level instead.
+    x_expr = "iw/2-(iw/zoom/2)"
+    y_expr = "ih/2-(ih/zoom/2)"
 
     cmd = [
         "ffmpeg", "-y",
@@ -198,7 +203,7 @@ def make_ken_burns_clip(
         "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
         "-filter_complex",
         f"[0:v]scale=8000:-1,"
-        f"zoompan=z='{zoom_expr}':d={total_frames}:s={width}x{height}:fps={fps},"
+        f"zoompan=z='{zoom_expr}':x='{x_expr}':y='{y_expr}':d={total_frames}:s={width}x{height}:fps={fps},"
         f"fade=t=in:st=0:d={fade_duration},"
         f"fade=t=out:st={max(0.0, duration_seconds - fade_duration)}:d={fade_duration}[v]",
         "-map", "[v]", "-map", "1:a",
