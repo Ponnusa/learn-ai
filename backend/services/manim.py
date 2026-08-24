@@ -449,29 +449,44 @@ def claude_with_retry(fn, *args, max_retries=4, **kwargs):
 # TTS HELPERS
 # ─────────────────────────────────────────────────────────────────────────────────────
 
+# Deterministic language → voice mapping, kept in sync with
+# frontend/translations/index.ts's LanguageCode union (en/fi/sv/es/fr — the
+# only languages the product actually offers). Used both to build the prompt
+# text below and as the source of truth for _fix_tts_voice_in_code()'s
+# post-generation enforcement.
+LANGUAGE_TO_AZURE_VOICE = {
+    "en": "en-US-JennyNeural",
+    "fi": "fi-FI-NooraNeural",
+    "sv": "sv-SE-SofieNeural",
+    "es": "es-ES-ElviraNeural",
+    "fr": "fr-FR-DeniseNeural",
+}
+LANGUAGE_TO_GTTS_LANG = {
+    "en": "en",
+    "fi": "fi",
+    "sv": "sv",
+    "es": "es",
+    "fr": "fr",
+}
+
+
 def get_tts_prompt_blocks() -> tuple[str, str]:
     """Return (tts_import_line, tts_service_block) based on TTS_SERVICE env var."""
     service = os.environ.get("TTS_SERVICE", "azure").lower().strip()
     if service == "gtts":
         tts_import = "from manim_voiceover.services.gtts import GTTSService"
-        tts_block = """self.set_speech_service(GTTSService(lang="LANG_CODE"))
+        voice_lines = "\n".join(f'  - {code} → lang="{lang}"' for code, lang in LANGUAGE_TO_GTTS_LANG.items())
+        tts_block = f"""self.set_speech_service(GTTSService(lang="LANG_CODE"))
 - Choose lang based on the language of the narration:
-  - Finnish  → fi
-  - Swedish  → sv
-  - English  → en
-  - Hindi    → hi
-  - Tamil    → ta
+{voice_lines}
 - If unsure, default to lang="en"
 - NOTE: GTTSService requires no API keys"""
     else:
         tts_import = "from manim_voiceover.services.azure import AzureService"
-        tts_block = """self.set_speech_service(AzureService(voice="VOICE_NAME", global_speed=1.0))
+        voice_lines = "\n".join(f'  - {code} → voice="{voice}"' for code, voice in LANGUAGE_TO_AZURE_VOICE.items())
+        tts_block = f"""self.set_speech_service(AzureService(voice="VOICE_NAME", global_speed=1.0))
 - Choose voice based on the language of the narration:
-  - Finnish  → fi-FI-NooraNeural
-  - Swedish  → sv-SE-SofieNeural
-  - English  → en-US-JennyNeural
-  - Hindi    → hi-IN-SwaraNeural
-  - Tamil    → ta-IN-PallaviNeural
+{voice_lines}
 - If unsure, default to voice="en-US-JennyNeural"
 - NOTE: AzureService requires AZURE_SPEECH_KEY and AZURE_SPEECH_REGION env vars"""
     return tts_import, tts_block
@@ -481,6 +496,32 @@ def apply_tts_placeholders(template: str) -> str:
     """Replace {{TTS_IMPORT}} and {{TTS_SERVICE_BLOCK}} in a prompt template."""
     tts_import, tts_block = get_tts_prompt_blocks()
     return template.replace("{{TTS_IMPORT}}", tts_import).replace("{{TTS_SERVICE_BLOCK}}", tts_block)
+
+
+def _fix_tts_voice_in_code(code: str, language: str) -> str:
+    """
+    Force the TTS voice/lang to match the requested language, overriding
+    whatever Claude picked — voice selection is deterministic, not something
+    an LLM should be guessing per-generation (was silently defaulting to the
+    English Azure voice for non-English narration). No-op if the language
+    isn't in the known map.
+    """
+    lang = (language or "en").lower().strip()
+    azure_voice = LANGUAGE_TO_AZURE_VOICE.get(lang)
+    if azure_voice:
+        code = re.sub(
+            r'(AzureService\(\s*voice\s*=\s*["\'])[^"\']*(["\'])',
+            rf'\g<1>{azure_voice}\g<2>',
+            code,
+        )
+    gtts_lang = LANGUAGE_TO_GTTS_LANG.get(lang)
+    if gtts_lang:
+        code = re.sub(
+            r'(GTTSService\(\s*lang\s*=\s*["\'])[^"\']*(["\'])',
+            rf'\g<1>{gtts_lang}\g<2>',
+            code,
+        )
+    return code
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────
@@ -3132,6 +3173,9 @@ If the code passes ALL checks above with no issues, output exactly: NO_CHANGES_N
     code = inject_helpers_inline(code)
     code = inject_atom_helper(code, subject)
 
+    # Force the correct TTS voice — deterministic override, not left to the LLM
+    code = _fix_tts_voice_in_code(code, language)
+
     # Syntax validation — try tab→space normalisation before giving up
     try:
         compile(code, "<generated>", "exec")
@@ -3300,6 +3344,7 @@ Return ONLY the improved Python code with no markdown fences."""
     # Strip markdown fences if the model wrapped anyway
     improved = re.sub(r"^```[a-z]*\n?", "", improved, flags=re.IGNORECASE)
     improved = re.sub(r"\n?```$", "", improved).strip()
+    improved = _fix_tts_voice_in_code(improved, language)
 
     _cu = getattr(message, "usage", None)
     if _cu:
@@ -3388,6 +3433,7 @@ Return ONLY the corrected Python code with no markdown fences."""
     fixed = _first_text(message).strip()
     fixed = re.sub(r"^```[a-z]*\n?", "", fixed, flags=re.IGNORECASE)
     fixed = re.sub(r"\n?```$", "", fixed).strip()
+    fixed = _fix_tts_voice_in_code(fixed, language)
 
     _cu = getattr(message, "usage", None)
     if _cu:
