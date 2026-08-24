@@ -251,6 +251,7 @@ no markdown fences."""
     )
 
     code = _strip_fences(raw)
+    code = _fix_tts_voice(code, seg_voice)
 
     try:
         compile(code, "<generated-segment>", "exec")
@@ -335,6 +336,7 @@ No explanation, no markdown fences."""
         )
 
         code = _strip_fences(raw)
+        code = _fix_tts_voice(code, unified_voice)
 
         missing = [
             _unified_class_name(s) for s in segments
@@ -383,6 +385,22 @@ def _strip_fences(raw: str) -> str:
     if code.endswith("```"):
         code = code[:-3].strip()
     return code
+
+
+def _fix_tts_voice(code: str, voice: str) -> str:
+    """
+    Force the AzureService voice to the segment's actual requested-language
+    voice, overriding whatever Claude wrote. The subject prompt files contain
+    worked examples with a placeholder voice literal — Claude sometimes copies
+    that structure verbatim instead of substituting the per-request voice
+    given in the user prompt, which silently narrates non-English text (e.g.
+    Finnish) in the English voice. This is the deterministic backstop.
+    """
+    return re.sub(
+        r'(AzureService\(\s*voice\s*=\s*["\'])[^"\']*(["\'])',
+        rf'\g<1>{voice}\g<2>',
+        code,
+    )
 
 
 # ── Docker render ─────────────────────────────────────────────────────────────

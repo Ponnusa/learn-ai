@@ -521,7 +521,7 @@ class BenzeneExample(VoiceoverScene):
     def show_subtitle(self, text, duration=None): ...  # injected by backend
 
     def construct(self):
-        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=0.90))
+        self.set_speech_service(AzureService(voice="VOICE_FROM_USER_PROMPT", global_speed=0.90))
         self.camera.background_color = ManimColor("#0D1117")
 
         # ── ZONE CONSTANTS — copy these to every 16:9 chemistry video ───────

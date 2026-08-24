@@ -561,7 +561,7 @@ class NewtonsSecondLaw(VoiceoverScene):
     def show_subtitle(self, text, duration=None): ...  # injected by backend
 
     def construct(self):
-        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=1.0))
+        self.set_speech_service(AzureService(voice="VOICE_FROM_USER_PROMPT", global_speed=1.0))
         self.camera.background_color = ManimColor("#0D1117")
 
         # ── ZONE CONSTANTS — copy these to every 16:9 physics video ─────────
@@ -670,7 +670,7 @@ class MyPhysics3DScene(ThreeDScene, VoiceoverScene):
         return subtitle
 
     def construct(self):
-        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=1.0))
+        self.set_speech_service(AzureService(voice="VOICE_FROM_USER_PROMPT", global_speed=1.0))
         self.set_camera_orientation(phi=75 * DEGREES, theta=-45 * DEGREES)
         self.camera.background_color = ManimColor("#0D1117")
         ...
@@ -713,7 +713,7 @@ class MagneticForce3D(ThreeDScene, VoiceoverScene):
     def show_subtitle(self, text, duration=None): ...
 
     def construct(self):
-        self.set_speech_service(AzureService(voice="en-US-JennyNeural", global_speed=1.0))
+        self.set_speech_service(AzureService(voice="VOICE_FROM_USER_PROMPT", global_speed=1.0))
         self.camera.background_color = ManimColor("#0D1117")
         self.set_camera_orientation(phi=70 * DEGREES, theta=-60 * DEGREES)
 
