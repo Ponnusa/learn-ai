@@ -89,6 +89,9 @@ export const requestApiKey = (companyName: string, description: string, token: s
     token
   );
 
+export const regenerateApiKey = (token: string) =>
+  request<ApiKeyCreated>("POST", "/api/developer/api-key/regenerate", undefined, token);
+
 export interface VideoRecord {
   id: number;
   status: string;

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSessionStore } from "@/lib/sessionStore";
-import { getMyApiKey, requestApiKey, listMyVideos, ApiKeyStatus, ApiKeyCreated, VideoRecord, ApiError } from "@/lib/api";
+import { getMyApiKey, requestApiKey, regenerateApiKey, listMyVideos, ApiKeyStatus, ApiKeyCreated, VideoRecord, ApiError } from "@/lib/api";
 import { StatusPill } from "@/components/StatusPill";
 import { RequireAuth } from "@/components/RequireAuth";
 
@@ -16,6 +16,8 @@ function DashboardInner() {
   const [requesting, setRequesting] = useState(false);
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingRegen, setConfirmingRegen] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   async function load() {
     if (!token) return;
@@ -47,6 +49,22 @@ function DashboardInner() {
     }
   }
 
+  async function handleRegenerate() {
+    if (!token) return;
+    setError(null);
+    setRegenerating(true);
+    try {
+      const res = await regenerateApiKey(token);
+      setCreated(res);
+      setConfirmingRegen(false);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not regenerate the key — try again.");
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
   if (loading) {
     return <div className="max-w-3xl mx-auto px-6 py-16" style={{ color: "var(--text-soft)" }}>Loading…</div>;
   }
@@ -67,6 +85,8 @@ function DashboardInner() {
             </code>
           </div>
         )}
+
+        {error && <p className="text-sm mb-3" style={{ color: "var(--revoked)" }}>{error}</p>}
 
         {!key?.has_key ? (
           <form onSubmit={handleRequest} className="flex flex-col gap-3">
@@ -90,7 +110,6 @@ function DashboardInner() {
               className="rounded-lg border px-3 py-2.5 text-sm outline-none resize-none"
               style={{ borderColor: "var(--border)", background: "var(--surface-soft)", color: "var(--text)" }}
             />
-            {error && <p className="text-sm" style={{ color: "var(--revoked)" }}>{error}</p>}
             <button
               type="submit"
               disabled={requesting}
@@ -101,15 +120,52 @@ function DashboardInner() {
             </button>
           </form>
         ) : (
-          <div className="flex items-center justify-between">
-            <div>
-              <StatusPill status={key.status!} />
-              <p className="text-sm mt-2" style={{ color: "var(--text-faint)" }}>
-                {key.company_name}
-              </p>
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <StatusPill status={key.status!} />
+                <p className="text-sm mt-2" style={{ color: "var(--text-faint)" }}>
+                  {key.company_name}
+                </p>
+              </div>
+              {key.status === "pending" && (
+                <p className="text-sm" style={{ color: "var(--text-soft)" }}>Awaiting review</p>
+              )}
             </div>
-            {key.status === "pending" && (
-              <p className="text-sm" style={{ color: "var(--text-soft)" }}>Awaiting review</p>
+
+            {key.status !== "revoked" && (
+              <div className="pt-4 border-t" style={{ borderColor: "var(--border-soft)" }}>
+                {!confirmingRegen ? (
+                  <button
+                    onClick={() => setConfirmingRegen(true)}
+                    className="text-sm rounded-lg px-3 py-1.5 border"
+                    style={{ borderColor: "var(--border)", color: "var(--text-soft)" }}
+                  >
+                    Lost your key? Regenerate it
+                  </button>
+                ) : (
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <p className="text-sm" style={{ color: "var(--pending)" }}>
+                      This invalidates your current key immediately — anything using it will stop working.
+                    </p>
+                    <button
+                      onClick={handleRegenerate}
+                      disabled={regenerating}
+                      className="text-sm rounded-lg px-3 py-1.5 font-medium disabled:opacity-60"
+                      style={{ background: "var(--revoked-bg)", color: "var(--revoked)" }}
+                    >
+                      {regenerating ? "Regenerating…" : "Confirm regenerate"}
+                    </button>
+                    <button
+                      onClick={() => setConfirmingRegen(false)}
+                      className="text-sm rounded-lg px-3 py-1.5"
+                      style={{ color: "var(--text-faint)" }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         )}

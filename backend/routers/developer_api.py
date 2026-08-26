@@ -213,6 +213,45 @@ async def get_my_api_key(authorization: str = Header(...)):
     return {"has_key": True, **dict(row), "id": str(row["id"])}
 
 
+@developer_router.post("/api-key/regenerate")
+async def regenerate_api_key(authorization: str = Header(...)):
+    """
+    Rotates the key material on the caller's current pending/approved key
+    WITHOUT touching its status or approved_at — the raw key is only ever
+    shown once (at signup or here), so this is the only way to recover from
+    "I didn't copy it down." An approved key stays approved and is usable
+    with the new value immediately; no re-review needed, since the thing a
+    superadmin vets is the company/use-case, not any one key value. The old
+    raw key stops working the instant this runs (its hash is overwritten).
+
+    Deliberately does NOT work on a revoked key — that's a superadmin trust
+    decision, not something self-service should be able to route around;
+    use POST /api-key/request for a fresh (re-reviewed) key in that case.
+    """
+    caller_id = await _require_session_user(authorization)
+    raw_key = _generate_raw_key()
+    key_hash = _hash_key(raw_key)
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            UPDATE api_keys SET key_hash = $1
+            WHERE id = (
+                SELECT id FROM api_keys
+                WHERE user_id = $2::uuid AND status IN ('pending', 'approved')
+                ORDER BY created_at DESC LIMIT 1
+            )
+            RETURNING id, status, created_at
+        """, key_hash, caller_id)
+    if not row:
+        raise HTTPException(404, "No active key to regenerate — request one first")
+    return {
+        "id": str(row["id"]),
+        "status": row["status"],
+        "created_at": row["created_at"],
+        "api_key": raw_key,   # shown ONCE — never retrievable again after this response
+        "masked": _mask_key(raw_key),
+    }
+
+
 @developer_router.get("/videos")
 async def list_my_videos(authorization: str = Header(...)):
     caller_id = await _require_session_user(authorization)
