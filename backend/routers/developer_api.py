@@ -273,9 +273,27 @@ class GenerateBody(BaseModel):
     aspect_ratio: str = "16:9"
 
 
+# Deliberately narrow for now — matches the video-api UI's generate form.
+# The public API bypasses that form entirely (curl/Python/etc. callers), and
+# with only one lifetime video per account during the beta, an unsupported
+# subject/aspect_ratio should reject clearly rather than silently produce
+# something broken or unconfirmed with a developer's one shot.
+_ALLOWED_SUBJECTS = {"physics", "chemistry", "mathematics"}
+_ALLOWED_ASPECT_RATIOS = {"16:9"}
+
+
 async def _start_generation(user_id: str, api_key_id, body: GenerateBody, bg: BackgroundTasks) -> dict:
     """Shared by both the session-auth UI endpoint and the public API endpoint
     below — same quota check, same video row shape, same background pipeline."""
+    if body.subject not in _ALLOWED_SUBJECTS:
+        raise HTTPException(400, f"subject must be one of: {', '.join(sorted(_ALLOWED_SUBJECTS))}")
+    if body.aspect_ratio not in _ALLOWED_ASPECT_RATIOS:
+        raise HTTPException(
+            400,
+            f"aspect_ratio must be one of: {', '.join(sorted(_ALLOWED_ASPECT_RATIOS))} "
+            "(others aren't confirmed to render correctly yet)",
+        )
+
     limit = await get_limit(_API_TIER, "videos_lifetime")
     if limit >= 0:
         used = await _count_api_videos(api_key_id)

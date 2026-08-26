@@ -94,7 +94,7 @@ export default function DocsPage() {
           {
             method: "POST",
             path: "/api/public/v1/videos/generate",
-            desc: "Starts a multi-modal video render. Body: topic (required), subject, language, aspect_ratio.",
+            desc: "Starts a multi-modal video render. Body: topic (required), subject (required — physics, chemistry, or mathematics for now), language, aspect_ratio (16:9 only for now).",
           },
           {
             method: "GET",
