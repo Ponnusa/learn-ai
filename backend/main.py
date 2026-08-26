@@ -782,6 +782,31 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS description TEXT",
             "UPDATE api_keys SET company_name = label WHERE company_name IS NULL AND label IS NOT NULL",
             "ALTER TABLE api_keys DROP COLUMN IF EXISTS label",
+            # ── Developer API 3-tier system (admin-assigned) ────────────────────
+            """
+            DO $$ BEGIN
+              ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'api_free';
+              BEGIN
+                ALTER TABLE api_keys ADD CONSTRAINT api_keys_tier_check
+                  CHECK (tier IN ('api_free', 'api_standard', 'api_enterprise'));
+              EXCEPTION WHEN duplicate_object THEN NULL;
+              END;
+            END $$
+            """,
+            """
+            INSERT INTO tier_config (tier, feature, value_int, description)
+            SELECT * FROM (VALUES
+                ('api_free',       'videos_daily',   2,  'Developer API free tier: videos per rolling 24h'),
+                ('api_free',       'video_max_secs', 60, 'Developer API free tier: max video length'),
+                ('api_standard',   'videos_daily',   10, 'Developer API standard tier: videos per rolling 24h'),
+                ('api_standard',   'video_max_secs', 120,'Developer API standard tier: max video length'),
+                ('api_enterprise', 'videos_daily',   -1, 'Developer API enterprise tier: unlimited'),
+                ('api_enterprise', 'video_max_secs', 180,'Developer API enterprise tier: max video length')
+            ) AS v(tier, feature, value_int, description)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM tier_config WHERE tier_config.tier = v.tier AND tier_config.feature = v.feature
+            )
+            """,
         ]:
             try:
                 await db.execute(sql)

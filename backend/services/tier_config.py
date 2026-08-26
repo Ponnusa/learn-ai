@@ -30,7 +30,12 @@ _FALLBACK_LIMITS: dict[str, dict[str, int]] = {
                   "quiz_questions_max": 10,"video_max_secs": 120},
     "pro":       {"messages_daily": -1, "quiz_daily": -1, "videos_daily": 10, "images_daily": -1,
                   "quiz_questions_max": 15,"video_max_secs": 180},
-    "api_partner": {"videos_lifetime": 1, "video_max_secs": 60},
+    # Developer API platform tiers — admin-assigned per key, see api_keys.tier.
+    # Prefixed api_* deliberately, so these never collide with the main app's
+    # own free/learner/pro tiers above via get_limit(tier, feature).
+    "api_free":       {"videos_daily": 2,  "video_max_secs": 60},
+    "api_standard":   {"videos_daily": 10, "video_max_secs": 120},
+    "api_enterprise": {"videos_daily": -1, "video_max_secs": 180},
 }
 
 

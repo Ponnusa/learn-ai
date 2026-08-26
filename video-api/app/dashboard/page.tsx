@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSessionStore } from "@/lib/sessionStore";
-import { getMyApiKey, requestApiKey, regenerateApiKey, listMyVideos, ApiKeyStatus, ApiKeyCreated, VideoRecord, ApiError } from "@/lib/api";
+import { getMyApiKey, requestApiKey, regenerateApiKey, listMyVideos, ApiKeyStatus, ApiKeyCreated, VideoRecord, ApiError, TIER_LABELS } from "@/lib/api";
 import { StatusPill } from "@/components/StatusPill";
 import { RequireAuth } from "@/components/RequireAuth";
 
@@ -127,6 +127,11 @@ function DashboardInner() {
                 <p className="text-sm mt-2" style={{ color: "var(--text-faint)" }}>
                   {key.company_name}
                 </p>
+                {key.tier && (
+                  <p className="text-xs mt-1" style={{ color: "var(--text-faint)" }}>
+                    {TIER_LABELS[key.tier]}
+                  </p>
+                )}
               </div>
               {key.status === "pending" && (
                 <p className="text-sm" style={{ color: "var(--text-soft)" }}>Awaiting review</p>

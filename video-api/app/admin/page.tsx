@@ -1,7 +1,13 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { useSessionStore } from "@/lib/sessionStore";
-import { listDeveloperKeys, approveDeveloperKey, revokeDeveloperKey, DeveloperKeyAdminRow, ApiError } from "@/lib/api";
+import { listDeveloperKeys, approveDeveloperKey, revokeDeveloperKey, setDeveloperKeyTier, DeveloperKeyAdminRow, DeveloperTier, ApiError } from "@/lib/api";
+
+const TIER_OPTIONS: { value: DeveloperTier; label: string }[] = [
+  { value: "api_free", label: "Free (2/day, 60s)" },
+  { value: "api_standard", label: "Standard (10/day, 120s)" },
+  { value: "api_enterprise", label: "Enterprise (unlimited, 180s)" },
+];
 import { StatusPill } from "@/components/StatusPill";
 import { RequireAuth } from "@/components/RequireAuth";
 
@@ -38,6 +44,20 @@ function AdminInner() {
     }
   }
 
+  async function handleTierChange(id: string, tier: DeveloperTier) {
+    if (!token) return;
+    setError(null);
+    setBusyId(id);
+    try {
+      await setDeveloperKeyTier(id, tier, token);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not change tier — try again.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (loading) {
     return <div className="max-w-4xl mx-auto px-6 py-16" style={{ color: "var(--text-soft)" }}>Loading…</div>;
   }
@@ -68,27 +88,40 @@ function AdminInner() {
                 </p>
                 <p className="text-sm" style={{ color: "var(--text-soft)" }}>{k.description}</p>
               </div>
-              <div className="flex gap-2 shrink-0">
-                {k.status !== "approved" && (
-                  <button
-                    disabled={busyId === k.id}
-                    onClick={() => act(approveDeveloperKey, k.id)}
-                    className="text-sm rounded-lg px-3 py-1.5 font-medium disabled:opacity-60"
-                    style={{ background: "var(--approved-bg)", color: "var(--approved)" }}
-                  >
-                    Approve
-                  </button>
-                )}
-                {k.status !== "revoked" && (
-                  <button
-                    disabled={busyId === k.id}
-                    onClick={() => act(revokeDeveloperKey, k.id)}
-                    className="text-sm rounded-lg px-3 py-1.5 font-medium disabled:opacity-60"
-                    style={{ background: "var(--revoked-bg)", color: "var(--revoked)" }}
-                  >
-                    Revoke
-                  </button>
-                )}
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                <select
+                  value={k.tier}
+                  disabled={busyId === k.id}
+                  onChange={(e) => handleTierChange(k.id, e.target.value as DeveloperTier)}
+                  className="text-xs rounded-lg border px-2 py-1.5 outline-none disabled:opacity-60"
+                  style={{ borderColor: "var(--border)", background: "var(--surface-soft)", color: "var(--text)" }}
+                >
+                  {TIER_OPTIONS.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+                <div className="flex gap-2">
+                  {k.status !== "approved" && (
+                    <button
+                      disabled={busyId === k.id}
+                      onClick={() => act(approveDeveloperKey, k.id)}
+                      className="text-sm rounded-lg px-3 py-1.5 font-medium disabled:opacity-60"
+                      style={{ background: "var(--approved-bg)", color: "var(--approved)" }}
+                    >
+                      Approve
+                    </button>
+                  )}
+                  {k.status !== "revoked" && (
+                    <button
+                      disabled={busyId === k.id}
+                      onClick={() => act(revokeDeveloperKey, k.id)}
+                      className="text-sm rounded-lg px-3 py-1.5 font-medium disabled:opacity-60"
+                      style={{ background: "var(--revoked-bg)", color: "var(--revoked)" }}
+                    >
+                      Revoke
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           ))}

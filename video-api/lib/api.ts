@@ -9,7 +9,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH",
   path: string,
   body?: unknown,
   token?: string
@@ -67,10 +67,19 @@ export const signup = (email: string, password: string, companyName: string, des
 
 // ── Developer platform (session-auth) ──────────────────────────────────────────
 
+export type DeveloperTier = "api_free" | "api_standard" | "api_enterprise";
+
+export const TIER_LABELS: Record<DeveloperTier, string> = {
+  api_free: "Free — 2 videos/day, up to 60s each",
+  api_standard: "Standard — 10 videos/day, up to 120s each",
+  api_enterprise: "Enterprise — unlimited videos/day, up to 180s each",
+};
+
 export interface ApiKeyStatus {
   has_key: boolean;
   id?: string;
   status?: "pending" | "approved" | "revoked";
+  tier?: DeveloperTier;
   company_name?: string;
   description?: string;
   created_at?: string;
@@ -123,6 +132,7 @@ export const generateVideo = (body: GenerateVideoBody, token: string) =>
 export interface DeveloperKeyAdminRow {
   id: string;
   status: "pending" | "approved" | "revoked";
+  tier: DeveloperTier;
   company_name: string | null;
   description: string | null;
   created_at: string;
@@ -132,6 +142,9 @@ export interface DeveloperKeyAdminRow {
   name: string | null;
   videos_generated: number;
 }
+
+export const setDeveloperKeyTier = (keyId: string, tier: DeveloperTier, token: string) =>
+  request<{ id: string; tier: string }>("PATCH", `/api/admin/developer-keys/${keyId}/tier`, { tier }, token);
 
 export const listDeveloperKeys = (token: string) =>
   request<DeveloperKeyAdminRow[]>("GET", "/api/admin/developer-keys", undefined, token);

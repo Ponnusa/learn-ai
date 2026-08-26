@@ -50,7 +50,8 @@ public_router = APIRouter(prefix="/api/public/v1", tags=["public-api"])
 admin_dev_router = APIRouter(prefix="/api/admin", tags=["developer-platform-admin"])
 
 _KEY_PREFIX = "lx_live_"
-_API_TIER = "api_partner"
+_VALID_TIERS = ("api_free", "api_standard", "api_enterprise")
+_DEFAULT_TIER = "api_free"
 
 
 # ── Shared helpers ───────────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ async def _require_api_key(authorization: str = Header(...)) -> dict:
     key_hash = _hash_key(raw_key)
     async with get_db() as db:
         row = await db.fetchrow(
-            "SELECT id, user_id, status FROM api_keys WHERE key_hash = $1", key_hash
+            "SELECT id, user_id, status, tier FROM api_keys WHERE key_hash = $1", key_hash
         )
     if not row:
         raise HTTPException(401, "Invalid API key")
@@ -97,10 +98,14 @@ async def _require_api_key(authorization: str = Header(...)) -> dict:
     return dict(row)
 
 
-async def _count_api_videos(api_key_id) -> int:
+async def _count_api_videos_today(api_key_id) -> int:
+    """Rolling 24h window, matching the main app's own daily-limit convention
+    (see routers/videos.py's _check_video_credit) rather than a calendar-day
+    reset at midnight."""
     async with get_db() as db:
         return await db.fetchval(
-            "SELECT COUNT(*) FROM videos WHERE api_key_id = $1", api_key_id
+            "SELECT COUNT(*) FROM videos WHERE api_key_id = $1 AND created_at > NOW() - INTERVAL '1 day'",
+            api_key_id,
         ) or 0
 
 
@@ -204,7 +209,7 @@ async def get_my_api_key(authorization: str = Header(...)):
     caller_id = await _require_session_user(authorization)
     async with get_db() as db:
         row = await db.fetchrow(
-            "SELECT id, status, company_name, description, created_at, approved_at, revoked_at FROM api_keys "
+            "SELECT id, status, tier, company_name, description, created_at, approved_at, revoked_at FROM api_keys "
             "WHERE user_id = $1::uuid ORDER BY created_at DESC LIMIT 1",
             caller_id,
         )
@@ -282,9 +287,11 @@ _ALLOWED_SUBJECTS = {"physics", "chemistry", "mathematics"}
 _ALLOWED_ASPECT_RATIOS = {"16:9"}
 
 
-async def _start_generation(user_id: str, api_key_id, body: GenerateBody, bg: BackgroundTasks) -> dict:
+async def _start_generation(user_id: str, api_key_id, tier: str, body: GenerateBody, bg: BackgroundTasks) -> dict:
     """Shared by both the session-auth UI endpoint and the public API endpoint
-    below — same quota check, same video row shape, same background pipeline."""
+    below — same quota check, same video row shape, same background pipeline.
+    `tier` is the calling key's own api_keys.tier (admin-assigned), not a
+    hardcoded constant — see _VALID_TIERS."""
     if body.subject not in _ALLOWED_SUBJECTS:
         raise HTTPException(400, f"subject must be one of: {', '.join(sorted(_ALLOWED_SUBJECTS))}")
     if body.aspect_ratio not in _ALLOWED_ASPECT_RATIOS:
@@ -294,13 +301,13 @@ async def _start_generation(user_id: str, api_key_id, body: GenerateBody, bg: Ba
             "(others aren't confirmed to render correctly yet)",
         )
 
-    limit = await get_limit(_API_TIER, "videos_lifetime")
+    limit = await get_limit(tier, "videos_daily")
     if limit >= 0:
-        used = await _count_api_videos(api_key_id)
+        used = await _count_api_videos_today(api_key_id)
         if used >= limit:
-            raise HTTPException(429, f"Lifetime limit reached ({limit} video{'s' if limit != 1 else ''} per account)")
+            raise HTTPException(429, f"Daily limit reached ({limit} video{'s' if limit != 1 else ''}/day on the {tier} tier)")
 
-    max_secs = await get_limit(_API_TIER, "video_max_secs") or 60
+    max_secs = await get_limit(tier, "video_max_secs") or 60
 
     async with get_db() as db:
         video = await db.fetchrow("""
@@ -325,12 +332,12 @@ async def generate_video_from_ui(body: GenerateBody, bg: BackgroundTasks, author
     caller_id = await _require_session_user(authorization)
     async with get_db() as db:
         key_row = await db.fetchrow(
-            "SELECT id FROM api_keys WHERE user_id = $1::uuid AND status = 'approved' LIMIT 1",
+            "SELECT id, tier FROM api_keys WHERE user_id = $1::uuid AND status = 'approved' LIMIT 1",
             caller_id,
         )
     if not key_row:
         raise HTTPException(403, "No approved API key on this account yet")
-    return await _start_generation(caller_id, key_row["id"], body, bg)
+    return await _start_generation(caller_id, key_row["id"], key_row["tier"], body, bg)
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -342,7 +349,7 @@ async def list_developer_keys(authorization: str = Header(...)):
     await _require_super_admin(authorization)
     async with get_db() as db:
         rows = await db.fetch("""
-            SELECT k.id, k.status, k.company_name, k.description, k.created_at, k.approved_at, k.revoked_at,
+            SELECT k.id, k.status, k.tier, k.company_name, k.description, k.created_at, k.approved_at, k.revoked_at,
                    u.email, u.name,
                    (SELECT COUNT(*) FROM videos v WHERE v.api_key_id = k.id) AS videos_generated
             FROM api_keys k
@@ -350,6 +357,25 @@ async def list_developer_keys(authorization: str = Header(...)):
             ORDER BY k.created_at DESC
         """)
     return [dict(r) | {"id": str(r["id"])} for r in rows]
+
+
+class SetTierBody(BaseModel):
+    tier: str
+
+
+@admin_dev_router.patch("/developer-keys/{key_id}/tier")
+async def set_developer_key_tier(key_id: str, body: SetTierBody, authorization: str = Header(...)):
+    await _require_super_admin(authorization)
+    if body.tier not in _VALID_TIERS:
+        raise HTTPException(400, f"tier must be one of: {', '.join(_VALID_TIERS)}")
+    async with get_db() as db:
+        row = await db.fetchrow(
+            "UPDATE api_keys SET tier = $1 WHERE id = $2::uuid RETURNING id, tier",
+            body.tier, key_id,
+        )
+    if not row:
+        raise HTTPException(404, "Key not found")
+    return {"id": str(row["id"]), "tier": row["tier"]}
 
 
 @admin_dev_router.post("/developer-keys/{key_id}/approve")
@@ -387,7 +413,7 @@ async def revoke_developer_key(key_id: str, authorization: str = Header(...)):
 @public_router.post("/videos/generate")
 async def public_generate_video(body: GenerateBody, bg: BackgroundTasks, authorization: str = Header(...)):
     key = await _require_api_key(authorization)
-    return await _start_generation(str(key["user_id"]), key["id"], body, bg)
+    return await _start_generation(str(key["user_id"]), key["id"], key["tier"], body, bg)
 
 
 @public_router.get("/videos/{video_id}")
