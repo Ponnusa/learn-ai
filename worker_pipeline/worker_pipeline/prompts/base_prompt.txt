@@ -528,12 +528,13 @@ CINEMATIC SELF-CHECK (add to validation before output):
 DURATION GUIDELINES
 ══════════════════════════════════════════════════════════════════
 
-- Each voiceover block ≈ 5–8 seconds
-- This scene is ONE SEGMENT of a multi-segment lesson — target its own duration, not the full video length
-- 10–15s segment → 1–2 blocks
-- 15–20s segment → 2 blocks
-- 20–30s segment → 2–3 blocks
-- 30s+ segment → 3 blocks (hard max)
+- This scene is ONE SEGMENT of a multi-segment lesson, with exactly ONE voiceover block —
+  see the per-request instructions for the exact narration text and count.
+- Do NOT pad. The scene's real final length is whatever tracker.duration measures once that one
+  narration string is spoken by TTS — that is the only thing that determines how long the clip
+  runs. Never add extra self.wait() calls, extra beats, or stretched run_times to reach any
+  particular total length. A scene that ends right when its narration ends is correct, even if
+  that's short — it should never keep animating or sit idle/silent after the voiceover finishes.
 
 ══════════════════════════════════════════════════════════════════
 CLASS NAMING RULE

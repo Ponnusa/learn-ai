@@ -212,8 +212,8 @@ def generate_manim_code(segment: Segment) -> str:
 
     seg_voice = voice_for_language(segment.language)
     user_prompt = f"""Implement ONE short Manim scene for a single segment of a longer lesson video.
-This segment is {segment.target_duration_seconds:.0f} seconds long and covers ONLY the direction
-below — do not attempt to cover the whole lesson topic, and do not re-derive or change any values.
+This segment covers ONLY the direction below — do not attempt to cover the whole lesson topic,
+and do not re-derive or change any values.
 
 ANIMATION DIRECTION (from the storyboard — implement exactly this):
 {segment.generation_prompt}
@@ -222,7 +222,15 @@ VOICEOVER TEXT (verbatim, wrap in exactly one `with self.voiceover(text=...)` bl
 {segment.narration_text}
 
 SUBJECT: {segment.subject_area}
-TARGET DURATION: {segment.target_duration_seconds:.0f} seconds
+
+DURATION (critical — do not pad):
+The scene's REAL final length is whatever tracker.duration measures once the narration above is
+spoken by TTS — that is the only thing that determines how long this clip runs. Do NOT add extra
+self.wait() calls, extra animation beats, or stretched run_times to reach any particular total
+length. Build exactly enough animation to cover the single voiceover block above, timed with
+self.wait(max(0.3, tracker.duration - <time already used by your self.play() calls>)) at the end
+of the block, then stop. A short scene that ends right when the narration ends is correct — it
+should never keep animating or sit idle/silent after the voiceover finishes.
 
 VOICE (critical — other segments in this same lesson use a fixed narrator voice):
 Call self.set_speech_service(AzureService(voice="{seg_voice}")) — use EXACTLY this
@@ -285,8 +293,7 @@ def generate_all_manim_code(segments: List[Segment]) -> str:
     for seg in segments:
         class_name = _unified_class_name(seg)
         seg_blocks.append(
-            f"=== SEGMENT {seg.order} | class name MUST be exactly `{class_name}` "
-            f"| {seg.target_duration_seconds:.0f}s ===\n"
+            f"=== SEGMENT {seg.order} | class name MUST be exactly `{class_name}` ===\n"
             f"DIRECTION: {seg.generation_prompt}\n"
             f"VOICEOVER (verbatim, one self.voiceover block): {seg.narration_text}"
         )
@@ -314,6 +321,12 @@ STRUCTURE RULES:
 5. Clamp ALL computed durations:
    self.wait(max(0.3, value))   run_time=max(0.3, value)
    Never use a raw subtraction result as a wait or run_time.
+6. DO NOT PAD: each class's real final length is whatever tracker.duration measures once its
+   own narration is spoken by TTS — nothing else. Build exactly enough animation to cover that
+   one voiceover block, end with self.wait(max(0.3, tracker.duration - <time already used>)),
+   then stop the class. Never add extra self.wait() calls, extra beats, or stretched run_times
+   trying to reach any particular total length — a class that ends right when its narration ends
+   is correct, even if that's short. It should never keep animating or sit idle/silent afterward.
 
 SEGMENTS TO IMPLEMENT:
 

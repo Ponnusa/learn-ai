@@ -37,6 +37,29 @@ logger = logging.getLogger(__name__)
 _MAX_VIDEO_SEGMENTS = 1
 _MAX_PARSE_ATTEMPTS = 2
 
+# Per-segment target_duration_seconds is derived from narration_text's word
+# count, not trusted from the LLM's own guess (same "never trust the LLM for
+# something code can compute" principle already applied to id/order/status
+# elsewhere in this module). The LLM routinely picks a duration disconnected
+# from how long its own one-sentence narration actually takes to speak (e.g.
+# "target_duration_seconds": 25 alongside an 8-second sentence) -- and that
+# mismatched number was flowing straight into the Manim codegen prompt as a
+# hard target, which padded scenes with extra wait/animation time (silent or
+# idle) to reach it. Manim's real clip length is governed by tracker.duration
+# (actual TTS length) regardless of this estimate; image/video segments
+# already measure real narration duration directly (see image_renderer.py /
+# video_renderer.py) and never used this value for their own clip length.
+_WORDS_PER_SECOND = 2.3        # ~138 wpm, natural narration pace
+_FIXED_OVERHEAD_SECONDS = 2.5  # visual build-up/settle time beyond pure narration
+_MIN_SEGMENT_SECONDS = 5.0
+_MAX_SEGMENT_SECONDS = 35.0
+
+
+def _estimate_duration_from_narration(narration_text: str) -> float:
+    word_count = len((narration_text or "").split())
+    estimated = word_count / _WORDS_PER_SECOND + _FIXED_OVERHEAD_SECONDS
+    return max(_MIN_SEGMENT_SECONDS, min(estimated, _MAX_SEGMENT_SECONDS))
+
 
 def _segment_budget(target_duration_seconds: int) -> int:
     return max(2, min(target_duration_seconds // 12, 15))
@@ -162,13 +185,14 @@ def _build_storyboard(
         ):
             ref_id = draft_index_to_id[ref_index]
 
+        narration_text = draft.get("narration_text", "")
         segments.append(Segment(
             id=seg_id,
             order=order,
             type=seg_type,
-            target_duration_seconds=float(draft.get("target_duration_seconds", 8)),
+            target_duration_seconds=_estimate_duration_from_narration(narration_text),
             subject_area=subject_area,
-            narration_text=draft.get("narration_text", ""),
+            narration_text=narration_text,
             generation_prompt=draft.get("generation_prompt", ""),
             style_reference_segment_id=ref_id,
             aspect_ratio=aspect_ratio,
