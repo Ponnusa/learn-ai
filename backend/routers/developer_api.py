@@ -31,11 +31,15 @@ storyboard itself). This is deliberately the multi-modal path only.
 import hashlib
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query
+from fastapi.responses import StreamingResponse
+from jose import jwt as _jose_jwt
 from pydantic import BaseModel, EmailStr
 
+from config import settings
 from database import get_db
 from services.tier_config import get_limit
 from services.scoring import init_profile
@@ -48,10 +52,73 @@ logger = logging.getLogger(__name__)
 developer_router = APIRouter(prefix="/api/developer", tags=["developer-platform"])
 public_router = APIRouter(prefix="/api/public/v1", tags=["public-api"])
 admin_dev_router = APIRouter(prefix="/api/admin", tags=["developer-platform-admin"])
+# No prefix, deliberately: this is loaded via a plain <video src> / <a href>,
+# which never sends an Authorization header — see _create_media_token below.
+media_router = APIRouter(tags=["media-proxy"])
 
 _KEY_PREFIX = "lx_live_"
 _VALID_TIERS = ("api_free", "api_standard", "api_enterprise")
 _DEFAULT_TIER = "api_free"
+
+# ── Media proxy — hides the real R2 URL from the video-api web UI ────────────
+# <video src> and a plain download <a href> are loaded by the browser as a
+# navigation/resource fetch, not a fetch()/XHR call, so neither can carry an
+# Authorization header. Auth for this one route lives in a short-lived,
+# single-purpose signed token in the query string instead of a header -- NOT
+# the long-lived session JWT (that would put a 30-day-valid credential in
+# browser history/server access logs/Referer headers for no reason; this
+# token is scoped to exactly one video, expires in minutes, and is useless
+# for anything else even if it leaks).
+_MEDIA_TOKEN_TTL_MINUTES = 60
+
+
+def _create_media_token(video_id: int) -> str:
+    payload = {
+        "video_id": video_id,
+        "purpose": "media",
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=_MEDIA_TOKEN_TTL_MINUTES),
+    }
+    return _jose_jwt.encode(payload, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
+
+
+def _verify_media_token(token: str, video_id: int) -> None:
+    try:
+        payload = _jose_jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+    except Exception:
+        raise HTTPException(401, "Invalid or expired media link")
+    if payload.get("purpose") != "media" or payload.get("video_id") != video_id:
+        raise HTTPException(401, "Invalid media link")
+
+
+def _media_urls(video_id: int, video_url: str | None) -> dict:
+    """Builds proxy URLs through this backend instead of exposing the raw R2
+    URL to the frontend at all. Returns {} if the video has no file yet."""
+    if not video_url:
+        return {}
+    token = _create_media_token(video_id)
+    base = f"{settings.BACKEND_PUBLIC_URL.rstrip('/')}/api/media/{video_id}?t={token}"
+    return {"stream_url": base, "download_url": f"{base}&download=1"}
+
+
+@media_router.get("/api/media/{video_id}")
+async def stream_video_media(video_id: int, t: str = Query(...), download: bool = False):
+    _verify_media_token(t, video_id)
+    async with get_db() as db:
+        row = await db.fetchrow("SELECT video_url FROM videos WHERE id = $1", video_id)
+    if not row or not row["video_url"]:
+        raise HTTPException(404, "Video not found")
+
+    async def _proxy():
+        async with httpx.AsyncClient() as upstream:
+            async with upstream.stream("GET", row["video_url"], timeout=60) as resp:
+                resp.raise_for_status()
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="learnx-video-{video_id}.mp4"'
+    return StreamingResponse(_proxy(), media_type="video/mp4", headers=headers)
 
 
 # ── Shared helpers ───────────────────────────────────────────────────────────
@@ -268,7 +335,13 @@ async def list_my_videos(authorization: str = Header(...)):
             WHERE user_id = $1::uuid AND source = 'external_api'
             ORDER BY created_at DESC
         """, caller_id)
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        d = dict(r)
+        video_url = d.pop("video_url")  # never sent to the frontend — see _media_urls
+        d.update(_media_urls(d["id"], video_url))
+        result.append(d)
+    return result
 
 
 class GenerateBody(BaseModel):

@@ -11,7 +11,7 @@ from config import settings
 from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
 from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments, dqb, lab_sheets
 from routers import school_admin
-from routers.developer_api import developer_router, public_router, admin_dev_router
+from routers.developer_api import developer_router, public_router, admin_dev_router, media_router
 
 
 @asynccontextmanager
@@ -878,6 +878,7 @@ app.include_router(school_admin.router)
 app.include_router(developer_router)
 app.include_router(public_router)
 app.include_router(admin_dev_router)
+app.include_router(media_router)
 
 
 @app.get("/health")

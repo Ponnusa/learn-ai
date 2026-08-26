@@ -104,7 +104,12 @@ export const regenerateApiKey = (token: string) =>
 export interface VideoRecord {
   id: number;
   status: string;
-  video_url: string | null;
+  // No raw video_url here on purpose — the backend proxies playback/download
+  // through /api/media/{id} instead of exposing the R2 URL directly. Both
+  // are short-lived signed links (~1h), only present once rendering
+  // completes. Reload the page to refresh them if a link ever goes stale.
+  stream_url?: string;
+  download_url?: string;
   thumbnail_url: string | null;
   prompt: string;
   subject: string | null;

@@ -65,20 +65,24 @@ function VideosInner() {
               </p>
 
               {v.status === "completed" || v.status === "complete" ? (
-                <div className="flex items-center gap-3">
-                  {v.video_url && (
+                <div className="flex flex-col gap-3">
+                  {v.stream_url && (
+                    <video
+                      controls
+                      preload="metadata"
+                      src={v.stream_url}
+                      poster={v.thumbnail_url || undefined}
+                      className="w-full rounded-lg"
+                      style={{ background: "#000", maxHeight: 360 }}
+                    />
+                  )}
+                  {v.download_url && (
                     <a
-                      href={v.video_url}
-                      download
-                      className="text-sm rounded-lg px-3 py-1.5 font-medium"
+                      href={v.download_url}
+                      className="self-start text-sm rounded-lg px-3 py-1.5 font-medium"
                       style={{ background: "var(--accent)", color: "#04201C" }}
                     >
                       Download
-                    </a>
-                  )}
-                  {v.video_url && (
-                    <a href={v.video_url} target="_blank" rel="noreferrer" className="text-sm underline" style={{ color: "var(--accent-ink)" }}>
-                      Watch
                     </a>
                   )}
                 </div>

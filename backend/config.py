@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = ""
     FROM_EMAIL: str = "noreply@learn-ai.com"
     APP_URL: str = "http://localhost:3000"
+    # This backend's OWN public URL — distinct from APP_URL above (that's the
+    # main frontend's URL, used only for magic-link redirect targets). Needed
+    # for building links that must resolve back to this server itself, e.g.
+    # the media proxy in developer_api.py.
+    BACKEND_PUBLIC_URL: str = "http://localhost:8000"
     R2_ACCOUNT_ID: str = ""
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
