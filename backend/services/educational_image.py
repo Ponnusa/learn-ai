@@ -355,7 +355,7 @@ async def store_image_r2(
 # AI description generator — runs after image is stored
 # ─────────────────────────────────────────────────────────────────────────────
 
-_DESC_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
+_DESC_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French', 'no': 'Norwegian'}
 
 
 async def generate_image_description(knowledge_model: dict, diagram_plan: dict, language: str = 'en') -> str:

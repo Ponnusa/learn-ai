@@ -42,6 +42,7 @@ LANGUAGE_VOICE_MAP: dict = {
     "en": "en-US-JennyNeural",
     "fi": "fi-FI-NooraNeural",
     "sv": "sv-SE-SofieNeural",
+    "no": "nb-NO-IselinNeural",
     "de": "de-DE-KatjaNeural",
     "fr": "fr-FR-DeniseNeural",
     "es": "es-ES-ElviraNeural",

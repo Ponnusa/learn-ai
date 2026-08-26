@@ -107,7 +107,7 @@ async def extract_text_vision(file_bytes: bytes) -> tuple[str, int]:
 
 # ─── AI generation ────────────────────────────────────────────────────────────
 
-_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
+_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French', 'no': 'Norwegian'}
 
 
 async def generate_concepts_and_flashcards(

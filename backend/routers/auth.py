@@ -476,10 +476,10 @@ async def update_theme(req: ThemeUpdateRequest):
 
 class LanguageUpdateRequest(BaseModel):
     user_id:  str
-    language: str  # 'en' | 'fi' | 'sv' | 'es' | 'fr'
+    language: str  # 'en' | 'fi' | 'sv' | 'es' | 'fr' | 'no'
 
 
-_VALID_LANGUAGES = {"en", "fi", "sv", "es", "fr"}
+_VALID_LANGUAGES = {"en", "fi", "sv", "es", "fr", "no"}
 
 
 @router.patch("/language")

@@ -737,6 +737,20 @@ async def lifespan(app: FastAPI):
                 created_at  TIMESTAMPTZ DEFAULT NOW()
             )
             """,
+            # ── Expand language check constraint to include Norwegian ──────────────
+            """
+            DO $$ BEGIN
+              BEGIN
+                ALTER TABLE users DROP CONSTRAINT users_language_check;
+              EXCEPTION WHEN others THEN NULL;
+              END;
+              BEGIN
+                ALTER TABLE users ADD CONSTRAINT users_language_check
+                  CHECK (language IN ('en', 'fi', 'sv', 'es', 'fr', 'no'));
+              EXCEPTION WHEN others THEN NULL;
+              END;
+            END $$
+            """,
         ]:
             try:
                 await db.execute(sql)

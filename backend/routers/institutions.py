@@ -22,7 +22,7 @@ def _gen_password(length: int = 10) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 from config import settings
 
-_VALID_LANGUAGES = {'en', 'fi', 'sv', 'es', 'fr'}
+_VALID_LANGUAGES = {'en', 'fi', 'sv', 'es', 'fr', 'no'}
 
 router = APIRouter(prefix="/api/institutions", tags=["institutions"])
 

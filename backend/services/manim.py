@@ -450,7 +450,7 @@ def claude_with_retry(fn, *args, max_retries=4, **kwargs):
 # ─────────────────────────────────────────────────────────────────────────────────────
 
 # Deterministic language → voice mapping, kept in sync with
-# frontend/translations/index.ts's LanguageCode union (en/fi/sv/es/fr — the
+# frontend/translations/index.ts's LanguageCode union (en/fi/sv/es/fr/no — the
 # only languages the product actually offers). Used both to build the prompt
 # text below and as the source of truth for _fix_tts_voice_in_code()'s
 # post-generation enforcement.
@@ -460,6 +460,7 @@ LANGUAGE_TO_AZURE_VOICE = {
     "sv": "sv-SE-SofieNeural",
     "es": "es-ES-ElviraNeural",
     "fr": "fr-FR-DeniseNeural",
+    "no": "nb-NO-IselinNeural",
 }
 LANGUAGE_TO_GTTS_LANG = {
     "en": "en",
@@ -467,6 +468,7 @@ LANGUAGE_TO_GTTS_LANG = {
     "sv": "sv",
     "es": "es",
     "fr": "fr",
+    "no": "no",
 }
 
 
@@ -571,6 +573,7 @@ CHEMISTRY NAMING RULE (apply only when subject = chemistry, MANDATORY):
   - English: zinc chloride, sulfuric acid, carbon dioxide
   - Finnish: sinkkikloridi, rikkihappo, hiilidioksidi
   - Swedish: zinkklorid, svavelsyra, koldioxid
+  - Norwegian: sinkklorid, svovelsyre, karbondioksid
 
 PHYSICS SPECIFIC RULES (apply only when subject = physics):
 - Always state which law or principle justifies each step (Newton's 2nd, conservation of energy, etc.)

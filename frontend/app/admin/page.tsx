@@ -615,7 +615,7 @@ export default function AdminPage() {
                 <div className="col-span-2">
                   <p className="text-[var(--tx7)] text-xs mb-1.5">Allowed languages <span className="text-[var(--tx8)]">(leave all unchecked = users choose freely)</span></p>
                   <div className="flex flex-wrap gap-2">
-                    {[['en','🇬🇧 English'],['fi','🇫🇮 Suomi'],['sv','🇸🇪 Svenska'],['es','🇪🇸 Español'],['fr','🇫🇷 Français']].map(([code, label]) => (
+                    {[['en','🇬🇧 English'],['fi','🇫🇮 Suomi'],['sv','🇸🇪 Svenska'],['es','🇪🇸 Español'],['fr','🇫🇷 Français'],['no','🇳🇴 Norsk']].map(([code, label]) => (
                       <label key={code} className="flex items-center gap-1.5 cursor-pointer select-none">
                         <input
                           type="checkbox"
@@ -703,7 +703,7 @@ export default function AdminPage() {
                       <p className="text-[var(--tx5)] text-xs font-medium mb-1.5 uppercase tracking-wide">Allowed Languages</p>
                       <p className="text-[var(--tx8)] text-xs mb-2">Leave all unchecked so users choose freely. Checking some restricts members to those languages.</p>
                       <div className="flex flex-wrap gap-3 mb-2">
-                        {[['en','🇬🇧 English'],['fi','🇫🇮 Suomi'],['sv','🇸🇪 Svenska'],['es','🇪🇸 Español'],['fr','🇫🇷 Français']].map(([code, label]) => {
+                        {[['en','🇬🇧 English'],['fi','🇫🇮 Suomi'],['sv','🇸🇪 Svenska'],['es','🇪🇸 Español'],['fr','🇫🇷 Français'],['no','🇳🇴 Norsk']].map(([code, label]) => {
                           const selected = (instLangValue[inst.id] ?? inst.languages ?? []).includes(code);
                           return (
                             <label key={code} className="flex items-center gap-1.5 cursor-pointer select-none">

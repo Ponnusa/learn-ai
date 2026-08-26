@@ -142,7 +142,7 @@ function StudySetCard({ ss, onDelete }: {
     if (diff === 0) return t.sidebar.today;
     if (diff === 1) return t.sidebar.yesterday;
     if (diff < 7)  return t.studySets.daysAgo.replace('{n}', String(diff));
-    return d.toLocaleDateString(language === 'fi' ? 'fi' : language === 'sv' ? 'sv' : 'en', { month: 'short', day: 'numeric' });
+    return d.toLocaleDateString(language, { month: 'short', day: 'numeric' });
   }
 
   const STATUS_STYLE: Record<string, string> = {

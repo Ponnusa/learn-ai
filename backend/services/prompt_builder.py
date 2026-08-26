@@ -147,7 +147,7 @@ def inject_conversation_context(
     return prompt + block
 
 
-_LANGUAGE_NAMES = {"en": "English", "fi": "Finnish", "sv": "Swedish", "es": "Spanish", "fr": "French"}
+_LANGUAGE_NAMES = {"en": "English", "fi": "Finnish", "sv": "Swedish", "es": "Spanish", "fr": "French", "no": "Norwegian"}
 
 
 async def build_chat_prompt(

@@ -133,6 +133,7 @@ export default function TeacherCoursesPage() {
               <option value="sv">Swedish</option>
               <option value="fr">French</option>
               <option value="es">Spanish</option>
+              <option value="no">Norwegian</option>
             </select>
           </div>
           <div className="flex gap-2 pt-1">

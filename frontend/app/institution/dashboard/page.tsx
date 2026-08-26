@@ -23,6 +23,7 @@ const LANG_OPTIONS: Array<{ code: string; label: string }> = [
   { code: 'sv', label: '🇸🇪 Svenska' },
   { code: 'es', label: '🇪🇸 Español' },
   { code: 'fr', label: '🇫🇷 Français' },
+  { code: 'no', label: '🇳🇴 Norsk' },
 ];
 
 export default function InstitutionDashboard() {

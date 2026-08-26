@@ -10,7 +10,7 @@ from database import get_db
 from services.ai_router import openai_client, get_model
 from services.scoring import apply_delta
 
-_PROFILE_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
+_PROFILE_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French', 'no': 'Norwegian'}
 
 PROFILE_UPDATE_PROMPT = """\
 You are an educational intelligence system analysing a student's learning session.

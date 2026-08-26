@@ -27,6 +27,7 @@ LANG_VOICE_MAP = {
     "es": ("es-ES-ElviraNeural", "es"),
     "ta": ("ta-IN-PallaviNeural", "ta"),
     "en": ("en-US-JennyNeural", "en"),
+    "no": ("nb-NO-IselinNeural", "no"),
 }
 EN_AZURE_VOICE = "en-US-JennyNeural"
 
@@ -92,19 +93,22 @@ async def main():
             # Reset all segments — worker will re-generate code + re-render
             await conn.execute(
                 """UPDATE video_segments SET
-                     language=$1,
                      status='pending',
                      clip_url=NULL,
                      generated_code=NULL,
-                     generated_class_name=NULL,
                      prompt_hash=NULL,
                      error_message=NULL,
                      retry_count=0,
                      updated_at=NOW()
-                   WHERE video_id=$2""",
+                   WHERE video_id=$1""",
+                video_id,
+            )
+            # language lives on the videos row, not video_segments
+            await conn.execute(
+                "UPDATE videos SET language=$1, updated_at=NOW() WHERE id=$2",
                 language, video_id,
             )
-            print(f"Reset {len(segments)} segment(s) to pending with language={language!r}")
+            print(f"Reset {len(segments)} segment(s) to pending; set videos.language={language!r}")
 
         else:
             # Single-scene: patch voice in videos.generated_code

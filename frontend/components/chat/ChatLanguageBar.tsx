@@ -8,6 +8,7 @@ const LANG_OPTIONS = [
   { code: 'sv', flag: '🇸🇪', label: 'Swedish' },
   { code: 'es', flag: '🇪🇸', label: 'Spanish' },
   { code: 'fr', flag: '🇫🇷', label: 'French' },
+  { code: 'no', flag: '🇳🇴', label: 'Norwegian' },
 ];
 
 interface Props {

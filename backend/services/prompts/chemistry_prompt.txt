@@ -65,6 +65,7 @@ CHEMISTRY NAMING RULE (MANDATORY)
   - English: zinc chloride, sulfuric acid
   - Finnish: sinkkikloridi, rikkihappo
   - Swedish: zinkklorid, svavelsyra
+  - Norwegian: sinkklorid, svovelsyre
 
 ══════════════════════════════════════════════════════════════════
 CHEMISTRY VISUALIZATION STRATEGY (CRITICAL DECISION RULE)

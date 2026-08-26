@@ -12,11 +12,11 @@ import { fi } from './fi';
 import { sv } from './sv';
 import { es } from './es';
 import { fr } from './fr';
+import { no } from './no';
 // import { de } from './de';
 // import { et } from './et';
-// import { no } from './no';
 
-export type LanguageCode = 'en' | 'fi' | 'sv' | 'es' | 'fr';
+export type LanguageCode = 'en' | 'fi' | 'sv' | 'es' | 'fr' | 'no';
 
 export const translations: Record<LanguageCode, Translation> = {
   en,
@@ -24,6 +24,7 @@ export const translations: Record<LanguageCode, Translation> = {
   sv,
   es,
   fr,
+  no,
 };
 
 export const LANGUAGE_LABELS: Record<LanguageCode, string> = {
@@ -32,6 +33,7 @@ export const LANGUAGE_LABELS: Record<LanguageCode, string> = {
   sv: '🇸🇪 Svenska',
   es: '🇪🇸 Español',
   fr: '🇫🇷 Français',
+  no: '🇳🇴 Norsk',
 };
 
 export const LANGUAGE_NAMES: Record<LanguageCode, string> = {
@@ -40,6 +42,7 @@ export const LANGUAGE_NAMES: Record<LanguageCode, string> = {
   sv: 'Swedish',
   es: 'Spanish',
   fr: 'French',
+  no: 'Norwegian',
 };
 
 export const DEFAULT_LANGUAGE: LanguageCode = 'en';
@@ -51,10 +54,11 @@ export const COUNTRY_LANGUAGES: Record<string, LanguageCode[]> = {
   MX: ['es', 'en'],
   FI: ['en', 'fi', 'sv'],
   SE: ['en', 'sv'],
+  NO: ['en', 'no'],
   FR: ['fr', 'en'],
   ES: ['es', 'en'],
   IN: ['en'],
-  DEFAULT: ['en', 'fi', 'sv', 'es', 'fr'],
+  DEFAULT: ['en', 'fi', 'sv', 'es', 'fr', 'no'],
 };
 
 /** Returns all available languages. */

@@ -28,7 +28,7 @@ async def transcribe_audio(file: UploadFile, language: str = "en"):
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="Empty audio")
     filename = file.filename or "audio.webm"
-    lang = language if language in ("en", "fi", "sv") else "en"
+    lang = language if language in ("en", "fi", "sv", "es", "fr", "no") else "en"
     print(f"[transcribe] {len(audio_bytes)} bytes, filename={filename}, lang={lang}, content_type={file.content_type}")
     try:
         buf = io.BytesIO(audio_bytes)
@@ -377,7 +377,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     }
 
 
-_TITLE_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
+_TITLE_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French', 'no': 'Norwegian'}
 
 async def _generate_title(message: str, language: str) -> str:
     """Generate a short conversation title from the first message."""
@@ -399,7 +399,7 @@ async def _generate_title(message: str, language: str) -> str:
         return message[:40]
 
 
-_TTS_LANG_NAMES = {'en': 'English', 'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French'}
+_TTS_LANG_NAMES = {'en': 'English', 'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French', 'no': 'Norwegian'}
 
 _TTS_SYSTEM = (
     "Convert this educational text to a clean spoken script in {lang}. "

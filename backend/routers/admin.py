@@ -478,7 +478,7 @@ async def list_institutions(authorization: str = Header(...)):
     ]
 
 
-_ADMIN_VALID_LANGUAGES = {'en', 'fi', 'sv', 'es', 'fr'}
+_ADMIN_VALID_LANGUAGES = {'en', 'fi', 'sv', 'es', 'fr', 'no'}
 
 
 class SetInstLanguagesRequest(BaseModel):

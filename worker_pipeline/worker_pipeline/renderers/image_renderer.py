@@ -189,7 +189,7 @@ Return ONLY valid JSON, no markdown fences:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _LANGUAGE_NAMES = {
-    "en": "English", "fi": "Finnish", "sv": "Swedish", "es": "Spanish", "fr": "French",
+    "en": "English", "fi": "Finnish", "sv": "Swedish", "es": "Spanish", "fr": "French", "no": "Norwegian",
 }
 
 

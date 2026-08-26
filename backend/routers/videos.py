@@ -739,7 +739,7 @@ async def get_session_videos(session_id: str):
 # BACKGROUND TASKS
 # ─────────────────────────────────────────────────────────────────────────────
 
-_SUPPORTED_LANGS = {"fi", "sv", "es", "ta", "en"}
+_SUPPORTED_LANGS = {"fi", "sv", "es", "fr", "ta", "en", "no"}
 
 def _detect_transcript_language(transcript: str, fallback: str) -> str:
     """
