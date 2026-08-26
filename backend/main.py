@@ -809,7 +809,9 @@ app = FastAPI(title="Learn-AI API", version="1.0.0", lifespan=lifespan)
 
 _allowed_origins: list[str] = list({
     settings.FRONTEND_URL,
+    settings.VIDEO_API_URL,
     "http://localhost:3000",
+    "http://localhost:3001",
     "https://learnx-ai.com",
     "https://www.learnx-ai.com",
     "https://learn-ai-ebon.vercel.app",   # Vercel preview

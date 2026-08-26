@@ -16,6 +16,12 @@ frontend/node_modules/
 frontend/.next/
 frontend/out/
 
+# Video API app
+video-api/.env.local
+video-api/node_modules/
+video-api/.next/
+video-api/out/
+
 # General
 .DS_Store
 *.log

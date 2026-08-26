@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "https://www.learnx-ai.com"
     # Comma-separated extra origins (e.g. old Vercel URL during DNS cutover)
     EXTRA_ALLOWED_ORIGINS: str = ""
+    # The video-api app's own URL — the only value MagicLinkRequest.redirect_base
+    # is ever honored against (see auth.py); anything else silently falls back
+    # to APP_URL, so this can never become an open redirect for the magic link.
+    VIDEO_API_URL: str = "http://localhost:3001"
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
     GEMINI_API_KEY: str = ""

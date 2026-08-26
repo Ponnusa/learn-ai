@@ -72,6 +72,12 @@ class MagicLinkRequest(BaseModel):
     email: EmailStr
     session_id: str | None = None
     knowledge_level: str = "intermediate"
+    # Optional alternate app to redirect the magic-link email to (e.g. the
+    # video-api app instead of the main app). Only ever honored when it
+    # exactly matches settings.VIDEO_API_URL — any other value is ignored
+    # and silently falls back to APP_URL, so this can't become an open
+    # redirect that leaks a real auth token to an attacker-controlled domain.
+    redirect_base: str | None = None
 
 
 class VerifyTokenRequest(BaseModel):
@@ -95,7 +101,8 @@ async def send_magic_link(req: MagicLinkRequest):
             VALUES ($1, $2, NOW() + INTERVAL '15 minutes')
         """, user["id"], raw_token)
 
-    magic_url = f"{settings.APP_URL}/auth/verify?token={raw_token}"
+    redirect_base = req.redirect_base if req.redirect_base == settings.VIDEO_API_URL else settings.APP_URL
+    magic_url = f"{redirect_base}/auth/verify?token={raw_token}"
     try:
         import resend
         resend.api_key = settings.RESEND_API_KEY
@@ -123,7 +130,7 @@ async def send_magic_link(req: MagicLinkRequest):
 
     return {
         "message": "Magic link sent — check your email",
-        "dev_url": magic_url if settings.APP_URL.startswith("http://localhost") else None,
+        "dev_url": magic_url if redirect_base.startswith("http://localhost") else None,
     }
 
 
