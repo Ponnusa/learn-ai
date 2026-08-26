@@ -30,7 +30,13 @@ async function request<T>(
   return data as T;
 }
 
-// ── Auth (reuses the main app's magic-link endpoints directly) ────────────────
+// ── Auth ────────────────────────────────────────────────────────────────────
+// Login reuses the main app's existing password endpoint unchanged. Signup is
+// specific to this app: it creates the account AND the first (pending) API
+// key request in one call, collecting company name/description up front
+// instead of as a separate dashboard step. See developer_api.py's
+// developer_signup() for why there's no email-ownership verification step
+// here (the superadmin approval gate is the real trust boundary).
 
 export interface SessionUser {
   id: string;
@@ -40,29 +46,8 @@ export interface SessionUser {
   account_type: string;
 }
 
-export const sendMagicLink = (email: string) =>
-  request<{ message: string; dev_url: string | null }>("POST", "/api/auth/magic-link", {
-    email,
-    // Must exactly match VIDEO_API_URL configured on the backend, or the
-    // backend silently ignores it and points the email at the main app
-    // instead (see auth.py's redirect_base allowlist check).
-    redirect_base: typeof window !== "undefined" ? window.location.origin : undefined,
-  });
-
-export const verifyMagicLink = (token: string) =>
-  request<{ token: string; user: SessionUser }>("POST", "/api/auth/verify", { token });
-
-// ── Developer platform (session-auth) ──────────────────────────────────────────
-
-export interface ApiKeyStatus {
-  has_key: boolean;
-  id?: string;
-  status?: "pending" | "approved" | "revoked";
-  label?: string;
-  created_at?: string;
-  approved_at?: string | null;
-  revoked_at?: string | null;
-}
+export const login = (email: string, password: string) =>
+  request<{ token: string; user: SessionUser }>("POST", "/api/auth/login/password", { email, password });
 
 export interface ApiKeyCreated {
   id: string;
@@ -72,11 +57,37 @@ export interface ApiKeyCreated {
   masked: string;
 }
 
+export const signup = (email: string, password: string, companyName: string, description: string) =>
+  request<{ token: string; user: SessionUser; api_key: ApiKeyCreated }>("POST", "/api/developer/signup", {
+    email,
+    password,
+    company_name: companyName,
+    description,
+  });
+
+// ── Developer platform (session-auth) ──────────────────────────────────────────
+
+export interface ApiKeyStatus {
+  has_key: boolean;
+  id?: string;
+  status?: "pending" | "approved" | "revoked";
+  company_name?: string;
+  description?: string;
+  created_at?: string;
+  approved_at?: string | null;
+  revoked_at?: string | null;
+}
+
 export const getMyApiKey = (token: string) =>
   request<ApiKeyStatus>("GET", "/api/developer/api-key", undefined, token);
 
-export const requestApiKey = (label: string, token: string) =>
-  request<ApiKeyCreated>("POST", "/api/developer/api-key/request", { label }, token);
+export const requestApiKey = (companyName: string, description: string, token: string) =>
+  request<ApiKeyCreated>(
+    "POST",
+    "/api/developer/api-key/request",
+    { company_name: companyName, description },
+    token
+  );
 
 export interface VideoRecord {
   id: number;
@@ -109,7 +120,8 @@ export const generateVideo = (body: GenerateVideoBody, token: string) =>
 export interface DeveloperKeyAdminRow {
   id: string;
   status: "pending" | "approved" | "revoked";
-  label: string | null;
+  company_name: string | null;
+  description: string | null;
   created_at: string;
   approved_at: string | null;
   revoked_at: string | null;

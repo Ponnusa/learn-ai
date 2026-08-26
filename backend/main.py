@@ -777,6 +777,11 @@ async def lifespan(app: FastAPI):
                 SELECT 1 FROM tier_config WHERE tier = 'api_partner' AND feature = 'videos_lifetime'
             )
             """,
+            # ── Password-based developer signup (replaces magic-link for video-api) ─
+            "ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS company_name TEXT",
+            "ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS description TEXT",
+            "UPDATE api_keys SET company_name = label WHERE company_name IS NULL AND label IS NOT NULL",
+            "ALTER TABLE api_keys DROP COLUMN IF EXISTS label",
         ]:
             try:
                 await db.execute(sql)

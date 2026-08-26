@@ -2,19 +2,25 @@
 Developer API platform — powers the standalone video-api/ app (separate
 Vercel deployment). Two distinct auth models live in this one file:
 
-  - /api/developer/*   session-auth (JWT, same magic-link auth as the main
-                       app) — used by the video-api app's own UI: request a
-                       key, check its status, list/generate videos as the
-                       logged-in developer.
+  - /api/developer/*   session-auth (JWT) — used by the video-api app's own
+                       UI: sign up (email/password + company name/description,
+                       collected together at signup — see developer_signup()),
+                       log in (reuses the main app's existing
+                       POST /api/auth/login/password unchanged), check key
+                       status, list/generate videos as the logged-in developer.
   - /api/public/v1/*   API-key auth (Bearer <raw key>, hashed and looked up
                        in api_keys) — the actual public contract third-party
                        integrators call from their own code. Kept in a
                        separate, versioned namespace so it can stay stable
                        even as the internal app's routes change.
 
-A key exists the moment it's requested but is unusable (every check below
-rejects it) until a superadmin flips it to 'approved' — see admin.py's
+A key exists the moment it's created (at signup) but is unusable (every check
+below rejects it) until a superadmin flips it to 'approved' — see admin.py's
 _require_super_admin, reused here rather than a second admin auth system.
+That approval step is the real trust boundary for this product, not account
+creation — signup deliberately has no email-ownership verification step
+(no magic link), since a human reviews the company name/description before
+any key actually works either way.
 
 Video generation itself is NOT reimplemented here — both paths below reuse
 routers.videos._generate_video_bg, the exact same background pipeline the
@@ -28,11 +34,12 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from database import get_db
 from services.tier_config import get_limit
-from routers.auth import decode_jwt
+from services.scoring import init_profile
+from routers.auth import decode_jwt, _hash_password, create_jwt, _user_response
 from routers.admin import _require_super_admin
 from routers.videos import _generate_video_bg
 
@@ -101,12 +108,71 @@ async def _count_api_videos(api_key_id) -> int:
 # /api/developer/*  — session-auth, the video-api app's own UI
 # ═════════════════════════════════════════════════════════════════════════════
 
+class DeveloperSignupBody(BaseModel):
+    email: EmailStr
+    password: str
+    company_name: str
+    description: str  # what they intend to build — shown to the approver
+
+
+@developer_router.post("/signup")
+async def developer_signup(body: DeveloperSignupBody):
+    """
+    Creates the account AND the pending key request in one call — company
+    name/description are collected at signup instead of as a separate
+    dashboard step. Mirrors routers.auth.register()'s validation exactly
+    (same password rule, same duplicate-email check, same hashing) since
+    this creates a row in the same users table; login reuses
+    POST /api/auth/login/password unchanged, no new login endpoint needed.
+    """
+    if len(body.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters")
+    hashed = _hash_password(body.password)
+
+    async with get_db() as db:
+        existing = await db.fetchrow("SELECT id FROM users WHERE email = $1", body.email)
+        if existing:
+            raise HTTPException(409, "An account with this email already exists")
+        user = await db.fetchrow("""
+            INSERT INTO users (email, password_hash, account_type)
+            VALUES ($1, $2, 'api_developer')
+            RETURNING id, email, name, tier, theme, language, account_type
+        """, body.email, hashed)
+
+    try:
+        await init_profile(str(user["id"]), "intermediate")
+    except Exception as exc:
+        logger.warning("init_profile failed for developer signup %s (non-fatal): %s", user["id"], exc)
+
+    raw_key = _generate_raw_key()
+    key_hash = _hash_key(raw_key)
+    async with get_db() as db:
+        key_row = await db.fetchrow("""
+            INSERT INTO api_keys (user_id, key_hash, company_name, description, status)
+            VALUES ($1::uuid, $2, $3, $4, 'pending')
+            RETURNING id, status, created_at
+        """, user["id"], key_hash, body.company_name.strip()[:200], body.description.strip()[:2000])
+
+    resp = _user_response(user, create_jwt(str(user["id"])))
+    resp["api_key"] = {
+        "id": str(key_row["id"]),
+        "status": key_row["status"],
+        "created_at": key_row["created_at"],
+        "api_key": raw_key,   # shown ONCE — never retrievable again after this response
+        "masked": _mask_key(raw_key),
+    }
+    return resp
+
+
 class RequestKeyBody(BaseModel):
-    label: str  # company name / use-case note shown to the approver
+    company_name: str
+    description: str
 
 
 @developer_router.post("/api-key/request")
 async def request_api_key(body: RequestKeyBody, authorization: str = Header(...)):
+    """Follow-up path only (e.g. a revoked key needing a fresh request) —
+    signup already creates the first key, so this is not the common case."""
     caller_id = await _require_session_user(authorization)
     async with get_db() as db:
         existing = await db.fetchrow(
@@ -119,10 +185,10 @@ async def request_api_key(body: RequestKeyBody, authorization: str = Header(...)
         raw_key = _generate_raw_key()
         key_hash = _hash_key(raw_key)
         row = await db.fetchrow("""
-            INSERT INTO api_keys (user_id, key_hash, label, status)
-            VALUES ($1::uuid, $2, $3, 'pending')
+            INSERT INTO api_keys (user_id, key_hash, company_name, description, status)
+            VALUES ($1::uuid, $2, $3, $4, 'pending')
             RETURNING id, status, created_at
-        """, caller_id, key_hash, body.label.strip()[:200])
+        """, caller_id, key_hash, body.company_name.strip()[:200], body.description.strip()[:2000])
 
     return {
         "id": str(row["id"]),
@@ -138,7 +204,7 @@ async def get_my_api_key(authorization: str = Header(...)):
     caller_id = await _require_session_user(authorization)
     async with get_db() as db:
         row = await db.fetchrow(
-            "SELECT id, status, label, created_at, approved_at, revoked_at FROM api_keys "
+            "SELECT id, status, company_name, description, created_at, approved_at, revoked_at FROM api_keys "
             "WHERE user_id = $1::uuid ORDER BY created_at DESC LIMIT 1",
             caller_id,
         )
@@ -219,7 +285,7 @@ async def list_developer_keys(authorization: str = Header(...)):
     await _require_super_admin(authorization)
     async with get_db() as db:
         rows = await db.fetch("""
-            SELECT k.id, k.status, k.label, k.created_at, k.approved_at, k.revoked_at,
+            SELECT k.id, k.status, k.company_name, k.description, k.created_at, k.approved_at, k.revoked_at,
                    u.email, u.name,
                    (SELECT COUNT(*) FROM videos v WHERE v.api_key_id = k.id) AS videos_generated
             FROM api_keys k

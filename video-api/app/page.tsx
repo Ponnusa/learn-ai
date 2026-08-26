@@ -17,7 +17,7 @@ export default function HomePage() {
 
       <div className="flex gap-3 mb-16">
         <Link
-          href="/login"
+          href="/signup"
           className="px-5 py-2.5 rounded-lg font-medium"
           style={{ background: "var(--accent)", color: "#04201C" }}
         >

@@ -11,7 +11,8 @@ function DashboardInner() {
   const [key, setKey] = useState<ApiKeyStatus | null>(null);
   const [videos, setVideos] = useState<VideoRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [label, setLabel] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [description, setDescription] = useState("");
   const [requesting, setRequesting] = useState(false);
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +37,7 @@ function DashboardInner() {
     setError(null);
     setRequesting(true);
     try {
-      const res = await requestApiKey(label, token);
+      const res = await requestApiKey(companyName, description, token);
       setCreated(res);
       await load();
     } catch (err) {
@@ -70,13 +71,21 @@ function DashboardInner() {
         {!key?.has_key ? (
           <form onSubmit={handleRequest} className="flex flex-col gap-3">
             <p className="text-sm" style={{ color: "var(--text-soft)" }}>
-              Tell us who you are and what you&apos;re building — a superadmin reviews every request before it&apos;s usable.
+              No active key on this account — request one below. A superadmin reviews every request before it&apos;s usable.
             </p>
+            <input
+              required
+              placeholder="Company name"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              className="rounded-lg border px-3 py-2.5 text-sm outline-none"
+              style={{ borderColor: "var(--border)", background: "var(--surface-soft)", color: "var(--text)" }}
+            />
             <textarea
               required
-              placeholder="Company name and intended use…"
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
+              placeholder="What are you building?"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               rows={3}
               className="rounded-lg border px-3 py-2.5 text-sm outline-none resize-none"
               style={{ borderColor: "var(--border)", background: "var(--surface-soft)", color: "var(--text)" }}
@@ -96,7 +105,7 @@ function DashboardInner() {
             <div>
               <StatusPill status={key.status!} />
               <p className="text-sm mt-2" style={{ color: "var(--text-faint)" }}>
-                {key.label}
+                {key.company_name}
               </p>
             </div>
             {key.status === "pending" && (

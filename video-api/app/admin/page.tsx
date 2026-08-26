@@ -60,13 +60,13 @@ function AdminInner() {
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="font-medium">{k.name || k.email}</span>
+                  <span className="font-medium">{k.company_name || k.name || k.email}</span>
                   <StatusPill status={k.status} />
                 </div>
                 <p className="text-xs mb-2" style={{ color: "var(--text-faint)" }}>
                   {k.email} · requested {new Date(k.created_at).toLocaleDateString()} · {k.videos_generated} video(s) generated
                 </p>
-                <p className="text-sm" style={{ color: "var(--text-soft)" }}>{k.label}</p>
+                <p className="text-sm" style={{ color: "var(--text-soft)" }}>{k.description}</p>
               </div>
               <div className="flex gap-2 shrink-0">
                 {k.status !== "approved" && (
