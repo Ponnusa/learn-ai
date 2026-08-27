@@ -192,6 +192,14 @@ _LANGUAGE_NAMES = {
     "en": "English", "fi": "Finnish", "sv": "Swedish", "es": "Spanish", "fr": "French", "no": "Norwegian",
 }
 
+# The Ken Burns effect below zooms in around the center, so the outer edge of
+# the frame is progressively cropped out as the clip plays. Labels must stay
+# inside the region that's still visible at max zoom, plus a little extra
+# buffer since label text extends away from its anchor point. Keep this in
+# sync with KEN_BURNS_MAX_ZOOM.
+KEN_BURNS_MAX_ZOOM = 1.08
+LABEL_SAFE_MARGIN = round((1 - 1 / KEN_BURNS_MAX_ZOOM) / 2 + 0.03, 3)
+
 
 def plan_labels(image_bytes: bytes, segment: Segment) -> list:
     """
@@ -215,11 +223,13 @@ LANGUAGE: label text MUST be written in {lang_name}, correctly spelled — never
 English unless the language IS English.
 
 Return ONLY valid JSON, no markdown fences:
-{{"labels": [{{"text": "<short label, max 4 words, in {lang_name}>", "x": <0.0-1.0>, "y": <0.0-1.0>, "anchor": "left|right|center"}}]}}
+{{"labels": [{{"text": "<short label, max 4 words, in {lang_name}>", "x": <{LABEL_SAFE_MARGIN}-{1 - LABEL_SAFE_MARGIN}>, "y": <{LABEL_SAFE_MARGIN}-{1 - LABEL_SAFE_MARGIN}>, "anchor": "left|right|center"}}]}}
 x/y is the point in the image (0,0 = top-left, 1,1 = bottom-right) the label
 should sit next to — e.g. the tip of an arrow, or the center of a part.
 anchor says which side of that point to draw the text on, so it doesn't cover
-the element itself."""
+the element itself. IMPORTANT: this image slowly zooms in for video, cropping
+out the outer edge of the frame — keep every x/y within the range above so
+labels never end up in the cropped-away area."""
 
     try:
         client = _get_genai_client()
@@ -276,8 +286,8 @@ def render_labels_onto_image(image_path: str, labels: list) -> None:
         if not text:
             continue
         try:
-            x = max(0.0, min(1.0, float(label.get("x", 0.5)))) * img.width
-            y = max(0.0, min(1.0, float(label.get("y", 0.5)))) * img.height
+            x = max(LABEL_SAFE_MARGIN, min(1 - LABEL_SAFE_MARGIN, float(label.get("x", 0.5)))) * img.width
+            y = max(LABEL_SAFE_MARGIN, min(1 - LABEL_SAFE_MARGIN, float(label.get("y", 0.5)))) * img.height
         except (TypeError, ValueError):
             continue
         anchor = label.get("anchor", "left")
@@ -320,7 +330,7 @@ def make_ken_burns_clip(
     width, height = _RESOLUTIONS.get(aspect_ratio, _RESOLUTIONS["16:9"])
     fade_duration = min(0.5, duration_seconds / 4)
     total_frames = max(1, int(duration_seconds * fps))
-    zoom_expr = "min(zoom+0.0008,1.15)"
+    zoom_expr = f"min(zoom+0.0008,{KEN_BURNS_MAX_ZOOM})"
     # zoompan's x/y default to 0 (top-left corner) when unset, so the crop
     # window drifts toward the top-left as zoom increases instead of staying
     # on the subject. Keep the crop centered at every zoom level instead.
