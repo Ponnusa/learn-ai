@@ -16,8 +16,9 @@
 
 param(
     [Parameter(Mandatory = $true)][int]$VideoId,
-    [Parameter(Mandatory = $true)][string]$Email,
-    [Parameter(Mandatory = $true)][string]$Password,
+    [string]$Email,
+    [string]$Password,
+    [string]$Token,
     [string]$BackendUrl = $(if ($env:VR_EXPERIMENT_BACKEND_URL) { $env:VR_EXPERIMENT_BACKEND_URL } else { "http://localhost:8000" }),
     [string]$AnthropicApiKey = $env:ANTHROPIC_API_KEY,
     [string]$Model = "claude-haiku-4-5-20251001",
@@ -50,29 +51,64 @@ function Write-Log {
 Write-Log "Output folder: $runDir"
 Write-Log "Backend: $BackendUrl  Model: $Model"
 
-# -- Step 1: log in, get a session token (reuses existing superadmin auth --
-# this endpoint is gated the same way the rest of /api/admin is) -----------
-Write-Log "Logging in as $Email ..."
-try {
+# -- Step 1: get a session token. The backend gates this endpoint exactly
+# like the rest of /api/admin (superadmin-only JWT check) -- there's no way
+# for it to know "this is you" without one. The token is valid 30 days
+# (JWT_EXPIRE_HOURS=720) and gets cached locally after the first login, so
+# -Email/-Password are only needed once (or again after the cache expires).
+$tokenCachePath = Join-Path $OutDir ".token"
+
+function Get-FreshTokenViaLogin {
+    if (-not $Email -or -not $Password) {
+        Write-Log "No cached/valid token, and no -Email/-Password supplied to log in." "ERROR"
+        exit 1
+    }
+    Write-Log "Logging in as $Email ..."
     $loginBody = @{ email = $Email; password = $Password } | ConvertTo-Json
     $loginResp = Invoke-RestMethod -Uri "$BackendUrl/api/auth/login/password" -Method Post `
         -ContentType "application/json" -Body $loginBody
-    $token = $loginResp.token
-    if (-not $token) { throw "login response had no token" }
-} catch {
-    Write-Log "Login failed: $($_.Exception.Message)" "ERROR"
-    exit 1
+    if (-not $loginResp.token) { throw "login response had no token" }
+    Write-Log "Login OK (account_type=$($loginResp.user.account_type))"
+    $loginResp.token | Out-File $tokenCachePath -Encoding utf8 -NoNewline
+    return $loginResp.token
 }
-Write-Log "Login OK (account_type=$($loginResp.user.account_type))"
 
-# -- Step 2: fetch the video + segments (read-only) --------------------------
+if ($Token) {
+    Write-Log "Using token passed via -Token."
+} elseif (Test-Path $tokenCachePath) {
+    Write-Log "Using cached token from a previous login ($tokenCachePath)."
+    $Token = (Get-Content $tokenCachePath -Raw).Trim()
+} else {
+    try {
+        $Token = Get-FreshTokenViaLogin
+    } catch {
+        Write-Log "Login failed: $($_.Exception.Message)" "ERROR"
+        exit 1
+    }
+}
+
+# -- Step 2: fetch the video + segments (read-only). If the token turns out
+# to be expired/invalid, log in fresh once and retry, rather than failing. --
 Write-Log "Fetching video $VideoId ..."
 try {
     $video = Invoke-RestMethod -Uri "$BackendUrl/api/admin/vr-experiment/video/$VideoId" -Method Get `
-        -Headers @{ Authorization = "Bearer $token" }
+        -Headers @{ Authorization = "Bearer $Token" }
 } catch {
-    Write-Log "Fetch failed: $($_.Exception.Message)" "ERROR"
-    exit 1
+    $statusCode = $_.Exception.Response.StatusCode.value__
+    if ($statusCode -eq 401 -or $statusCode -eq 403) {
+        Write-Log "Token rejected (expired/invalid) - trying a fresh login." "WARN"
+        try {
+            $Token = Get-FreshTokenViaLogin
+            $video = Invoke-RestMethod -Uri "$BackendUrl/api/admin/vr-experiment/video/$VideoId" -Method Get `
+                -Headers @{ Authorization = "Bearer $Token" }
+        } catch {
+            Write-Log "Fetch failed after re-login: $($_.Exception.Message)" "ERROR"
+            exit 1
+        }
+    } else {
+        Write-Log "Fetch failed: $($_.Exception.Message)" "ERROR"
+        exit 1
+    }
 }
 $video | ConvertTo-Json -Depth 10 | Out-File (Join-Path $runDir "video_raw.json") -Encoding utf8
 Write-Log "Fetched $($video.segments.Count) segment(s) for video $VideoId ('$($video.prompt)')"
