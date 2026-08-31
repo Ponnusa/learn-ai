@@ -11,6 +11,7 @@ from config import settings
 from routers import auth, sessions, chat, videos, quizzes, uploads, studysets, images
 from routers import teacher_auth, institutions, admin, classrooms, courses, students, messages, assignments, dqb, lab_sheets
 from routers import school_admin
+from routers import vr_experiment
 from routers.developer_api import developer_router, public_router, admin_dev_router, media_router
 
 
@@ -875,6 +876,7 @@ app.include_router(assignments.router)
 app.include_router(dqb.router)
 app.include_router(lab_sheets.router)
 app.include_router(school_admin.router)
+app.include_router(vr_experiment.router)
 app.include_router(developer_router)
 app.include_router(public_router)
 app.include_router(admin_dev_router)
