@@ -1,0 +1,67 @@
+<!doctype html>
+<!--
+  Generic multi-segment glTF viewer template. Copy this file, fill in the
+  SEGMENTS array below, and serve the containing folder with:
+    python -m http.server <port>
+  (pick a port not already used by another running viewer on this machine).
+
+  Uses Google's <model-viewer> web component - no build step, no bundler.
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>glTF segment viewer</title>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; background: #0D1117; font-family: sans-serif; }
+  #tabs { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; gap: 6px; padding: 10px; background: #0D1117cc; flex-wrap: wrap; }
+  #tabs button { background: #1a1f26; color: #ccc; border: 1px solid #333; border-radius: 6px; padding: 6px 12px; cursor: pointer; font-size: 12px; }
+  #tabs button.active { background: #2DD4BF; color: #04201C; border-color: #2DD4BF; font-weight: bold; }
+  model-viewer { width: 100%; height: 100%; }
+</style>
+</head>
+<body>
+  <div id="tabs"></div>
+  <model-viewer
+    id="mv"
+    camera-controls
+    autoplay
+    camera-orbit="0deg 90deg 70%"
+    field-of-view="30deg"
+    ar
+    xr-environment
+    shadow-intensity="1"
+    exposure="1"
+    style="background-color:#0D1117">
+  </model-viewer>
+
+  <script>
+    // Fill in one entry per segment: { label: "shown on the tab", src: "seg-1.glb" }
+    const SEGMENTS = [
+      { label: "Segment 1", src: "seg-1.glb" },
+      { label: "Segment 2", src: "seg-2.glb" },
+    ];
+
+    // IMPORTANT: do not add the `auto-rotate` attribute to <model-viewer>
+    // above if any segment is flat/2D content (a billboard image, or a
+    // top-down schematic). Orbiting the camera around a paper-thin plane
+    // makes it go edge-on and nearly vanish for part of every spin cycle -
+    // looks exactly like "fast, unclear, zoomed out". Only enable
+    // auto-rotate for genuinely 3D content.
+
+    const mv = document.getElementById('mv');
+    const tabs = document.getElementById('tabs');
+    SEGMENTS.forEach((seg, i) => {
+      const btn = document.createElement('button');
+      btn.textContent = seg.label;
+      if (i === 0) { btn.classList.add('active'); mv.src = seg.src; }
+      btn.addEventListener('click', () => {
+        tabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        mv.src = seg.src;
+      });
+      tabs.appendChild(btn);
+    });
+  </script>
+</body>
+</html>
