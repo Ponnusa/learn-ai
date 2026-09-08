@@ -345,11 +345,16 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     # in prompt_builder.py) before the student ever sees the reply. Always
     # attempted — the model decides per-turn whether it's scaffolding (N>0)
     # or answering directly (N=0), there's no mode flag gating this anymore.
+    # Not anchored to the end — the prompt asks for it there, but models
+    # occasionally add a trailing courtesy line after it anyway. Searching
+    # anywhere and removing just the matched substring (rather than
+    # truncating everything after it) is robust to that without risking
+    # dropping real content the student should see.
     ladder_depth = None
-    ladder_match = re.search(r"<!--LADDER:(\d+)-->\s*$", reply_text)
+    ladder_match = re.search(r"<!--LADDER:(\d+)-->", reply_text)
     if ladder_match:
         ladder_depth = int(ladder_match.group(1))
-        reply_text = reply_text[:ladder_match.start()].rstrip()
+        reply_text = (reply_text[:ladder_match.start()] + reply_text[ladder_match.end():]).strip()
 
     # ── 6. Generate suggestion chips (background-ish, fast) ──────────────────
     chips = await generate_chips(reply_text, req.language)

@@ -241,10 +241,12 @@ async def build_chat_prompt(
             teks_descs = await get_teks_descriptions(curriculum.get("teks_codes") or [])
             prompt += build_curriculum_block(curriculum, teks_descs)
 
-    prompt += ADAPTIVE_TEACHING_INSTRUCTIONS
-
     if not user_id:
-        return prompt  # anonymous: base + language + curriculum only
+        # ADAPTIVE_TEACHING_INSTRUCTIONS is appended LAST on every return path
+        # (not once, earlier, before personalisation) — its hidden marker
+        # instruction says "the very last line", and models follow the most
+        # recent instruction most reliably, so it needs to actually be last.
+        return prompt + ADAPTIVE_TEACHING_INSTRUCTIONS  # anonymous: base + language + curriculum only
 
     async with get_db() as db:
         profile = await db.fetchrow(
@@ -252,7 +254,7 @@ async def build_chat_prompt(
         )
 
     if not profile:
-        return prompt  # new registered user: base + language + curriculum only
+        return prompt + ADAPTIVE_TEACHING_INSTRUCTIONS  # new registered user: base + language + curriculum only
 
     # ── Score-based level instruction ──────────────────────────────────────
     score = (profile["skill_scores"] or {}).get(subject or "General", 50)
@@ -293,7 +295,7 @@ async def build_chat_prompt(
         personalisation += f"\n{modifier}"
     personalisation += misc_block
 
-    return prompt + personalisation
+    return prompt + personalisation + ADAPTIVE_TEACHING_INSTRUCTIONS
 
 
 STUDYSET_SYSTEM_PROMPT_TEMPLATE = (
