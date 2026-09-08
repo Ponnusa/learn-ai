@@ -170,8 +170,8 @@ async def debug_prompt(req: ChatRequest):
             """, conv_id)
             rows = list(reversed(rows))
             history = rows
-            # Latest assistant message's stored ladder depth (debug only — see
-            # ADAPTIVE_TEACHING_INSTRUCTIONS' hidden <!--LADDER:N--> marker,
+            # Latest assistant message's stored waiting-state (debug only —
+            # see ADAPTIVE_TEACHING_INSTRUCTIONS' hidden [[WAITING:N]] marker,
             # parsed out and stored in metadata.ladder_depth in send_message()).
             for r in reversed(rows):
                 if r["role"] == "assistant":
@@ -239,11 +239,27 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         # Keep last 6 messages verbatim; older content lives in conv_summary.
         # (12 → 6 because the summary already carries all earlier context.)
         history = await db.fetch("""
-            SELECT role, content FROM messages
+            SELECT role, content, metadata FROM messages
             WHERE conversation_id = $1
             ORDER BY created_at DESC LIMIT 6
         """, conv_id)
         history = list(reversed(history))
+
+        # Sticky fallback for the "waiting on an answer" marker: if THIS
+        # turn's reply doesn't include it (the model drops it occasionally,
+        # especially past the opening question of a chain), carry forward
+        # the previous assistant turn's value instead of defaulting to
+        # "not waiting" — a single missed marker shouldn't flip the UI state
+        # back on mid-chain. Only an explicit [[WAITING:0]] actually clears it.
+        prev_ladder_depth = None
+        for h in reversed(history):
+            if h["role"] == "assistant":
+                meta = h["metadata"]
+                if isinstance(meta, str):
+                    try:    meta = json.loads(meta)
+                    except: meta = {}
+                prev_ladder_depth = (meta or {}).get("ladder_depth")
+                break
 
         # Fetch diagram knowledge models for this conversation (for AI context)
         diagram_rows = await db.fetch("""
@@ -341,20 +357,25 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     )
     reply_text = html.unescape(ai_resp.choices[0].message.content or "")
 
-    # Strip the hidden <!--LADDER:N--> marker (see ADAPTIVE_TEACHING_INSTRUCTIONS
+    # Strip the hidden [[WAITING:N]] marker (see ADAPTIVE_TEACHING_INSTRUCTIONS
     # in prompt_builder.py) before the student ever sees the reply. Always
-    # attempted — the model decides per-turn whether it's scaffolding (N>0)
-    # or answering directly (N=0), there's no mode flag gating this anymore.
-    # Not anchored to the end — the prompt asks for it there, but models
-    # occasionally add a trailing courtesy line after it anyway. Searching
-    # anywhere and removing just the matched substring (rather than
-    # truncating everything after it) is robust to that without risking
-    # dropping real content the student should see.
-    ladder_depth = None
-    ladder_match = re.search(r"<!--LADDER:(\d+)-->", reply_text)
+    # attempted — the model decides per-turn whether it's waiting on the
+    # student's answer (1) or gave a complete answer (0), no mode flag gates
+    # this. Not anchored to the end — the prompt asks for it there, but
+    # models occasionally add a trailing courtesy line after it anyway.
+    # Searching anywhere and removing just the matched substring (rather
+    # than truncating everything after it) is robust to that without
+    # risking dropping real content the student should see.
+    ladder_match = re.search(r"\[\[WAITING:(\d+)\]\]", reply_text)
     if ladder_match:
         ladder_depth = int(ladder_match.group(1))
         reply_text = (reply_text[:ladder_match.start()] + reply_text[ladder_match.end():]).strip()
+    else:
+        # Marker missing this turn (model compliance isn't 100% reliable
+        # turn-to-turn) — carry forward the previous turn's value rather
+        # than assuming "not waiting", so one missed marker doesn't flip
+        # the UI back to showing the toolbar mid-chain.
+        ladder_depth = prev_ladder_depth
 
     # ── 6. Generate suggestion chips (background-ish, fast) ──────────────────
     chips = await generate_chips(reply_text, req.language)

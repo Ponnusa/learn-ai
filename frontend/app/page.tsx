@@ -53,10 +53,10 @@ export default function HomePage() {
   const [explanationLang, setExplanationLang] = useState<string | null>(null);
   // Debug build only — see ?debug=1. The chat is always adaptive now (see
   // ADAPTIVE_TEACHING_INSTRUCTIONS in backend/services/prompt_builder.py) —
-  // this just surfaces the model's live ladder-depth self-report (its
-  // hidden <!--LADDER:N--> marker) so you can watch it decide, per turn,
-  // whether it's scaffolding or answering directly. Never shown to real
-  // students by default.
+  // this just surfaces the model's live waiting-state self-report (its
+  // hidden [[WAITING:N]] marker, still exposed to the frontend as
+  // ladder_depth) so you can watch it decide, per turn, whether it's
+  // scaffolding or answering directly. Never shown to real students by default.
   const [debugUI,  setDebugUI]  = useState(false);
   const [ladderDepth, setLadderDepth] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
