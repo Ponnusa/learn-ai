@@ -808,6 +808,8 @@ async def lifespan(app: FastAPI):
                 SELECT 1 FROM tier_config WHERE tier_config.tier = v.tier AND tier_config.feature = v.feature
             )
             """,
+            # ── Conversation chat mode (direct | exploratory) ──────────────────
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'direct'",
         ]:
             try:
                 await db.execute(sql)

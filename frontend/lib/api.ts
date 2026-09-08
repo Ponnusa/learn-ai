@@ -102,8 +102,8 @@ export const getSessionUsage = (sessionId: string) =>
   );
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
-export const createConversation = (userId?: string, sessionId?: string, token?: string) =>
-  post<{ conversation_id: string }>('/api/chat/conversations', { user_id: userId, session_id: sessionId }, token);
+export const createConversation = (userId?: string, sessionId?: string, token?: string, mode?: 'direct' | 'exploratory') =>
+  post<{ conversation_id: string }>('/api/chat/conversations', { user_id: userId, session_id: sessionId, mode }, token);
 
 export const listConversations = (userId?: string, sessionId?: string, token?: string) =>
   get<any[]>(`/api/chat/conversations?${userId ? `user_id=${userId}` : `session_id=${sessionId}`}`, token);
@@ -120,6 +120,8 @@ type DebugPromptResponse = {
   history_count: number;
   conversation_id: string | null;
   subject?: string | null;
+  mode?: 'direct' | 'exploratory';
+  ladder_depth?: number | null;
 };
 
 export const debugChatPrompt = (data: {
@@ -147,12 +149,15 @@ export const sendMessage = (data: {
   session_id?: string;
   language?: string;
   explanation_language?: string;
+  mode?: 'direct' | 'exploratory';
 }, token?: string) => post<{
   conversation_id: string;
   message_id: string;
   reply: string;
   chips: string[];
   subject: { subject: string; subtopic: string; icon: string } | null;
+  mode?: 'direct' | 'exploratory';
+  ladder_depth?: number | null;
 }>('/api/chat/send', data, token);
 
 export async function getChatMessageAudio(messageId: string, language = 'en'): Promise<Blob> {

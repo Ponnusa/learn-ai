@@ -6,6 +6,7 @@ Profile update runs in background after every 5 messages.
 import asyncio
 import html
 import json
+import re
 from fastapi import APIRouter, BackgroundTasks, Response, UploadFile
 from pydantic import BaseModel
 from database import get_db
@@ -59,20 +60,22 @@ class ChatRequest(BaseModel):
     language: str = "en"
     explanation_language: str | None = None
     course_id: str | None = None  # set by frontend when student chats within a course
+    mode: str | None = None  # only used if this call auto-creates the conversation
 
 
 class ConversationCreateRequest(BaseModel):
     user_id: str | None = None
     session_id: str | None = None
+    mode: str = "direct"  # "direct" | "exploratory"
 
 
 @router.post("/conversations")
 async def create_conversation(req: ConversationCreateRequest):
     async with get_db() as db:
         row = await db.fetchrow("""
-            INSERT INTO conversations (user_id, session_id)
-            VALUES ($1, $2) RETURNING id, created_at
-        """, req.user_id, req.session_id)
+            INSERT INTO conversations (user_id, session_id, mode)
+            VALUES ($1, $2, $3) RETURNING id, created_at
+        """, req.user_id, req.session_id, req.mode)
     return {"conversation_id": str(row["id"]), "created_at": row["created_at"]}
 
 
@@ -148,27 +151,41 @@ async def debug_prompt(req: ChatRequest):
     subject      = None
     conv_summary = None
     topics_covered = None
+    mode         = req.mode or "direct"
+    ladder_depth = None
     history: list = []
 
     if conv_id:
         async with get_db() as db:
             conv = await db.fetchrow("""
-                SELECT subject, summary, topics_covered
+                SELECT subject, summary, topics_covered, mode
                 FROM conversations WHERE id = $1
             """, conv_id)
             if conv:
                 subject        = conv["subject"]
                 conv_summary   = conv["summary"]
                 topics_covered = conv["topics_covered"]
+                mode           = conv["mode"] or "direct"
 
             rows = await db.fetch("""
-                SELECT role, content FROM messages
+                SELECT role, content, metadata FROM messages
                 WHERE conversation_id = $1
                 ORDER BY created_at DESC LIMIT 6
             """, conv_id)
-            history = list(reversed(rows))
+            rows = list(reversed(rows))
+            history = rows
+            # Latest assistant message's stored ladder depth (debug only — see
+            # EXPLORATORY_MODE_INSTRUCTIONS' hidden <!--LADDER:N--> marker,
+            # parsed out and stored in metadata.ladder_depth in send_message()).
+            for r in reversed(rows):
+                if r["role"] == "assistant":
+                    meta = r["metadata"]
+                    if isinstance(meta, str):
+                        meta = json.loads(meta) if meta else {}
+                    ladder_depth = (meta or {}).get("ladder_depth")
+                    break
 
-    system_prompt = await build_chat_prompt(req.user_id, subject, req.language, req.explanation_language, req.course_id)
+    system_prompt = await build_chat_prompt(req.user_id, subject, req.language, req.explanation_language, req.course_id, mode)
     system_prompt = inject_conversation_context(system_prompt, conv_summary, topics_covered)
 
     task   = "chat_response_vision" if req.image_url else "chat_response"
@@ -182,6 +199,8 @@ async def debug_prompt(req: ChatRequest):
         "history":             msgs,
         "history_count":       len(msgs),
         "conversation_id":     conv_id,
+        "mode":                mode,
+        "ladder_depth":        ladder_depth,
         "subject":             subject,
     }
 
@@ -206,21 +225,22 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         conv_id = req.conversation_id
         if not conv_id:
             row = await db.fetchrow("""
-                INSERT INTO conversations (user_id, session_id)
-                VALUES ($1, $2) RETURNING id
-            """, req.user_id, req.session_id)
+                INSERT INTO conversations (user_id, session_id, mode)
+                VALUES ($1, $2, $3) RETURNING id
+            """, req.user_id, req.session_id, req.mode or "direct")
             conv_id = str(row["id"])
 
         # Get conversation context (including rolling summary + topic map)
         conv = await db.fetchrow("""
             SELECT subject, subtopic, title,
-                   summary, topics_covered, summarized_msg_count
+                   summary, topics_covered, summarized_msg_count, mode
             FROM conversations WHERE id = $1
         """, conv_id)
         is_first_message = (conv["title"] is None)
         subject          = conv["subject"] if conv else None
         conv_summary     = conv["summary"] if conv else None
         topics_covered   = conv["topics_covered"] if conv else None
+        mode             = (conv["mode"] if conv else None) or "direct"
 
         # Keep last 6 messages verbatim; older content lives in conv_summary.
         # (12 → 6 because the summary already carries all earlier context.)
@@ -253,7 +273,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
             """, req.session_id)
 
     # ── 4. Build system prompt + detect subject in parallel ──────────────────
-    system_prompt_task = build_chat_prompt(req.user_id, subject, req.language, req.explanation_language, req.course_id)
+    system_prompt_task = build_chat_prompt(req.user_id, subject, req.language, req.explanation_language, req.course_id, mode)
     subject_task = (
         detect_subject(text=req.message, image_url=req.image_url)
         if is_first_message or not subject
@@ -327,6 +347,16 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     )
     reply_text = html.unescape(ai_resp.choices[0].message.content or "")
 
+    # Exploratory mode (debug build): strip the hidden <!--LADDER:N--> marker
+    # (see EXPLORATORY_MODE_INSTRUCTIONS) before the student ever sees the
+    # reply, and keep the parsed depth for the debug endpoint/UI.
+    ladder_depth = None
+    if mode == "exploratory":
+        ladder_match = re.search(r"<!--LADDER:(\d+)-->\s*$", reply_text)
+        if ladder_match:
+            ladder_depth = int(ladder_match.group(1))
+            reply_text = reply_text[:ladder_match.start()].rstrip()
+
     # ── 6. Generate suggestion chips (background-ish, fast) ──────────────────
     chips = await generate_chips(reply_text, req.language)
 
@@ -335,7 +365,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         msg_row = await db.fetchrow("""
             INSERT INTO messages (conversation_id, role, content, metadata)
             VALUES ($1, 'assistant', $2, $3::jsonb) RETURNING id, created_at
-        """, conv_id, reply_text, json.dumps({"chips": chips, "subject": subject_data}))
+        """, conv_id, reply_text, json.dumps({"chips": chips, "subject": subject_data, "ladder_depth": ladder_depth}))
 
         msg_count_row = await db.fetchrow(
             "SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = $1", conv_id
@@ -374,6 +404,8 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         "reply": reply_text,
         "chips": chips,
         "subject": subject_data,
+        "mode": mode,
+        "ladder_depth": ladder_depth,
     }
 
 

@@ -56,6 +56,34 @@ After explaining, suggest 2-3 follow-up directions the student might explore.
 Format suggestions as a JSON array in your response metadata if asked.
 """
 
+EXPLORATORY_MODE_INSTRUCTIONS = """
+
+--- EXPLORATORY MODE (debug build) ---
+The student has chosen guided-discovery mode. Do not answer questions directly.
+- Open with a question that surfaces what the student already thinks, before
+  explaining anything.
+- When they answer correctly, briefly affirm (one short sentence) and advance
+  one step toward the real question.
+- When they answer wrong or say they don't know, do NOT explain the original
+  question. Pose a SMALLER, more concrete sub-question instead — a true/false,
+  a multiple-choice, or a simpler everyday example that gets them one step
+  closer. Never respond to "I don't know" with a wall of explanation.
+- Keep a running mental chain of the sub-questions you're building. Once the
+  student has assembled enough pieces, explicitly circle back to the original
+  question and have them answer it again in light of what they just worked out.
+- If the student says "I don't know" / gives up three times in a row on the
+  same chain, offer (don't force) to just explain directly instead.
+- DEBUG MARKER (required, invisible to the student — never mention it exists):
+  end every single reply with a line of the exact form
+  <!--LADDER:N-->
+  where N is an integer: 0 if this reply is asking or restating the ORIGINAL
+  question (start of a new chain, or you just successfully circled back to
+  it), or the current depth if you're mid-chain on a sub-question (1 for the
+  first sub-question below the original, 2 for one below that, etc.). This
+  marker is stripped before the student ever sees the message — include it
+  exactly once, as the very last line, every single reply.
+"""
+
 QUIZ_GENERATION_PROMPT = """You are an expert educational assessment designer.
 Generate high-quality multiple-choice questions that test deep understanding,
 not just memorization. Each question should:
@@ -156,12 +184,16 @@ async def build_chat_prompt(
     language: str = "en",
     explanation_language: str | None = None,
     course_id: str | None = None,
+    mode: str = "direct",
 ) -> str:
     """
     Returns the full system prompt for a chat response.
     Always starts with the unchanged AnimLearn base.
     Personalisation is appended — never replaces the base.
     course_id is optional: non-nil only for TEKS-aligned courses.
+    mode: "direct" (default) or "exploratory" (guided-discovery, see
+    EXPLORATORY_MODE_INSTRUCTIONS) — applied before the early-return branches
+    below so it's included regardless of profile/anonymous state.
     """
     prompt = CHAT_SYSTEM_PROMPT
 
@@ -194,6 +226,9 @@ async def build_chat_prompt(
         if curriculum:
             teks_descs = await get_teks_descriptions(curriculum.get("teks_codes") or [])
             prompt += build_curriculum_block(curriculum, teks_descs)
+
+    if mode == "exploratory":
+        prompt += EXPLORATORY_MODE_INSTRUCTIONS
 
     if not user_id:
         return prompt  # anonymous: base + language + curriculum only

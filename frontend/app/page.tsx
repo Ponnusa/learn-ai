@@ -50,6 +50,13 @@ export default function HomePage() {
   const [videoByMsgId, setVideoByMsgId]     = useState<Record<string, number>>({});
   const [showNudge,      setShowNudge]        = useState(false);
   const [explanationLang, setExplanationLang] = useState<string | null>(null);
+  // Debug build only — see ?mode=exploratory&debug=1. chatMode picks the
+  // system-prompt strategy (backend/services/prompt_builder.py); debugUI just
+  // shows a badge with the current mode + ladder depth (see chat.py's hidden
+  // <!--LADDER:N--> marker). Never shown to real students by default.
+  const [chatMode, setChatMode] = useState<'direct' | 'exploratory'>('direct');
+  const [debugUI,  setDebugUI]  = useState(false);
+  const [debugInfo, setDebugInfo] = useState<{ mode?: string; ladder_depth?: number | null }>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }        = useTranslation();
@@ -78,6 +85,11 @@ export default function HomePage() {
     const params    = new URLSearchParams(window.location.search);
     const convParam = params.get('conv');
     const msgParam  = params.get('msg');
+
+    // Debug build only — ?mode=exploratory&debug=1
+    if (params.get('mode') === 'exploratory') setChatMode('exploratory');
+    if (params.get('debug') === '1') setDebugUI(true);
+
     if (!convParam) return;
     handleConversationSelect(convParam).then(() => {
       if (!msgParam) return;
@@ -241,11 +253,13 @@ export default function HomePage() {
         language,
         image_url: imageUrl,
         explanation_language: explanationLang ?? undefined,
+        mode: chatMode,
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);
       setActiveConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
+      if (debugUI) setDebugInfo({ mode: res.mode, ladder_depth: res.ladder_depth });
 
       // Prepend newly-created conversation to the shared sidebar list
       if (!conversationId) {
@@ -445,10 +459,12 @@ export default function HomePage() {
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
         language,
+        mode:            chatMode,
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
+      if (debugUI) setDebugInfo({ mode: res.mode, ladder_depth: res.ladder_depth });
 
       // Prepend newly-created conversation to the shared sidebar list (PDF ask)
       if (!conversationId) {
@@ -493,6 +509,15 @@ export default function HomePage() {
   return (
     <div className="flex h-screen overflow-hidden">
       <HomeTour />
+      {debugUI && (
+        <div
+          className="fixed bottom-3 right-3 z-50 rounded-lg bg-black/80 px-3 py-2 text-xs font-mono text-white shadow-lg"
+          title="Debug build only (?mode=exploratory&debug=1) — never shown to real students"
+        >
+          <div>mode: <strong>{chatMode}</strong></div>
+          <div>ladder_depth: <strong>{debugInfo.ladder_depth ?? '—'}</strong></div>
+        </div>
+      )}
       <Sidebar
         selectedConversationId={conversationId ?? undefined}
         onNewChat={() => { setMessages([]); setConversationId(null); setActiveConversationId(null); setExplanationLang(null); }}
