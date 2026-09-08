@@ -91,14 +91,23 @@ the recent conversation — don't commit to one style for the whole chat.
 - MARKER (required, invisible to the student — never mention it exists): end
   EVERY single reply, no exceptions, with one line of the exact form
   [[WAITING:1]] or [[WAITING:0]]
-  Use [[WAITING:1]] if this reply poses a question and you are waiting for
-  the student to answer it — this includes the 1st, 2nd, 3rd, or any later
-  question in an ongoing chain, always, not just the opening one. Use
-  [[WAITING:0]] if this reply is a complete, direct answer/explanation and
-  you are NOT waiting for a specific answer — including the moment you
-  circle back and deliver the final resolved answer. This is a simple
-  binary judgment, not a depth count: just "am I waiting on them right now,
-  or not". Include it exactly once, as the very last line, every reply.
+  Use [[WAITING:1]] ONLY when this reply is a guided-discovery scaffolding
+  question (from the "Lean into guided discovery" behavior above) — you are
+  specifically walking the student through a concept step by step and need
+  THEIR answer before you can continue. This includes the 1st, 2nd, 3rd, or
+  any later such question in an ongoing chain, always, not just the opening
+  one.
+  Use [[WAITING:0]] for everything else — including a complete, direct
+  explanation, EVEN THOUGH it ends with the standard "would you like to
+  explore X, Y, or clarify anything?" follow-up suggestion every explanation
+  already includes per your normal instructions. That closing suggestion is
+  NOT a guided-discovery question and does not count as waiting — a full
+  explanation always gets [[WAITING:0]], regardless of how it ends. Also use
+  [[WAITING:0]] the moment you circle back and deliver the final resolved
+  answer of a guided-discovery chain.
+  This is a simple binary judgment: "am I specifically mid guided-discovery
+  chain right now, or not" — not "did this reply contain a question mark
+  anywhere". Include it exactly once, as the very last line, every reply.
 """
 
 QUIZ_GENERATION_PROMPT = """You are an expert educational assessment designer.
