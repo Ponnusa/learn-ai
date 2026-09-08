@@ -585,6 +585,7 @@ interface MessageBubbleProps {
   onChipClick?: (chip: string) => void;
   onMakeVisual?: (content: string, subject?: string) => void;
   onTestYourself?: (content: string, subject?: string) => void;
+  onWalkMeThrough?: (content: string) => void;
   onSimplify?: () => void;
   onGoDeeper?: () => void;
   /** Set when video generation has been triggered for this message */
@@ -596,7 +597,7 @@ interface MessageBubbleProps {
 }
 
 export function MessageBubble({
-  message, onChipClick, onMakeVisual, onTestYourself, onSimplify, onGoDeeper,
+  message, onChipClick, onMakeVisual, onTestYourself, onWalkMeThrough, onSimplify, onGoDeeper,
   videoId, onDeleteVideo, token,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
@@ -749,6 +750,14 @@ export function MessageBubble({
                              border border-indigo-500/20"
                 >
                   {t.chat.quizMe}
+                </button>
+                <button
+                  onClick={() => requireAuth(() => onWalkMeThrough?.(message.content))}
+                  className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
+                             bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
+                             border border-indigo-500/20"
+                >
+                  {t.chat.walkMeThrough}
                 </button>
                 {showGate && <SignupModal reason="feature_gate" onClose={closeGate} />}
 

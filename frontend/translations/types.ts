@@ -118,6 +118,12 @@ export interface Translation {
     sketchIt: string;
     quizMe: string;
     showExample: string;
+    walkMeThrough: string;
+    exploratoryExit: string;
+    exploratoryResolved: string;
+    exploratoryBackToChat: string;
+    exploratoryPlaceholder: string;
+    exploratorySummary: string;
     disclaimer: string;
     readingQuestion: string;
     crafting: string;

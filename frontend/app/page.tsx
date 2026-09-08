@@ -5,6 +5,7 @@ import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
 import { ChatLanguageBar } from '@/components/chat/ChatLanguageBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { ExploratoryPanel, ExploratoryResult } from '@/components/chat/ExploratoryPanel';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
 import dynamic from 'next/dynamic';
@@ -57,6 +58,10 @@ export default function HomePage() {
   const [chatMode, setChatMode] = useState<'direct' | 'exploratory'>('direct');
   const [debugUI,  setDebugUI]  = useState(false);
   const [debugInfo, setDebugInfo] = useState<{ mode?: string; ladder_depth?: number | null }>({});
+  // "Walk me through it" — set when the guided-discovery overlay is open; the
+  // Socratic exchange itself never touches `messages` (see ExploratoryPanel),
+  // only a one-line summary lands here once it closes.
+  const [exploratoryTopic, setExploratoryTopic] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }        = useTranslation();
@@ -403,6 +408,23 @@ export default function HomePage() {
     }
   }
 
+  function handleWalkMeThrough(content: string) {
+    if (!user && msgCount >= 8) { setSignupReason('session_limit'); setShowSignup(true); return; }
+    setExploratoryTopic(content);
+  }
+
+  function handleExploratoryClose(result: ExploratoryResult | null) {
+    setExploratoryTopic(null);
+    if (!result) return; // closed before the thread ever produced anything
+    setMessages(prev => [...prev, {
+      id: `exploratory-${Date.now()}`,
+      role: 'assistant',
+      content: result.resolved
+        ? t.chat.exploratorySummary.replace('{steps}', String(result.steps))
+        : `🧭 ${t.chat.exploratoryExit} — ${result.steps} step(s) in.`,
+    }]);
+  }
+
   async function handlePdfAsk(question: string, context: { text?: string; imageDataUrl?: string }) {
     setPdfFile(null); // close modal immediately
 
@@ -543,6 +565,7 @@ export default function HomePage() {
                     onChipClick={handleSend}
                     onMakeVisual={(content, subject) => handleMakeVisual(content, subject, msg.id)}
                     onTestYourself={handleTestYourself}
+                    onWalkMeThrough={handleWalkMeThrough}
                     onSimplify={() => handleSend('Can you simplify that explanation?')}
                     onGoDeeper={() => handleSend('Can you go deeper on that?')}
                     videoId={videoByMsgId[msg.id]}
@@ -615,6 +638,17 @@ export default function HomePage() {
             `Conversation (${messages.filter(m => m.role === 'user').length} messages)`,
             ...(currentSubject?.subject ? [`Subject: ${currentSubject.subject}`] : []),
           ] : []}
+        />
+      )}
+
+      {exploratoryTopic && (
+        <ExploratoryPanel
+          topic={exploratoryTopic}
+          userId={user?.id}
+          sessionId={sessionId ?? undefined}
+          token={token ?? undefined}
+          language={language}
+          onClose={handleExploratoryClose}
         />
       )}
     </div>
