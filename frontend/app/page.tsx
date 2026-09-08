@@ -5,7 +5,6 @@ import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
 import { ChatLanguageBar } from '@/components/chat/ChatLanguageBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
-import { ExploratoryPanel, ExploratoryResult } from '@/components/chat/ExploratoryPanel';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
 import dynamic from 'next/dynamic';
@@ -51,17 +50,14 @@ export default function HomePage() {
   const [videoByMsgId, setVideoByMsgId]     = useState<Record<string, number>>({});
   const [showNudge,      setShowNudge]        = useState(false);
   const [explanationLang, setExplanationLang] = useState<string | null>(null);
-  // Debug build only — see ?mode=exploratory&debug=1. chatMode picks the
-  // system-prompt strategy (backend/services/prompt_builder.py); debugUI just
-  // shows a badge with the current mode + ladder depth (see chat.py's hidden
-  // <!--LADDER:N--> marker). Never shown to real students by default.
-  const [chatMode, setChatMode] = useState<'direct' | 'exploratory'>('direct');
+  // Debug build only — see ?debug=1. The chat is always adaptive now (see
+  // ADAPTIVE_TEACHING_INSTRUCTIONS in backend/services/prompt_builder.py) —
+  // this just surfaces the model's live ladder-depth self-report (its
+  // hidden <!--LADDER:N--> marker) so you can watch it decide, per turn,
+  // whether it's scaffolding or answering directly. Never shown to real
+  // students by default.
   const [debugUI,  setDebugUI]  = useState(false);
-  const [debugInfo, setDebugInfo] = useState<{ mode?: string; ladder_depth?: number | null }>({});
-  // "Walk me through it" — set when the guided-discovery overlay is open; the
-  // Socratic exchange itself never touches `messages` (see ExploratoryPanel),
-  // only a one-line summary lands here once it closes.
-  const [exploratoryTopic, setExploratoryTopic] = useState<string | null>(null);
+  const [ladderDepth, setLadderDepth] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }        = useTranslation();
@@ -91,8 +87,7 @@ export default function HomePage() {
     const convParam = params.get('conv');
     const msgParam  = params.get('msg');
 
-    // Debug build only — ?mode=exploratory&debug=1
-    if (params.get('mode') === 'exploratory') setChatMode('exploratory');
+    // Debug build only — ?debug=1
     if (params.get('debug') === '1') setDebugUI(true);
 
     if (!convParam) return;
@@ -258,13 +253,12 @@ export default function HomePage() {
         language,
         image_url: imageUrl,
         explanation_language: explanationLang ?? undefined,
-        mode: chatMode,
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);
       setActiveConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
-      if (debugUI) setDebugInfo({ mode: res.mode, ladder_depth: res.ladder_depth });
+      if (debugUI) setLadderDepth(res.ladder_depth ?? null);
 
       // Prepend newly-created conversation to the shared sidebar list
       if (!conversationId) {
@@ -408,23 +402,6 @@ export default function HomePage() {
     }
   }
 
-  function handleWalkMeThrough(content: string) {
-    if (!user && msgCount >= 8) { setSignupReason('session_limit'); setShowSignup(true); return; }
-    setExploratoryTopic(content);
-  }
-
-  function handleExploratoryClose(result: ExploratoryResult | null) {
-    setExploratoryTopic(null);
-    if (!result) return; // closed before the thread ever produced anything
-    setMessages(prev => [...prev, {
-      id: `exploratory-${Date.now()}`,
-      role: 'assistant',
-      content: result.resolved
-        ? t.chat.exploratorySummary.replace('{steps}', String(result.steps))
-        : `🧭 ${t.chat.exploratoryExit} — ${result.steps} step(s) in.`,
-    }]);
-  }
-
   async function handlePdfAsk(question: string, context: { text?: string; imageDataUrl?: string }) {
     setPdfFile(null); // close modal immediately
 
@@ -481,12 +458,11 @@ export default function HomePage() {
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
         language,
-        mode:            chatMode,
       }, token ?? undefined);
 
       setConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
-      if (debugUI) setDebugInfo({ mode: res.mode, ladder_depth: res.ladder_depth });
+      if (debugUI) setLadderDepth(res.ladder_depth ?? null);
 
       // Prepend newly-created conversation to the shared sidebar list (PDF ask)
       if (!conversationId) {
@@ -534,10 +510,9 @@ export default function HomePage() {
       {debugUI && (
         <div
           className="fixed bottom-3 right-3 z-50 rounded-lg bg-black/80 px-3 py-2 text-xs font-mono text-white shadow-lg"
-          title="Debug build only (?mode=exploratory&debug=1) — never shown to real students"
+          title="Debug build only (?debug=1) — never shown to real students"
         >
-          <div>mode: <strong>{chatMode}</strong></div>
-          <div>ladder_depth: <strong>{debugInfo.ladder_depth ?? '—'}</strong></div>
+          <div>ladder_depth: <strong>{ladderDepth ?? '—'}</strong></div>
         </div>
       )}
       <Sidebar
@@ -565,7 +540,6 @@ export default function HomePage() {
                     onChipClick={handleSend}
                     onMakeVisual={(content, subject) => handleMakeVisual(content, subject, msg.id)}
                     onTestYourself={handleTestYourself}
-                    onWalkMeThrough={handleWalkMeThrough}
                     onSimplify={() => handleSend('Can you simplify that explanation?')}
                     onGoDeeper={() => handleSend('Can you go deeper on that?')}
                     videoId={videoByMsgId[msg.id]}
@@ -638,17 +612,6 @@ export default function HomePage() {
             `Conversation (${messages.filter(m => m.role === 'user').length} messages)`,
             ...(currentSubject?.subject ? [`Subject: ${currentSubject.subject}`] : []),
           ] : []}
-        />
-      )}
-
-      {exploratoryTopic && (
-        <ExploratoryPanel
-          topic={exploratoryTopic}
-          userId={user?.id}
-          sessionId={sessionId ?? undefined}
-          token={token ?? undefined}
-          language={language}
-          onClose={handleExploratoryClose}
         />
       )}
     </div>

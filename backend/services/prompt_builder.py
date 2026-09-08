@@ -56,31 +56,34 @@ After explaining, suggest 2-3 follow-up directions the student might explore.
 Format suggestions as a JSON array in your response metadata if asked.
 """
 
-EXPLORATORY_MODE_INSTRUCTIONS = """
+ADAPTIVE_TEACHING_INSTRUCTIONS = """
 
---- EXPLORATORY MODE (debug build) ---
-The student has chosen guided-discovery mode. Do not answer questions directly.
-- Open with a question that surfaces what the student already thinks, before
-  explaining anything.
-- When they answer correctly, briefly affirm (one short sentence) and advance
-  one step toward the real question.
-- When they answer wrong or say they don't know, do NOT explain the original
-  question. Pose a SMALLER, more concrete sub-question instead — a true/false,
-  a multiple-choice, or a simpler everyday example that gets them one step
-  closer. Never respond to "I don't know" with a wall of explanation.
-- Keep a running mental chain of the sub-questions you're building. Once the
-  student has assembled enough pieces, explicitly circle back to the original
-  question and have them answer it again in light of what they just worked out.
-- If the student says "I don't know" / gives up three times in a row on the
-  same chain, offer (don't force) to just explain directly instead.
+--- ADAPTIVE TEACHING STYLE ---
+Decide your approach fresh on EVERY reply, based on the current question and
+the recent conversation — don't commit to one style for the whole chat.
+
+- Default to explaining directly: for lookups, formulas, definitions,
+  fact-retrieval, or anything where the student seems rushed or has already
+  asked for the answer.
+- Lean into guided discovery ONLY when the question is open-ended/conceptual
+  ("explain X", "why does X happen", "help me understand X") AND nothing in
+  the recent conversation suggests urgency or frustration. In that case, open
+  with ONE question that surfaces what the student already thinks, before
+  explaining. If they answer correctly, briefly affirm and advance one step.
+  If they answer wrong or say they don't know, pose a smaller, more concrete
+  sub-question rather than a wall of explanation — then circle back to the
+  original question once they've assembled enough pieces.
+- STOP scaffolding immediately and just explain directly if: the student says
+  anything like "just tell me" / "I don't have time" / seems frustrated, OR
+  they've struggled on the same sub-question chain twice in a row. Never force
+  guided discovery past that point — compliance with an explicit request for
+  a direct answer always wins.
 - DEBUG MARKER (required, invisible to the student — never mention it exists):
   end every single reply with a line of the exact form
   <!--LADDER:N-->
-  where N is an integer: 0 if this reply is asking or restating the ORIGINAL
-  question (start of a new chain, or you just successfully circled back to
-  it), or the current depth if you're mid-chain on a sub-question (1 for the
-  first sub-question below the original, 2 for one below that, etc.). This
-  marker is stripped before the student ever sees the message — include it
+  N=0 whenever this reply is a direct explanation, a lookup answer, or you've
+  just circled back to resolve a guided-discovery chain. N=current depth
+  (1, 2, 3...) whenever this reply is a sub-question mid-chain. Include it
   exactly once, as the very last line, every single reply.
 """
 
@@ -184,16 +187,21 @@ async def build_chat_prompt(
     language: str = "en",
     explanation_language: str | None = None,
     course_id: str | None = None,
-    mode: str = "direct",
 ) -> str:
     """
     Returns the full system prompt for a chat response.
     Always starts with the unchanged AnimLearn base.
     Personalisation is appended — never replaces the base.
     course_id is optional: non-nil only for TEKS-aligned courses.
-    mode: "direct" (default) or "exploratory" (guided-discovery, see
-    EXPLORATORY_MODE_INSTRUCTIONS) — applied before the early-return branches
-    below so it's included regardless of profile/anonymous state.
+    ADAPTIVE_TEACHING_INSTRUCTIONS is always included (applied before the
+    early-return branches below so it's present regardless of profile/
+    anonymous state) — the model decides per-turn whether to scaffold or
+    explain directly, using the conversation history it already has. This
+    replaced an earlier binary mode flag (direct vs exploratory): a whole-
+    conversation or whole-message mode switch didn't fit how students
+    actually use the chat, and a separate guided-discovery conversation lost
+    all continuity with the main thread. One always-adaptive conversation,
+    judged fresh every turn, fixes both.
     """
     prompt = CHAT_SYSTEM_PROMPT
 
@@ -227,8 +235,7 @@ async def build_chat_prompt(
             teks_descs = await get_teks_descriptions(curriculum.get("teks_codes") or [])
             prompt += build_curriculum_block(curriculum, teks_descs)
 
-    if mode == "exploratory":
-        prompt += EXPLORATORY_MODE_INSTRUCTIONS
+    prompt += ADAPTIVE_TEACHING_INSTRUCTIONS
 
     if not user_id:
         return prompt  # anonymous: base + language + curriculum only

@@ -119,11 +119,7 @@ export interface Translation {
     quizMe: string;
     showExample: string;
     walkMeThrough: string;
-    exploratoryExit: string;
-    exploratoryResolved: string;
-    exploratoryBackToChat: string;
-    exploratoryPlaceholder: string;
-    exploratorySummary: string;
+    walkMeThroughPrompt: string;
     disclaimer: string;
     readingQuestion: string;
     crafting: string;
