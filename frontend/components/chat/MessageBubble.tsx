@@ -39,6 +39,12 @@ interface Message {
     quiz_id?: string;
     quiz_topic?: string;
     num_questions?: number;
+    /** Model's live self-report of guided-discovery depth (0 = not mid-scaffold,
+     *  >0 = this reply is a sub-question awaiting an answer). Used to hide the
+     *  action toolbar (Animate/Quiz/Walk-through/chips) while mid-chain, since
+     *  offering "what do you want to do next" is confusing when the model is
+     *  actually waiting on a specific answer. */
+    ladder_depth?: number | null;
   };
 }
 
@@ -644,6 +650,11 @@ export function MessageBubble({
   }
   const subject = message.metadata?.subject;
   const aiChips = message.metadata?.chips ?? [];
+  // Model is mid guided-discovery chain, waiting on a specific answer — the
+  // full action toolbar ("what do you want to do next?") is a distraction
+  // in that moment, not a helpful option. Read-aloud/copy stay available
+  // since those are just utility, not competing next-actions.
+  const isMidScaffold = (message.metadata?.ladder_depth ?? 0) > 0;
 
   function copy() {
     navigator.clipboard.writeText(message.content);
@@ -736,28 +747,32 @@ export function MessageBubble({
 
               {/* Primary actions */}
               <div className="flex flex-wrap gap-2 items-center">
-                {videoId == null && (
+                {!isMidScaffold && videoId == null && (
                   <MakeVisualButton
                     subject={subject?.subject ?? null}
                     onClick={() => requireAuth(() => onMakeVisual?.(message.content, subject?.subject))}
                   />
                 )}
-                <button
-                  onClick={() => requireAuth(() => onTestYourself?.(message.content, subject?.subject))}
-                  className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
-                             bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
-                             border border-indigo-500/20"
-                >
-                  {t.chat.quizMe}
-                </button>
-                <button
-                  onClick={() => requireAuth(() => onChipClick?.(t.chat.walkMeThroughPrompt))}
-                  className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
-                             bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
-                             border border-indigo-500/20"
-                >
-                  {t.chat.walkMeThrough}
-                </button>
+                {!isMidScaffold && (
+                  <button
+                    onClick={() => requireAuth(() => onTestYourself?.(message.content, subject?.subject))}
+                    className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
+                               bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
+                               border border-indigo-500/20"
+                  >
+                    {t.chat.quizMe}
+                  </button>
+                )}
+                {!isMidScaffold && (
+                  <button
+                    onClick={() => requireAuth(() => onChipClick?.(t.chat.walkMeThroughPrompt))}
+                    className="text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all
+                               bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)]
+                               border border-indigo-500/20"
+                  >
+                    {t.chat.walkMeThrough}
+                  </button>
+                )}
                 {showGate && <SignupModal reason="feature_gate" onClose={closeGate} />}
 
                 <button
@@ -782,44 +797,50 @@ export function MessageBubble({
                 </button>
               </div>
 
-              {/* Suggestion chips */}
-              <div className="mt-3 flex flex-wrap gap-2">
-                {aiChips.map((chip, i) => (
+              {/* Suggestion chips — hidden mid-scaffold: the model is waiting
+                  on a specific answer to its own question, not offering a
+                  menu of follow-ups. */}
+              {!isMidScaffold && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {aiChips.map((chip, i) => (
+                    <button
+                      key={i}
+                      onClick={() => onChipClick?.(chip)}
+                      className="text-xs px-3 py-1.5 rounded-full transition-all
+                                 border border-[var(--bd)] hover:border-[var(--bd2)]
+                                 text-[var(--tx5)] hover:text-[var(--tx2)] hover:bg-[var(--ov1)]"
+                    >
+                      {decodeHtml(chip)}
+                    </button>
+                  ))}
                   <button
-                    key={i}
-                    onClick={() => onChipClick?.(chip)}
+                    onClick={() => onChipClick?.('Give me a concrete real-world example of this')}
                     className="text-xs px-3 py-1.5 rounded-full transition-all
-                               border border-[var(--bd)] hover:border-[var(--bd2)]
-                               text-[var(--tx5)] hover:text-[var(--tx2)] hover:bg-[var(--ov1)]"
+                               border border-amber-500/20 hover:border-amber-500/35
+                               text-[var(--amber)] hover:text-[var(--amber)]"
                   >
-                    {decodeHtml(chip)}
+                    {t.chat.showExample}
                   </button>
-                ))}
-                <button
-                  onClick={() => onChipClick?.('Give me a concrete real-world example of this')}
-                  className="text-xs px-3 py-1.5 rounded-full transition-all
-                             border border-amber-500/20 hover:border-amber-500/35
-                             text-[var(--amber)] hover:text-[var(--amber)]"
-                >
-                  {t.chat.showExample}
-                </button>
-              </div>
+                </div>
+              )}
 
               {/* Tertiary actions */}
-              <div className="mt-3 flex gap-4">
-                <button
-                  onClick={onSimplify}
-                  className="text-[11px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
-                >
-                  <span>↓</span> {t.chat.simplify}
-                </button>
-                <button
-                  onClick={onGoDeeper}
-                  className="text-[11px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
-                >
-                  <span>↑</span> {t.chat.goDeeper}
-                </button>
-              </div>
+              {!isMidScaffold && (
+                <div className="mt-3 flex gap-4">
+                  <button
+                    onClick={onSimplify}
+                    className="text-[11px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
+                  >
+                    <span>↓</span> {t.chat.simplify}
+                  </button>
+                  <button
+                    onClick={onGoDeeper}
+                    className="text-[11px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
+                  >
+                    <span>↑</span> {t.chat.goDeeper}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

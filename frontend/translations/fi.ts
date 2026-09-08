@@ -128,7 +128,7 @@ export const fi: Translation = {
     quizMe: '✏️ Tentaa minua',
     showExample: '💡 Näytä esimerkki',
     walkMeThrough: '🧭 Opasta minua askel askeleelta',
-    walkMeThroughPrompt: 'Voisitko opastaa minua ohjaavilla kysymyksillä sen selittämisen sijaan?',
+    walkMeThroughPrompt: 'Voisitko opastaa minua yhdellä kysymyksellä kerrallaan sen selittämisen sijaan?',
     disclaimer: 'Learn-AI voi tehdä virheitä — tarkista tärkeät tiedot.',
     readingQuestion: 'Luetaan kysymystäsi…',
     crafting: 'Muodostetaan vastausta…',

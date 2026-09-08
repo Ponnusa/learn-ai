@@ -128,7 +128,7 @@ export const sv: Translation = {
     quizMe: '✏️ Testa mig',
     showExample: '💡 Visa mig ett exempel',
     walkMeThrough: '🧭 Vägled mig steg för steg',
-    walkMeThroughPrompt: 'Kan du vägleda mig med frågor istället för att bara förklara det?',
+    walkMeThroughPrompt: 'Kan du vägleda mig med en fråga i taget, istället för att bara förklara det?',
     disclaimer: 'Learn-AI kan göra misstag — verifiera viktig information.',
     readingQuestion: 'Läser din fråga…',
     crafting: 'Formulerar svar…',

@@ -128,7 +128,7 @@ export const es: Translation = {
     quizMe: '✏️ Examiname',
     showExample: '💡 Mostrar un ejemplo',
     walkMeThrough: '🧭 Guíame paso a paso',
-    walkMeThroughPrompt: '¿Puedes guiarme con preguntas en lugar de explicarlo directamente?',
+    walkMeThroughPrompt: '¿Puedes guiarme con una pregunta a la vez, en lugar de explicarlo directamente?',
     disclaimer: 'Learn-AI puede cometer errores — verifica la información importante.',
     readingQuestion: 'Leyendo tu pregunta…',
     crafting: 'Elaborando respuesta…',
