@@ -6,7 +6,7 @@
 // allow-list and would be the wrong pattern regardless. The panel is a real
 // extension page, so it can call the backend directly.
 
-const API_BASE = 'http://localhost:8000'; // TODO: point at the deployed backend before shipping
+const API_BASE = 'https://learn-ai-production.up.railway.app';
 
 function getHeaders(token?: string | null): HeadersInit {
   return {
