@@ -144,13 +144,28 @@ export default function App() {
           {/* "Help me understand it" leads and is visually primary — it's the
               button that nudges the adaptive-teaching prompt toward guided
               discovery (the ladder/eureka experience), which is genie's
-              actual differentiator. "Explain this" still works exactly the
-              same as before, just styled as the secondary option — nothing
-              is forced either way, the backend still decides per-turn. */}
+              actual differentiator. The prompt text mirrors the in-app
+              "Walk me through it" chip's proven wording (walkMeThroughPrompt
+              in frontend/translations/en.ts) as closely as possible — a
+              plain "help me understand X" is technically listed as a
+              trigger phrase in ADAPTIVE_TEACHING_INSTRUCTIONS too, but in
+              practice wasn't a strong enough signal on its own for a broad
+              multi-part topic ("Newton's laws of motion") and the model
+              just gave a full explanation instead of scaffolding. The
+              explicit "one guiding question at a time, instead of just
+              explaining it" clause is what actually maps onto that
+              instruction's single-question rule. "Explain this" still
+              works exactly the same as before, just styled as the
+              secondary option — nothing is forced either way, the backend
+              still decides per-turn. */}
           <div className="flex gap-2">
             <button
               className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[var(--indigo)] text-white inline-flex items-center gap-1"
-              onClick={() => handleSend(`Help me understand this: "${selection.text}"`)}
+              onClick={() =>
+                handleSend(
+                  `Can you walk me through "${selection.text}" one guiding question at a time, instead of just explaining it directly?`,
+                )
+              }
             >
               🧗 Help me understand it
             </button>
