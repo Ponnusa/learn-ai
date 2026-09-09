@@ -5,6 +5,7 @@ import { Sidebar, MobileTopBar } from '@/components/layout/Sidebar';
 import { InputBar } from '@/components/chat/InputBar';
 import { ChatLanguageBar } from '@/components/chat/ChatLanguageBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { LadderWidget } from '@/components/chat/LadderWidget';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
 import dynamic from 'next/dynamic';
@@ -59,6 +60,15 @@ export default function HomePage() {
   // scaffolding or answering directly. Never shown to real students by default.
   const [debugUI,  setDebugUI]  = useState(false);
   const [ladderDepth, setLadderDepth] = useState<number | null>(null);
+  // "Climbing the ladder" widget — real feature (not debug-gated), driven by
+  // the same waiting-state signal above. Progress = turns taken in the
+  // current chain, not answer correctness (see LadderWidget's own comment
+  // for why). ladderRef holds the authoritative running state so branching
+  // logic in updateLadderState never reads a stale value mid-async-call;
+  // the useState pair alongside it is only for triggering re-renders.
+  const ladderRef = useRef({ active: false, steps: 0 });
+  const [ladderSteps, setLadderSteps] = useState(0);
+  const [ladderPhase, setLadderPhase] = useState<'idle' | 'climbing' | 'eureka'>('idle');
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }        = useTranslation();
@@ -149,6 +159,7 @@ export default function HomePage() {
     setMessages([]);
     setVideoByMsgId({});
     setExplanationLang(null);
+    resetLadderState();
     try {
       const [rows, videos] = await Promise.all([
         getMessages(id, token ?? undefined),
@@ -206,6 +217,41 @@ export default function HomePage() {
     } catch { /* silently ignore */ }
   }
 
+  /** Reset LadderWidget to idle — call on new chat / conversation switch, so
+   *  a "climbing" state from a previous conversation never leaks into the
+   *  next one (this is a deliberate simplification: switching into an
+   *  existing conversation that happens to be mid-chain won't restore the
+   *  widget until the next message — reconstructing it from history isn't
+   *  worth the complexity for v1). */
+  function resetLadderState() {
+    ladderRef.current = { active: false, steps: 0 };
+    setLadderPhase('idle');
+    setLadderSteps(0);
+    setLadderDepth(null);
+  }
+
+  /** Drives both the debug badge and the LadderWidget from one signal
+   *  (res.ladder_depth). Call after every sendMessage response. */
+  function updateLadderState(newDepth: number | null | undefined) {
+    setLadderDepth(newDepth ?? null);
+    const waiting = (newDepth ?? 0) > 0;
+    if (waiting) {
+      const steps = ladderRef.current.active ? ladderRef.current.steps + 1 : 1;
+      ladderRef.current = { active: true, steps };
+      setLadderSteps(steps);
+      setLadderPhase('climbing');
+    } else {
+      const wasActive = ladderRef.current.active;
+      ladderRef.current = { active: false, steps: 0 };
+      if (wasActive) {
+        setLadderPhase('eureka');
+        setTimeout(() => setLadderPhase('idle'), 2200); // brief celebration, then hide
+      } else {
+        setLadderPhase('idle');
+      }
+    }
+  }
+
   async function handleSend(text: string, file?: File) {
     if (!text && !file) return;
 
@@ -259,7 +305,7 @@ export default function HomePage() {
       setConversationId(res.conversation_id);
       setActiveConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
-      if (debugUI) setLadderDepth(res.ladder_depth ?? null);
+      updateLadderState(res.ladder_depth);
 
       // Prepend newly-created conversation to the shared sidebar list
       if (!conversationId) {
@@ -463,7 +509,7 @@ export default function HomePage() {
 
       setConversationId(res.conversation_id);
       if (res.subject?.subject) setCurrentSubject(res.subject);
-      if (debugUI) setLadderDepth(res.ladder_depth ?? null);
+      updateLadderState(res.ladder_depth);
 
       // Prepend newly-created conversation to the shared sidebar list (PDF ask)
       if (!conversationId) {
@@ -516,9 +562,10 @@ export default function HomePage() {
           <div>ladder_depth: <strong>{ladderDepth ?? '—'}</strong></div>
         </div>
       )}
+      <LadderWidget phase={ladderPhase} steps={ladderSteps} />
       <Sidebar
         selectedConversationId={conversationId ?? undefined}
-        onNewChat={() => { setMessages([]); setConversationId(null); setActiveConversationId(null); setExplanationLang(null); }}
+        onNewChat={() => { setMessages([]); setConversationId(null); setActiveConversationId(null); setExplanationLang(null); resetLadderState(); }}
         onConversationSelect={handleConversationSelect}
       />
 
