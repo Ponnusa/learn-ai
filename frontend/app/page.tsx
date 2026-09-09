@@ -6,7 +6,7 @@ import { InputBar } from '@/components/chat/InputBar';
 import { ChatLanguageBar } from '@/components/chat/ChatLanguageBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { LadderWidget } from '@/components/chat/LadderWidget';
-import { EurekaBurst } from '@/components/chat/EurekaBurst';
+import { EurekaBurst, EUREKA_BURST_DURATION } from '@/components/chat/EurekaBurst';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
 import dynamic from 'next/dynamic';
@@ -248,9 +248,9 @@ export default function HomePage() {
       ladderRef.current = { active: false, steps: 0 };
       if (wasActive) {
         setLadderPhase('eureka');
-        setTimeout(() => setLadderPhase('idle'), 2200); // brief celebration, then hide
+        setTimeout(() => setLadderPhase('idle'), EUREKA_BURST_DURATION); // stays up for the "solved in N steps" caption while confetti runs
         setEurekaBurst(true);
-        setTimeout(() => setEurekaBurst(false), 1700); // matches EurekaBurst's own duration
+        setTimeout(() => setEurekaBurst(false), EUREKA_BURST_DURATION);
       } else {
         setLadderPhase('idle');
       }

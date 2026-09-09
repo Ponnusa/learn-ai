@@ -163,13 +163,14 @@ body {
 /* ── Eureka celebration burst (guided-discovery chain resolved) ──── */
 @keyframes eureka-clap {
   0%   { opacity: 0; transform: scale(0.4) rotate(-8deg); }
-  25%  { opacity: 1; transform: scale(1.15) rotate(6deg); }
-  40%  { opacity: 1; transform: scale(1) rotate(-4deg); }
-  55%  { opacity: 1; transform: scale(1.1) rotate(4deg); }
-  75%  { opacity: 1; transform: scale(1) rotate(0deg); }
+  12%  { opacity: 1; transform: scale(1.15) rotate(6deg); }
+  20%  { opacity: 1; transform: scale(1) rotate(-4deg); }
+  28%  { opacity: 1; transform: scale(1.1) rotate(4deg); }
+  38%  { opacity: 1; transform: scale(1) rotate(0deg); }
+  85%  { opacity: 1; transform: scale(1) rotate(0deg); }
   100% { opacity: 0; transform: scale(0.9) rotate(0deg); }
 }
-.eureka-clap { animation: eureka-clap 1.4s ease-out forwards; }
+.eureka-clap { animation: eureka-clap 3.6s ease-out forwards; }
 @media (prefers-reduced-motion: reduce) {
   .eureka-clap { animation: none; opacity: 1; }
 }

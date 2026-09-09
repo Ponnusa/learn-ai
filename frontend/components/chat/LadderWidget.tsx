@@ -9,6 +9,32 @@ interface LadderWidgetProps {
   steps: number;
 }
 
+/** Geometric badge pictogram — same mark for both poses, just re-angled/tinted
+ *  for eureka (mirrors the "arms up" summit pose from the design preview). */
+function ClimberMark({ eureka }: { eureka: boolean }) {
+  return (
+    <svg viewBox="0 0 26 26" className="w-full h-full" style={{ overflow: 'visible' }}>
+      {eureka ? (
+        <>
+          <circle cx="13" cy="5.5" r="3.2" fill="var(--amber)" />
+          <path
+            fill="var(--amber)"
+            d="M13 9 L20 6 L21.4 8.6 L15.4 12 L18 22 L15 22.6 L13 15 L11 22.6 L8 22 L10.6 12 L4.6 8.6 L6 6 Z"
+          />
+        </>
+      ) : (
+        <>
+          <circle cx="12.5" cy="5.5" r="3.2" fill="var(--indigo)" />
+          <path
+            fill="var(--indigo)"
+            d="M12.5 9 L18.5 12 L17 14.4 L13.6 12.6 L14.6 24 L11.6 24 L11 16 L8 24 L5.4 23 L9.4 13.4 L6 12 L7.6 9.2 Z"
+          />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /**
  * Right-side "climbing the ladder" indicator for an active guided-discovery
  * chain. Deliberately simple: progress = turns taken in the current chain
@@ -16,8 +42,11 @@ interface LadderWidgetProps {
  * hiding), not answer correctness — that would need a new, separate
  * self-reported signal, and the WAITING marker alone took several rounds to
  * get reliable. No fixed total either, since a chain's real length is
- * decided turn-by-turn, not known upfront — the climber just holds near the
- * top rung if a chain runs longer than MAX_RUNGS, rather than overflowing.
+ * decided turn-by-turn, not known upfront: 6 rungs is just the widget's
+ * visual cap, not a target — a chain can resolve in 2 steps or 12. The
+ * climber holds near the top rung once it runs past MAX_RUNGS rather than
+ * overflowing, but `steps` itself (used for the eureka caption below) is
+ * never capped, so the actual count is always shown accurately.
  * Hidden entirely outside an active chain (idle = not rendered at all) and
  * on narrower screens, since the chat layout has no right rail otherwise.
  */
@@ -32,8 +61,10 @@ export function LadderWidget({ phase, steps }: LadderWidgetProps) {
                  gap-2 bg-[var(--surface)] border border-[var(--bd)] rounded-2xl px-4 py-4 shadow-lg"
       title="Guided-discovery progress"
     >
-      <div className="text-xs font-medium text-[var(--tx8)]">
-        {phase === 'eureka' ? '🎉 Eureka!' : `Step ${position}`}
+      <div className="text-xs font-medium text-[var(--tx8)] text-center leading-snug">
+        {phase === 'eureka'
+          ? <>🎉 Solved in<br />{steps} {steps === 1 ? 'step' : 'steps'}!</>
+          : `Step ${position}`}
       </div>
 
       <div
@@ -49,10 +80,10 @@ export function LadderWidget({ phase, steps }: LadderWidgetProps) {
         ))}
 
         <div
-          className="absolute left-1/2 -translate-x-1/2 text-lg transition-all duration-500 ease-out"
+          className="absolute left-1/2 -translate-x-1/2 w-5 h-5 transition-all duration-500 ease-out"
           style={{ bottom: (position - 1) * RUNG_SPACING }}
         >
-          {phase === 'eureka' ? '🎉' : '🧗'}
+          <ClimberMark eureka={phase === 'eureka'} />
         </div>
       </div>
     </div>
