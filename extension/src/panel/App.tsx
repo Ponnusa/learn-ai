@@ -21,6 +21,11 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [limitReached, setLimitReached] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, loading, selection]);
 
   // Same climbing/eureka state machine as frontend/app/page.tsx's
   // updateLadderState — see that file's comments for why steps are
@@ -125,6 +130,7 @@ export default function App() {
         ))}
         {loading && <p className="text-xs text-[var(--tx7)]">Thinking…</p>}
         {error && <p className="text-xs text-[var(--red)]">{error}</p>}
+        <div ref={bottomRef} />
       </div>
 
       <LadderWidget phase={ladderPhase} steps={ladderSteps} />
