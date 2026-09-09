@@ -127,6 +127,8 @@ export default function App() {
         {error && <p className="text-xs text-[var(--red)]">{error}</p>}
       </div>
 
+      <LadderWidget phase={ladderPhase} steps={ladderSteps} />
+
       {selection && (
         <div className="mx-4 mb-2 p-2.5 rounded-xl border border-[var(--bd)] bg-[var(--surface)]">
           <div className="flex items-start justify-between gap-2 mb-2">
@@ -209,7 +211,6 @@ export default function App() {
         </form>
       )}
 
-      <LadderWidget phase={ladderPhase} steps={ladderSteps} />
       <EurekaBurst active={eurekaBurst} />
     </div>
   );
