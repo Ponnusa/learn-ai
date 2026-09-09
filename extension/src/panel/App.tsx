@@ -129,7 +129,18 @@ export default function App() {
 
       {selection && (
         <div className="mx-4 mb-2 p-2.5 rounded-xl border border-[var(--bd)] bg-[var(--surface)]">
-          <p className="text-xs text-[var(--tx7)] mb-2 line-clamp-2">"{selection.text}"</p>
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <p className="text-xs text-[var(--tx7)] line-clamp-2">"{selection.text}"</p>
+            <button
+              type="button"
+              aria-label="Cancel this selection"
+              title="Not the right text — cancel"
+              className="shrink-0 text-[var(--tx7)] hover:text-[var(--tx1)] text-sm leading-none"
+              onClick={() => setSelection(null)}
+            >
+              ✕
+            </button>
+          </div>
           <div className="flex gap-2">
             <button
               className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-[var(--indigo)] text-white"
