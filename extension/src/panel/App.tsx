@@ -141,18 +141,24 @@ export default function App() {
               ✕
             </button>
           </div>
+          {/* "Help me understand it" leads and is visually primary — it's the
+              button that nudges the adaptive-teaching prompt toward guided
+              discovery (the ladder/eureka experience), which is genie's
+              actual differentiator. "Explain this" still works exactly the
+              same as before, just styled as the secondary option — nothing
+              is forced either way, the backend still decides per-turn. */}
           <div className="flex gap-2">
             <button
-              className="text-xs font-medium px-2.5 py-1.5 rounded-lg bg-[var(--indigo)] text-white"
-              onClick={() => handleSend(`Explain this: "${selection.text}"`)}
-            >
-              Explain this
-            </button>
-            <button
-              className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-[var(--bd)] text-[var(--tx2)]"
+              className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[var(--indigo)] text-white inline-flex items-center gap-1"
               onClick={() => handleSend(`Help me understand this: "${selection.text}"`)}
             >
-              Help me understand it
+              🧗 Help me understand it
+            </button>
+            <button
+              className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-[var(--bd)] text-[var(--tx3)]"
+              onClick={() => handleSend(`Explain this: "${selection.text}"`)}
+            >
+              Just explain it
             </button>
           </div>
         </div>
