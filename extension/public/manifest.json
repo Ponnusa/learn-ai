@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "LearnX Genie",
+  "version": "0.1.0",
+  "description": "Select text on any page and ask LearnX to explain it, walk you through it, or quiz you on it.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyaDAzPGI67MKg8Om+ZdBg7kcD9Yws535nr2+5l5vP5jI/dufPfeooANKp69f6rmShsykdpHEt13O/x4CPBbrEX8UWjuy5OFfIX+vchNqMNeqMN6ExoxRfm2gY2giF+aOlWBUflhK7r0V9BMyB9fOA+CR9QOfG9lF0RMb1Wt/eJUCSoXwmX9gKYa8ZRgDBebnKufZ7AzGLGjU81rVgHryw7bxZkpkjY70/Xn9NSoaDP9WfV3T3OlgIzITHUG+4FHlnWRe1soZ2Calo3VsusS37FrXl+R8PVfqZua2wUwvtewZ0a2PUYGBfYlNF7WiyhCU+Pe7g32SCnRE/ugy7+1jmwIDAQAB",
+  "action": {
+    "default_title": "Ask LearnX"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "panel.html"
+  },
+  "permissions": ["activeTab", "storage", "sidePanel"],
+  "host_permissions": ["<all_urls>"]
+}

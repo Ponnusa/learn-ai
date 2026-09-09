@@ -60,20 +60,22 @@ class ChatRequest(BaseModel):
     language: str = "en"
     explanation_language: str | None = None
     course_id: str | None = None  # set by frontend when student chats within a course
+    source: str = "app"  # 'app' | 'extension' — analytics tag, see migration 029
 
 
 class ConversationCreateRequest(BaseModel):
     user_id: str | None = None
     session_id: str | None = None
+    source: str = "app"
 
 
 @router.post("/conversations")
 async def create_conversation(req: ConversationCreateRequest):
     async with get_db() as db:
         row = await db.fetchrow("""
-            INSERT INTO conversations (user_id, session_id)
-            VALUES ($1, $2) RETURNING id, created_at
-        """, req.user_id, req.session_id)
+            INSERT INTO conversations (user_id, session_id, source)
+            VALUES ($1, $2, $3) RETURNING id, created_at
+        """, req.user_id, req.session_id, req.source)
     return {"conversation_id": str(row["id"]), "created_at": row["created_at"]}
 
 
@@ -220,9 +222,9 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         conv_id = req.conversation_id
         if not conv_id:
             row = await db.fetchrow("""
-                INSERT INTO conversations (user_id, session_id)
-                VALUES ($1, $2) RETURNING id
-            """, req.user_id, req.session_id)
+                INSERT INTO conversations (user_id, session_id, source)
+                VALUES ($1, $2, $3) RETURNING id
+            """, req.user_id, req.session_id, req.source)
             conv_id = str(row["id"])
 
         # Get conversation context (including rolling summary + topic map)

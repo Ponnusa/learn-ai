@@ -824,6 +824,8 @@ async def lifespan(app: FastAPI):
             """,
             "CREATE INDEX IF NOT EXISTS idx_guided_discovery_events_conv ON guided_discovery_events(conversation_id)",
             "CREATE INDEX IF NOT EXISTS idx_guided_discovery_events_user ON guided_discovery_events(user_id)",
+            # ── Conversation origin tagging (app | extension | ...) ─────────────
+            "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'app'",
         ]:
             try:
                 await db.execute(sql)
