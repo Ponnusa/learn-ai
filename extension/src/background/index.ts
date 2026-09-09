@@ -27,7 +27,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       const windowId = sender.tab?.windowId;
       if (windowId != null) chrome.sidePanel.open({ windowId });
       // Also forward live, in case the panel is already open and listening.
-      chrome.runtime.sendMessage({ type: 'GENIE_SELECTION_FORWARD', ...message }).catch(() => {
+      // `type` must come AFTER the spread — message.type is 'GENIE_SELECTION',
+      // and object spread overwrites earlier keys, so putting it first here
+      // silently reverted the forwarded type back to 'GENIE_SELECTION' and
+      // the panel's 'GENIE_SELECTION_FORWARD' listener never matched.
+      chrome.runtime.sendMessage({ ...message, type: 'GENIE_SELECTION_FORWARD' }).catch(() => {
         // No listener yet (panel not open) — fine, it'll pull pendingSelection on mount.
       });
       sendResponse({ ok: true });
