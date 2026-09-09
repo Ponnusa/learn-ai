@@ -6,6 +6,7 @@ import { InputBar } from '@/components/chat/InputBar';
 import { ChatLanguageBar } from '@/components/chat/ChatLanguageBar';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { LadderWidget } from '@/components/chat/LadderWidget';
+import { EurekaBurst } from '@/components/chat/EurekaBurst';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { ThinkingIndicator } from '@/components/chat/ThinkingIndicator';
 import dynamic from 'next/dynamic';
@@ -69,6 +70,7 @@ export default function HomePage() {
   const ladderRef = useRef({ active: false, steps: 0 });
   const [ladderSteps, setLadderSteps] = useState(0);
   const [ladderPhase, setLadderPhase] = useState<'idle' | 'climbing' | 'eureka'>('idle');
+  const [eurekaBurst, setEurekaBurst] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const router    = useRouter();
   const { t }        = useTranslation();
@@ -228,6 +230,7 @@ export default function HomePage() {
     setLadderPhase('idle');
     setLadderSteps(0);
     setLadderDepth(null);
+    setEurekaBurst(false);
   }
 
   /** Drives both the debug badge and the LadderWidget from one signal
@@ -246,6 +249,8 @@ export default function HomePage() {
       if (wasActive) {
         setLadderPhase('eureka');
         setTimeout(() => setLadderPhase('idle'), 2200); // brief celebration, then hide
+        setEurekaBurst(true);
+        setTimeout(() => setEurekaBurst(false), 1700); // matches EurekaBurst's own duration
       } else {
         setLadderPhase('idle');
       }
@@ -563,6 +568,7 @@ export default function HomePage() {
         </div>
       )}
       <LadderWidget phase={ladderPhase} steps={ladderSteps} />
+      <EurekaBurst active={eurekaBurst} />
       <Sidebar
         selectedConversationId={conversationId ?? undefined}
         onNewChat={() => { setMessages([]); setConversationId(null); setActiveConversationId(null); setExplanationLang(null); resetLadderState(); }}

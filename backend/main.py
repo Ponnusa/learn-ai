@@ -810,6 +810,20 @@ async def lifespan(app: FastAPI):
             """,
             # ── Conversation chat mode (direct | exploratory) ──────────────────
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'direct'",
+            # ── Guided-discovery (ladder) resolutions — one row per chain that
+            #    completes, recording how many scaffolding steps it took ──────
+            """
+            CREATE TABLE IF NOT EXISTS guided_discovery_events (
+                id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                user_id         UUID REFERENCES users(id) ON DELETE CASCADE,
+                message_id      UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                steps           INT NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_guided_discovery_events_conv ON guided_discovery_events(conversation_id)",
+            "CREATE INDEX IF NOT EXISTS idx_guided_discovery_events_user ON guided_discovery_events(user_id)",
         ]:
             try:
                 await db.execute(sql)

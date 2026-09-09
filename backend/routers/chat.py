@@ -370,7 +370,13 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     if ladder_match:
         ladder_depth = int(ladder_match.group(1))
         reply_text = (reply_text[:ladder_match.start()] + reply_text[ladder_match.end():]).strip()
+        # A chain "resolves" only on an explicit WAITING:0 right after an
+        # active chain (prev turn was genuinely waiting, not just sticky-
+        # carried) — never inferred from a missing/sticky marker, since we
+        # can't tell a real resolution from a dropped marker in that case.
+        chain_resolved = ladder_depth == 0 and (prev_ladder_depth or 0) > 0
     else:
+        chain_resolved = False
         # Marker missing this turn (model compliance isn't 100% reliable
         # turn-to-turn) — carry forward the previous turn's value rather
         # than assuming "not waiting", so one missed marker doesn't flip
@@ -391,6 +397,34 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
             "SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = $1", conv_id
         )
         msg_count = msg_count_row["cnt"]
+
+        # Record a resolved guided-discovery chain: count the run of
+        # consecutive prior assistant turns that were waiting on an answer
+        # (ladder_depth > 0), which is exactly what LadderWidget's climb
+        # counted client-side, then persist that as a durable, queryable
+        # record — the per-message metadata it's derived from ages out of
+        # relevance once the chain is done.
+        if chain_resolved:
+            prior_assistant = await db.fetch("""
+                SELECT metadata FROM messages
+                WHERE conversation_id = $1 AND role = 'assistant' AND id != $2
+                ORDER BY created_at DESC LIMIT 30
+            """, conv_id, msg_row["id"])
+            steps = 0
+            for row in prior_assistant:
+                meta = row["metadata"]
+                if isinstance(meta, str):
+                    try:    meta = json.loads(meta)
+                    except: meta = {}
+                if ((meta or {}).get("ladder_depth") or 0) > 0:
+                    steps += 1
+                else:
+                    break
+            if steps > 0:
+                await db.execute("""
+                    INSERT INTO guided_discovery_events (conversation_id, user_id, message_id, steps)
+                    VALUES ($1, $2, $3, $4)
+                """, conv_id, req.user_id, msg_row["id"], steps)
 
         # Update conversation subject + title on first message
         if is_first_message and subject_data.get("subject"):
