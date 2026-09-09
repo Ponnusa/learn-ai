@@ -188,6 +188,28 @@ export default function HomePage() {
       });
       setMessages(loadedMessages);
 
+      // Restore ladder state from persisted history — the same ladder_depth
+      // signal that drives updateLadderState() live is already sitting in
+      // each assistant message's metadata, so a conversation left mid-chain
+      // doesn't need to lose its "climbing" indicator on switch/reload.
+      // Count the run of consecutive trailing assistant turns that were
+      // waiting on an answer (mirrors the backend's own resolution-time
+      // step count in chat.py). A conversation whose last turn already
+      // resolved (ladder_depth falsy) just stays idle — no re-triggering
+      // the eureka celebration for something that resolved in the past.
+      const assistantMsgs = loadedMessages.filter(m => m.role === 'assistant');
+      const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+      if ((lastAssistant?.metadata?.ladder_depth ?? 0) > 0) {
+        let restoredSteps = 0;
+        for (let i = assistantMsgs.length - 1; i >= 0; i--) {
+          if ((assistantMsgs[i].metadata?.ladder_depth ?? 0) > 0) restoredSteps++;
+          else break;
+        }
+        ladderRef.current = { active: true, steps: restoredSteps };
+        setLadderSteps(restoredSteps);
+        setLadderPhase('climbing');
+      }
+
       // Restore inline video cards — two sources merged:
       // 1. DB: getConversationVideos (message_id → video id)
       // 2. localStorage: written at video-creation time, survives refresh
@@ -221,10 +243,10 @@ export default function HomePage() {
 
   /** Reset LadderWidget to idle — call on new chat / conversation switch, so
    *  a "climbing" state from a previous conversation never leaks into the
-   *  next one (this is a deliberate simplification: switching into an
-   *  existing conversation that happens to be mid-chain won't restore the
-   *  widget until the next message — reconstructing it from history isn't
-   *  worth the complexity for v1). */
+   *  next one. handleConversationSelect() calls this first, then re-derives
+   *  the real state from the newly loaded conversation's history right
+   *  after, so a mid-chain conversation ends up "climbing" again rather
+   *  than stuck idle. */
   function resetLadderState() {
     ladderRef.current = { active: false, steps: 0 };
     setLadderPhase('idle');
