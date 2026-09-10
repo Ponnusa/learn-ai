@@ -2,49 +2,26 @@
 
 import { useEffect, useRef } from 'react';
 
-/**
- * A handful of quick claps synthesized with the Web Audio API — filtered
- * decaying noise bursts, the standard technique for a percussive
- * clap/snap sound — rather than bundling an audio file. Keeps this
- * self-contained (no asset to source/license) and consistent with the
- * confetti above it (hand-rolled, no new dependency). Best-effort: any
- * failure (Web Audio unavailable, autoplay blocked) is swallowed — the
- * visual celebration still plays either way.
- */
-function playClapSound() {
+// Real applause clip (public/audio/eureka-applause.mp3) — a synthesized
+// noise-burst "clap" was tried first but didn't sound convincing, so this
+// is a licensed recording instead. The source file runs much longer than
+// the ~4s confetti burst, so playback is faded out and stopped in sync
+// with EUREKA_BURST_DURATION from the same rAF loop driving the confetti,
+// rather than letting it run past the visual celebration.
+const APPLAUSE_SRC = '/audio/eureka-applause.mp3';
+const APPLAUSE_VOLUME = 0.5;
+const APPLAUSE_FADE_MS = 500; // fade-out window before EUREKA_BURST_DURATION
+
+function startApplause(): HTMLAudioElement | null {
   try {
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    const ctx = new AudioContextClass();
-    const now = ctx.currentTime;
-    const clapTimes = [0, 0.11, 0.2, 0.33]; // slightly irregular spacing reads more like real applause than a metronome
-
-    clapTimes.forEach((delay, i) => {
-      const duration = 0.09;
-      const bufferSize = Math.floor(ctx.sampleRate * duration);
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let j = 0; j < bufferSize; j++) {
-        data[j] = (Math.random() * 2 - 1) * Math.exp(-j / (bufferSize * 0.18)); // fast decay = percussive, not a tone
-      }
-
-      const noise = ctx.createBufferSource();
-      noise.buffer = buffer;
-
-      const bandpass = ctx.createBiquadFilter();
-      bandpass.type = 'bandpass';
-      bandpass.frequency.value = 1200 + (i % 2) * 600; // slight variation per clap so they don't sound identical
-      bandpass.Q.value = 0.7;
-
-      const gain = ctx.createGain();
-      gain.gain.value = 0.22;
-
-      noise.connect(bandpass).connect(gain).connect(ctx.destination);
-      noise.start(now + delay);
+    const audio = new Audio(APPLAUSE_SRC);
+    audio.volume = APPLAUSE_VOLUME;
+    audio.play().catch(() => {
+      // Autoplay blocked — the confetti/mascot still show.
     });
-
-    setTimeout(() => ctx.close(), 900);
+    return audio;
   } catch {
-    // No Web Audio, or autoplay blocked — the confetti/mascot still show.
+    return null; // Audio unavailable — the confetti/mascot still show.
   }
 }
 
@@ -68,13 +45,13 @@ interface Particle {
 }
 
 /**
- * Full-screen confetti shower + mascot + synthesized claps, shown for ~4s
- * when a guided-discovery chain resolves. Hand-rolled canvas animation
- * rather than a new dependency (canvas-confetti etc.) — this codebase
- * doesn't pull in animation libraries, and a particle shower is simple
- * enough to not need one. Purely decorative: `aria-hidden`, respects
- * prefers-reduced-motion (gates the sound too, not just the visuals), and
- * never intercepts clicks.
+ * Full-screen confetti shower + mascot + applause, shown for ~4s when a
+ * guided-discovery chain resolves. The confetti is hand-rolled canvas
+ * animation rather than a new dependency (canvas-confetti etc.) — this
+ * codebase doesn't pull in animation libraries, and a particle shower is
+ * simple enough to not need one. Purely decorative: `aria-hidden`, respects
+ * prefers-reduced-motion (gates the applause too, not just the visuals),
+ * and never intercepts clicks.
  */
 export function EurekaBurst({ active }: { active: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -85,9 +62,10 @@ export function EurekaBurst({ active }: { active: boolean }) {
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
 
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion) return;
 
-    playClapSound();
+    const applause = startApplause();
 
     const resize = () => {
       canvas.width = window.innerWidth;
@@ -153,6 +131,14 @@ export function EurekaBurst({ active }: { active: boolean }) {
         ctx!.restore();
       }
 
+      if (applause) {
+        const fadeStart = EUREKA_BURST_DURATION - APPLAUSE_FADE_MS;
+        applause.volume =
+          elapsed < fadeStart
+            ? APPLAUSE_VOLUME
+            : Math.max(0, APPLAUSE_VOLUME * (1 - (elapsed - fadeStart) / APPLAUSE_FADE_MS));
+      }
+
       if (elapsed < EUREKA_BURST_DURATION) {
         rafId = requestAnimationFrame(frame);
       }
@@ -163,6 +149,10 @@ export function EurekaBurst({ active }: { active: boolean }) {
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(rafId);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (applause) {
+        applause.pause();
+        applause.currentTime = 0;
+      }
     };
   }, [active]);
 

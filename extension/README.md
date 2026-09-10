@@ -105,10 +105,13 @@ the side panel with that text ready to send, or to auto-generate a quiz.
   real session/auth bootstrap running underneath it), the empty-state
   illustration above the "select some text..." hint, and the eureka
   celebration (`EurekaBurst.tsx` — the mascot pops up as the confetti
-  lands, with a few synthesized claps via the Web Audio API — filtered
-  decaying noise bursts, the standard technique for a percussive clap
-  sound, rather than bundling an audio file; gated behind the same
-  prefers-reduced-motion check the confetti already respects).
+  lands, with a real applause clip, `public/audio/eureka-applause.mp3`
+  — a synthesized noise-burst clap was tried first but didn't sound
+  convincing, so this is a licensed recording instead. The source file
+  runs much longer than the ~4s confetti burst, so playback is faded out
+  and stopped in sync with `EUREKA_BURST_DURATION` rather than left to run
+  past the visual celebration; gated behind the same prefers-reduced-motion
+  check the confetti already respects).
 - **Continue in LearnX** — a link below the chat once there's something to
   continue, deep-linking to the actual conversation (`?conv=<id>`, the same
   param `frontend/app/page.tsx` already reads on load). Genuinely "continue
