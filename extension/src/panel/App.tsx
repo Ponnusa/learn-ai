@@ -1,15 +1,25 @@
 import { useEffect, useRef, useState } from 'react';
-import { createOrGetSession, sendMessage } from '../lib/api';
+import { createOrGetSession, generateQuiz, sendMessage, type AuthResponse, type AuthUser, type QuizQuestion } from '../lib/api';
 import { LadderWidget } from '../components/LadderWidget';
 import { EurekaBurst, EUREKA_BURST_DURATION } from '../components/EurekaBurst';
 import { GenieMessage, type GenieMessageData } from './GenieMessage';
+import { GenieQuiz } from './GenieQuiz';
+import { GenieAuth } from './GenieAuth';
 
 const SESSION_STORAGE_KEY = 'genie_session_id';
+const AUTH_TOKEN_KEY = 'genie_auth_token';
+const AUTH_USER_KEY = 'genie_auth_user';
 
 interface PendingSelection {
   text: string;
   pageTitle: string;
   pageUrl: string;
+  action?: 'quiz'; // set by the "Quiz me on this" context-menu entry
+}
+
+interface AuthState {
+  token: string;
+  user: AuthUser;
 }
 
 export default function App() {
@@ -23,9 +33,17 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const [auth, setAuth] = useState<AuthState | null>(null);
+  const [showAuth, setShowAuth] = useState(false);
+
+  const [quiz, setQuiz] = useState<{ quizId: string; questions: QuizQuestion[] } | null>(null);
+  const [quizGenerating, setQuizGenerating] = useState(false);
+  const [quizError, setQuizError] = useState<string | null>(null);
+  const [quizLimitReached, setQuizLimitReached] = useState(false);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, loading, selection]);
+  }, [messages, loading, selection, quiz]);
 
   // Same climbing/eureka state machine as frontend/app/page.tsx's
   // updateLadderState — see that file's comments for why steps are
@@ -36,7 +54,8 @@ export default function App() {
   const [ladderSteps, setLadderSteps] = useState(0);
   const [eurekaBurst, setEurekaBurst] = useState(false);
 
-  // ── Bootstrap: session + any selection that triggered opening the panel ──
+  // ── Bootstrap: session, saved sign-in, and any selection that triggered
+  //    opening the panel (pill, or the right-click context menu) ───────────
   useEffect(() => {
     chrome.storage.local.get(SESSION_STORAGE_KEY).then(async (stored) => {
       try {
@@ -45,6 +64,12 @@ export default function App() {
         await chrome.storage.local.set({ [SESSION_STORAGE_KEY]: res.session_id });
       } catch {
         setError("Couldn't reach LearnX. Check your connection and try again.");
+      }
+    });
+
+    chrome.storage.local.get([AUTH_TOKEN_KEY, AUTH_USER_KEY]).then((stored) => {
+      if (stored[AUTH_TOKEN_KEY] && stored[AUTH_USER_KEY]) {
+        setAuth({ token: stored[AUTH_TOKEN_KEY], user: stored[AUTH_USER_KEY] });
       }
     });
 
@@ -58,6 +83,21 @@ export default function App() {
     chrome.runtime.onMessage.addListener(listener);
     return () => chrome.runtime.onMessage.removeListener(listener);
   }, []);
+
+  // A selection that arrived with action:'quiz' (right-click "Quiz me on
+  // this") already expressed clear intent — auto-run the quiz instead of
+  // waiting for a button click. Split into its own effect (rather than
+  // calling handleQuiz directly from the mount-only bootstrap effect above)
+  // so it always closes over the current sessionId/auth, not whatever they
+  // were at the first render before the session finished loading.
+  useEffect(() => {
+    if (selection?.action === 'quiz' && sessionId) {
+      const text = selection.text;
+      setSelection(null);
+      handleQuiz(text);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selection, sessionId]);
 
   function updateLadderState(newDepth: number | null | undefined) {
     const waiting = (newDepth ?? 0) > 0;
@@ -91,12 +131,16 @@ export default function App() {
     setLoading(true);
 
     try {
-      const res = await sendMessage({
-        message: text,
-        conversation_id: conversationId ?? undefined,
-        session_id: sessionId,
-        source: 'extension',
-      });
+      const res = await sendMessage(
+        {
+          message: text,
+          conversation_id: conversationId ?? undefined,
+          session_id: auth ? undefined : sessionId,
+          user_id: auth?.user.id,
+          source: 'extension',
+        },
+        auth?.token,
+      );
       setConversationId(res.conversation_id);
       updateLadderState(res.ladder_depth);
       setMessages((prev) => [...prev, { id: res.message_id, role: 'assistant', content: res.reply }]);
@@ -112,17 +156,86 @@ export default function App() {
     }
   }
 
+  async function handleQuiz(topic: string) {
+    if (quizGenerating) return;
+    setSelection(null);
+    setQuizError(null);
+    setQuizGenerating(true);
+
+    try {
+      const res = await generateQuiz(
+        {
+          topic,
+          conversation_id: conversationId ?? undefined,
+          session_id: auth ? undefined : (sessionId ?? undefined),
+          user_id: auth?.user.id,
+          language: 'en',
+        },
+        auth?.token,
+      );
+      setQuiz({ quizId: res.quiz_id, questions: res.questions });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not generate a quiz';
+      if (msg === 'session_limit_reached') {
+        setQuizLimitReached(true);
+      } else {
+        setQuizError(msg);
+      }
+    } finally {
+      setQuizGenerating(false);
+    }
+  }
+
+  function handleAuthSuccess(res: AuthResponse) {
+    setAuth({ token: res.token, user: res.user });
+    chrome.storage.local.set({ [AUTH_TOKEN_KEY]: res.token, [AUTH_USER_KEY]: res.user });
+    setShowAuth(false);
+    // A signed-in user's credit limit is a completely separate check
+    // (their own daily allowance, not the anonymous session's lifetime
+    // cap) — clear both so the UI reflects the new state immediately.
+    setLimitReached(false);
+    setQuizLimitReached(false);
+  }
+
+  function handleSignOut() {
+    setAuth(null);
+    chrome.storage.local.remove([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
+  }
+
   return (
     <div className="flex flex-col h-full">
       <header className="flex items-center gap-2 px-4 py-3 border-b border-[var(--bd)]">
         <span className="text-lg">🧞</span>
-        <span className="font-semibold text-[var(--tx1)] text-sm">LearnX Genie</span>
+        <span className="font-semibold text-[var(--tx1)] text-sm flex-1">LearnX Genie</span>
+        {auth ? (
+          <button
+            type="button"
+            className="text-xs text-[var(--tx7)] hover:text-[var(--tx1)]"
+            onClick={handleSignOut}
+            title={auth.user.email}
+          >
+            Sign out
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="text-xs font-medium text-[var(--indigo)] hover:underline"
+            onClick={() => setShowAuth((v) => !v)}
+          >
+            Sign in
+          </button>
+        )}
       </header>
 
+      {showAuth && (
+        <GenieAuth sessionId={sessionId} onSuccess={handleAuthSuccess} onCancel={() => setShowAuth(false)} />
+      )}
+
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
-        {messages.length === 0 && !selection && (
+        {messages.length === 0 && !selection && !quiz && (
           <p className="text-sm text-[var(--tx7)] leading-relaxed">
-            Select some text on any page, then click "✨ Ask LearnX" — or just type a question below.
+            Select some text on any page, then click "✨ Ask LearnX" (or right-click it) — or just type a question
+            below.
           </p>
         )}
         {messages.map((m) => (
@@ -134,6 +247,30 @@ export default function App() {
       </div>
 
       <LadderWidget phase={ladderPhase} steps={ladderSteps} />
+
+      {quizGenerating && <p className="mx-4 mb-2 text-xs text-[var(--tx7)]">Building your quiz…</p>}
+      {quizError && <p className="mx-4 mb-2 text-xs text-[var(--red)]">{quizError}</p>}
+      {quizLimitReached && !auth && (
+        <div className="mx-4 mb-2 p-2.5 rounded-xl border border-[var(--bd)] bg-[var(--surface)] text-center">
+          <p className="text-xs text-[var(--tx2)]">You've used your free quiz for this session.</p>
+          <button
+            type="button"
+            className="text-xs font-medium text-[var(--indigo)] hover:underline mt-1"
+            onClick={() => setShowAuth(true)}
+          >
+            Sign in for more
+          </button>
+        </div>
+      )}
+      {quiz && (
+        <GenieQuiz
+          quizId={quiz.quizId}
+          questions={quiz.questions}
+          userId={auth?.user.id}
+          token={auth?.token}
+          onClose={() => setQuiz(null)}
+        />
+      )}
 
       {selection && (
         <div className="mx-4 mb-2 p-2.5 rounded-xl border border-[var(--bd)] bg-[var(--surface)]">
@@ -162,11 +299,8 @@ export default function App() {
               just gave a full explanation instead of scaffolding. The
               explicit "one guiding question at a time, instead of just
               explaining it" clause is what actually maps onto that
-              instruction's single-question rule. "Explain this" still
-              works exactly the same as before, just styled as the
-              secondary option — nothing is forced either way, the backend
-              still decides per-turn. */}
-          <div className="flex gap-2">
+              instruction's single-question rule. */}
+          <div className="flex flex-wrap gap-2">
             <button
               className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[var(--indigo)] text-white inline-flex items-center gap-1"
               onClick={() =>
@@ -183,6 +317,12 @@ export default function App() {
             >
               Just explain it
             </button>
+            <button
+              className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-[var(--bd)] text-[var(--tx3)]"
+              onClick={() => handleQuiz(selection.text)}
+            >
+              🎯 Quiz me on this
+            </button>
           </div>
         </div>
       )}
@@ -190,7 +330,13 @@ export default function App() {
       {limitReached ? (
         <div className="m-4 p-3 rounded-xl border border-[var(--bd)] bg-[var(--surface)] text-center">
           <p className="text-sm text-[var(--tx2)]">You've reached the free limit for this session.</p>
-          <p className="text-xs text-[var(--tx7)] mt-1">Sign in to LearnX to keep going.</p>
+          <button
+            type="button"
+            className="text-xs font-medium text-[var(--indigo)] hover:underline mt-1"
+            onClick={() => setShowAuth(true)}
+          >
+            Sign in to keep going
+          </button>
         </div>
       ) : (
         <form

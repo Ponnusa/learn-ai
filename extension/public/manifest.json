@@ -20,6 +20,6 @@
   "side_panel": {
     "default_path": "panel.html"
   },
-  "permissions": ["activeTab", "storage", "sidePanel"],
+  "permissions": ["activeTab", "storage", "sidePanel", "contextMenus"],
   "host_permissions": ["<all_urls>"]
 }

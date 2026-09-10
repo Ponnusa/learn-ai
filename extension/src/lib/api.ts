@@ -68,3 +68,72 @@ export interface SendMessageResponse {
 export function sendMessage(req: SendMessageRequest, token?: string | null): Promise<SendMessageResponse> {
   return request('POST', '/api/chat/send', { ...req, source: req.source ?? 'extension' }, token);
 }
+
+// ── Quiz ─────────────────────────────────────────────────────────────────
+
+export interface QuizQuestion {
+  q: string;
+  options: string[];
+  correct: number;
+  explanation: string;
+  difficulty: string;
+}
+
+export interface GenerateQuizRequest {
+  topic: string;
+  conversation_id?: string;
+  session_id?: string;
+  user_id?: string;
+  language?: string;
+  num_questions?: number;
+}
+
+export interface GenerateQuizResponse {
+  quiz_id: string;
+  questions: QuizQuestion[];
+  message_id?: string | null;
+}
+
+export function generateQuiz(req: GenerateQuizRequest, token?: string | null): Promise<GenerateQuizResponse> {
+  return request('POST', '/api/quizzes/generate', req, token);
+}
+
+export interface SubmitQuizResponse {
+  correct: number;
+  total: number;
+  score_pct: number;
+  results: { correct: boolean; correct_index: number }[];
+  passed: boolean;
+}
+
+export function submitQuiz(
+  quizId: string,
+  answers: Record<number, number>,
+  userId?: string | null,
+  token?: string | null,
+): Promise<SubmitQuizResponse> {
+  return request('POST', `/api/quizzes/${quizId}/submit`, { answers, user_id: userId ?? undefined }, token);
+}
+
+// ── Auth (email/password — see App.tsx for why not magic-link/OAuth) ───────
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string | null;
+  tier: string;
+  account_type: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: AuthUser;
+}
+
+export function register(email: string, password: string, sessionId?: string | null): Promise<AuthResponse> {
+  return request('POST', '/api/auth/register', { email, password, session_id: sessionId ?? undefined });
+}
+
+export function loginPassword(email: string, password: string): Promise<AuthResponse> {
+  return request('POST', '/api/auth/login/password', { email, password });
+}

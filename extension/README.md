@@ -1,9 +1,10 @@
-# LearnX Genie (Chrome extension) — Phase 1
+# LearnX Genie (Chrome extension)
 
-Select text on any webpage, ask LearnX to explain it or walk you through it.
-Reuses the exact same anonymous-session/credit model as the web app (see
-`backend/routers/sessions.py`, `backend/services/credits.py`) — no login
-required, same 8-message lifetime cap before a sign-in nudge.
+Select text on any webpage, ask LearnX to explain it, walk you through it,
+or quiz you on it. Reuses the exact same anonymous-session/credit model as
+the web app (see `backend/routers/sessions.py`, `backend/services/credits.py`)
+— no login required, same limits before a sign-in nudge (8 messages, 1 quiz,
+both lifetime for an anonymous session).
 
 ## Build
 
@@ -31,16 +32,31 @@ Builds into `dist/`: `manifest.json` + `panel.html`/assets (side panel SPA)
 ## Try it
 
 Select a sentence of text on any real webpage (not the LearnX app itself) —
-a small "✨ Ask LearnX" pill should appear near the selection. Click it to
-open the side panel with that text ready to send.
+a small "✨ Ask LearnX" pill should appear near the selection. Click it (or
+right-click the selection and pick "Ask LearnX" / "Quiz me on this") to open
+the side panel with that text ready to send, or to auto-generate a quiz.
+
+## What's here
+
+- **Chat** — select text → "Help me understand it" (nudges guided discovery,
+  the ladder/eureka experience) or "Just explain it" (direct answer). Or
+  just type a question in the box at any time.
+- **Quiz** — "🎯 Quiz me on this" from the selection card, or the
+  "Quiz me on this (LearnX)" right-click entry (auto-runs, no extra click).
+  Inline multiple-choice, submit, see score + explanations.
+- **Context menu** — right-click a selection for the same two entry points
+  as the floating pill, for pages where the pill is awkward to use.
+- **Optional sign-in** — email/password (not magic-link or Google OAuth:
+  both of those redirect through a web page, and the resulting token would
+  land in the *web app's* storage, not somewhere this extension can read —
+  see `src/panel/GenieAuth.tsx`'s header comment). Not required; anonymous
+  usage works the same as the web app's anonymous flow, just with lower
+  limits, and signing in switches to the account's own daily limits.
 
 ## What's not here yet
 
-Quiz generation, PDF support, the context-menu entry point, and optional
-sign-in are later phases — see the project's implementation plan for the
-full sequence. This phase is deliberately just the smallest working slice:
-select text → get an adaptive-teaching reply, with the same ladder/eureka
-visuals as the app.
+PDF support is the remaining later phase — see the project's implementation
+plan for the full sequence.
 
 ## Before ever publishing
 
