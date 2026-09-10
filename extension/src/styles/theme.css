@@ -153,3 +153,10 @@ body {
 .katex-display { overflow-x: auto; margin: 0.5rem 0; }
 .ai-content .katex         { color: var(--tx2) !important; }
 .ai-content .katex-display { margin: 0.75rem 0; overflow-x: auto; }
+
+/* Native <select>: browsers ignore CSS vars on <option>/<optgroup> */
+select option,
+select optgroup {
+  background-color: var(--input);
+  color: var(--tx1);
+}

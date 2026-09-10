@@ -3,9 +3,13 @@ import {
   createOrGetSession,
   generateQuiz,
   sendMessage,
+  updateLanguage,
   uploadRegionImage,
+  LANGUAGE_CODES,
+  LANGUAGE_LABELS,
   type AuthResponse,
   type AuthUser,
+  type LanguageCode,
   type QuizQuestion,
 } from '../lib/api';
 import { LadderWidget } from '../components/LadderWidget';
@@ -18,6 +22,15 @@ import { ClipCapture } from './ClipCapture';
 const SESSION_STORAGE_KEY = 'genie_session_id';
 const AUTH_TOKEN_KEY = 'genie_auth_token';
 const AUTH_USER_KEY = 'genie_auth_user';
+const LANGUAGE_STORAGE_KEY = 'genie_language';
+
+/** Best guess at a starting language before any saved preference loads:
+ *  the browser's own locale, mapped to the nearest of the 6 supported
+ *  codes, falling back to English. */
+function detectDefaultLanguage(): LanguageCode {
+  const nav = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  return (LANGUAGE_CODES as string[]).includes(nav) ? (nav as LanguageCode) : 'en';
+}
 
 interface PendingSelection {
   text: string;
@@ -44,6 +57,14 @@ export default function App() {
 
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [showAuth, setShowAuth] = useState(false);
+
+  // Response language — mirrors frontend/hooks/useLanguage.ts's behavior:
+  // starts from a locally-remembered choice (or the browser locale),
+  // snaps to the signed-in account's saved `language` on sign-in/restore
+  // (same PATCH /api/auth/language persists a manual change back), and is
+  // sent on every request that affects the AI's output (previously wasn't
+  // sent at all, so genie silently always talked in English).
+  const [language, setLanguageState] = useState<LanguageCode>(detectDefaultLanguage());
 
   // Screen-clip attachment: `clipping` holds the full captured tab while
   // the crop UI is open; `clippedImage` holds the confirmed crop staged
@@ -89,10 +110,20 @@ export default function App() {
       }
     });
 
-    chrome.storage.local.get([AUTH_TOKEN_KEY, AUTH_USER_KEY]).then((stored) => {
+    chrome.storage.local.get([AUTH_TOKEN_KEY, AUTH_USER_KEY, LANGUAGE_STORAGE_KEY]).then((stored) => {
+      const savedLanguage: LanguageCode | undefined = stored[LANGUAGE_STORAGE_KEY];
       if (stored[AUTH_TOKEN_KEY] && stored[AUTH_USER_KEY]) {
-        setAuth({ token: stored[AUTH_TOKEN_KEY], user: stored[AUTH_USER_KEY] });
+        const user: AuthUser = stored[AUTH_USER_KEY];
+        setAuth({ token: stored[AUTH_TOKEN_KEY], user });
+        // Account's saved language wins over a locally-remembered one on
+        // restore — same precedence frontend/hooks/useLanguage.ts uses.
+        const accountLanguage = user.language as LanguageCode | undefined;
+        if (accountLanguage && LANGUAGE_CODES.includes(accountLanguage)) {
+          setLanguageState(accountLanguage);
+          return;
+        }
       }
+      if (savedLanguage && LANGUAGE_CODES.includes(savedLanguage)) setLanguageState(savedLanguage);
     });
 
     chrome.runtime.sendMessage({ type: 'GENIE_GET_PENDING_SELECTION' }).then((pending) => {
@@ -184,6 +215,7 @@ export default function App() {
           user_id: auth?.user.id,
           source: 'extension',
           image_url: imageUrl,
+          language,
         },
         auth?.token,
       );
@@ -243,7 +275,7 @@ export default function App() {
           conversation_id: conversationId ?? undefined,
           session_id: auth ? undefined : (sessionId ?? undefined),
           user_id: auth?.user.id,
-          language: 'en',
+          language,
         },
         auth?.token,
       );
@@ -269,11 +301,27 @@ export default function App() {
     // cap) — clear both so the UI reflects the new state immediately.
     setLimitReached(false);
     setQuizLimitReached(false);
+    // Snap to the account's saved language, same precedence as the web
+    // app's useLanguage() hook on login.
+    const accountLanguage = res.user.language as LanguageCode | undefined;
+    if (accountLanguage && LANGUAGE_CODES.includes(accountLanguage)) {
+      setLanguageState(accountLanguage);
+      chrome.storage.local.set({ [LANGUAGE_STORAGE_KEY]: accountLanguage });
+    }
   }
 
   function handleSignOut() {
     setAuth(null);
     chrome.storage.local.remove([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
+  }
+
+  function handleLanguageChange(lang: LanguageCode) {
+    setLanguageState(lang);
+    chrome.storage.local.set({ [LANGUAGE_STORAGE_KEY]: lang });
+    if (auth) {
+      updateLanguage(auth.user.id, lang, auth.token).catch(() => {});
+      setAuth({ ...auth, user: { ...auth.user, language: lang } });
+    }
   }
 
   // Per-message action toolbar handlers — mirror frontend/app/page.tsx's
@@ -292,6 +340,19 @@ export default function App() {
       <header className="flex items-center gap-2 px-4 py-3 border-b border-[var(--bd)]">
         <span className="text-lg">🧞</span>
         <span className="font-semibold text-[var(--tx1)] text-sm flex-1">LearnX Genie</span>
+        <select
+          value={language}
+          onChange={(e) => handleLanguageChange(e.target.value as LanguageCode)}
+          title="Response language"
+          aria-label="Response language"
+          className="text-xs bg-transparent text-[var(--tx7)] hover:text-[var(--tx1)] border border-[var(--bd)] rounded-lg px-1.5 py-1 outline-none cursor-pointer"
+        >
+          {LANGUAGE_CODES.map((code) => (
+            <option key={code} value={code}>
+              {LANGUAGE_LABELS[code]}
+            </option>
+          ))}
+        </select>
         {auth ? (
           <button
             type="button"
@@ -332,6 +393,7 @@ export default function App() {
           <GenieMessage
             key={m.id}
             message={m}
+            language={language}
             onChipClick={handleChipClick}
             onQuizMe={handleQuizMe}
             onWalkMeThrough={handleWalkMeThrough}
@@ -366,6 +428,7 @@ export default function App() {
           <GenieMessage
             key={m.id}
             message={m}
+            language={language}
             onChipClick={handleChipClick}
             onQuizMe={handleQuizMe}
             onWalkMeThrough={handleWalkMeThrough}

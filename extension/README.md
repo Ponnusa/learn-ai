@@ -80,6 +80,16 @@ the side panel with that text ready to send, or to auto-generate a quiz.
   see `src/panel/GenieAuth.tsx`'s header comment). Not required; anonymous
   usage works the same as the web app's anonymous flow, just with lower
   limits, and signing in switches to the account's own daily limits.
+- **Response language** — a combo box in the header, same 6 languages and
+  labels as the web app's Settings page (`frontend/translations/index.ts`).
+  Defaults to a locally-remembered choice (or the browser's locale) and, on
+  sign-in, snaps to the account's saved language, same precedence as
+  `frontend/hooks/useLanguage.ts`. Changing it while signed in persists to
+  the account via `PATCH /api/auth/language`, same endpoint the web app
+  uses — so it's genuinely a shared setting, not a separate one. Every chat
+  and quiz request now sends it; previously genie sent no `language` field
+  at all and silently always replied in English regardless of the user's
+  actual preference.
 
 ## Before ever publishing
 

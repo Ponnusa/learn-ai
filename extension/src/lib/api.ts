@@ -136,6 +136,7 @@ export interface AuthUser {
   name: string | null;
   tier: string;
   account_type: string;
+  language?: string;
 }
 
 export interface AuthResponse {
@@ -149,6 +150,28 @@ export function register(email: string, password: string, sessionId?: string | n
 
 export function loginPassword(email: string, password: string): Promise<AuthResponse> {
   return request('POST', '/api/auth/login/password', { email, password });
+}
+
+// ── Language ─────────────────────────────────────────────────────────────
+// Ported from frontend/translations/index.ts — same 6 languages, same
+// native-name+flag labels, same backend validation set
+// (backend/routers/auth.py's _VALID_LANGUAGES).
+
+export type LanguageCode = 'en' | 'fi' | 'sv' | 'es' | 'fr' | 'no';
+
+export const LANGUAGE_LABELS: Record<LanguageCode, string> = {
+  en: '🇬🇧 English',
+  fi: '🇫🇮 Suomi',
+  sv: '🇸🇪 Svenska',
+  es: '🇪🇸 Español',
+  fr: '🇫🇷 Français',
+  no: '🇳🇴 Norsk',
+};
+
+export const LANGUAGE_CODES = Object.keys(LANGUAGE_LABELS) as LanguageCode[];
+
+export function updateLanguage(userId: string, language: LanguageCode, token?: string | null): Promise<{ ok: boolean }> {
+  return request('PATCH', '/api/auth/language', { user_id: userId, language }, token);
 }
 
 // ── Text-to-speech (read aloud) ─────────────────────────────────────────

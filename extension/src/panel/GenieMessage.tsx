@@ -22,6 +22,7 @@ export interface GenieMessageData {
 
 interface GenieMessageProps {
   message: GenieMessageData;
+  language?: string;
   onChipClick?: (chip: string) => void;
   onQuizMe?: (content: string) => void;
   onWalkMeThrough?: () => void;
@@ -48,7 +49,7 @@ const SMILES_COMPONENTS: Components = {
 // simplify/go deeper, read-aloud, copy. No video/animate (genie doesn't
 // offer video generation) and no quiz-card-in-thread (quiz has its own
 // standalone GenieQuiz component instead of living inside a message).
-export function GenieMessage({ message, onChipClick, onQuizMe, onWalkMeThrough, onSimplify, onGoDeeper }: GenieMessageProps) {
+export function GenieMessage({ message, language, onChipClick, onQuizMe, onWalkMeThrough, onSimplify, onGoDeeper }: GenieMessageProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [ttsLoading, setTtsLoading] = useState(false);
@@ -80,7 +81,7 @@ export function GenieMessage({ message, onChipClick, onQuizMe, onWalkMeThrough, 
     globalStopTts = stopTts;
     setTtsLoading(true);
     try {
-      const blob = await getChatMessageAudio(message.id);
+      const blob = await getChatMessageAudio(message.id, language ?? 'en');
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       ttsAudioRef.current = audio;
