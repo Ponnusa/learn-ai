@@ -57,6 +57,11 @@ export function GenieMessage({ message, language, t, onChipClick, onQuizMe, onWa
   const [ttsLoading, setTtsLoading] = useState(false);
   const [ttsPlaying, setTtsPlaying] = useState(false);
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Genie doesn't do video generation itself — showing the button anyway
+  // (rather than omitting it, which is what shipped before) matches the
+  // app's actual toolbar and gives students a clear, honest next step
+  // instead of a missing feature they might assume is just broken.
+  const [showAnimateNotice, setShowAnimateNotice] = useState(false);
 
   const chips = message.metadata?.chips ?? [];
   const isMidScaffold = (message.metadata?.ladder_depth ?? 0) > 0;
@@ -144,6 +149,12 @@ export function GenieMessage({ message, language, t, onChipClick, onQuizMe, onWa
         {!isMidScaffold && (
           <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[var(--bd2)]">
             <button
+              onClick={() => setShowAnimateNotice((v) => !v)}
+              className="text-[11px] px-2.5 py-1 rounded-lg font-medium bg-purple-600/25 hover:bg-purple-600/40 text-[var(--purple)] border border-purple-500/25"
+            >
+              {t.animateIt}
+            </button>
+            <button
               onClick={() => onQuizMe?.(message.content)}
               className="text-[11px] px-2.5 py-1 rounded-lg font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)] border border-indigo-500/20"
             >
@@ -176,6 +187,20 @@ export function GenieMessage({ message, language, t, onChipClick, onQuizMe, onWa
             >
               {copied ? <Check size={13} className="text-[var(--green)]" /> : <Copy size={13} />}
             </button>
+          </div>
+        )}
+
+        {showAnimateNotice && (
+          <div className="text-[11px] text-[var(--tx7)] bg-[var(--ov1)] rounded-lg px-2.5 py-2 flex items-center justify-between gap-2">
+            <span>{t.animateNotice}</span>
+            <a
+              href="https://learnx-ai.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--indigo)] font-medium whitespace-nowrap hover:underline"
+            >
+              {t.goToLearnX}
+            </a>
           </div>
         )}
 

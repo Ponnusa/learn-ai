@@ -41,11 +41,12 @@ the side panel with that text ready to send, or to auto-generate a quiz.
 - **Chat** — select text → "Help me understand it" (nudges guided discovery,
   the ladder/eureka experience) or "Just explain it" (direct answer). Or
   just type a question in the box at any time. Every reply carries the same
-  action toolbar as the web app's chat (minus video generation, which genie
-  doesn't offer): ✏️ Quiz me, 🧭 Walk me through it, suggestion chips + 💡
-  Show me an example, ↓ Simplify this / ↑ Go deeper, read-aloud, copy — all
-  hidden while a guided-discovery question is still awaiting an answer,
-  same as the app.
+  action toolbar as the web app's chat: 🎬 Animate it, ✏️ Quiz me, 🧭 Walk
+  me through it, suggestion chips + 💡 Show me an example, ↓ Simplify this
+  / ↑ Go deeper, read-aloud, copy — all hidden while a guided-discovery
+  question is still awaiting an answer, same as the app. Animate it is
+  shown for toolbar parity, but genie doesn't generate video itself —
+  clicking it shows a short notice pointing to learnx-ai.com instead.
 - **Formulas & structures** — physics/chemistry/math formulas render via
   KaTeX (ported `preprocessMath`/`mathConfig`/`MathText` from
   `frontend/lib/` and `frontend/components/ui/`), and organic chemistry
@@ -63,7 +64,7 @@ the side panel with that text ready to send, or to auto-generate a quiz.
   summary instead, expandable again any time.
 - **Context menu** — right-click a selection for the same two entry points
   as the floating pill, for pages where the pill is awkward to use.
-- **Screen clip (📎 in the input row)** — captures the visible tab
+- **Screen clip (crosshair icon in the input row)** — captures the visible tab
   (`chrome.tabs.captureVisibleTab`, no extra permission needed beyond the
   `host_permissions` the extension already has), then a drag-select crop
   UI (`ClipCapture.tsx`, mirroring `PDFViewerModal.tsx`'s region-capture
@@ -90,6 +91,17 @@ the side panel with that text ready to send, or to auto-generate a quiz.
   and quiz request now sends it; previously genie sent no `language` field
   at all and silently always replied in English regardless of the user's
   actual preference.
+- **Icon** — generated from the web app's own logo (`frontend/public/logo_source.png`,
+  via `sharp` — see `public/icons/`) at 16/32/48/128px, not a placeholder.
+- **Continue in LearnX** — a link below the chat once there's something to
+  continue, deep-linking to the actual conversation (`?conv=<id>`, the same
+  param `frontend/app/page.tsx` already reads on load). Genuinely "continue
+  there," not just a nudge — every conversation genie starts is a real
+  conversation on the account/session. One caveat: this only round-trips
+  cleanly for a signed-in user today — the web app has no URL param for
+  picking up a specific *anonymous* session, so an anonymous user's link
+  opens the app's own separate anonymous session, not this one's. Fixing
+  that would be new web-app work, not something the extension alone can do.
 
 ## Before ever publishing
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Crosshair } from 'lucide-react';
 import {
   createOrGetSession,
   generateQuiz,
@@ -462,6 +463,27 @@ export default function App() {
 
       <LadderWidget phase={ladderPhase} steps={ladderSteps} />
 
+      {/* Every conversation genie starts is a real conversation on the
+          account/session (see handleSend/handleQuiz) — this link is
+          genuinely "continue there," not just a marketing nudge. Deep-links
+          to the specific conversation via ?conv=<id>, the exact param
+          frontend/app/page.tsx already reads on load (confirmed: 'conv',
+          not 'conversation_id'). Note: there's no equivalent session_id
+          URL param on the web app side, so for an anonymous (not signed
+          in) user this opens the app's OWN separate anonymous session, not
+          this one's — true continuity there would need new web-app work,
+          not just an extension-side change. */}
+      {(messages.length > 0 || quiz) && (
+        <a
+          href={conversationId ? `https://learnx-ai.com/?conv=${conversationId}` : 'https://learnx-ai.com'}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block text-center text-[11px] text-[var(--tx7)] hover:text-[var(--indigo)] py-1.5 border-t border-[var(--bd)] transition-colors"
+        >
+          {t.continueInLearnX}
+        </a>
+      )}
+
       {selection && (
         <div className="mx-4 mb-2 p-2.5 rounded-xl border border-[var(--bd)] bg-[var(--surface)]">
           <div className="flex items-start justify-between gap-2 mb-2">
@@ -557,7 +579,7 @@ export default function App() {
               disabled={loading || clipUploading}
               className="text-[var(--tx7)] hover:text-[var(--tx1)] p-2 rounded-lg hover:bg-[var(--ov1)] disabled:opacity-50"
             >
-              📎
+              <Crosshair size={16} />
             </button>
             <input
               className="flex-1 rounded-lg border border-[var(--bd)] bg-[var(--input)] text-[var(--tx1)] text-sm px-3 py-2 outline-none"

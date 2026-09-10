@@ -34,10 +34,18 @@ export interface GenieStrings {
   showExample: string; // ported (label only — prompt text stays English, see note above)
   simplify: string; // ported (label only)
   goDeeper: string; // ported (label only)
+  animateIt: string; // ported (makeItVisual) — genie shows the button for toolbar parity with the app, but clicking it explains video generation lives in the full app instead of generating one here
+  animateNotice: string; // genie-only — shown under the toolbar when Animate it is clicked
+  goToLearnX: string; // genie-only — link label, used here and in the footer
   ttsReadAloud: string; // genie-only
   ttsGenerating: string; // genie-only
   ttsStop: string; // genie-only
   copy: string; // genie-only
+
+  // Footer — persistent nudge back to the full app, every history-carrying
+  // chat/quiz genie starts is a real conversation on the account/session,
+  // so "continue there" is genuinely true, not just marketing copy.
+  continueInLearnX: string; // genie-only
 
   // Selection card (from the "Ask LearnX" pill / context menu)
   cancelSelectionTitle: string; // genie-only
@@ -102,6 +110,10 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     showExample: '💡 Show me an example',
     simplify: '↓ Simplify this',
     goDeeper: '↑ Go deeper',
+    animateIt: '🎬 Animate it',
+    animateNotice: 'Video generation is available in the full LearnX app.',
+    goToLearnX: 'Go to learnx-ai.com',
+    continueInLearnX: '💾 All chats saved — continue in LearnX →',
     ttsReadAloud: 'Read aloud',
     ttsGenerating: 'Generating audio…',
     ttsStop: 'Stop',
@@ -159,6 +171,10 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     showExample: '💡 Näytä esimerkki',
     simplify: '↓ Yksinkertaista',
     goDeeper: '↑ Syvennä',
+    animateIt: '🎬 Animoi se',
+    animateNotice: 'Videoiden luonti on saatavilla LearnXin täydessä sovelluksessa.',
+    goToLearnX: 'Siirry osoitteeseen learnx-ai.com',
+    continueInLearnX: '💾 Kaikki keskustelut tallennettu — jatka LearnXissa →',
     ttsReadAloud: 'Lue ääneen',
     ttsGenerating: 'Luodaan ääntä…',
     ttsStop: 'Pysäytä',
@@ -216,6 +232,10 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     showExample: '💡 Muéstrame un ejemplo',
     simplify: '↓ Simplificar',
     goDeeper: '↑ Profundizar',
+    animateIt: '🎬 Animarlo',
+    animateNotice: 'La generación de vídeos está disponible en la aplicación completa de LearnX.',
+    goToLearnX: 'Ir a learnx-ai.com',
+    continueInLearnX: '💾 Todos los chats guardados — continúa en LearnX →',
     ttsReadAloud: 'Leer en voz alta',
     ttsGenerating: 'Generando audio…',
     ttsStop: 'Detener',
@@ -273,6 +293,10 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     showExample: '💡 Montre-moi un exemple',
     simplify: '↓ Simplifier',
     goDeeper: '↑ Approfondir',
+    animateIt: "🎬 L'animer",
+    animateNotice: "La génération de vidéos est disponible dans l'application complète LearnX.",
+    goToLearnX: 'Aller sur learnx-ai.com',
+    continueInLearnX: '💾 Toutes les discussions sont enregistrées — continuer sur LearnX →',
     ttsReadAloud: 'Lire à voix haute',
     ttsGenerating: 'Génération audio…',
     ttsStop: 'Arrêter',
@@ -330,6 +354,10 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     showExample: '💡 Vis meg et eksempel',
     simplify: '↓ Forenkle dette',
     goDeeper: '↑ Gå dypere',
+    animateIt: '🎬 Animer det',
+    animateNotice: 'Videogenerering er tilgjengelig i den fullstendige LearnX-appen.',
+    goToLearnX: 'Gå til learnx-ai.com',
+    continueInLearnX: '💾 Alle samtaler lagret — fortsett i LearnX →',
     ttsReadAloud: 'Les høyt',
     ttsGenerating: 'Genererer lyd…',
     ttsStop: 'Stopp',
@@ -387,6 +415,10 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     showExample: '💡 Visa mig ett exempel',
     simplify: '↓ Förenkla detta',
     goDeeper: '↑ Fördjupa',
+    animateIt: '🎬 Animera det',
+    animateNotice: 'Videogenerering är tillgänglig i den fullständiga LearnX-appen.',
+    goToLearnX: 'Gå till learnx-ai.com',
+    continueInLearnX: '💾 Alla chattar sparade — fortsätt i LearnX →',
     ttsReadAloud: 'Läs upp',
     ttsGenerating: 'Genererar ljud…',
     ttsStop: 'Stoppa',
