@@ -14,7 +14,7 @@ type Content = { title: string; lastUpdated: string; sections: Section[] };
 const CONTENT: Record<string, Content> = {
   en: {
     title: 'Privacy Policy',
-    lastUpdated: 'Last updated: 15 April 2026',
+    lastUpdated: 'Last updated: 10 September 2026',
     sections: [
       { num: '1', title: 'Data Controller', blocks: [
         { type: 'p', text: 'The data controller for LearnX-AI is:' },
@@ -96,12 +96,21 @@ const CONTENT: Record<string, Content> = {
       { num: '12', title: 'Contact', blocks: [
         { type: 'table', rows: [['Company', 'NordX Labs Oy'], ['Email', 'hello@animlearn.com']] },
       ]},
+      { num: '13', title: 'Browser Extension (LearnX Genie)', blocks: [
+        { type: 'p', text: 'LearnX Genie, our Chrome extension, collects the following in addition to the above when you use it:' },
+        { type: 'ul', items: [
+          'Text you select, or a screen region you explicitly capture, on any webpage you ask about — sent to our servers to generate a response',
+          'An anonymous session identifier stored on your device if you use the extension without signing in, to enforce free-usage limits',
+          'A one-way hash of your IP address and browser identifier for abuse prevention (never the raw values)',
+        ]},
+        { type: 'p', text: 'Extension chat and screen-clip requests are processed by Microsoft Azure OpenAI (EU) — see Section 5. The extension does not track which websites you visit beyond the specific page open when you select text or capture a region.' },
+      ]},
     ],
   },
 
   fi: {
     title: 'Tietosuojaseloste',
-    lastUpdated: 'Viimeksi päivitetty: 15. huhtikuuta 2026',
+    lastUpdated: 'Viimeksi päivitetty: 10. syyskuuta 2026',
     sections: [
       { num: '1', title: 'Rekisterinpitäjä', blocks: [
         { type: 'p', text: 'LearnX-AI:n rekisterinpitäjä on:' },
@@ -183,12 +192,21 @@ const CONTENT: Record<string, Content> = {
       { num: '12', title: 'Yhteystiedot', blocks: [
         { type: 'table', rows: [['Yritys', 'NordX Labs Oy'], ['Sähköposti', 'hello@animlearn.com']] },
       ]},
+      { num: '13', title: 'Selainlaajennus (LearnX Genie)', blocks: [
+        { type: 'p', text: 'LearnX Genie, Chrome-laajennuksemme, kerää yllä mainitun lisäksi seuraavat tiedot, kun käytät sitä:' },
+        { type: 'ul', items: [
+          'Valitsemasi teksti tai näytön alue, jonka olet erikseen kaapannut millä tahansa verkkosivulla, josta kysyt — lähetetään palvelimillemme vastauksen luomiseksi',
+          'Laitteellesi tallennettu anonyymi istuntotunniste, jos käytät laajennusta kirjautumatta sisään, ilmaiskäytön rajoittamiseksi',
+          'Yksisuuntainen tiiviste IP-osoitteestasi ja selaimen tunnisteesta väärinkäytösten estämiseksi (ei koskaan raakoja arvoja)',
+        ]},
+        { type: 'p', text: 'Laajennuksen keskustelu- ja näyttöleikepyynnöt käsittelee Microsoft Azure OpenAI (EU) — katso kohta 5. Laajennus ei seuraa, millä verkkosivuilla vierailet, sen sivun lisäksi, joka on auki valitessasi tekstiä tai kaapatessasi aluetta.' },
+      ]},
     ],
   },
 
   sv: {
     title: 'Integritetspolicy',
-    lastUpdated: 'Senast uppdaterad: 15 april 2026',
+    lastUpdated: 'Senast uppdaterad: 10 september 2026',
     sections: [
       { num: '1', title: 'Personuppgiftsansvarig', blocks: [
         { type: 'p', text: 'Den personuppgiftsansvarige för LearnX-AI är:' },
@@ -269,12 +287,21 @@ const CONTENT: Record<string, Content> = {
       { num: '12', title: 'Kontakt', blocks: [
         { type: 'table', rows: [['Företag', 'NordX Labs Oy'], ['E-post', 'hello@animlearn.com']] },
       ]},
+      { num: '13', title: 'Webbläsartillägg (LearnX Genie)', blocks: [
+        { type: 'p', text: 'LearnX Genie, vårt Chrome-tillägg, samlar in följande utöver ovanstående när du använder det:' },
+        { type: 'ul', items: [
+          'Text du markerar, eller ett skärmområde du uttryckligen fångar, på vilken webbsida som helst du frågar om — skickas till våra servrar för att generera ett svar',
+          'En anonym sessionsidentifierare som lagras på din enhet om du använder tillägget utan att logga in, för att upprätthålla gränser för gratisanvändning',
+          'En envägshash av din IP-adress och webbläsaridentifierare för att förhindra missbruk (aldrig de råa värdena)',
+        ]},
+        { type: 'p', text: 'Tilläggets chatt- och skärmklippförfrågningar behandlas av Microsoft Azure OpenAI (EU) — se avsnitt 5. Tillägget spårar inte vilka webbplatser du besöker utöver den specifika sida som är öppen när du markerar text eller fångar ett område.' },
+      ]},
     ],
   },
 
   fr: {
     title: 'Politique de confidentialité',
-    lastUpdated: 'Dernière mise à jour : 15 avril 2026',
+    lastUpdated: 'Dernière mise à jour : 10 septembre 2026',
     sections: [
       { num: '1', title: 'Responsable du traitement', blocks: [
         { type: 'p', text: 'Le responsable du traitement pour LearnX-AI est :' },
@@ -355,12 +382,21 @@ const CONTENT: Record<string, Content> = {
       { num: '12', title: 'Contact', blocks: [
         { type: 'table', rows: [['Société', 'NordX Labs Oy'], ['E-mail', 'hello@animlearn.com']] },
       ]},
+      { num: '13', title: 'Extension de navigateur (LearnX Genie)', blocks: [
+        { type: 'p', text: "LearnX Genie, notre extension Chrome, collecte les éléments suivants en plus de ce qui précède lorsque vous l'utilisez :" },
+        { type: 'ul', items: [
+          "Le texte que vous sélectionnez, ou une zone de l'écran que vous capturez explicitement, sur n'importe quelle page web à propos de laquelle vous posez une question — envoyé à nos serveurs pour générer une réponse",
+          "Un identifiant de session anonyme stocké sur votre appareil si vous utilisez l'extension sans vous connecter, afin de faire respecter les limites d'utilisation gratuite",
+          "Un hachage à sens unique de votre adresse IP et de l'identifiant de votre navigateur à des fins de prévention des abus (jamais les valeurs brutes)",
+        ]},
+        { type: 'p', text: "Les demandes de chat et de capture d'écran de l'extension sont traitées par Microsoft Azure OpenAI (UE) — voir la section 5. L'extension ne suit pas les sites web que vous visitez au-delà de la page spécifique ouverte lorsque vous sélectionnez du texte ou capturez une zone." },
+      ]},
     ],
   },
 
   es: {
     title: 'Política de privacidad',
-    lastUpdated: 'Última actualización: 15 de abril de 2026',
+    lastUpdated: 'Última actualización: 10 de septiembre de 2026',
     sections: [
       { num: '1', title: 'Responsable del tratamiento', blocks: [
         { type: 'p', text: 'El responsable del tratamiento de LearnX-AI es:' },
@@ -440,6 +476,15 @@ const CONTENT: Record<string, Content> = {
       ]},
       { num: '12', title: 'Contacto', blocks: [
         { type: 'table', rows: [['Empresa', 'NordX Labs Oy'], ['Email', 'hello@animlearn.com']] },
+      ]},
+      { num: '13', title: 'Extensión de navegador (LearnX Genie)', blocks: [
+        { type: 'p', text: 'LearnX Genie, nuestra extensión de Chrome, recopila lo siguiente además de lo anterior cuando la usas:' },
+        { type: 'ul', items: [
+          'El texto que seleccionas, o una región de la pantalla que capturas explícitamente, en cualquier página web sobre la que preguntes — se envía a nuestros servidores para generar una respuesta',
+          'Un identificador de sesión anónimo almacenado en tu dispositivo si usas la extensión sin iniciar sesión, para aplicar los límites de uso gratuito',
+          'Un hash unidireccional de tu dirección IP e identificador del navegador para prevención de abusos (nunca los valores en bruto)',
+        ]},
+        { type: 'p', text: 'Las solicitudes de chat y recorte de pantalla de la extensión son procesadas por Microsoft Azure OpenAI (UE) — ver Sección 5. La extensión no rastrea qué sitios web visitas más allá de la página específica abierta cuando seleccionas texto o capturas una región.' },
       ]},
     ],
   },
