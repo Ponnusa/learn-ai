@@ -15,6 +15,8 @@ export interface GenieMessageData {
      *  frontend/components/chat/MessageBubble.tsx's Message interface for
      *  the full explanation. Hides the action toolbar while mid-chain. */
     ladder_depth?: number | null;
+    /** A clipped screen region attached to this (user) message. */
+    imageUrl?: string;
   };
 }
 
@@ -110,10 +112,20 @@ export function GenieMessage({ message, onChipClick, onQuizMe, onWalkMeThrough, 
   }
 
   if (isUser) {
+    const imageUrl = message.metadata?.imageUrl;
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl px-3.5 py-2.5 bg-[var(--indigo)] text-white text-sm">
-          {message.content}
+        <div className="max-w-[85%] rounded-2xl overflow-hidden bg-[var(--indigo)] text-white text-sm">
+          {imageUrl && (
+            <div className="px-3 pt-3 pb-1">
+              <img
+                src={imageUrl}
+                alt="Clipped region"
+                className="rounded-xl max-h-48 w-auto object-contain border border-white/20"
+              />
+            </div>
+          )}
+          <div className="px-3.5 py-2.5">{message.content}</div>
         </div>
       </div>
     );

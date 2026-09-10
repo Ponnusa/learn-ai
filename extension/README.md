@@ -63,17 +63,23 @@ the side panel with that text ready to send, or to auto-generate a quiz.
   summary instead, expandable again any time.
 - **Context menu** — right-click a selection for the same two entry points
   as the floating pill, for pages where the pill is awkward to use.
+- **Screen clip (📎 in the input row)** — captures the visible tab
+  (`chrome.tabs.captureVisibleTab`, no extra permission needed beyond the
+  `host_permissions` the extension already has), then a drag-select crop
+  UI (`ClipCapture.tsx`, mirroring `PDFViewerModal.tsx`'s region-capture
+  UX) picks the region to ask about. Uploaded and sent as `image_url` —
+  the same vision-based flow the web app's PDF handling already uses, just
+  sourced from any on-screen content, not only PDFs. Chosen over a
+  PDF-specific viewer deliberately: no pdf.js-in-extension complexity, no
+  fighting Chrome's built-in PDF viewer blocking content scripts, and it
+  works on anything visible (diagrams, worksheets, PDFs, whatever), not
+  just PDFs.
 - **Optional sign-in** — email/password (not magic-link or Google OAuth:
   both of those redirect through a web page, and the resulting token would
   land in the *web app's* storage, not somewhere this extension can read —
   see `src/panel/GenieAuth.tsx`'s header comment). Not required; anonymous
   usage works the same as the web app's anonymous flow, just with lower
   limits, and signing in switches to the account's own daily limits.
-
-## What's not here yet
-
-PDF support is the remaining later phase — see the project's implementation
-plan for the full sequence.
 
 ## Before ever publishing
 

@@ -1,10 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
-import { createOrGetSession, generateQuiz, sendMessage, type AuthResponse, type AuthUser, type QuizQuestion } from '../lib/api';
+import {
+  createOrGetSession,
+  generateQuiz,
+  sendMessage,
+  uploadRegionImage,
+  type AuthResponse,
+  type AuthUser,
+  type QuizQuestion,
+} from '../lib/api';
 import { LadderWidget } from '../components/LadderWidget';
 import { EurekaBurst, EUREKA_BURST_DURATION } from '../components/EurekaBurst';
 import { GenieMessage, type GenieMessageData } from './GenieMessage';
 import { GenieQuiz } from './GenieQuiz';
 import { GenieAuth } from './GenieAuth';
+import { ClipCapture } from './ClipCapture';
 
 const SESSION_STORAGE_KEY = 'genie_session_id';
 const AUTH_TOKEN_KEY = 'genie_auth_token';
@@ -35,6 +44,13 @@ export default function App() {
 
   const [auth, setAuth] = useState<AuthState | null>(null);
   const [showAuth, setShowAuth] = useState(false);
+
+  // Screen-clip attachment: `clipping` holds the full captured tab while
+  // the crop UI is open; `clippedImage` holds the confirmed crop staged
+  // for the next message (uploaded lazily at send time, not on capture).
+  const [clipping, setClipping] = useState<string | null>(null);
+  const [clippedImage, setClippedImage] = useState<string | null>(null);
+  const [clipUploading, setClipUploading] = useState(false);
 
   const [quiz, setQuiz] = useState<{ quizId: string; questions: QuizQuestion[] } | null>(null);
   const [quizGenerating, setQuizGenerating] = useState(false);
@@ -127,23 +143,47 @@ export default function App() {
   }
 
   async function handleSend(text: string) {
-    if (!text.trim() || loading || limitReached || !sessionId) return;
+    const hasImage = !!clippedImage;
+    if ((!text.trim() && !hasImage) || loading || limitReached || !sessionId) return;
     setError(null);
     setInput('');
     setSelection(null);
+    const pendingClip = clippedImage;
+    setClippedImage(null);
 
-    const userMsg: GenieMessageData = { id: `local-${Date.now()}`, role: 'user', content: text };
+    const messageText = text.trim() || 'What does this show? Please explain.';
+
+    let imageUrl: string | undefined;
+    if (pendingClip) {
+      setClipUploading(true);
+      try {
+        imageUrl = await uploadRegionImage(pendingClip, auth?.user.id, auth ? undefined : (sessionId ?? undefined), auth?.token);
+      } catch {
+        setError("Couldn't upload the clipped image. Try again.");
+        setClipUploading(false);
+        return;
+      }
+      setClipUploading(false);
+    }
+
+    const userMsg: GenieMessageData = {
+      id: `local-${Date.now()}`,
+      role: 'user',
+      content: messageText,
+      metadata: imageUrl ? { imageUrl } : undefined,
+    };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
     try {
       const res = await sendMessage(
         {
-          message: text,
+          message: messageText,
           conversation_id: conversationId ?? undefined,
           session_id: auth ? undefined : sessionId,
           user_id: auth?.user.id,
           source: 'extension',
+          image_url: imageUrl,
         },
         auth?.token,
       );
@@ -168,6 +208,25 @@ export default function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleClipScreen() {
+    setError(null);
+    try {
+      // No windowId -> captures the current window's active tab. Requires
+      // no permission beyond the host_permissions ("<all_urls>") already
+      // declared in manifest.json — captureVisibleTab checks the extension
+      // has host access to the tab being captured, which that covers.
+      const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'png' });
+      setClipping(dataUrl);
+    } catch {
+      setError("Couldn't capture the page. Some pages (like chrome:// pages) can't be captured.");
+    }
+  }
+
+  function handleClipConfirm(cropped: string) {
+    setClipping(null);
+    setClippedImage(cropped);
   }
 
   async function handleQuiz(topic: string) {
@@ -255,6 +314,10 @@ export default function App() {
 
       {showAuth && (
         <GenieAuth sessionId={sessionId} onSuccess={handleAuthSuccess} onCancel={() => setShowAuth(false)} />
+      )}
+
+      {clipping && (
+        <ClipCapture dataUrl={clipping} onConfirm={handleClipConfirm} onCancel={() => setClipping(null)} />
       )}
 
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
@@ -385,28 +448,54 @@ export default function App() {
           </button>
         </div>
       ) : (
-        <form
-          className="flex items-center gap-2 p-3 border-t border-[var(--bd)]"
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend(input);
-          }}
-        >
-          <input
-            className="flex-1 rounded-lg border border-[var(--bd)] bg-[var(--input)] text-[var(--tx1)] text-sm px-3 py-2 outline-none"
-            placeholder="Ask a question…"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            className="text-sm font-medium px-3 py-2 rounded-lg bg-[var(--indigo)] text-white disabled:opacity-50"
-            disabled={loading || !input.trim()}
+        <>
+          {clippedImage && (
+            <div className="flex items-center gap-2 mx-3 mt-2 p-1.5 rounded-lg border border-[var(--bd)] bg-[var(--surface)]">
+              <img src={clippedImage} alt="Clipped region" className="w-10 h-10 object-cover rounded" />
+              <span className="text-xs text-[var(--tx7)] flex-1">Clip attached — ask a question or just send</span>
+              <button
+                type="button"
+                aria-label="Remove clipped image"
+                className="text-[var(--tx7)] hover:text-[var(--tx1)] text-sm leading-none px-1"
+                onClick={() => setClippedImage(null)}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          <form
+            className="flex items-center gap-2 p-3 border-t border-[var(--bd)]"
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend(input);
+            }}
           >
-            Send
-          </button>
-        </form>
+            <button
+              type="button"
+              title="Clip part of the screen to ask about"
+              aria-label="Clip screen"
+              onClick={handleClipScreen}
+              disabled={loading || clipUploading}
+              className="text-[var(--tx7)] hover:text-[var(--tx1)] p-2 rounded-lg hover:bg-[var(--ov1)] disabled:opacity-50"
+            >
+              📎
+            </button>
+            <input
+              className="flex-1 rounded-lg border border-[var(--bd)] bg-[var(--input)] text-[var(--tx1)] text-sm px-3 py-2 outline-none"
+              placeholder={clippedImage ? 'Ask about this (optional)…' : 'Ask a question…'}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              disabled={loading}
+            />
+            <button
+              type="submit"
+              className="text-sm font-medium px-3 py-2 rounded-lg bg-[var(--indigo)] text-white disabled:opacity-50"
+              disabled={loading || clipUploading || (!input.trim() && !clippedImage)}
+            >
+              {clipUploading ? 'Uploading…' : 'Send'}
+            </button>
+          </form>
+        </>
       )}
 
       <EurekaBurst active={eurekaBurst} />

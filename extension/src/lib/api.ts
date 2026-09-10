@@ -54,6 +54,7 @@ export interface SendMessageRequest {
   user_id?: string;
   language?: string;
   source?: 'app' | 'extension';
+  image_url?: string;
 }
 
 export interface SendMessageResponse {
@@ -156,4 +157,30 @@ export async function getChatMessageAudio(messageId: string, language = 'en'): P
   const res = await fetch(`${API_BASE}/api/chat/messages/${messageId}/audio?language=${language}`);
   if (!res.ok) throw new Error('Audio generation failed');
   return res.blob();
+}
+
+// ── Screen-clip upload (ported from frontend/lib/api.ts's uploadRegionImage) ─
+
+export async function uploadRegionImage(
+  dataUrl: string,
+  userId?: string,
+  sessionId?: string,
+  token?: string,
+): Promise<string> {
+  const blob = await fetch(dataUrl).then((r) => r.blob());
+  const form = new FormData();
+  form.append('file', blob, 'region.png');
+  if (userId) form.append('user_id', userId);
+  if (sessionId) form.append('session_id', sessionId);
+
+  const headers: HeadersInit = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/api/uploads`, { method: 'POST', headers, body: form });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || 'Image upload failed');
+  }
+  const data = await res.json();
+  return data.url as string;
 }
