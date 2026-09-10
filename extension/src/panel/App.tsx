@@ -264,11 +264,11 @@ export default function App() {
       )}
       {quiz && (
         <GenieQuiz
+          key={quiz.quizId}
           quizId={quiz.quizId}
           questions={quiz.questions}
           userId={auth?.user.id}
           token={auth?.token}
-          onClose={() => setQuiz(null)}
         />
       )}
 

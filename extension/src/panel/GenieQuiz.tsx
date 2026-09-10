@@ -7,17 +7,25 @@ interface GenieQuizProps {
   questions: QuizQuestion[];
   userId?: string | null;
   token?: string | null;
-  onClose: () => void;
 }
 
 // Minimal inline quiz — no navigation, no card-in-chat-thread complexity
 // (frontend/components/chat/MessageBubble.tsx's QuizCard uses next/navigation
 // to push to a full /quiz/{id} page; the panel just renders it in place).
-export function GenieQuiz({ quizId, questions, userId, token, onClose }: GenieQuizProps) {
+//
+// Behaves like a message in the conversation, not a dialog: there's no
+// "close" that discards the quiz and its result — only minimize/expand.
+// Minimized shows just the score line; expanded shows every question with
+// the student's answers and mistakes highlighted. Auto-minimizes right
+// after a successful submit (the completed quiz settles into a summary,
+// same as it would read in an actual conversation), but can be expanded
+// again at any time to review what was missed.
+export function GenieQuiz({ quizId, questions, userId, token }: GenieQuizProps) {
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [result, setResult] = useState<SubmitQuizResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
 
   const allAnswered = questions.every((_, i) => answers[i] !== undefined);
 
@@ -27,6 +35,7 @@ export function GenieQuiz({ quizId, questions, userId, token, onClose }: GenieQu
     try {
       const res = await submitQuiz(quizId, answers, userId, token);
       setResult(res);
+      setCollapsed(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not submit the quiz');
     } finally {
@@ -34,19 +43,37 @@ export function GenieQuiz({ quizId, questions, userId, token, onClose }: GenieQu
     }
   }
 
+  const summary = result
+    ? `🎯 Quiz — ${result.correct}/${result.total} (${Math.round(result.score_pct)}%)`
+    : '🎯 Quiz (in progress)';
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={() => setCollapsed(false)}
+        className="mx-4 mb-2 flex items-center justify-between px-3 py-2 rounded-xl border border-[var(--bd)] bg-[var(--surface)] text-left"
+      >
+        <span className="text-sm font-medium text-[var(--tx1)]">{summary}</span>
+        <span className="text-[var(--tx7)] text-xs" aria-hidden="true">
+          Expand ⌄
+        </span>
+      </button>
+    );
+  }
+
   return (
     <div className="mx-4 mb-2 p-3 rounded-xl border border-[var(--bd)] bg-[var(--surface)] flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold text-[var(--tx1)]">
-          🎯 Quiz {result && `— ${result.correct}/${result.total} (${Math.round(result.score_pct)}%)`}
-        </span>
+        <span className="text-sm font-semibold text-[var(--tx1)]">{summary}</span>
         <button
           type="button"
-          aria-label="Close quiz"
-          className="text-[var(--tx7)] hover:text-[var(--tx1)] text-sm leading-none"
-          onClick={onClose}
+          aria-label="Minimize quiz"
+          title="Minimize"
+          className="text-[var(--tx7)] hover:text-[var(--tx1)] text-xs leading-none"
+          onClick={() => setCollapsed(true)}
         >
-          ✕
+          Minimize ⌃
         </button>
       </div>
 
