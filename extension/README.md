@@ -91,18 +91,20 @@ the side panel with that text ready to send, or to auto-generate a quiz.
   and quiz request now sends it; previously genie sent no `language` field
   at all and silently always replied in English regardless of the user's
   actual preference.
-- **Branding** — two separate identities, deliberately: the **toolbar/
-  manifest icon** (16/32/48/128px, `public/icons/`) is the web app's own
-  logo mark (`frontend/public/logo_source.png`, via `sharp`) — recognizable
-  next to the other extension icons in the toolbar. The **genie mascot**
+- **Branding** — one identity everywhere, the genie mascot
   (`assets-src/genie-mascot-source.png`, the master art; regenerate sizes
-  from this if it ever changes) only lives *inside* the chat surface: the
-  header icon, a brief branded splash on panel open
-  (`public/branding/genie-mascot-240.png`, fades in/out, doesn't block the
-  real session/auth bootstrap running underneath it), the empty-state
-  illustration above the "select some text..." hint, and the eureka
-  celebration (`EurekaBurst.tsx` — the mascot pops up as the confetti
-  lands, replacing what used to be a generic clap emoji).
+  from this if it ever changes): the toolbar/manifest icon (16/32/48/128px,
+  via `sharp` — `public/icons/`), the in-panel header icon, a brief branded
+  splash on panel open (`public/branding/genie-mascot-240.png`, fades
+  in/out, doesn't block the real session/auth bootstrap running underneath
+  it), the empty-state illustration above the "select some text..." hint,
+  and the eureka celebration (`EurekaBurst.tsx` — the mascot pops up as the
+  confetti lands). Briefly tried splitting this — the web app's own logo
+  mark for the toolbar/manifest icon, mascot only inside the chat — but the
+  side panel's own title strip (Chrome's own chrome, not something this
+  code renders) shows the manifest icon directly above the in-panel header,
+  so two different icons ended up sitting right on top of each other. One
+  identity avoids that clash entirely.
 - **Continue in LearnX** — a link below the chat once there's something to
   continue, deep-linking to the actual conversation (`?conv=<id>`, the same
   param `frontend/app/page.tsx` already reads on load). Genuinely "continue
