@@ -85,6 +85,15 @@ export function WelcomeScreen({ user, onSend }: Props) {
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center px-4">
 
+      {/* Genie mascot — introduces the chat assistant specifically, kept
+          separate from the LearnX wordmark below (the app's actual brand
+          mark, unchanged) rather than replacing it. */}
+      <img
+        src="/branding/genie-mascot.png"
+        alt=""
+        className="w-20 h-20 sm:w-24 sm:h-24 mb-2 drop-shadow-lg"
+      />
+
       {/* Logo */}
       <div className="mb-6">
         <img

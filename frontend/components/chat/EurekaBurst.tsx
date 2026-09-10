@@ -2,6 +2,29 @@
 
 import { useEffect, useRef } from 'react';
 
+// Real applause clip (public/audio/eureka-applause.mp3) — a synthesized
+// noise-burst "clap" was tried first but didn't sound convincing, so this
+// is a licensed recording instead. The source file runs much longer than
+// the ~4s confetti burst, so playback is faded out and stopped in sync
+// with EUREKA_BURST_DURATION from the same rAF loop driving the confetti,
+// rather than letting it run past the visual celebration.
+const APPLAUSE_SRC = '/audio/eureka-applause.mp3';
+const APPLAUSE_VOLUME = 0.5;
+const APPLAUSE_FADE_MS = 500; // fade-out window before EUREKA_BURST_DURATION
+
+function startApplause(): HTMLAudioElement | null {
+  try {
+    const audio = new Audio(APPLAUSE_SRC);
+    audio.volume = APPLAUSE_VOLUME;
+    audio.play().catch(() => {
+      // Autoplay blocked — the confetti/mascot still show.
+    });
+    return audio;
+  } catch {
+    return null; // Audio unavailable — the confetti/mascot still show.
+  }
+}
+
 const COLORS = ['#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899'];
 export const EUREKA_BURST_DURATION = 4200; // ms — exported so page.tsx can time the unmount to match
 const SPAWN_WINDOW = 1400; // ms — particles launch on a staggered window, not all at once,
@@ -22,12 +45,13 @@ interface Particle {
 }
 
 /**
- * Full-screen confetti shower + clap emoji, shown for ~4s when a
- * guided-discovery chain resolves. Hand-rolled canvas animation rather
- * than a new dependency (canvas-confetti etc.) — this codebase doesn't
- * pull in animation libraries, and a particle shower is simple enough to
- * not need one. Purely decorative: `aria-hidden`, respects
- * prefers-reduced-motion, and never intercepts clicks.
+ * Full-screen confetti shower + mascot + applause, shown for ~4s when a
+ * guided-discovery chain resolves. The confetti is hand-rolled canvas
+ * animation rather than a new dependency (canvas-confetti etc.) — this
+ * codebase doesn't pull in animation libraries, and a particle shower is
+ * simple enough to not need one. Purely decorative: `aria-hidden`, respects
+ * prefers-reduced-motion (gates the applause too, not just the visuals),
+ * and never intercepts clicks.
  */
 export function EurekaBurst({ active }: { active: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -39,6 +63,8 @@ export function EurekaBurst({ active }: { active: boolean }) {
     if (!canvas || !ctx) return;
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const applause = startApplause();
 
     const resize = () => {
       canvas.width = window.innerWidth;
@@ -104,6 +130,14 @@ export function EurekaBurst({ active }: { active: boolean }) {
         ctx!.restore();
       }
 
+      if (applause) {
+        const fadeStart = EUREKA_BURST_DURATION - APPLAUSE_FADE_MS;
+        applause.volume =
+          elapsed < fadeStart
+            ? APPLAUSE_VOLUME
+            : Math.max(0, APPLAUSE_VOLUME * (1 - (elapsed - fadeStart) / APPLAUSE_FADE_MS));
+      }
+
       if (elapsed < EUREKA_BURST_DURATION) {
         rafId = requestAnimationFrame(frame);
       }
@@ -114,6 +148,10 @@ export function EurekaBurst({ active }: { active: boolean }) {
       window.removeEventListener('resize', resize);
       cancelAnimationFrame(rafId);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (applause) {
+        applause.pause();
+        applause.currentTime = 0;
+      }
     };
   }, [active]);
 
@@ -123,7 +161,7 @@ export function EurekaBurst({ active }: { active: boolean }) {
     <div className="fixed inset-0 z-[70] pointer-events-none overflow-hidden" aria-hidden="true">
       <canvas ref={canvasRef} className="w-full h-full" />
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-7xl eureka-clap">👏</span>
+        <img src="/branding/genie-mascot.png" alt="" className="w-28 h-28 eureka-clap" />
       </div>
     </div>
   );
