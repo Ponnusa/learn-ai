@@ -53,7 +53,7 @@ export function GenieQuiz({ quizId, questions, userId, token }: GenieQuizProps) 
       <button
         type="button"
         onClick={() => setCollapsed(false)}
-        className="mx-4 mb-2 flex items-center justify-between px-3 py-2 rounded-xl border border-[var(--bd)] bg-[var(--surface)] text-left"
+        className="flex items-center justify-between px-3 py-2 rounded-xl border border-[var(--bd)] bg-[var(--surface)] text-left"
       >
         <span className="text-sm font-medium text-[var(--tx1)]">{summary}</span>
         <span className="text-[var(--tx7)] text-xs" aria-hidden="true">
@@ -64,7 +64,7 @@ export function GenieQuiz({ quizId, questions, userId, token }: GenieQuizProps) 
   }
 
   return (
-    <div className="mx-4 mb-2 p-3 rounded-xl border border-[var(--bd)] bg-[var(--surface)] flex flex-col gap-3">
+    <div className="p-3 rounded-xl border border-[var(--bd)] bg-[var(--surface)] flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-[var(--tx1)]">{summary}</span>
         <button

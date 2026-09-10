@@ -40,10 +40,16 @@ export default function App() {
   const [quizGenerating, setQuizGenerating] = useState(false);
   const [quizError, setQuizError] = useState<string | null>(null);
   const [quizLimitReached, setQuizLimitReached] = useState(false);
+  // How many messages existed when the quiz was requested — lets the quiz
+  // render in its actual chronological spot in the message list (it used
+  // to be a fixed element between the scroll area and the input box, so it
+  // stayed visually pinned at the bottom forever instead of scrolling away
+  // with the rest of the conversation like everything else does).
+  const [quizAnchorIndex, setQuizAnchorIndex] = useState<number | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, loading, selection, quiz]);
+  }, [messages, loading, selection, quiz, quizGenerating]);
 
   // Same climbing/eureka state machine as frontend/app/page.tsx's
   // updateLadderState — see that file's comments for why steps are
@@ -169,6 +175,7 @@ export default function App() {
     setSelection(null);
     setQuizError(null);
     setQuizGenerating(true);
+    setQuizAnchorIndex(messages.length);
 
     try {
       const res = await generateQuiz(
@@ -251,13 +258,14 @@ export default function App() {
       )}
 
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
-        {messages.length === 0 && !selection && !quiz && (
+        {messages.length === 0 && !selection && !quiz && !quizGenerating && (
           <p className="text-sm text-[var(--tx7)] leading-relaxed">
             Select some text on any page, then click "✨ Ask LearnX" (or right-click it) — or just type a question
             below.
           </p>
         )}
-        {messages.map((m) => (
+
+        {messages.slice(0, quizAnchorIndex ?? messages.length).map((m) => (
           <GenieMessage
             key={m.id}
             message={m}
@@ -268,36 +276,47 @@ export default function App() {
             onGoDeeper={handleGoDeeper}
           />
         ))}
+
+        {(quizGenerating || quizError || quizLimitReached || quiz) && (
+          <div className="flex flex-col gap-2">
+            {quizGenerating && <p className="text-xs text-[var(--tx7)]">Building your quiz…</p>}
+            {quizError && <p className="text-xs text-[var(--red)]">{quizError}</p>}
+            {quizLimitReached && !auth && (
+              <div className="p-2.5 rounded-xl border border-[var(--bd)] bg-[var(--surface)] text-center">
+                <p className="text-xs text-[var(--tx2)]">You've used your free quiz for this session.</p>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-[var(--indigo)] hover:underline mt-1"
+                  onClick={() => setShowAuth(true)}
+                >
+                  Sign in for more
+                </button>
+              </div>
+            )}
+            {quiz && (
+              <GenieQuiz key={quiz.quizId} quizId={quiz.quizId} questions={quiz.questions} userId={auth?.user.id} token={auth?.token} />
+            )}
+          </div>
+        )}
+
+        {messages.slice(quizAnchorIndex ?? messages.length).map((m) => (
+          <GenieMessage
+            key={m.id}
+            message={m}
+            onChipClick={handleChipClick}
+            onQuizMe={handleQuizMe}
+            onWalkMeThrough={handleWalkMeThrough}
+            onSimplify={handleSimplify}
+            onGoDeeper={handleGoDeeper}
+          />
+        ))}
+
         {loading && <p className="text-xs text-[var(--tx7)]">Thinking…</p>}
         {error && <p className="text-xs text-[var(--red)]">{error}</p>}
         <div ref={bottomRef} />
       </div>
 
       <LadderWidget phase={ladderPhase} steps={ladderSteps} />
-
-      {quizGenerating && <p className="mx-4 mb-2 text-xs text-[var(--tx7)]">Building your quiz…</p>}
-      {quizError && <p className="mx-4 mb-2 text-xs text-[var(--red)]">{quizError}</p>}
-      {quizLimitReached && !auth && (
-        <div className="mx-4 mb-2 p-2.5 rounded-xl border border-[var(--bd)] bg-[var(--surface)] text-center">
-          <p className="text-xs text-[var(--tx2)]">You've used your free quiz for this session.</p>
-          <button
-            type="button"
-            className="text-xs font-medium text-[var(--indigo)] hover:underline mt-1"
-            onClick={() => setShowAuth(true)}
-          >
-            Sign in for more
-          </button>
-        </div>
-      )}
-      {quiz && (
-        <GenieQuiz
-          key={quiz.quizId}
-          quizId={quiz.quizId}
-          questions={quiz.questions}
-          userId={auth?.user.id}
-          token={auth?.token}
-        />
-      )}
 
       {selection && (
         <div className="mx-4 mb-2 p-2.5 rounded-xl border border-[var(--bd)] bg-[var(--surface)]">
