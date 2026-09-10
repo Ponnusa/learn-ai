@@ -91,20 +91,24 @@ the side panel with that text ready to send, or to auto-generate a quiz.
   and quiz request now sends it; previously genie sent no `language` field
   at all and silently always replied in English regardless of the user's
   actual preference.
-- **Branding** — one identity everywhere, the genie mascot
+- **Branding** — two deliberately different identities. The **toolbar/
+  manifest icon** (16/32/48/128px, `public/icons/`, via `sharp`) is the web
+  app's own icon (`frontend/public/logo_source.png`) — this is what shows
+  in the Chrome toolbar, `chrome://extensions`, and the side panel's own
+  title strip (that last one is Chrome's own chrome, not something this
+  code renders — its icon always follows the manifest, there's no way to
+  point it at something else). The **genie mascot**
   (`assets-src/genie-mascot-source.png`, the master art; regenerate sizes
-  from this if it ever changes): the toolbar/manifest icon (16/32/48/128px,
-  via `sharp` — `public/icons/`), the in-panel header icon, a brief branded
-  splash on panel open (`public/branding/genie-mascot-240.png`, fades
-  in/out, doesn't block the real session/auth bootstrap running underneath
-  it), the empty-state illustration above the "select some text..." hint,
-  and the eureka celebration (`EurekaBurst.tsx` — the mascot pops up as the
-  confetti lands). Briefly tried splitting this — the web app's own logo
-  mark for the toolbar/manifest icon, mascot only inside the chat — but the
-  side panel's own title strip (Chrome's own chrome, not something this
-  code renders) shows the manifest icon directly above the in-panel header,
-  so two different icons ended up sitting right on top of each other. One
-  identity avoids that clash entirely.
+  from this if it ever changes) lives *inside* the chat surface only: the
+  in-panel header icon, a brief branded splash on panel open
+  (`public/branding/genie-mascot-240.png`, fades in/out, doesn't block the
+  real session/auth bootstrap running underneath it), the empty-state
+  illustration above the "select some text..." hint, and the eureka
+  celebration (`EurekaBurst.tsx` — the mascot pops up as the confetti
+  lands, with a few synthesized claps via the Web Audio API — filtered
+  decaying noise bursts, the standard technique for a percussive clap
+  sound, rather than bundling an audio file; gated behind the same
+  prefers-reduced-motion check the confetti already respects).
 - **Continue in LearnX** — a link below the chat once there's something to
   continue, deep-linking to the actual conversation (`?conv=<id>`, the same
   param `frontend/app/page.tsx` already reads on load). Genuinely "continue

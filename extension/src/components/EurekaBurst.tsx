@@ -2,6 +2,52 @@
 
 import { useEffect, useRef } from 'react';
 
+/**
+ * A handful of quick claps synthesized with the Web Audio API — filtered
+ * decaying noise bursts, the standard technique for a percussive
+ * clap/snap sound — rather than bundling an audio file. Keeps this
+ * self-contained (no asset to source/license) and consistent with the
+ * confetti above it (hand-rolled, no new dependency). Best-effort: any
+ * failure (Web Audio unavailable, autoplay blocked) is swallowed — the
+ * visual celebration still plays either way.
+ */
+function playClapSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioContextClass();
+    const now = ctx.currentTime;
+    const clapTimes = [0, 0.11, 0.2, 0.33]; // slightly irregular spacing reads more like real applause than a metronome
+
+    clapTimes.forEach((delay, i) => {
+      const duration = 0.09;
+      const bufferSize = Math.floor(ctx.sampleRate * duration);
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let j = 0; j < bufferSize; j++) {
+        data[j] = (Math.random() * 2 - 1) * Math.exp(-j / (bufferSize * 0.18)); // fast decay = percussive, not a tone
+      }
+
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+
+      const bandpass = ctx.createBiquadFilter();
+      bandpass.type = 'bandpass';
+      bandpass.frequency.value = 1200 + (i % 2) * 600; // slight variation per clap so they don't sound identical
+      bandpass.Q.value = 0.7;
+
+      const gain = ctx.createGain();
+      gain.gain.value = 0.22;
+
+      noise.connect(bandpass).connect(gain).connect(ctx.destination);
+      noise.start(now + delay);
+    });
+
+    setTimeout(() => ctx.close(), 900);
+  } catch {
+    // No Web Audio, or autoplay blocked — the confetti/mascot still show.
+  }
+}
+
 const COLORS = ['#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899'];
 export const EUREKA_BURST_DURATION = 4200; // ms — exported so page.tsx can time the unmount to match
 const SPAWN_WINDOW = 1400; // ms — particles launch on a staggered window, not all at once,
@@ -22,12 +68,13 @@ interface Particle {
 }
 
 /**
- * Full-screen confetti shower + clap emoji, shown for ~4s when a
- * guided-discovery chain resolves. Hand-rolled canvas animation rather
- * than a new dependency (canvas-confetti etc.) — this codebase doesn't
- * pull in animation libraries, and a particle shower is simple enough to
- * not need one. Purely decorative: `aria-hidden`, respects
- * prefers-reduced-motion, and never intercepts clicks.
+ * Full-screen confetti shower + mascot + synthesized claps, shown for ~4s
+ * when a guided-discovery chain resolves. Hand-rolled canvas animation
+ * rather than a new dependency (canvas-confetti etc.) — this codebase
+ * doesn't pull in animation libraries, and a particle shower is simple
+ * enough to not need one. Purely decorative: `aria-hidden`, respects
+ * prefers-reduced-motion (gates the sound too, not just the visuals), and
+ * never intercepts clicks.
  */
 export function EurekaBurst({ active }: { active: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -39,6 +86,8 @@ export function EurekaBurst({ active }: { active: boolean }) {
     if (!canvas || !ctx) return;
 
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    playClapSound();
 
     const resize = () => {
       canvas.width = window.innerWidth;
