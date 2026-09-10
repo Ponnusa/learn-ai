@@ -4,6 +4,7 @@ import { Copy, Check, Loader, Square, Volume2 } from 'lucide-react';
 import { MathText } from '../components/MathText';
 import { SmilesBlock } from '../components/SmilesBlock';
 import { getChatMessageAudio } from '../lib/api';
+import type { GenieStrings } from '../lib/i18n';
 
 export interface GenieMessageData {
   id: string;
@@ -23,6 +24,7 @@ export interface GenieMessageData {
 interface GenieMessageProps {
   message: GenieMessageData;
   language?: string;
+  t: GenieStrings;
   onChipClick?: (chip: string) => void;
   onQuizMe?: (content: string) => void;
   onWalkMeThrough?: () => void;
@@ -49,7 +51,7 @@ const SMILES_COMPONENTS: Components = {
 // simplify/go deeper, read-aloud, copy. No video/animate (genie doesn't
 // offer video generation) and no quiz-card-in-thread (quiz has its own
 // standalone GenieQuiz component instead of living inside a message).
-export function GenieMessage({ message, language, onChipClick, onQuizMe, onWalkMeThrough, onSimplify, onGoDeeper }: GenieMessageProps) {
+export function GenieMessage({ message, language, t, onChipClick, onQuizMe, onWalkMeThrough, onSimplify, onGoDeeper }: GenieMessageProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const [ttsLoading, setTtsLoading] = useState(false);
@@ -121,7 +123,7 @@ export function GenieMessage({ message, language, onChipClick, onQuizMe, onWalkM
             <div className="px-3 pt-3 pb-1">
               <img
                 src={imageUrl}
-                alt="Clipped region"
+                alt={t.clipAttached}
                 className="rounded-xl max-h-48 w-auto object-contain border border-white/20"
               />
             </div>
@@ -145,18 +147,18 @@ export function GenieMessage({ message, language, onChipClick, onQuizMe, onWalkM
               onClick={() => onQuizMe?.(message.content)}
               className="text-[11px] px-2.5 py-1 rounded-lg font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)] border border-indigo-500/20"
             >
-              ✏️ Quiz me
+              {t.quizMe}
             </button>
             <button
               onClick={() => onWalkMeThrough?.()}
               className="text-[11px] px-2.5 py-1 rounded-lg font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)] border border-indigo-500/20"
             >
-              🧭 Walk me through it
+              {t.walkMeThrough}
             </button>
 
             <button
               onClick={handleSpeak}
-              title={ttsLoading ? 'Generating audio…' : ttsPlaying ? 'Stop' : 'Read aloud'}
+              title={ttsLoading ? t.ttsGenerating : ttsPlaying ? t.ttsStop : t.ttsReadAloud}
               className="ml-auto text-[var(--txa)] hover:text-[var(--tx4)] transition-colors p-1 rounded-lg hover:bg-[var(--ov1)]"
             >
               {ttsLoading ? (
@@ -169,7 +171,7 @@ export function GenieMessage({ message, language, onChipClick, onQuizMe, onWalkM
             </button>
             <button
               onClick={copy}
-              title="Copy"
+              title={t.copy}
               className="text-[var(--txa)] hover:text-[var(--tx4)] transition-colors p-1 rounded-lg hover:bg-[var(--ov1)]"
             >
               {copied ? <Check size={13} className="text-[var(--green)]" /> : <Copy size={13} />}
@@ -189,10 +191,14 @@ export function GenieMessage({ message, language, onChipClick, onQuizMe, onWalkM
               </button>
             ))}
             <button
+              // Prompt text stays English on purpose, matching
+              // frontend/components/chat/MessageBubble.tsx's own hardcoded
+              // 'Give me a concrete real-world example of this' — the app
+              // doesn't localize this prompt either, only the button label.
               onClick={() => onChipClick?.('Give me a concrete real-world example of this')}
               className="text-[11px] px-2.5 py-1 rounded-full border border-amber-500/20 hover:border-amber-500/35 text-[var(--amber)]"
             >
-              💡 Show me an example
+              {t.showExample}
             </button>
           </div>
         )}
@@ -201,15 +207,15 @@ export function GenieMessage({ message, language, onChipClick, onQuizMe, onWalkM
           <div className="flex gap-3">
             <button
               onClick={() => onSimplify?.()}
-              className="text-[10px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
+              className="text-[10px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors"
             >
-              <span>↓</span> Simplify this
+              {t.simplify}
             </button>
             <button
               onClick={() => onGoDeeper?.()}
-              className="text-[10px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
+              className="text-[10px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors"
             >
-              <span>↑</span> Go deeper
+              {t.goDeeper}
             </button>
           </div>
         )}

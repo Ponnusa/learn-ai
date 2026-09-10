@@ -18,6 +18,7 @@ import { GenieMessage, type GenieMessageData } from './GenieMessage';
 import { GenieQuiz } from './GenieQuiz';
 import { GenieAuth } from './GenieAuth';
 import { ClipCapture } from './ClipCapture';
+import { GENIE_TRANSLATIONS } from '../lib/i18n';
 
 const SESSION_STORAGE_KEY = 'genie_session_id';
 const AUTH_TOKEN_KEY = 'genie_auth_token';
@@ -65,6 +66,7 @@ export default function App() {
   // sent on every request that affects the AI's output (previously wasn't
   // sent at all, so genie silently always talked in English).
   const [language, setLanguageState] = useState<LanguageCode>(detectDefaultLanguage());
+  const t = GENIE_TRANSLATIONS[language];
 
   // Screen-clip attachment: `clipping` holds the full captured tab while
   // the crop UI is open; `clippedImage` holds the confirmed crop staged
@@ -106,7 +108,7 @@ export default function App() {
         setSessionId(res.session_id);
         await chrome.storage.local.set({ [SESSION_STORAGE_KEY]: res.session_id });
       } catch {
-        setError("Couldn't reach LearnX. Check your connection and try again.");
+        setError(t.connectionError);
       }
     });
 
@@ -182,6 +184,9 @@ export default function App() {
     const pendingClip = clippedImage;
     setClippedImage(null);
 
+    // Deliberately English regardless of `language`, matching
+    // frontend/app/page.tsx's handlePdfAsk default ('What is in this
+    // image?') exactly — the web app doesn't localize this one either.
     const messageText = text.trim() || 'What does this show? Please explain.';
 
     let imageUrl: string | undefined;
@@ -190,7 +195,7 @@ export default function App() {
       try {
         imageUrl = await uploadRegionImage(pendingClip, auth?.user.id, auth ? undefined : (sessionId ?? undefined), auth?.token);
       } catch {
-        setError("Couldn't upload the clipped image. Try again.");
+        setError(t.uploadError);
         setClipUploading(false);
         return;
       }
@@ -252,7 +257,7 @@ export default function App() {
       const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'png' });
       setClipping(dataUrl);
     } catch {
-      setError("Couldn't capture the page. Some pages (like chrome:// pages) can't be captured.");
+      setError(t.captureError);
     }
   }
 
@@ -325,12 +330,14 @@ export default function App() {
   }
 
   // Per-message action toolbar handlers — mirror frontend/app/page.tsx's
-  // onChipClick/onTestYourself/onSimplify/onGoDeeper exactly (same prompt
-  // text), so the same conversation continuing here or in the web app
-  // behaves identically either way.
+  // onChipClick/onTestYourself/onSimplify/onGoDeeper exactly, including
+  // which ones are localized: walkMeThroughPrompt is (t.walkMeThroughPrompt,
+  // same as the app's t.chat.walkMeThroughPrompt), but simplify/go-deeper
+  // stay hardcoded English on purpose — the app itself hardcodes those two
+  // (frontend/app/page.tsx's onSimplify/onGoDeeper) regardless of the
+  // user's language, so matching that is matching the app, not a gap.
   const handleChipClick = (chip: string) => handleSend(chip);
-  const handleWalkMeThrough = () =>
-    handleSend('Can you walk me through that one guiding question at a time, instead of just explaining it?');
+  const handleWalkMeThrough = () => handleSend(t.walkMeThroughPrompt);
   const handleQuizMe = (content: string) => handleQuiz(content.slice(0, 300));
   const handleSimplify = () => handleSend('Can you simplify that explanation?');
   const handleGoDeeper = () => handleSend('Can you go deeper on that?');
@@ -360,7 +367,7 @@ export default function App() {
             onClick={handleSignOut}
             title={auth.user.email}
           >
-            Sign out
+            {t.signOut}
           </button>
         ) : (
           <button
@@ -368,25 +375,27 @@ export default function App() {
             className="text-xs font-medium text-[var(--indigo)] hover:underline"
             onClick={() => setShowAuth((v) => !v)}
           >
-            Sign in
+            {t.signIn}
           </button>
         )}
       </header>
 
       {showAuth && (
-        <GenieAuth sessionId={sessionId} onSuccess={handleAuthSuccess} onCancel={() => setShowAuth(false)} />
+        <GenieAuth
+          t={t}
+          sessionId={sessionId}
+          onSuccess={handleAuthSuccess}
+          onCancel={() => setShowAuth(false)}
+        />
       )}
 
       {clipping && (
-        <ClipCapture dataUrl={clipping} onConfirm={handleClipConfirm} onCancel={() => setClipping(null)} />
+        <ClipCapture t={t} dataUrl={clipping} onConfirm={handleClipConfirm} onCancel={() => setClipping(null)} />
       )}
 
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
         {messages.length === 0 && !selection && !quiz && !quizGenerating && (
-          <p className="text-sm text-[var(--tx7)] leading-relaxed">
-            Select some text on any page, then click "✨ Ask LearnX" (or right-click it) — or just type a question
-            below.
-          </p>
+          <p className="text-sm text-[var(--tx7)] leading-relaxed">{t.welcomeHint}</p>
         )}
 
         {messages.slice(0, quizAnchorIndex ?? messages.length).map((m) => (
@@ -394,6 +403,7 @@ export default function App() {
             key={m.id}
             message={m}
             language={language}
+            t={t}
             onChipClick={handleChipClick}
             onQuizMe={handleQuizMe}
             onWalkMeThrough={handleWalkMeThrough}
@@ -404,22 +414,29 @@ export default function App() {
 
         {(quizGenerating || quizError || quizLimitReached || quiz) && (
           <div className="flex flex-col gap-2">
-            {quizGenerating && <p className="text-xs text-[var(--tx7)]">Building your quiz…</p>}
+            {quizGenerating && <p className="text-xs text-[var(--tx7)]">{t.buildingQuiz}</p>}
             {quizError && <p className="text-xs text-[var(--red)]">{quizError}</p>}
             {quizLimitReached && !auth && (
               <div className="p-2.5 rounded-xl border border-[var(--bd)] bg-[var(--surface)] text-center">
-                <p className="text-xs text-[var(--tx2)]">You've used your free quiz for this session.</p>
+                <p className="text-xs text-[var(--tx2)]">{t.quizLimitMsg}</p>
                 <button
                   type="button"
                   className="text-xs font-medium text-[var(--indigo)] hover:underline mt-1"
                   onClick={() => setShowAuth(true)}
                 >
-                  Sign in for more
+                  {t.signInForMore}
                 </button>
               </div>
             )}
             {quiz && (
-              <GenieQuiz key={quiz.quizId} quizId={quiz.quizId} questions={quiz.questions} userId={auth?.user.id} token={auth?.token} />
+              <GenieQuiz
+                key={quiz.quizId}
+                t={t}
+                quizId={quiz.quizId}
+                questions={quiz.questions}
+                userId={auth?.user.id}
+                token={auth?.token}
+              />
             )}
           </div>
         )}
@@ -429,6 +446,7 @@ export default function App() {
             key={m.id}
             message={m}
             language={language}
+            t={t}
             onChipClick={handleChipClick}
             onQuizMe={handleQuizMe}
             onWalkMeThrough={handleWalkMeThrough}
@@ -437,7 +455,7 @@ export default function App() {
           />
         ))}
 
-        {loading && <p className="text-xs text-[var(--tx7)]">Thinking…</p>}
+        {loading && <p className="text-xs text-[var(--tx7)]">{t.thinking}</p>}
         {error && <p className="text-xs text-[var(--red)]">{error}</p>}
         <div ref={bottomRef} />
       </div>
@@ -450,20 +468,22 @@ export default function App() {
             <p className="text-xs text-[var(--tx7)] line-clamp-2">"{selection.text}"</p>
             <button
               type="button"
-              aria-label="Cancel this selection"
-              title="Not the right text — cancel"
+              aria-label={t.cancelSelectionTitle}
+              title={t.cancelSelectionTitle}
               className="shrink-0 text-[var(--tx7)] hover:text-[var(--tx1)] text-sm leading-none"
               onClick={() => setSelection(null)}
             >
               ✕
             </button>
           </div>
-          {/* "Help me understand it" leads and is visually primary — it's the
-              button that nudges the adaptive-teaching prompt toward guided
+          {/* The first button leads and is visually primary — it's the one
+              that nudges the adaptive-teaching prompt toward guided
               discovery (the ladder/eureka experience), which is genie's
-              actual differentiator. The prompt text mirrors the in-app
-              "Walk me through it" chip's proven wording (walkMeThroughPrompt
-              in frontend/translations/en.ts) as closely as possible — a
+              actual differentiator. t.walkMeThroughSelection mirrors the
+              in-app "Walk me through it" chip's proven wording
+              (walkMeThroughPrompt in frontend/translations/*.ts) as closely
+              as possible, adapted to embed the selected text since this is
+              the first message (no prior reply for "that" to refer to) — a
               plain "help me understand X" is technically listed as a
               trigger phrase in ADAPTIVE_TEACHING_INSTRUCTIONS too, but in
               practice wasn't a strong enough signal on its own for a broad
@@ -475,25 +495,21 @@ export default function App() {
           <div className="flex flex-wrap gap-2">
             <button
               className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[var(--indigo)] text-white inline-flex items-center gap-1"
-              onClick={() =>
-                handleSend(
-                  `Can you walk me through "${selection.text}" one guiding question at a time, instead of just explaining it directly?`,
-                )
-              }
+              onClick={() => handleSend(t.walkMeThroughSelection(selection.text))}
             >
-              🧗 Help me understand it
+              {t.walkMeThrough}
             </button>
             <button
               className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-[var(--bd)] text-[var(--tx3)]"
-              onClick={() => handleSend(`Explain this: "${selection.text}"`)}
+              onClick={() => handleSend(t.explainThis(selection.text))}
             >
-              Just explain it
+              {t.justExplainIt}
             </button>
             <button
               className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-[var(--bd)] text-[var(--tx3)]"
               onClick={() => handleQuiz(selection.text)}
             >
-              🎯 Quiz me on this
+              {t.quizMeOnThis}
             </button>
           </div>
         </div>
@@ -501,13 +517,13 @@ export default function App() {
 
       {limitReached ? (
         <div className="m-4 p-3 rounded-xl border border-[var(--bd)] bg-[var(--surface)] text-center">
-          <p className="text-sm text-[var(--tx2)]">You've reached the free limit for this session.</p>
+          <p className="text-sm text-[var(--tx2)]">{t.limitReachedMsg}</p>
           <button
             type="button"
             className="text-xs font-medium text-[var(--indigo)] hover:underline mt-1"
             onClick={() => setShowAuth(true)}
           >
-            Sign in to keep going
+            {t.signInToKeepGoing}
           </button>
         </div>
       ) : (
@@ -515,10 +531,10 @@ export default function App() {
           {clippedImage && (
             <div className="flex items-center gap-2 mx-3 mt-2 p-1.5 rounded-lg border border-[var(--bd)] bg-[var(--surface)]">
               <img src={clippedImage} alt="Clipped region" className="w-10 h-10 object-cover rounded" />
-              <span className="text-xs text-[var(--tx7)] flex-1">Clip attached — ask a question or just send</span>
+              <span className="text-xs text-[var(--tx7)] flex-1">{t.clipAttached}</span>
               <button
                 type="button"
-                aria-label="Remove clipped image"
+                aria-label={t.removeClip}
                 className="text-[var(--tx7)] hover:text-[var(--tx1)] text-sm leading-none px-1"
                 onClick={() => setClippedImage(null)}
               >
@@ -535,8 +551,8 @@ export default function App() {
           >
             <button
               type="button"
-              title="Clip part of the screen to ask about"
-              aria-label="Clip screen"
+              title={t.clipButtonTitle}
+              aria-label={t.clipButtonTitle}
               onClick={handleClipScreen}
               disabled={loading || clipUploading}
               className="text-[var(--tx7)] hover:text-[var(--tx1)] p-2 rounded-lg hover:bg-[var(--ov1)] disabled:opacity-50"
@@ -545,7 +561,7 @@ export default function App() {
             </button>
             <input
               className="flex-1 rounded-lg border border-[var(--bd)] bg-[var(--input)] text-[var(--tx1)] text-sm px-3 py-2 outline-none"
-              placeholder={clippedImage ? 'Ask about this (optional)…' : 'Ask a question…'}
+              placeholder={clippedImage ? t.askAboutThisPlaceholder : t.chatPlaceholder}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={loading}
@@ -555,7 +571,7 @@ export default function App() {
               className="text-sm font-medium px-3 py-2 rounded-lg bg-[var(--indigo)] text-white disabled:opacity-50"
               disabled={loading || clipUploading || (!input.trim() && !clippedImage)}
             >
-              {clipUploading ? 'Uploading…' : 'Send'}
+              {clipUploading ? t.uploading : t.send}
             </button>
           </form>
         </>

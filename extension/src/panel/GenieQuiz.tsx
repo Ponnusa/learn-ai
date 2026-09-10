@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
 import { submitQuiz, type QuizQuestion, type SubmitQuizResponse } from '../lib/api';
 import { MathText } from '../components/MathText';
+import type { GenieStrings } from '../lib/i18n';
 
 interface GenieQuizProps {
+  t: GenieStrings;
   quizId: string;
   questions: QuizQuestion[];
   userId?: string | null;
@@ -21,7 +23,7 @@ interface GenieQuizProps {
 // after a successful submit (the completed quiz settles into a summary,
 // same as it would read in an actual conversation), but can be expanded
 // again at any time to review what was missed.
-export function GenieQuiz({ quizId, questions, userId, token }: GenieQuizProps) {
+export function GenieQuiz({ t, quizId, questions, userId, token }: GenieQuizProps) {
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [result, setResult] = useState<SubmitQuizResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -38,15 +40,13 @@ export function GenieQuiz({ quizId, questions, userId, token }: GenieQuizProps) 
       setResult(res);
       setCollapsed(true);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not submit the quiz');
+      setError(e instanceof Error ? e.message : t.quizSubmitError);
     } finally {
       setSubmitting(false);
     }
   }
 
-  const summary = result
-    ? `🎯 Quiz — ${result.correct}/${result.total} (${Math.round(result.score_pct)}%)`
-    : '🎯 Quiz (in progress)';
+  const summary = result ? t.quizSummary(result.correct, result.total, result.score_pct) : t.quizInProgress;
 
   if (collapsed) {
     return (
@@ -57,7 +57,7 @@ export function GenieQuiz({ quizId, questions, userId, token }: GenieQuizProps) 
       >
         <span className="text-sm font-medium text-[var(--tx1)]">{summary}</span>
         <span className="text-[var(--tx7)] text-xs" aria-hidden="true">
-          Expand ⌄
+          {t.expand}
         </span>
       </button>
     );
@@ -69,12 +69,12 @@ export function GenieQuiz({ quizId, questions, userId, token }: GenieQuizProps) 
         <span className="text-sm font-semibold text-[var(--tx1)]">{summary}</span>
         <button
           type="button"
-          aria-label="Minimize quiz"
-          title="Minimize"
+          aria-label={t.minimize}
+          title={t.minimize}
           className="text-[var(--tx7)] hover:text-[var(--tx1)] text-xs leading-none"
           onClick={() => setCollapsed(true)}
         >
-          Minimize ⌃
+          {t.minimize}
         </button>
       </div>
 
@@ -140,7 +140,7 @@ export function GenieQuiz({ quizId, questions, userId, token }: GenieQuizProps) 
           onClick={handleSubmit}
           className="self-start text-xs font-medium px-3 py-1.5 rounded-lg bg-[var(--indigo)] text-white disabled:opacity-50"
         >
-          {submitting ? 'Submitting…' : 'Submit answers'}
+          {submitting ? t.submitting : t.submitAnswers}
         </button>
       )}
     </div>

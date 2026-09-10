@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { loginPassword, register, type AuthResponse } from '../lib/api';
+import type { GenieStrings } from '../lib/i18n';
 
 interface GenieAuthProps {
+  t: GenieStrings;
   sessionId: string | null;
   onSuccess: (auth: AuthResponse) => void;
   onCancel: () => void;
@@ -15,7 +17,7 @@ interface GenieAuthProps {
 // there's no code-exchange endpoint today to hand it back to a panel. Email/
 // password POSTs return { token, user } directly in the response, so the
 // panel gets the token with no cross-origin hop needed at all.
-export function GenieAuth({ sessionId, onSuccess, onCancel }: GenieAuthProps) {
+export function GenieAuth({ t, sessionId, onSuccess, onCancel }: GenieAuthProps) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +33,7 @@ export function GenieAuth({ sessionId, onSuccess, onCancel }: GenieAuthProps) {
         mode === 'login' ? await loginPassword(email, password) : await register(email, password, sessionId);
       onSuccess(auth);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong');
+      setError(err instanceof Error ? err.message : t.authGenericError);
     } finally {
       setLoading(false);
     }
@@ -41,7 +43,7 @@ export function GenieAuth({ sessionId, onSuccess, onCancel }: GenieAuthProps) {
     <div className="mx-4 mb-2 p-3 rounded-xl border border-[var(--bd)] bg-[var(--surface)] flex flex-col gap-2.5">
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-[var(--tx1)]">
-          {mode === 'login' ? 'Sign in to LearnX' : 'Create a LearnX account'}
+          {mode === 'login' ? t.signInTitle : t.createAccountTitle}
         </span>
         <button
           type="button"
@@ -57,7 +59,7 @@ export function GenieAuth({ sessionId, onSuccess, onCancel }: GenieAuthProps) {
         <input
           type="email"
           required
-          placeholder="Email"
+          placeholder={t.emailPlaceholder}
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="rounded-lg border border-[var(--bd)] bg-[var(--input)] text-[var(--tx1)] text-sm px-3 py-2 outline-none"
@@ -66,7 +68,7 @@ export function GenieAuth({ sessionId, onSuccess, onCancel }: GenieAuthProps) {
           type="password"
           required
           minLength={mode === 'register' ? 8 : undefined}
-          placeholder={mode === 'register' ? 'Password (min 8 characters)' : 'Password'}
+          placeholder={mode === 'register' ? t.passwordMinPlaceholder : t.passwordPlaceholder}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="rounded-lg border border-[var(--bd)] bg-[var(--input)] text-[var(--tx1)] text-sm px-3 py-2 outline-none"
@@ -77,7 +79,7 @@ export function GenieAuth({ sessionId, onSuccess, onCancel }: GenieAuthProps) {
           disabled={loading}
           className="text-sm font-medium px-3 py-2 rounded-lg bg-[var(--indigo)] text-white disabled:opacity-50"
         >
-          {loading ? 'Please wait…' : mode === 'login' ? 'Sign in' : 'Create account'}
+          {loading ? t.pleaseWait : mode === 'login' ? t.signIn : t.createAccount}
         </button>
       </form>
 
@@ -86,7 +88,7 @@ export function GenieAuth({ sessionId, onSuccess, onCancel }: GenieAuthProps) {
         className="text-xs text-[var(--tx7)] hover:text-[var(--tx1)] self-center"
         onClick={() => setMode((m) => (m === 'login' ? 'register' : 'login'))}
       >
-        {mode === 'login' ? "Don't have an account? Create one" : 'Already have an account? Sign in'}
+        {mode === 'login' ? t.noAccountPrompt : t.hasAccountPrompt}
       </button>
     </div>
   );

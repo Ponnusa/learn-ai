@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import type { GenieStrings } from '../lib/i18n';
 
 interface Rect {
   x: number;
@@ -8,6 +9,7 @@ interface Rect {
 }
 
 interface ClipCaptureProps {
+  t: GenieStrings;
   /** Full-viewport screenshot from chrome.tabs.captureVisibleTab(), as a data URL. */
   dataUrl: string;
   onConfirm: (croppedDataUrl: string) => void;
@@ -19,7 +21,7 @@ interface ClipCaptureProps {
 // (drag a rectangle -> crop to PNG -> sent as image_url/vision) — same
 // pattern, just sourced from a live tab capture instead of a rendered PDF
 // page, so it works on anything visible on screen, not just PDFs.
-export function ClipCapture({ dataUrl, onConfirm, onCancel }: ClipCaptureProps) {
+export function ClipCapture({ t, dataUrl, onConfirm, onCancel }: ClipCaptureProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<{ x: number; y: number } | null>(null);
@@ -84,7 +86,7 @@ export function ClipCapture({ dataUrl, onConfirm, onCancel }: ClipCaptureProps) 
 
   return (
     <div className="flex flex-col gap-2 p-3 border-b border-[var(--bd)] bg-[var(--surface)]">
-      <p className="text-xs text-[var(--tx7)]">Drag to select the part you want to ask about.</p>
+      <p className="text-xs text-[var(--tx7)]">{t.dragToSelect}</p>
       <div
         ref={containerRef}
         className="relative select-none border border-[var(--bd)] rounded-lg overflow-hidden cursor-crosshair"
@@ -92,7 +94,7 @@ export function ClipCapture({ dataUrl, onConfirm, onCancel }: ClipCaptureProps) 
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
       >
-        <img ref={imgRef} src={dataUrl} alt="Captured tab" className="w-full h-auto block" draggable={false} />
+        <img ref={imgRef} src={dataUrl} alt={t.dragToSelect} className="w-full h-auto block" draggable={false} />
         {rect && (
           <div
             className="absolute border-2 border-[var(--indigo)] pointer-events-none"
@@ -107,14 +109,14 @@ export function ClipCapture({ dataUrl, onConfirm, onCancel }: ClipCaptureProps) 
           onClick={confirm}
           className="text-xs font-medium px-3 py-1.5 rounded-lg bg-[var(--indigo)] text-white disabled:opacity-50"
         >
-          Use this region
+          {t.useThisRegion}
         </button>
         <button
           type="button"
           onClick={onCancel}
           className="text-xs font-medium px-3 py-1.5 rounded-lg border border-[var(--bd)] text-[var(--tx3)]"
         >
-          Cancel
+          {t.cancel}
         </button>
       </div>
     </div>
