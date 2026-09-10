@@ -98,11 +98,23 @@ export function generateQuiz(req: GenerateQuizRequest, token?: string | null): P
   return request('POST', '/api/quizzes/generate', req, token);
 }
 
+// Per-question result shape matches backend/routers/quizzes.py's submit_quiz
+// exactly: `correct` here is the CORRECT ANSWER'S INDEX (int), not a
+// boolean — whether the student's own answer was right is `is_correct`.
+export interface QuizResultItem {
+  question: string;
+  options: string[];
+  correct: number;
+  user_answer: number | null;
+  is_correct: boolean;
+  explanation: string;
+}
+
 export interface SubmitQuizResponse {
   correct: number;
   total: number;
   score_pct: number;
-  results: { correct: boolean; correct_index: number }[];
+  results: QuizResultItem[];
   passed: boolean;
 }
 
@@ -136,4 +148,12 @@ export function register(email: string, password: string, sessionId?: string | n
 
 export function loginPassword(email: string, password: string): Promise<AuthResponse> {
   return request('POST', '/api/auth/login/password', { email, password });
+}
+
+// ── Text-to-speech (read aloud) ─────────────────────────────────────────
+
+export async function getChatMessageAudio(messageId: string, language = 'en'): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/api/chat/messages/${messageId}/audio?language=${language}`);
+  if (!res.ok) throw new Error('Audio generation failed');
+  return res.blob();
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { CheckCircle, XCircle } from 'lucide-react';
 import { submitQuiz, type QuizQuestion, type SubmitQuizResponse } from '../lib/api';
 import { MathText } from '../components/MathText';
 
@@ -87,33 +88,35 @@ export function GenieQuiz({ quizId, questions, userId, token }: GenieQuizProps) 
             <div className="flex flex-col gap-1">
               {q.options.map((opt, oi) => {
                 const selected = answers[i] === oi;
-                const isCorrectOption = result && oi === qResult?.correct_index;
-                const isWrongSelected = result && selected && !qResult?.correct;
+                const isCorrectOption = result && oi === qResult?.correct;
+                const isWrongSelected = result && selected && !qResult?.is_correct;
                 return (
                   <button
                     key={oi}
                     type="button"
                     disabled={!!result}
                     onClick={() => setAnswers((prev) => ({ ...prev, [i]: oi }))}
-                    className="text-left text-xs px-2.5 py-1.5 rounded-lg border transition-colors"
+                    className="text-left text-xs px-2.5 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5"
                     style={{
                       borderColor: isCorrectOption
-                        ? 'var(--green, #4ade80)'
+                        ? 'var(--correct-bd)'
                         : isWrongSelected
-                          ? 'var(--red)'
+                          ? 'var(--wrong-bd)'
                           : selected
                             ? 'var(--indigo)'
                             : 'var(--bd)',
                       background: isCorrectOption
-                        ? 'rgba(34,197,94,0.08)'
+                        ? 'var(--correct-bg)'
                         : isWrongSelected
-                          ? 'rgba(239,68,68,0.08)'
+                          ? 'var(--wrong-bg)'
                           : selected
                             ? 'rgba(129,140,248,0.10)'
                             : 'transparent',
-                      color: 'var(--tx2)',
+                      color: isCorrectOption ? 'var(--green)' : isWrongSelected ? 'var(--red)' : 'var(--tx2)',
                     }}
                   >
+                    {isCorrectOption && <CheckCircle size={14} className="shrink-0" />}
+                    {isWrongSelected && <XCircle size={14} className="shrink-0" />}
                     <MathText inline>{opt}</MathText>
                   </button>
                 );

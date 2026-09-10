@@ -143,7 +143,15 @@ export default function App() {
       );
       setConversationId(res.conversation_id);
       updateLadderState(res.ladder_depth);
-      setMessages((prev) => [...prev, { id: res.message_id, role: 'assistant', content: res.reply }]);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: res.message_id,
+          role: 'assistant',
+          content: res.reply,
+          metadata: { chips: res.chips, ladder_depth: res.ladder_depth },
+        },
+      ]);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Request failed';
       if (msg === 'session_limit_reached') {
@@ -202,6 +210,17 @@ export default function App() {
     chrome.storage.local.remove([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
   }
 
+  // Per-message action toolbar handlers — mirror frontend/app/page.tsx's
+  // onChipClick/onTestYourself/onSimplify/onGoDeeper exactly (same prompt
+  // text), so the same conversation continuing here or in the web app
+  // behaves identically either way.
+  const handleChipClick = (chip: string) => handleSend(chip);
+  const handleWalkMeThrough = () =>
+    handleSend('Can you walk me through that one guiding question at a time, instead of just explaining it?');
+  const handleQuizMe = (content: string) => handleQuiz(content.slice(0, 300));
+  const handleSimplify = () => handleSend('Can you simplify that explanation?');
+  const handleGoDeeper = () => handleSend('Can you go deeper on that?');
+
   return (
     <div className="flex flex-col h-full">
       <header className="flex items-center gap-2 px-4 py-3 border-b border-[var(--bd)]">
@@ -239,7 +258,15 @@ export default function App() {
           </p>
         )}
         {messages.map((m) => (
-          <GenieMessage key={m.id} message={m} />
+          <GenieMessage
+            key={m.id}
+            message={m}
+            onChipClick={handleChipClick}
+            onQuizMe={handleQuizMe}
+            onWalkMeThrough={handleWalkMeThrough}
+            onSimplify={handleSimplify}
+            onGoDeeper={handleGoDeeper}
+          />
         ))}
         {loading && <p className="text-xs text-[var(--tx7)]">Thinking…</p>}
         {error && <p className="text-xs text-[var(--red)]">{error}</p>}

@@ -40,10 +40,27 @@ the side panel with that text ready to send, or to auto-generate a quiz.
 
 - **Chat** — select text → "Help me understand it" (nudges guided discovery,
   the ladder/eureka experience) or "Just explain it" (direct answer). Or
-  just type a question in the box at any time.
-- **Quiz** — "🎯 Quiz me on this" from the selection card, or the
-  "Quiz me on this (LearnX)" right-click entry (auto-runs, no extra click).
-  Inline multiple-choice, submit, see score + explanations.
+  just type a question in the box at any time. Every reply carries the same
+  action toolbar as the web app's chat (minus video generation, which genie
+  doesn't offer): ✏️ Quiz me, 🧭 Walk me through it, suggestion chips + 💡
+  Show me an example, ↓ Simplify this / ↑ Go deeper, read-aloud, copy — all
+  hidden while a guided-discovery question is still awaiting an answer,
+  same as the app.
+- **Formulas & structures** — physics/chemistry/math formulas render via
+  KaTeX (ported `preprocessMath`/`mathConfig`/`MathText` from
+  `frontend/lib/` and `frontend/components/ui/`), and organic chemistry
+  structures written as ` ```smiles ` code blocks render as real 2D
+  diagrams via `smiles-drawer` (ported `SmilesBlock.tsx`) — same as the web
+  app's chat, including its \ce{} chemistry-notation trade-off (stripped to
+  plain text rather than rendered, for the same reliability reason the app
+  makes that call).
+- **Quiz** — "🎯 Quiz me on this" from the selection card, a per-reply
+  "Quiz me" button, or the "Quiz me on this (LearnX)" right-click entry
+  (auto-runs, no extra click). Inline multiple-choice; submit to see your
+  score with correct answers and your mistakes highlighted (green/red,
+  check/x icons — matches the web app's quiz results styling exactly).
+  Doesn't "close" and discard the result — minimizes to a one-line score
+  summary instead, expandable again any time.
 - **Context menu** — right-click a selection for the same two entry points
   as the floating pill, for pages where the pill is awkward to use.
 - **Optional sign-in** — email/password (not magic-link or Google OAuth:

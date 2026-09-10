@@ -1,33 +1,203 @@
+import { useEffect, useRef, useState } from 'react';
+import type { Components } from 'react-markdown';
+import { Copy, Check, Loader, Square, Volume2 } from 'lucide-react';
 import { MathText } from '../components/MathText';
+import { SmilesBlock } from '../components/SmilesBlock';
+import { getChatMessageAudio } from '../lib/api';
 
 export interface GenieMessageData {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  metadata?: {
+    chips?: string[];
+    /** Model's live self-report of guided-discovery depth — see
+     *  frontend/components/chat/MessageBubble.tsx's Message interface for
+     *  the full explanation. Hides the action toolbar while mid-chain. */
+    ladder_depth?: number | null;
+  };
 }
 
-// Minimal reply renderer — markdown + math/chemistry formulas, matching the
-// web app's chat window exactly via the shared MathText component (same
-// preprocessMath()/KATEX_OPTIONS ported from frontend/lib/, same
-// .ai-content prose rules ported into theme.css). No video chip, no quiz
-// card, no next/navigation dependency: genie doesn't offer video
-// generation, and quiz rendering has its own component.
-export function GenieMessage({ message }: { message: GenieMessageData }) {
+interface GenieMessageProps {
+  message: GenieMessageData;
+  onChipClick?: (chip: string) => void;
+  onQuizMe?: (content: string) => void;
+  onWalkMeThrough?: () => void;
+  onSimplify?: () => void;
+  onGoDeeper?: () => void;
+}
+
+// At most one TTS clip plays at a time across all bubbles — same pattern as
+// MessageBubble.tsx's module-level globalStopTts.
+let globalStopTts: (() => void) | null = null;
+
+const SMILES_COMPONENTS: Components = {
+  code({ className, children }) {
+    const lang = /language-(\w+)/.exec(className ?? '')?.[1];
+    if (lang === 'smiles') return <SmilesBlock smiles={String(children).trim()} />;
+    return <code className={className}>{children}</code>;
+  },
+};
+
+// Full reply renderer — markdown, math/chemistry formulas, and organic
+// structures (```smiles blocks -> SmilesBlock), plus the same action
+// toolbar/chips/tertiary-actions as the web app's MessageBubble.tsx: quiz
+// me, walk me through it, suggestion chips + "show me an example",
+// simplify/go deeper, read-aloud, copy. No video/animate (genie doesn't
+// offer video generation) and no quiz-card-in-thread (quiz has its own
+// standalone GenieQuiz component instead of living inside a message).
+export function GenieMessage({ message, onChipClick, onQuizMe, onWalkMeThrough, onSimplify, onGoDeeper }: GenieMessageProps) {
   const isUser = message.role === 'user';
+  const [copied, setCopied] = useState(false);
+  const [ttsLoading, setTtsLoading] = useState(false);
+  const [ttsPlaying, setTtsPlaying] = useState(false);
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  const chips = message.metadata?.chips ?? [];
+  const isMidScaffold = (message.metadata?.ladder_depth ?? 0) > 0;
+
+  function stopTts() {
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause();
+      ttsAudioRef.current.src = '';
+      ttsAudioRef.current = null;
+    }
+    if (globalStopTts === stopTts) globalStopTts = null;
+    setTtsPlaying(false);
+  }
+
+  useEffect(() => () => stopTts(), []);
+
+  async function handleSpeak() {
+    if (ttsPlaying || ttsLoading) {
+      stopTts();
+      setTtsLoading(false);
+      return;
+    }
+    globalStopTts?.();
+    globalStopTts = stopTts;
+    setTtsLoading(true);
+    try {
+      const blob = await getChatMessageAudio(message.id);
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      ttsAudioRef.current = audio;
+      audio.onended = () => {
+        setTtsPlaying(false);
+        URL.revokeObjectURL(url);
+        ttsAudioRef.current = null;
+        if (globalStopTts === stopTts) globalStopTts = null;
+      };
+      audio.onerror = () => {
+        setTtsPlaying(false);
+        ttsAudioRef.current = null;
+        if (globalStopTts === stopTts) globalStopTts = null;
+      };
+      await audio.play();
+      setTtsPlaying(true);
+    } catch {
+      setTtsPlaying(false);
+      if (globalStopTts === stopTts) globalStopTts = null;
+    } finally {
+      setTtsLoading(false);
+    }
+  }
+
+  function copy() {
+    navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (isUser) {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[85%] rounded-2xl px-3.5 py-2.5 bg-[var(--indigo)] text-white text-sm">
+          {message.content}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={
-          isUser
-            ? 'max-w-[85%] rounded-2xl px-3.5 py-2.5 bg-[var(--indigo)] text-white text-sm'
-            : 'max-w-[92%] rounded-2xl px-3.5 py-2.5 bg-[var(--surface)] border border-[var(--bd)]'
-        }
-      >
-        {isUser ? (
-          <span className="text-sm">{message.content}</span>
-        ) : (
-          <div className="ai-content">
-            <MathText>{message.content}</MathText>
+    <div className="flex justify-start">
+      <div className="max-w-[92%] rounded-2xl px-3.5 py-2.5 bg-[var(--surface)] border border-[var(--bd)] flex flex-col gap-2.5">
+        <div className="ai-content">
+          <MathText components={SMILES_COMPONENTS}>{message.content}</MathText>
+        </div>
+
+        {!isMidScaffold && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[var(--bd2)]">
+            <button
+              onClick={() => onQuizMe?.(message.content)}
+              className="text-[11px] px-2.5 py-1 rounded-lg font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)] border border-indigo-500/20"
+            >
+              ✏️ Quiz me
+            </button>
+            <button
+              onClick={() => onWalkMeThrough?.()}
+              className="text-[11px] px-2.5 py-1 rounded-lg font-medium bg-indigo-500/10 hover:bg-indigo-500/20 text-[var(--indigo)] border border-indigo-500/20"
+            >
+              🧭 Walk me through it
+            </button>
+
+            <button
+              onClick={handleSpeak}
+              title={ttsLoading ? 'Generating audio…' : ttsPlaying ? 'Stop' : 'Read aloud'}
+              className="ml-auto text-[var(--txa)] hover:text-[var(--tx4)] transition-colors p-1 rounded-lg hover:bg-[var(--ov1)]"
+            >
+              {ttsLoading ? (
+                <Loader size={13} className="animate-spin text-[var(--indigo)]" />
+              ) : ttsPlaying ? (
+                <Square size={13} className="text-[var(--indigo)]" />
+              ) : (
+                <Volume2 size={13} />
+              )}
+            </button>
+            <button
+              onClick={copy}
+              title="Copy"
+              className="text-[var(--txa)] hover:text-[var(--tx4)] transition-colors p-1 rounded-lg hover:bg-[var(--ov1)]"
+            >
+              {copied ? <Check size={13} className="text-[var(--green)]" /> : <Copy size={13} />}
+            </button>
+          </div>
+        )}
+
+        {!isMidScaffold && (
+          <div className="flex flex-wrap gap-1.5">
+            {chips.map((chip, i) => (
+              <button
+                key={i}
+                onClick={() => onChipClick?.(chip)}
+                className="text-[11px] px-2.5 py-1 rounded-full border border-[var(--bd)] hover:border-[var(--bd2)] text-[var(--tx7)] hover:text-[var(--tx2)] hover:bg-[var(--ov1)]"
+              >
+                {chip}
+              </button>
+            ))}
+            <button
+              onClick={() => onChipClick?.('Give me a concrete real-world example of this')}
+              className="text-[11px] px-2.5 py-1 rounded-full border border-amber-500/20 hover:border-amber-500/35 text-[var(--amber)]"
+            >
+              💡 Show me an example
+            </button>
+          </div>
+        )}
+
+        {!isMidScaffold && (
+          <div className="flex gap-3">
+            <button
+              onClick={() => onSimplify?.()}
+              className="text-[10px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
+            >
+              <span>↓</span> Simplify this
+            </button>
+            <button
+              onClick={() => onGoDeeper?.()}
+              className="text-[10px] text-[var(--tx8)] hover:text-[var(--tx4)] transition-colors flex items-center gap-1"
+            >
+              <span>↑</span> Go deeper
+            </button>
           </div>
         )}
       </div>
