@@ -20,14 +20,22 @@ Builds into `dist/`: `manifest.json` + `panel.html`/assets (side panel SPA)
 
 1. `chrome://extensions` → enable **Developer mode** → **Load unpacked** →
    select `extension/dist`.
-2. Note the extension ID Chrome assigns it. `manifest.json` ships with a
-   fixed dev `key`, so this ID stays the same across reloads — you only
-   need to do the next step once.
+2. Note the extension ID Chrome assigns it. `manifest.json` has no `key`
+   field (the Chrome Web Store rejects uploads that include one — it
+   insists on assigning IDs itself), so the ID is derived from
+   `extension/dist`'s own file path instead — that's still stable across
+   reloads as long as you keep loading it from the same folder, you only
+   need to do the next step once **per machine/checkout**.
 3. Add `chrome-extension://<that-id>` to the backend's `EXTRA_ALLOWED_ORIGINS`
    env var (comma-separated, see `backend/config.py`) and restart the
    backend. Without this, every request from the panel fails CORS.
 4. Point `src/lib/api.ts`'s `API_BASE` at whichever backend you're testing
    against (defaults to `http://localhost:8000`).
+
+Once actually published through the Chrome Web Store, the live version gets
+a **separate, permanent ID** assigned by the Store on first upload — that
+one also needs adding to `EXTRA_ALLOWED_ORIGINS` (alongside your local dev
+ID, if you want both to keep working against the same backend).
 
 ## Try it
 
@@ -122,10 +130,30 @@ the side panel with that text ready to send, or to auto-generate a quiz.
   opens the app's own separate anonymous session, not this one's. Fixing
   that would be new web-app work, not something the extension alone can do.
 
-## Before ever publishing
+## Publishing to the Chrome Web Store
 
-The `key` field in `public/manifest.json` is a **dev-only** convenience key
-(paired with the gitignored `.dev-key.pem`) that exists purely so the
-extension ID stays stable across unpacked reloads while testing. Generate a
-fresh keypair before any real Chrome Web Store submission — don't ship this
-one.
+1. `npm run build`, then zip the **contents** of `dist/` (not the `dist`
+   folder itself — `manifest.json` must sit at the zip's root). PowerShell's
+   `Compress-Archive` writes backslash path separators on Windows, which
+   breaks nested folders (`icons/`, `audio/`, `branding/`) once Chrome
+   unpacks it — use `python -m zipfile` or Python's `zipfile` module
+   instead, which writes proper forward-slash paths:
+   ```
+   python -c "
+   import zipfile, os
+   with zipfile.ZipFile('learnx-genie.zip', 'w', zipfile.ZIP_DEFLATED) as zf:
+       for root, dirs, files in os.walk('dist'):
+           for f in files:
+               full = os.path.join(root, f)
+               zf.write(full, os.path.relpath(full, 'dist').replace(os.sep, '/'))
+   "
+   ```
+2. Upload `learnx-genie.zip` in the Developer Dashboard. `manifest.json`
+   deliberately has **no `key` field** — the Store rejects uploads that
+   include one, since it assigns IDs itself. (This used to have a fixed dev
+   key for stable local-testing IDs; removed after hitting exactly this
+   upload rejection. Local dev IDs are still stable per-checkout via
+   `dist`'s own file path — see "Load it" above.)
+3. After a successful upload, copy the ID the Store assigns and add
+   `chrome-extension://<that-id>` to the backend's `EXTRA_ALLOWED_ORIGINS`
+   — it's a different ID from whatever your local unpacked build uses.
