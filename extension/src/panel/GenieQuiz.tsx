@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { submitQuiz, type QuizQuestion, type SubmitQuizResponse } from '../lib/api';
+import { MathText } from '../components/MathText';
 
 interface GenieQuizProps {
   quizId: string;
@@ -54,7 +55,7 @@ export function GenieQuiz({ quizId, questions, userId, token, onClose }: GenieQu
         return (
           <div key={i} className="flex flex-col gap-1.5">
             <p className="text-xs font-medium text-[var(--tx2)]">
-              {i + 1}. {q.q}
+              {i + 1}. <MathText inline>{q.q}</MathText>
             </p>
             <div className="flex flex-col gap-1">
               {q.options.map((opt, oi) => {
@@ -86,13 +87,15 @@ export function GenieQuiz({ quizId, questions, userId, token, onClose }: GenieQu
                       color: 'var(--tx2)',
                     }}
                   >
-                    {opt}
+                    <MathText inline>{opt}</MathText>
                   </button>
                 );
               })}
             </div>
             {result && (
-              <p className="text-[11px] text-[var(--tx7)] leading-snug pl-0.5">{q.explanation}</p>
+              <p className="text-[11px] text-[var(--tx7)] leading-snug pl-0.5">
+                <MathText inline>{q.explanation}</MathText>
+              </p>
             )}
           </div>
         );

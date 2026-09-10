@@ -23,6 +23,12 @@
   --indigo:  #818cf8;
   --amber:   #fbbf24;
   --red:     #f87171;
+  --ov2:     rgba(255,255,255,0.08);
+  --code-color: #c4b5fd;
+  --code-bg:    rgba(139,92,246,0.13);
+  --code-bd:    rgba(139,92,246,0.22);
+  --pre-bg:     #090912;
+  --pre-text:   #e4e4e7;
 }
 
 [data-theme="light"] {
@@ -40,6 +46,12 @@
   --indigo:  #4f46e5;
   --amber:   #d97706;
   --red:     #dc2626;
+  --ov2:     rgba(0,0,0,0.05);
+  --code-color: #7c3aed;
+  --code-bg:    rgba(109,40,217,0.09);
+  --code-bd:    rgba(109,40,217,0.18);
+  --pre-bg:     #f5f3ff;
+  --pre-text:   #1f1235;
 }
 
 * { box-sizing: border-box; }
@@ -70,3 +82,58 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .eureka-clap { animation: none; opacity: 1; }
 }
+
+/* ── AI message prose — ported verbatim from frontend/app/globals.css so
+   formulas and general markdown match the web app's chat window exactly.
+   Used together with preprocessMath()/KATEX_OPTIONS from src/lib/, ported
+   from frontend/lib/{preprocessMath,mathConfig}.ts. ────────────────────── */
+.ai-content { color: var(--tx2); font-size: 0.875rem; line-height: 1.75; }
+.ai-content p                { margin: 0.5rem 0; }
+.ai-content p:first-child    { margin-top: 0; }
+.ai-content p:last-child     { margin-bottom: 0; }
+.ai-content strong,
+.ai-content b                { color: var(--tx1); font-weight: 600; }
+.ai-content em, .ai-content i{ color: var(--tx3); }
+.ai-content h1               { color: var(--tx1); font-size: 1.15rem; font-weight: 700; margin: 1.1rem 0 0.5rem; }
+.ai-content h2               { color: var(--tx1); font-size: 1rem;    font-weight: 600; margin: 0.9rem 0 0.4rem; }
+.ai-content h3               { color: var(--tx1); font-size: 0.9rem;  font-weight: 600; margin: 0.8rem 0 0.3rem; }
+.ai-content ul               { list-style: disc;    padding-left: 1.2rem; margin: 0.5rem 0; }
+.ai-content ol               { list-style: decimal; padding-left: 1.2rem; margin: 0.5rem 0; }
+.ai-content li               { margin: 0.2rem 0; color: var(--tx3); }
+.ai-content code {
+  color:      var(--code-color);
+  background: var(--code-bg);
+  border:     1px solid var(--code-bd);
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  font-size: 0.82em;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+.ai-content pre {
+  background: var(--pre-bg);
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+.ai-content pre code {
+  background: none; border: none; padding: 0;
+  color: var(--pre-text); font-size: 0.8rem;
+}
+.ai-content blockquote {
+  border-left: 3px solid rgba(139,92,246,0.55);
+  padding-left: 0.875rem;
+  color: var(--tx5, var(--tx7));
+  font-style: italic;
+  margin: 0.75rem 0;
+}
+.ai-content table  { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.82rem; }
+.ai-content th     { color: var(--tx1); background: var(--ov2); padding: 0.4rem 0.75rem; border: 1px solid var(--bd); text-align: left; }
+.ai-content td     { color: var(--tx3); padding: 0.4rem 0.75rem; border: 1px solid var(--bd2); }
+.ai-content hr     { border: none; border-top: 1px solid var(--bd); margin: 1rem 0; }
+/* KaTeX inherits parent color by default so it works in any context. */
+.katex         { color: inherit; }
+.katex-display { overflow-x: auto; margin: 0.5rem 0; }
+.ai-content .katex         { color: var(--tx2) !important; }
+.ai-content .katex-display { margin: 0.75rem 0; overflow-x: auto; }
