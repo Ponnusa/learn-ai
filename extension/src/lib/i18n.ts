@@ -92,6 +92,8 @@ export interface GenieStrings {
   noAccountPrompt: string; // ported (noAccount, reworded slightly to fit genie's flow)
   hasAccountPrompt: string; // ported (alreadyHaveAccount)
   authGenericError: string; // genie-only
+  showPassword: string; // genie-only
+  hidePassword: string; // genie-only
 }
 
 export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
@@ -155,6 +157,8 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     noAccountPrompt: "Don't have an account? Create one",
     hasAccountPrompt: 'Already have an account? Sign in',
     authGenericError: 'Something went wrong',
+    showPassword: 'Show password',
+    hidePassword: 'Hide password',
   },
   fi: {
     signIn: 'Kirjaudu sisään',
@@ -216,6 +220,8 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     noAccountPrompt: 'Ei tiliä? Luo ilmainen tili',
     hasAccountPrompt: 'Onko sinulla jo tili? Kirjaudu',
     authGenericError: 'Jotain meni pieleen',
+    showPassword: 'Näytä salasana',
+    hidePassword: 'Piilota salasana',
   },
   es: {
     signIn: 'Iniciar sesión',
@@ -277,6 +283,8 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     noAccountPrompt: '¿No tienes cuenta? Regístrate gratis',
     hasAccountPrompt: '¿Ya tienes cuenta? Inicia sesión',
     authGenericError: 'Algo salió mal',
+    showPassword: 'Mostrar contraseña',
+    hidePassword: 'Ocultar contraseña',
   },
   fr: {
     signIn: 'Se connecter',
@@ -338,6 +346,8 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     noAccountPrompt: "Pas encore de compte ? S'inscrire gratuitement",
     hasAccountPrompt: 'Déjà un compte ? Se connecter',
     authGenericError: "Une erreur s'est produite",
+    showPassword: 'Afficher le mot de passe',
+    hidePassword: 'Masquer le mot de passe',
   },
   no: {
     signIn: 'Logg inn',
@@ -399,6 +409,8 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     noAccountPrompt: 'Har du ikke en konto? Registrer deg gratis',
     hasAccountPrompt: 'Har du allerede en konto? Logg inn',
     authGenericError: 'Noe gikk galt',
+    showPassword: 'Vis passord',
+    hidePassword: 'Skjul passord',
   },
   sv: {
     signIn: 'Logga in',
@@ -460,5 +472,7 @@ export const GENIE_TRANSLATIONS: Record<LanguageCode, GenieStrings> = {
     noAccountPrompt: 'Inget konto? Skapa ett gratis konto',
     hasAccountPrompt: 'Har du redan ett konto? Logga in',
     authGenericError: 'Något gick fel',
+    showPassword: 'Visa lösenord',
+    hidePassword: 'Dölj lösenord',
   },
 };

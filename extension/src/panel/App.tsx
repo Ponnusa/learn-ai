@@ -319,6 +319,26 @@ export default function App() {
   function handleSignOut() {
     setAuth(null);
     chrome.storage.local.remove([AUTH_TOKEN_KEY, AUTH_USER_KEY]);
+    // The conversation just signed out of belongs to that account — keeping
+    // it visible after sign-out would let the next person to open the
+    // panel (a shared machine, say) read someone else's chat history.
+    setMessages([]);
+    setConversationId(null);
+    setQuiz(null);
+    setQuizAnchorIndex(null);
+    setQuizGenerating(false);
+    setQuizError(null);
+    setQuizLimitReached(false);
+    setSelection(null);
+    setError(null);
+    setInput('');
+    setClipping(null);
+    setClippedImage(null);
+    setLimitReached(false);
+    ladderRef.current = { active: false, steps: 0 };
+    setLadderPhase('idle');
+    setLadderSteps(0);
+    setEurekaBurst(false);
   }
 
   function handleLanguageChange(lang: LanguageCode) {

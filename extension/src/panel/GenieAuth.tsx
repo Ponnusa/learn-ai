@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { loginPassword, register, type AuthResponse } from '../lib/api';
 import type { GenieStrings } from '../lib/i18n';
 
@@ -21,6 +22,7 @@ export function GenieAuth({ t, sessionId, onSuccess, onCancel }: GenieAuthProps)
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -64,15 +66,27 @@ export function GenieAuth({ t, sessionId, onSuccess, onCancel }: GenieAuthProps)
           onChange={(e) => setEmail(e.target.value)}
           className="rounded-lg border border-[var(--bd)] bg-[var(--input)] text-[var(--tx1)] text-sm px-3 py-2 outline-none"
         />
-        <input
-          type="password"
-          required
-          minLength={mode === 'register' ? 8 : undefined}
-          placeholder={mode === 'register' ? t.passwordMinPlaceholder : t.passwordPlaceholder}
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="rounded-lg border border-[var(--bd)] bg-[var(--input)] text-[var(--tx1)] text-sm px-3 py-2 outline-none"
-        />
+        <div className="relative">
+          <input
+            type={passwordVisible ? 'text' : 'password'}
+            required
+            minLength={mode === 'register' ? 8 : undefined}
+            placeholder={mode === 'register' ? t.passwordMinPlaceholder : t.passwordPlaceholder}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full rounded-lg border border-[var(--bd)] bg-[var(--input)] text-[var(--tx1)] text-sm pl-3 pr-9 py-2 outline-none"
+          />
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label={passwordVisible ? t.hidePassword : t.showPassword}
+            title={passwordVisible ? t.hidePassword : t.showPassword}
+            onClick={() => setPasswordVisible((v) => !v)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--tx7)] hover:text-[var(--tx1)] p-0.5"
+          >
+            {passwordVisible ? <EyeOff size={15} /> : <Eye size={15} />}
+          </button>
+        </div>
         {error && <p className="text-xs text-[var(--red)]">{error}</p>}
         <button
           type="submit"
