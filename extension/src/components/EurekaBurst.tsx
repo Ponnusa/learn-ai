@@ -123,7 +123,7 @@ export function EurekaBurst({ active }: { active: boolean }) {
     <div className="fixed inset-0 z-[70] pointer-events-none overflow-hidden" aria-hidden="true">
       <canvas ref={canvasRef} className="w-full h-full" />
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-7xl eureka-clap">👏</span>
+        <img src="/branding/genie-mascot-240.png" alt="" className="w-24 h-24 eureka-clap" />
       </div>
     </div>
   );

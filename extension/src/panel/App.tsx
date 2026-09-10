@@ -394,7 +394,7 @@ export default function App() {
       )}
 
       <header className="flex items-center gap-2 px-4 py-3 border-b border-[var(--bd)]">
-        <img src="/branding/genie-mascot-240.png" alt="" className="w-6 h-6 shrink-0" />
+        <img src="/branding/genie-mascot-240.png" alt="" className="w-8 h-8 shrink-0" />
         <span className="font-semibold text-[var(--tx1)] text-sm flex-1">LearnX Genie</span>
         <select
           value={language}
