@@ -100,6 +100,20 @@ export default function App() {
   const [ladderSteps, setLadderSteps] = useState(0);
   const [eurekaBurst, setEurekaBurst] = useState(false);
 
+  // Brief branded splash on open — purely cosmetic, doesn't block the real
+  // session/auth bootstrap running in parallel below. Three phases (not a
+  // boolean) so the fade-out actually animates: unmounting straight from
+  // 'visible' would skip the opacity transition entirely.
+  const [splashPhase, setSplashPhase] = useState<'visible' | 'fading' | 'hidden'>('visible');
+  useEffect(() => {
+    const fadeStart = setTimeout(() => setSplashPhase('fading'), 900);
+    const fadeDone = setTimeout(() => setSplashPhase('hidden'), 900 + 400);
+    return () => {
+      clearTimeout(fadeStart);
+      clearTimeout(fadeDone);
+    };
+  }, []);
+
   // ── Bootstrap: session, saved sign-in, and any selection that triggered
   //    opening the panel (pill, or the right-click context menu) ───────────
   useEffect(() => {
@@ -364,9 +378,23 @@ export default function App() {
   const handleGoDeeper = () => handleSend('Can you go deeper on that?');
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
+      {splashPhase !== 'hidden' && (
+        <div
+          className="absolute inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-[var(--bg)] transition-opacity duration-[400ms]"
+          style={{ opacity: splashPhase === 'fading' ? 0 : 1 }}
+        >
+          <img
+            src="/branding/genie-mascot-240.png"
+            alt="LearnX Genie"
+            className="w-28 h-28 animate-[genie-splash-in_0.6s_ease-out]"
+          />
+          <span className="font-semibold text-[var(--tx1)] text-sm">LearnX Genie</span>
+        </div>
+      )}
+
       <header className="flex items-center gap-2 px-4 py-3 border-b border-[var(--bd)]">
-        <span className="text-lg">🧞</span>
+        <img src="/branding/genie-mascot-240.png" alt="" className="w-6 h-6 shrink-0" />
         <span className="font-semibold text-[var(--tx1)] text-sm flex-1">LearnX Genie</span>
         <select
           value={language}
@@ -416,7 +444,10 @@ export default function App() {
 
       <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-3">
         {messages.length === 0 && !selection && !quiz && !quizGenerating && (
-          <p className="text-sm text-[var(--tx7)] leading-relaxed">{t.welcomeHint}</p>
+          <div className="flex flex-col items-center text-center gap-3 pt-4">
+            <img src="/branding/genie-mascot-240.png" alt="" className="w-20 h-20 opacity-90" />
+            <p className="text-sm text-[var(--tx7)] leading-relaxed max-w-[26ch]">{t.welcomeHint}</p>
+          </div>
         )}
 
         {messages.slice(0, quizAnchorIndex ?? messages.length).map((m) => (

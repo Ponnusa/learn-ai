@@ -91,8 +91,13 @@ the side panel with that text ready to send, or to auto-generate a quiz.
   and quiz request now sends it; previously genie sent no `language` field
   at all and silently always replied in English regardless of the user's
   actual preference.
-- **Icon** — generated from the web app's own logo (`frontend/public/logo_source.png`,
-  via `sharp` — see `public/icons/`) at 16/32/48/128px, not a placeholder.
+- **Branding** — the genie mascot (`assets-src/genie-mascot-source.png`, the
+  master art; regenerate sizes from this if it ever changes) is the toolbar/
+  manifest icon (16/32/48/128px, via `sharp` — `public/icons/`), the header
+  icon, a brief branded splash on panel open (`public/branding/genie-mascot-240.png`,
+  fades in/out, doesn't block the real session/auth bootstrap running
+  underneath it), and the empty-state illustration above the "select some
+  text..." hint.
 - **Continue in LearnX** — a link below the chat once there's something to
   continue, deep-linking to the actual conversation (`?conv=<id>`, the same
   param `frontend/app/page.tsx` already reads on load). Genuinely "continue
