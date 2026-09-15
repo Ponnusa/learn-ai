@@ -441,9 +441,12 @@ export default function CourseProgressPage() {
                             <p className="text-[10px] text-[var(--tx7)] mb-0.5 flex items-center gap-0.5 justify-center">
                               <Footprints size={8} /> Guided
                             </p>
-                            <p className="text-sm font-semibold text-purple-400">
+                            <p className="text-sm font-semibold text-cyan-400">
                               {stat.guidedStudents}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.totalStudents}</span>
                             </p>
+                            <div className="h-1 bg-[var(--ov3)] rounded-full overflow-hidden mt-1 w-14">
+                              <div className="h-full rounded-full bg-cyan-400" style={{ width: `${stat.totalStudents > 0 ? (stat.guidedStudents / stat.totalStudents) * 100 : 0}%` }} />
+                            </div>
                             {stat.avgGuidedSteps !== null && (
                               <p className="text-[9px] text-[var(--tx8)] mt-0.5">{stat.avgGuidedSteps.toFixed(1)} steps avg</p>
                             )}
@@ -629,7 +632,7 @@ export default function CourseProgressPage() {
                           {cell?.guided_resolved_count > 0 && (
                             <button
                               onClick={(e) => { e.stopPropagation(); setReportModal({ conceptId: c.id, conceptTitle: c.title, studentId: s.id, studentName: s.name }); }}
-                              className="text-[9px] text-purple-400 hover:text-purple-300 hover:underline flex items-center gap-0.5"
+                              className="text-[9px] text-cyan-400 hover:text-cyan-300 hover:underline flex items-center gap-0.5"
                               title="View session report"
                             >
                               <Footprints size={8} /> {cell.guided_resolved_count}× ({cell.guided_avg_steps} steps)
