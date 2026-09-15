@@ -848,6 +848,20 @@ async def lifespan(app: FastAPI):
             """,
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_ladder_session_reports_event ON ladder_session_reports(guided_discovery_event_id)",
             "CREATE INDEX IF NOT EXISTS idx_ladder_session_reports_student_concept ON ladder_session_reports(student_id, concept_id)",
+            # ── Cached AI narrative synthesizing a student's ladder session
+            #    reports across one whole course â€” regenerated only when the
+            #    report_count no longer matches (a new session resolved). ────
+            """
+            CREATE TABLE IF NOT EXISTS student_course_narratives (
+                id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                student_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                course_id    UUID NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+                narrative    TEXT NOT NULL,
+                report_count INT NOT NULL,
+                updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (student_id, course_id)
+            )
+            """,
         ]:
             try:
                 await db.execute(sql)

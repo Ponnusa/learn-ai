@@ -54,7 +54,7 @@ function levelStyle(level: string): string {
   return LEVEL_STYLE[level] ?? LEVEL_STYLE['Limited Evidence'];
 }
 
-function LevelPill({ level }: { level: string }) {
+export function LevelPill({ level }: { level: string }) {
   return (
     <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border ${levelStyle(level)}`}>
       {level}

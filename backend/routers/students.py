@@ -1,17 +1,32 @@
 """
 Student detail router — teacher-facing views of a single student:
-  GET /api/students/{id}/progress       — cross-course progress breakdown
-  GET /api/students/{id}/profile        — AI-tutor learning profile (Part B)
-  GET /api/students/{id}/conversations  — read-only AI-tutor chat feed (Part B)
+  GET /api/students/{id}/progress               — cross-course progress breakdown
+  GET /api/students/{id}/profile                — AI-tutor learning profile (Part B)
+  GET /api/students/{id}/conversations           — read-only AI-tutor chat feed (Part B)
+  GET /api/students/{id}/courses/{cid}/summary   — complete result: quant roll-up +
+                                                     Thinking Radar rollup + AI narrative
 """
+import json
 import logging
+from collections import Counter
+
 from fastapi import APIRouter, HTTPException, Header
 
 from database import get_db
 from routers.courses import _require_teacher
+from services.ai_router import openai_client
+from services.ladder_report import REPORT_DIMENSIONS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/students", tags=["students"])
+
+_LEVEL_RANK = {"Limited Evidence": 0, "Beginner": 1, "Developing": 2, "Proficient": 3, "Advanced": 4}
+_DIMENSION_LABELS = {
+    "decision_making":      "Decision-Making",
+    "justification":        "Justification",
+    "constraint_awareness": "Constraint Awareness",
+    "transfer":              "Transfer",
+}
 
 
 async def _require_teacher_of_student(authorization: str, student_id: str) -> str:
@@ -309,3 +324,190 @@ async def get_student_conversation_messages(
         {"role": r["role"], "content": r["content"], "created_at": r["created_at"].isoformat() if r["created_at"] else None}
         for r in rows
     ]
+
+
+def _rollup_levels(levels: list[str]) -> dict:
+    """
+    Most-common level + a simple first-half-vs-second-half trend from an
+    ordered (oldest-first) list of level strings. Pure code, no AI call —
+    the levels are already an enum-like small set, so a mode + ordinal-rank
+    comparison is exact and instant rather than something worth asking a
+    model to eyeball.
+    """
+    if not levels:
+        return {"most_common": None, "trend": "insufficient", "session_count": 0}
+    most_common = Counter(levels).most_common(1)[0][0]
+    if len(levels) < 2:
+        return {"most_common": most_common, "trend": "insufficient", "session_count": len(levels)}
+    ranks = [_LEVEL_RANK.get(l, 0) for l in levels]
+    mid = len(ranks) // 2 or 1
+    first_avg  = sum(ranks[:mid]) / mid
+    second_avg = sum(ranks[mid:]) / (len(ranks) - mid)
+    if second_avg - first_avg >= 0.5:   trend = "up"
+    elif first_avg - second_avg >= 0.5: trend = "down"
+    else:                                trend = "flat"
+    return {"most_common": most_common, "trend": trend, "session_count": len(levels)}
+
+
+@router.get("/{student_id}/courses/{course_id}/summary")
+async def get_student_course_summary(student_id: str, course_id: str, authorization: str = Header(...)):
+    """
+    "Complete result" for a student in one course, combining three layers:
+      1. Quantitative roll-up (visited/quiz/mastery/guided-discovery stats)
+         — pure aggregation of data already tracked elsewhere, no AI cost.
+      2. Deterministic Thinking Radar rollup across every resolved ladder
+         session report for this student in this course (most-common level
+         + trend per dimension) — also no AI cost, the reports are already
+         structured JSON.
+      3. A short AI-written narrative synthesizing the trajectory across
+         those same reports. Cached in student_course_narratives and only
+         regenerated when report_count no longer matches — a new session
+         resolved since it was last written.
+    """
+    teacher_id = await _require_teacher_of_student(authorization, student_id)
+
+    async with get_db() as db:
+        course = await db.fetchrow(
+            "SELECT id, name FROM courses WHERE id = $1::uuid AND teacher_id = $2::uuid",
+            course_id, teacher_id,
+        )
+        if not course:
+            raise HTTPException(404, "Course not found")
+        student = await db.fetchrow("SELECT id, name FROM users WHERE id = $1::uuid", student_id)
+
+        stats = await db.fetchrow("""
+            SELECT
+                COUNT(cc.id)                                                 AS total_concepts,
+                COUNT(*) FILTER (WHERE scp.visited)                         AS visited_count,
+                AVG(scp.quiz_score) FILTER (WHERE scp.quiz_score IS NOT NULL) AS avg_quiz_score,
+                COUNT(*) FILTER (WHERE scp.visited AND scp.quiz_score >= 70) AS mastered_count,
+                MAX(scp.last_seen_at)                                       AS last_active
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            LEFT JOIN student_concept_progress scp
+                   ON scp.concept_id = cc.id AND scp.student_id = $1::uuid
+            WHERE cu.course_id = $2::uuid
+        """, student_id, course_id)
+
+        guided = await db.fetchrow("""
+            SELECT COUNT(*) AS resolved_total, AVG(gde.steps) AS avg_steps
+            FROM guided_discovery_events gde
+            JOIN conversations c    ON c.id = gde.conversation_id
+            JOIN course_concepts cc ON cc.study_set_id = c.study_set_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid AND gde.user_id = $2::uuid
+        """, course_id, student_id)
+
+        report_rows = await db.fetch("""
+            SELECT lsr.report, lsr.created_at, cc.title AS concept_title
+            FROM ladder_session_reports lsr
+            JOIN course_concepts cc ON cc.id = lsr.concept_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid AND lsr.student_id = $2::uuid AND lsr.status = 'ready'
+            ORDER BY lsr.created_at ASC
+        """, course_id, student_id)
+
+        cached_narrative = await db.fetchrow("""
+            SELECT narrative, report_count, updated_at
+            FROM student_course_narratives
+            WHERE student_id = $1::uuid AND course_id = $2::uuid
+        """, student_id, course_id)
+
+    reports = []
+    for r in report_rows:
+        rep = r["report"]
+        if isinstance(rep, str):
+            try:    rep = json.loads(rep)
+            except: rep = None
+        if rep:
+            reports.append({"report": rep, "created_at": r["created_at"], "concept_title": r["concept_title"]})
+
+    # ── Layer 2: deterministic Thinking Radar rollup ─────────────────────
+    academic_levels = [
+        r["report"]["academic_understanding"]["level"] for r in reports
+        if r["report"].get("academic_understanding", {}).get("level")
+    ]
+    dim_rollups = {}
+    for dim in REPORT_DIMENSIONS:
+        levels = [
+            r["report"]["thinking_radar"][dim]["level"] for r in reports
+            if r["report"].get("thinking_radar", {}).get(dim, {}).get("level")
+        ]
+        dim_rollups[dim] = _rollup_levels(levels)
+
+    weakest = min(
+        (d for d in dim_rollups if dim_rollups[d]["most_common"] is not None),
+        key=lambda d: _LEVEL_RANK.get(dim_rollups[d]["most_common"], 0),
+        default=None,
+    )
+    layer2 = {
+        "academic_understanding": _rollup_levels(academic_levels),
+        "thinking_radar": dim_rollups,
+        "focus_recommendation": _DIMENSION_LABELS.get(weakest) if weakest else None,
+    }
+
+    # ── Layer 3: AI narrative, cached until a new report lands ───────────
+    layer3 = None
+    if reports:
+        if cached_narrative and cached_narrative["report_count"] == len(reports):
+            layer3 = {
+                "narrative":    cached_narrative["narrative"],
+                "updated_at":   cached_narrative["updated_at"].isoformat(),
+                "report_count": cached_narrative["report_count"],
+            }
+        else:
+            session_lines = []
+            for i, r in enumerate(reports, 1):
+                rep = r["report"]
+                radar = rep.get("thinking_radar", {})
+                dims_line = ", ".join(
+                    f"{_DIMENSION_LABELS[d]}: {radar.get(d, {}).get('level', '?')}" for d in REPORT_DIMENSIONS
+                )
+                date_str = r["created_at"].date().isoformat() if r["created_at"] else "?"
+                au_level = rep.get("academic_understanding", {}).get("level", "?")
+                session_lines.append(
+                    f"{i}. {r['concept_title']} ({date_str}) — Academic Understanding: {au_level}. {dims_line}."
+                )
+            user_prompt = (
+                f"STUDENT: {student['name']}\nCOURSE: {course['name']}\n\n"
+                f"SESSIONS (chronological, oldest first):\n" + "\n".join(session_lines)
+            )
+            response = await openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[
+                    {"role": "system", "content": (
+                        "You are an expert learning-progress analyst writing a short course-level "
+                        "summary for a teacher, synthesizing several already rubric-scored tutoring "
+                        "sessions for one student in one course. Write 3-5 sentences, warm but "
+                        "precise, referencing concrete trends across sessions rather than restating "
+                        "each one individually. End with the single most useful thing for the "
+                        "teacher to know going forward."
+                    )},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=400,
+                temperature=0.4,
+            )
+            narrative_text = (response.choices[0].message.content or "").strip()
+            async with get_db() as db:
+                await db.execute("""
+                    INSERT INTO student_course_narratives (student_id, course_id, narrative, report_count)
+                    VALUES ($1::uuid, $2::uuid, $3, $4)
+                    ON CONFLICT (student_id, course_id) DO UPDATE
+                    SET narrative = EXCLUDED.narrative, report_count = EXCLUDED.report_count, updated_at = NOW()
+                """, student_id, course_id, narrative_text, len(reports))
+            layer3 = {"narrative": narrative_text, "updated_at": None, "report_count": len(reports)}
+
+    return {
+        "layer1": {
+            "total_concepts":        stats["total_concepts"],
+            "visited_count":         stats["visited_count"],
+            "avg_quiz_score":        round(stats["avg_quiz_score"], 1) if stats["avg_quiz_score"] is not None else None,
+            "mastered_count":        stats["mastered_count"],
+            "guided_resolved_count": guided["resolved_total"] or 0,
+            "guided_avg_steps":      round(float(guided["avg_steps"]), 1) if guided["avg_steps"] is not None else None,
+            "last_active":           stats["last_active"].isoformat() if stats["last_active"] else None,
+        },
+        "layer2": layer2,
+        "layer3": layer3,
+    }

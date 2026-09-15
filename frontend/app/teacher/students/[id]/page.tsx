@@ -4,10 +4,11 @@ import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, Brain, MessageSquare, ChevronDown, ChevronUp,
   Sparkles, HelpCircle, Layers, Video, BookOpen, AlertTriangle,
-  CheckCircle2, Circle, Clock, Zap,
+  CheckCircle2, Circle, Clock, Zap, TrendingUp, TrendingDown, Minus, Footprints, Target,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { LevelPill } from '@/components/course/LadderReportModal';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -49,6 +50,24 @@ interface QuizAttempt { id: string; score: number; answers: QuizAnswer[] | null;
 interface Assignment {
   id: string; concept_id: string | null; kind: string;
   title: string; status: string; created_at: string | null;
+}
+
+interface RollupEntry { most_common: string | null; trend: 'up' | 'down' | 'flat' | 'insufficient'; session_count: number; }
+interface CourseSummary {
+  layer1: {
+    total_concepts: number; visited_count: number; avg_quiz_score: number | null;
+    mastered_count: number; guided_resolved_count: number; guided_avg_steps: number | null;
+    last_active: string | null;
+  };
+  layer2: {
+    academic_understanding: RollupEntry;
+    thinking_radar: {
+      decision_making: RollupEntry; justification: RollupEntry;
+      constraint_awareness: RollupEntry; transfer: RollupEntry;
+    };
+    focus_recommendation: string | null;
+  };
+  layer3: { narrative: string; updated_at: string | null; report_count: number } | null;
 }
 
 type Mastery = 'none' | 'visited' | 'struggling' | 'practiced' | 'mastered';
@@ -139,6 +158,98 @@ function MasteryBar({ concepts }: { concepts: ConceptProgress[] }) {
   );
 }
 
+const DIMENSION_LABELS: [keyof CourseSummary['layer2']['thinking_radar'], string][] = [
+  ['decision_making', 'Decision-Making'],
+  ['justification', 'Justification'],
+  ['constraint_awareness', 'Constraint Awareness'],
+  ['transfer', 'Transfer'],
+];
+
+function TrendIcon({ trend }: { trend: RollupEntry['trend'] }) {
+  if (trend === 'up')   return <TrendingUp size={11} className="text-green-400" />;
+  if (trend === 'down') return <TrendingDown size={11} className="text-red-400" />;
+  if (trend === 'flat') return <Minus size={11} className="text-[var(--tx7)]" />;
+  return null; // 'insufficient' — not enough sessions to call a trend yet
+}
+
+/** "Complete result" panel — three layers: quantitative roll-up (free),
+ *  deterministic Thinking Radar rollup across all resolved ladder session
+ *  reports (also free — the reports are already structured JSON), and a
+ *  cached AI narrative synthesizing the trajectory across those reports. */
+function CourseSummaryPanel({ summary }: { summary: CourseSummary }) {
+  const { layer1, layer2, layer3 } = summary;
+  return (
+    <div className="space-y-4">
+      {/* Layer 1 — quantitative roll-up */}
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+        {[
+          ['Visited', `${layer1.visited_count}/${layer1.total_concepts}`],
+          ['Avg quiz', layer1.avg_quiz_score !== null ? `${Math.round(layer1.avg_quiz_score)}%` : '—'],
+          ['Mastered', `${layer1.mastered_count}/${layer1.total_concepts}`],
+          ['Guided', String(layer1.guided_resolved_count)],
+          ['Avg steps', layer1.guided_avg_steps !== null ? layer1.guided_avg_steps.toFixed(1) : '—'],
+          ['Last active', layer1.last_active ? new Date(layer1.last_active).toLocaleDateString() : '—'],
+        ].map(([label, value]) => (
+          <div key={label} className="text-center">
+            <p className="text-[9px] text-[var(--tx7)] uppercase tracking-wide mb-0.5">{label}</p>
+            <p className="text-sm font-semibold text-[var(--tx1)]">{value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Layer 2 — Thinking Radar rollup across resolved sessions */}
+      {layer2.academic_understanding.session_count > 0 ? (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] text-[var(--tx7)] uppercase tracking-wide flex items-center gap-1">
+              <Footprints size={10} /> Thinking Radar rollup ({layer2.academic_understanding.session_count} session{layer2.academic_understanding.session_count === 1 ? '' : 's'})
+            </p>
+            {layer2.focus_recommendation && (
+              <span className="text-[10px] text-amber-400 flex items-center gap-1">
+                <Target size={10} /> Focus: {layer2.focus_recommendation}
+              </span>
+            )}
+          </div>
+          <div className="grid sm:grid-cols-2 gap-2">
+            <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--bd)]">
+              <span className="text-xs text-[var(--tx2)]">Academic Understanding</span>
+              <span className="flex items-center gap-1.5">
+                <TrendIcon trend={layer2.academic_understanding.trend} />
+                {layer2.academic_understanding.most_common && <LevelPill level={layer2.academic_understanding.most_common} />}
+              </span>
+            </div>
+            {DIMENSION_LABELS.map(([key, label]) => {
+              const entry = layer2.thinking_radar[key];
+              return (
+                <div key={key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--bd)]">
+                  <span className="text-xs text-[var(--tx2)]">{label}</span>
+                  <span className="flex items-center gap-1.5">
+                    <TrendIcon trend={entry.trend} />
+                    {entry.most_common && <LevelPill level={entry.most_common} />}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="text-[var(--tx7)] text-xs">No guided-discovery sessions resolved yet in this course — the Thinking Radar rollup and narrative fill in once one resolves.</p>
+      )}
+
+      {/* Layer 3 — AI narrative */}
+      {layer3 && (
+        <div className="bg-cyan-500/8 border border-cyan-500/20 rounded-xl p-4 flex items-start gap-2.5">
+          <Sparkles size={14} className="text-cyan-400 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold mb-1">Summary</p>
+            <p className="text-[var(--tx2)] text-sm leading-relaxed">{layer3.narrative}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function TeacherStudentDetailPage() {
   const router    = useRouter();
   const params    = useParams();
@@ -169,6 +280,9 @@ export default function TeacherStudentDetailPage() {
   const [assignments,     setAssignments]     = useState<Assignment[]>([]);
   const [selectedConcept, setSelectedConcept] = useState('');
   const [assigning,       setAssigning]       = useState<string | null>(null);
+
+  const [expandedSummaryCourse, setExpandedSummaryCourse] = useState<string | null>(null);
+  const [courseSummaries, setCourseSummaries] = useState<Record<string, CourseSummary | 'loading' | null>>({});
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -223,6 +337,20 @@ export default function TeacherStudentDetailPage() {
       const res = await fetch(`${API_BASE}/api/students/${studentId}/concepts/${conceptId}/quiz-history`, { headers });
       if (res.ok) { const data = await res.json(); setQuizHistories(prev => ({ ...prev, [conceptId]: data })); }
     } finally { setLoadingQuizHistory(null); }
+  }
+
+  async function toggleCourseSummary(courseId: string) {
+    if (expandedSummaryCourse === courseId) { setExpandedSummaryCourse(null); return; }
+    setExpandedSummaryCourse(courseId);
+    if (courseSummaries[courseId] && courseSummaries[courseId] !== 'loading') return;
+    setCourseSummaries(prev => ({ ...prev, [courseId]: 'loading' }));
+    try {
+      const res  = await fetch(`${API_BASE}/api/students/${studentId}/courses/${courseId}/summary`, { headers });
+      const data = res.ok ? await res.json() : null;
+      setCourseSummaries(prev => ({ ...prev, [courseId]: data }));
+    } catch {
+      setCourseSummaries(prev => ({ ...prev, [courseId]: null }));
+    }
   }
 
   async function toggleConversation(convId: string) {
@@ -431,6 +559,29 @@ export default function TeacherStudentDetailPage() {
                 <div className="mb-4">
                   <MasteryBar concepts={course.concepts} />
                 </div>
+
+                {/* Complete Result — quant roll-up + Thinking Radar rollup + AI narrative */}
+                <button
+                  onClick={() => toggleCourseSummary(course.id)}
+                  className="w-full flex items-center justify-between gap-2 text-xs px-3 py-2 mb-3 rounded-lg border border-cyan-500/30 bg-cyan-500/5 text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+                >
+                  <span className="flex items-center gap-1.5 font-medium"><Sparkles size={12} /> Complete Result</span>
+                  {expandedSummaryCourse === course.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                </button>
+                {expandedSummaryCourse === course.id && (
+                  <div className="mb-4 border border-[var(--bd)] rounded-xl p-4 bg-[var(--ov1)]">
+                    {courseSummaries[course.id] === 'loading' ? (
+                      <div className="flex flex-col items-center justify-center gap-2 py-6">
+                        <Loader2 size={18} className="text-cyan-400 animate-spin" />
+                        <p className="text-[var(--tx8)] text-[10px]">Rolling up progress and writing the summary — a few seconds…</p>
+                      </div>
+                    ) : courseSummaries[course.id] ? (
+                      <CourseSummaryPanel summary={courseSummaries[course.id] as CourseSummary} />
+                    ) : (
+                      <p className="text-[var(--tx7)] text-xs text-center py-4">Could not load the summary — try again.</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Per-concept rows */}
                 <div className="space-y-1">
