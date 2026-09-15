@@ -120,17 +120,33 @@ export function LadderReportModal({
   const [reports, setReports] = useState<ReportEntry[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
+  // Report generation takes several seconds (a real AI call, run as a
+  // background task) — poll while any report is still 'pending' so a
+  // teacher who opens this right after a chain resolves sees it flip to
+  // 'ready' on its own instead of looking stuck until they close/reopen.
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_BASE}${fetchUrl}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : { reports: [] })
-      .then(d => {
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    async function load() {
+      try {
+        const res = await fetch(`${API_BASE}${fetchUrl}`, { headers: { Authorization: `Bearer ${token}` } });
+        const d = res.ok ? await res.json() : { reports: [] };
         if (cancelled) return;
-        setReports(d.reports ?? []);
-        if (d.reports?.length) setSelected(d.reports[0].id);
-      })
-      .catch(() => { if (!cancelled) setReports([]); });
-    return () => { cancelled = true; };
+        const list: ReportEntry[] = d.reports ?? [];
+        setReports(list);
+        setSelected(prev => prev ?? list[0]?.id ?? null);
+
+        const stillPending = list.some(r => r.status === 'pending');
+        if (stillPending && !intervalId) intervalId = setInterval(load, 3000);
+        else if (!stillPending && intervalId) { clearInterval(intervalId); intervalId = undefined; }
+      } catch {
+        if (!cancelled) setReports(prev => prev ?? []);
+      }
+    }
+
+    load();
+    return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };
   }, [fetchUrl, token]);
 
   const active = reports?.find(r => r.id === selected) ?? null;
@@ -181,6 +197,7 @@ export function LadderReportModal({
             <div className="flex flex-col items-center justify-center gap-2 py-12">
               <Loader2 size={22} className="text-purple-400 animate-spin" />
               <p className="text-[var(--tx7)] text-xs">Generating report…</p>
+              <p className="text-[var(--tx8)] text-[10px]">Usually takes about 10-15 seconds — this updates automatically</p>
             </div>
           ) : active?.status === 'failed' ? (
             <p className="text-red-400 text-sm text-center py-8">Report generation failed{active.error_message ? `: ${active.error_message}` : '.'}</p>

@@ -115,6 +115,7 @@ export default function CourseProgressPage() {
   const [sortBy,           setSortBy]           = useState<SortBy>('struggling');
   const [expandedConcept,  setExpandedConcept]  = useState<string | null>(null);
   const [conceptAnalytics, setConceptAnalytics] = useState<Record<string, QuizAnalyticsData | null | 'loading'>>({});
+  const [expandedGuided,   setExpandedGuided]    = useState<string | null>(null);
   const [reportModal, setReportModal] = useState<{ conceptId: string; conceptTitle: string; studentId: string; studentName: string } | null>(null);
 
   useEffect(() => {
@@ -435,22 +436,26 @@ export default function CourseProgressPage() {
                           </div>
                         )}
 
-                        {/* Guided (ladder) chains resolved */}
+                        {/* Guided (ladder) chains resolved — click expands the per-student list below */}
                         {stat.guidedStudents > 0 && (
-                          <div className="text-center min-w-[56px]">
+                          <button
+                            onClick={() => setExpandedGuided(prev => prev === c.id ? null : c.id)}
+                            className="text-center min-w-[56px] rounded-lg px-1 py-0.5 -mx-1 transition-colors hover:bg-cyan-500/10"
+                            title="View guided-discovery session reports"
+                          >
                             <p className="text-[10px] text-[var(--tx7)] mb-0.5 flex items-center gap-0.5 justify-center">
                               <Footprints size={8} /> Guided
                             </p>
                             <p className="text-sm font-semibold text-cyan-400">
                               {stat.guidedStudents}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.totalStudents}</span>
                             </p>
-                            <div className="h-1 bg-[var(--ov3)] rounded-full overflow-hidden mt-1 w-14">
+                            <div className="h-1 bg-[var(--ov3)] rounded-full overflow-hidden mt-1 w-14 mx-auto">
                               <div className="h-full rounded-full bg-cyan-400" style={{ width: `${stat.totalStudents > 0 ? (stat.guidedStudents / stat.totalStudents) * 100 : 0}%` }} />
                             </div>
                             {stat.avgGuidedSteps !== null && (
                               <p className="text-[9px] text-[var(--tx8)] mt-0.5">{stat.avgGuidedSteps.toFixed(1)} steps avg</p>
                             )}
-                          </div>
+                          </button>
                         )}
 
                         {/* Class quiz analytics toggle */}
@@ -518,6 +523,36 @@ export default function CourseProgressPage() {
                           ))}
                         </div>
                       )}
+                    </div>
+                  )}
+
+                  {/* ── Guided-discovery session reports panel ── */}
+                  {expandedGuided === c.id && (
+                    <div className="border-t border-[var(--bd)] bg-[var(--ov1)] px-5 py-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Footprints size={12} className="text-cyan-400" />
+                        <span className="text-xs font-medium text-[var(--tx2)]">Guided-discovery session reports</span>
+                      </div>
+                      <div className="space-y-1.5 max-w-2xl">
+                        {data.students
+                          .filter(s => (s.cells[c.id]?.guided_resolved_count ?? 0) > 0)
+                          .map(s => {
+                            const cell = s.cells[c.id];
+                            return (
+                              <button
+                                key={s.id}
+                                onClick={() => setReportModal({ conceptId: c.id, conceptTitle: c.title, studentId: s.id, studentName: s.name })}
+                                className="w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-[var(--bd)] hover:border-cyan-500/40 hover:bg-cyan-500/5 transition-colors text-left"
+                              >
+                                <span className="text-[var(--tx2)] text-xs font-medium">{s.name}</span>
+                                <span className="text-[10px] text-[var(--tx7)] flex items-center gap-1.5 shrink-0">
+                                  resolved {cell.guided_resolved_count}× · {cell.guided_avg_steps} steps avg
+                                  <ExternalLink size={10} className="text-cyan-400" />
+                                </span>
+                              </button>
+                            );
+                          })}
+                      </div>
                     </div>
                   )}
                 </div>
