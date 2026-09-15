@@ -14,6 +14,8 @@ import {
   CheckCircle2, XCircle, Send, FileText, Dumbbell, FlaskConical, Printer,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
+import { LadderWidget } from '@/components/chat/LadderWidget';
+import { EurekaBurst, EUREKA_BURST_DURATION } from '@/components/chat/EurekaBurst';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
@@ -62,13 +64,20 @@ export default function StudentConceptDetailPage() {
   const [labLoaded2,  setLabLoaded2]   = useState(false);
 
   // Chat Q&A state
-  type ChatMsg = { role: 'user' | 'assistant'; content: string };
+  type ChatMsg = { role: 'user' | 'assistant'; content: string; ladder_depth?: number | null };
   const [chatConvId,  setChatConvId]  = useState<string | null>(null);
   const [chatMsgs,    setChatMsgs]    = useState<ChatMsg[]>([]);
   const [chatLoaded,  setChatLoaded]  = useState(false);
   const [chatInput,   setChatInput]   = useState('');
   const [chatSending, setChatSending] = useState(false);
   const [directMode,  setDirectMode]  = useState(false);
+
+  // Ladder (guided-discovery) state â€” mirrors frontend/app/page.tsx's
+  // updateLadderState/resetLadderState exactly, scoped to this concept's chat.
+  const [ladderPhase, setLadderPhase] = useState<'idle' | 'climbing' | 'eureka'>('idle');
+  const [ladderSteps, setLadderSteps] = useState(0);
+  const [eurekaBurst, setEurekaBurst] = useState(false);
+  const ladderRef = useRef<{ active: boolean; steps: number }>({ active: false, steps: 0 });
   // resource context: when set, next message carries this resource_id for vision/PDF grounding
   const [chatResource, setChatResource] = useState<{ id: string; title: string; type: string } | null>(null);
   const chatEndRef         = useRef<HTMLDivElement>(null);
@@ -210,19 +219,73 @@ export default function StudentConceptDetailPage() {
         .then(data => {
           if (data?.conversation_id) setChatConvId(data.conversation_id);
           if (data?.messages?.length) {
-            setChatMsgs(data.messages.map((m: { role: string; content: string }) => ({
+            const loaded: ChatMsg[] = data.messages.map((m: { role: string; content: string; ladder_depth?: number | null }) => ({
               role: m.role as 'user' | 'assistant',
               content: m.content,
-            })));
+              ladder_depth: m.ladder_depth,
+            }));
+            setChatMsgs(loaded);
+
+            // Restore ladder state from persisted history, same rule as
+            // frontend/app/page.tsx: count the run of consecutive trailing
+            // assistant turns that were waiting on an answer. A conversation
+            // whose last turn already resolved just stays idle.
+            const assistantMsgs = loaded.filter(m => m.role === 'assistant');
+            const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+            if ((lastAssistant?.ladder_depth ?? 0) > 0) {
+              let restoredSteps = 0;
+              for (let i = assistantMsgs.length - 1; i >= 0; i--) {
+                if ((assistantMsgs[i].ladder_depth ?? 0) > 0) restoredSteps++;
+                else break;
+              }
+              ladderRef.current = { active: true, steps: restoredSteps };
+              setLadderSteps(restoredSteps);
+              setLadderPhase('climbing');
+            }
           }
         })
         .catch(() => {});
     }
   }, [activeTab, labLoaded2, chatLoaded]);
 
+  /** Reset the ladder to idle â€” used when the student switches to "Just tell
+   *  me" mid-chain. That's a bail-out, not a resolution, so it goes straight
+   *  to idle rather than through updateLadderState (which would fire a false
+   *  eureka celebration for abandoning the chain instead of solving it). */
+  function resetLadderState() {
+    ladderRef.current = { active: false, steps: 0 };
+    setLadderPhase('idle');
+    setLadderSteps(0);
+    setEurekaBurst(false);
+  }
+
+  /** Drives the LadderWidget from one signal (res.ladder_depth), mirroring
+   *  frontend/app/page.tsx's updateLadderState exactly. */
+  function updateLadderState(newDepth: number | null | undefined) {
+    const waiting = (newDepth ?? 0) > 0;
+    if (waiting) {
+      const steps = ladderRef.current.active ? ladderRef.current.steps + 1 : 1;
+      ladderRef.current = { active: true, steps };
+      setLadderSteps(steps);
+      setLadderPhase('climbing');
+    } else {
+      const wasActive = ladderRef.current.active;
+      ladderRef.current = { active: false, steps: 0 };
+      if (wasActive) {
+        setLadderPhase('eureka');
+        setTimeout(() => setLadderPhase('idle'), EUREKA_BURST_DURATION);
+        setEurekaBurst(true);
+        setTimeout(() => setEurekaBurst(false), EUREKA_BURST_DURATION);
+      } else {
+        setLadderPhase('idle');
+      }
+    }
+  }
+
   async function _doSendChat(msg: string, resource: typeof chatResource, isDirect: boolean) {
     setChatMsgs(prev => [...prev, { role: 'user', content: msg }]);
     setChatSending(true);
+    if (isDirect) resetLadderState();
     try {
       const body: Record<string, unknown> = { message: msg, language, direct: isDirect };
       if (chatConvId) body.conversation_id = chatConvId;
@@ -234,7 +297,8 @@ export default function StudentConceptDetailPage() {
       });
       const data = await res.json();
       if (data.conversation_id) setChatConvId(data.conversation_id);
-      setChatMsgs(prev => [...prev, { role: 'assistant', content: data.reply ?? 'Sorry, something went wrong.' }]);
+      if (!isDirect) updateLadderState(data.ladder_depth);
+      setChatMsgs(prev => [...prev, { role: 'assistant', content: data.reply ?? 'Sorry, something went wrong.', ladder_depth: data.ladder_depth }]);
     } catch {
       setChatMsgs(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }]);
     } finally { setChatSending(false); }
@@ -365,6 +429,8 @@ export default function StudentConceptDetailPage() {
 
   return (
     <div className="p-6 max-w-2xl mx-auto pb-16">
+      <LadderWidget phase={ladderPhase} steps={ladderSteps} />
+      <EurekaBurst active={eurekaBurst} />
 
       {/* Back */}
       <button onClick={() => router.push(`/classrooms/${classroomId}/courses/${courseId}`)}

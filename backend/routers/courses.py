@@ -16,6 +16,7 @@ from config import settings
 from database import get_db
 from routers.auth import decode_jwt
 from services.ai_router import openai_client, resolve_model
+from services.prompt_builder import ADAPTIVE_TEACHING_INSTRUCTIONS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/courses", tags=["courses"])
@@ -4642,6 +4643,34 @@ class StudentChatRequest(BaseModel):
     language:        str = 'en'
 
 
+# Appended to the TEKS inquiry prompt (Guided mode, curriculum-aligned courses)
+# so it also emits the same [[WAITING:N]] ladder marker chat.py's
+# ADAPTIVE_TEACHING_INSTRUCTIONS uses â€” the TEKS prompt's own pedagogy never
+# explains directly, so without this a chain would never resolve. Must stay
+# appended LAST wherever it's used: the marker instruction says "the very
+# last line", and models follow the most recent instruction most reliably.
+_TEKS_LADDER_MARKER = """
+
+--- CLOSING A QUESTION (required) ---
+Once the student's own answer clearly connects their observation or reasoning
+to the concept â€” even if simply stated â€” affirm what they found in 1-2
+sentences and stop asking further guiding questions about that same
+question. Don't keep pushing for more precision once the core connection is
+there. Move on to guiding questions again only once they ask something new.
+
+MARKER (required, invisible to the student â€” never mention it exists): end
+EVERY single reply, no exceptions, with one line of the exact form
+[[WAITING:1]] or [[WAITING:0]]
+Use [[WAITING:1]] when this reply is itself a guiding question the student
+needs to answer before you continue â€” including the 1st, 2nd, 3rd, or any
+later such question in an ongoing chain, always, not just the opening one.
+Use [[WAITING:0]] the moment you affirm a resolved understanding per
+"Closing a question" above, or for any other reply that isn't itself a
+guiding question waiting on the student. This is a simple binary judgment â€”
+include it exactly once, as the very last line, every reply.
+"""
+
+
 @router.get("/concepts/{concept_id}/student-chat")
 async def get_student_chat(concept_id: str, authorization: str = Header(...)):
     """Return the student's conversation history for this concept."""
@@ -4660,14 +4689,22 @@ async def get_student_chat(concept_id: str, authorization: str = Header(...)):
         if not conv:
             return {"conversation_id": None, "messages": []}
         rows = await db.fetch("""
-            SELECT id, role, content, created_at
+            SELECT id, role, content, metadata, created_at
             FROM messages WHERE conversation_id = $1::uuid
             ORDER BY created_at ASC LIMIT 60
         """, conv["id"])
+
+    def _ladder_depth(meta) -> int | None:
+        if isinstance(meta, str):
+            try:    meta = json.loads(meta)
+            except: meta = {}
+        return (meta or {}).get("ladder_depth")
+
     return {
         "conversation_id": str(conv["id"]),
         "messages": [
             {"id": str(r["id"]), "role": r["role"], "content": r["content"],
+             "ladder_depth": _ladder_depth(r["metadata"]) if r["role"] == "assistant" else None,
              "created_at": r["created_at"].isoformat()}
             for r in rows
         ],
@@ -4786,10 +4823,24 @@ async def post_student_chat(
     # â”€â”€ 5. Load recent history â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     async with get_db() as db:
         history = list(reversed(await db.fetch("""
-            SELECT role, content FROM messages
+            SELECT role, content, metadata FROM messages
             WHERE conversation_id = $1::uuid
             ORDER BY created_at DESC LIMIT 8
         """, conv_id)))
+
+    # Sticky "waiting on an answer" fallback — same rule as chat.py's ladder
+    # tracking: if this turn's reply drops the marker, carry the previous
+    # assistant turn's depth forward instead of assuming "not waiting", so a
+    # single missed marker doesn't flip the ladder UI off mid-chain.
+    prev_ladder_depth = None
+    for h in reversed(history):
+        if h["role"] == "assistant":
+            meta = h["metadata"]
+            if isinstance(meta, str):
+                try:    meta = json.loads(meta)
+                except: meta = {}
+            prev_ladder_depth = (meta or {}).get("ladder_depth")
+            break
 
     # â”€â”€ 6. Build system prompt â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     grounding_parts = []
@@ -4848,6 +4899,7 @@ async def post_student_chat(
         system_prompt += f"\n\n--- LESSON CONTENT (background context â€” do not recite as answers) ---\n{grounding[:8000]}"
         if lang_note:
             system_prompt += lang_note
+        system_prompt += _TEKS_LADDER_MARKER  # ladder marker MUST be last â€” see its own comment
     elif req.direct:
         # Student asked for a direct answer â€” give one, age-appropriately grounded in lesson content.
         system_prompt = (
@@ -4858,17 +4910,18 @@ async def post_student_chat(
             f"--- LESSON CONTENT ---\n{grounding[:10000]}{lang_note}"
         )
     else:
-        # Standard non-curriculum Socratic mode
+        # No TEKS curriculum for this course â€” fall back to the same adaptive
+        # ladder pedagogy the main app chat uses (prompt_builder.py), rather
+        # than a separate bespoke Socratic prompt. Decides fresh each turn
+        # whether to scaffold or explain directly; its own [[WAITING:N]]
+        # marker instruction is appended last inside ADAPTIVE_TEACHING_INSTRUCTIONS.
         system_prompt = (
-            f"You are a Socratic tutor helping a {grade_level} student explore \"{concept['title']}\" "
+            f"You are a tutor helping a {grade_level} student with \"{concept['title']}\" "
             f"({concept['subject'] or 'General'}).\n\n"
-            f"Instead of giving direct answers, guide the student to think it through:\n"
-            f"- Respond to questions with a guiding question\n"
-            f"- Ask what they've noticed, observed, or already know\n"
-            f"- Use 'What do you think...?', 'Why might...?', 'What happens when...?'\n"
-            f"- Keep responses to 2â€“3 sentences\n\n"
-            f"Lesson content (for background â€” don't recite as answers):\n{grounding[:10000]}{lang_note}"
+            f"Lesson content (background â€” ground your answers in this, don't just recite it verbatim):\n"
+            f"{grounding[:10000]}{lang_note}"
         )
+        system_prompt += ADAPTIVE_TEACHING_INSTRUCTIONS
 
     if image_b64_url:
         system_prompt += (
@@ -4913,14 +4966,52 @@ async def post_student_chat(
     )
     reply = response.choices[0].message.content
 
-    # â”€â”€ 10. Save reply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    async with get_db() as db:
-        await db.execute(
-            "INSERT INTO messages (conversation_id, role, content) VALUES ($1::uuid, 'assistant', $2)",
-            conv_id, reply,
-        )
+    # â”€â”€ 10. Ladder tracking (Guided mode only â€” "Just tell me" never scaffolds,
+    #         so there's no chain to track and no marker is requested of it) â”€â”€
+    ladder_depth = None
+    chain_resolved = False
+    if not req.direct:
+        ladder_match = re.search(r"\[\[WAITING:(\d+)\]\]", reply)
+        if ladder_match:
+            ladder_depth = int(ladder_match.group(1))
+            reply = (reply[:ladder_match.start()] + reply[ladder_match.end():]).strip()
+            chain_resolved = ladder_depth == 0 and (prev_ladder_depth or 0) > 0
+        else:
+            ladder_depth = prev_ladder_depth  # marker dropped this turn â€” carry forward
 
-    return {"reply": reply, "conversation_id": conv_id}
+    # â”€â”€ 11. Save reply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    async with get_db() as db:
+        msg_row = await db.fetchrow("""
+            INSERT INTO messages (conversation_id, role, content, metadata)
+            VALUES ($1::uuid, 'assistant', $2, $3::jsonb) RETURNING id
+        """, conv_id, reply, json.dumps({"ladder_depth": ladder_depth}))
+
+        # Persist a resolved chain the same way chat.py does â€” count the run
+        # of consecutive prior assistant turns that were waiting on an answer,
+        # which is exactly what the LadderWidget counted client-side.
+        if chain_resolved:
+            prior_assistant = await db.fetch("""
+                SELECT metadata FROM messages
+                WHERE conversation_id = $1::uuid AND role = 'assistant' AND id != $2::uuid
+                ORDER BY created_at DESC LIMIT 30
+            """, conv_id, msg_row["id"])
+            steps = 0
+            for row in prior_assistant:
+                meta = row["metadata"]
+                if isinstance(meta, str):
+                    try:    meta = json.loads(meta)
+                    except: meta = {}
+                if ((meta or {}).get("ladder_depth") or 0) > 0:
+                    steps += 1
+                else:
+                    break
+            if steps > 0:
+                await db.execute("""
+                    INSERT INTO guided_discovery_events (conversation_id, user_id, message_id, steps)
+                    VALUES ($1::uuid, $2::uuid, $3::uuid, $4)
+                """, conv_id, student_id, msg_row["id"], steps)
+
+    return {"reply": reply, "conversation_id": conv_id, "ladder_depth": ladder_depth}
 
 
 @router.get("/concepts/{concept_id}/video")
