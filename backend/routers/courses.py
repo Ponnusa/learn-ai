@@ -4899,6 +4899,12 @@ async def post_student_chat(
         system_prompt += f"\n\n--- LESSON CONTENT (background context â€” do not recite as answers) ---\n{grounding[:8000]}"
         if lang_note:
             system_prompt += lang_note
+        system_prompt += (
+            f"\n\n--- STAY ON TOPIC ---\n"
+            f"This chat is scoped to \"{concept['title']}\". If the student asks about "
+            f"something unrelated to it, gently redirect back to this concept's material "
+            f"instead of answering the tangent."
+        )
         system_prompt += _TEKS_LADDER_MARKER  # ladder marker MUST be last â€” see its own comment
     elif req.direct:
         # Student asked for a direct answer â€” give one, age-appropriately grounded in lesson content.
@@ -4919,7 +4925,11 @@ async def post_student_chat(
             f"You are a tutor helping a {grade_level} student with \"{concept['title']}\" "
             f"({concept['subject'] or 'General'}).\n\n"
             f"Lesson content (background â€” ground your answers in this, don't just recite it verbatim):\n"
-            f"{grounding[:10000]}{lang_note}"
+            f"{grounding[:10000]}{lang_note}\n\n"
+            f"--- STAY ON TOPIC ---\n"
+            f"This chat is scoped to \"{concept['title']}\". If the student asks about "
+            f"something unrelated to it, gently redirect back to this concept's material "
+            f"instead of answering the tangent."
         )
         system_prompt += ADAPTIVE_TEACHING_INSTRUCTIONS
 
