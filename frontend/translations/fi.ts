@@ -877,6 +877,7 @@ export const fi: Translation = {
     chatOpen:           'Avaa',
     chatAskAnything:    'Kysy mitä tahansa aiheesta',
     chatPlaceholder:    'Esitä kysymys…',
+    chatAnswerHint:     'Kirjoita vastauksesi yllä jatkaaksesi',
   },
 
   tours: {

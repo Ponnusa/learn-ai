@@ -912,17 +912,28 @@ export default function StudentConceptDetailPage() {
             </div>
           )}
 
-          {concept.student_questions && concept.student_questions.length > 0 && (
-            <div className="px-4 pt-2 pb-1 flex flex-wrap gap-1.5 border-t border-[var(--bd)]">
-              {concept.student_questions.map((q, i) => (
-                <button key={i} onClick={() => sendQuestion(q)} disabled={chatSending}
-                  className="text-xs px-2.5 py-1 rounded-full border border-purple-500/30 bg-purple-500/8
-                             text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/50
-                             transition-all disabled:opacity-40 text-left">
-                  {q}
-                </button>
-              ))}
+          {/* Starter-question chips are topic prompts, not answers to a
+              guiding question â€” hidden while the ladder is actively climbing
+              so a student can't dodge the AI's question by clicking a
+              different, unrelated one instead. Same rule as the main app's
+              action toolbar hiding mid-chain. */}
+          {ladderPhase === 'climbing' ? (
+            <div className="px-4 pt-2 pb-1 border-t border-[var(--bd)]">
+              <p className="text-xs text-purple-300/80 italic">{t.concept.chatAnswerHint}</p>
             </div>
+          ) : (
+            concept.student_questions && concept.student_questions.length > 0 && (
+              <div className="px-4 pt-2 pb-1 flex flex-wrap gap-1.5 border-t border-[var(--bd)]">
+                {concept.student_questions.map((q, i) => (
+                  <button key={i} onClick={() => sendQuestion(q)} disabled={chatSending}
+                    className="text-xs px-2.5 py-1 rounded-full border border-purple-500/30 bg-purple-500/8
+                               text-purple-300 hover:bg-purple-500/20 hover:border-purple-500/50
+                               transition-all disabled:opacity-40 text-left">
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )
           )}
 
           <div className="flex items-center gap-2 px-4 py-2 border-t border-[var(--bd)]">

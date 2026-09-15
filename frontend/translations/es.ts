@@ -877,6 +877,7 @@ export const es: Translation = {
     chatOpen:           'Abrir',
     chatAskAnything:    'Pregunta cualquier cosa sobre',
     chatPlaceholder:    'Haz una pregunta…',
+    chatAnswerHint:     'Escribe tu respuesta arriba para continuar',
   },
 
   tours: {

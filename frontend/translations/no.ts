@@ -882,6 +882,7 @@ export const no: Translation = {
     chatOpen:           'Åpne',
     chatAskAnything:    'Spør om hva som helst angående',
     chatPlaceholder:    'Still et spørsmål…',
+    chatAnswerHint:     'Skriv svaret ditt ovenfor for å fortsette',
   },
 
   tours: {

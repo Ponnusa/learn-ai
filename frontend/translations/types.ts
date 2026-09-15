@@ -825,6 +825,7 @@ export interface Translation {
     chatOpen: string;
     chatAskAnything: string;
     chatPlaceholder: string;
+    chatAnswerHint: string;
   };
 
   tours: {

@@ -882,6 +882,7 @@ export const en: Translation = {
     chatOpen:           'Open',
     chatAskAnything:    'Ask anything about',
     chatPlaceholder:    'Ask a question…',
+    chatAnswerHint:     'Type your answer above to continue',
   },
 
   tours: {

@@ -877,6 +877,7 @@ export const sv: Translation = {
     chatOpen:           'Öppna',
     chatAskAnything:    'Fråga vad som helst om',
     chatPlaceholder:    'Ställ en fråga…',
+    chatAnswerHint:     'Skriv ditt svar ovan för att fortsätta',
   },
 
   tours: {
