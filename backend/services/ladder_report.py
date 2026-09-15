@@ -92,7 +92,7 @@ async def generate_ladder_report(report_id: str) -> None:
                 SELECT lsr.id, lsr.conversation_id, lsr.topic,
                        gde.message_id, gde.steps,
                        cc.title   AS concept_title,
-                       cc.subject AS concept_subject,
+                       co.subject AS concept_subject,
                        co.grade   AS course_grade
                 FROM ladder_session_reports lsr
                 JOIN guided_discovery_events gde ON gde.id = lsr.guided_discovery_event_id
