@@ -826,6 +826,28 @@ async def lifespan(app: FastAPI):
             "CREATE INDEX IF NOT EXISTS idx_guided_discovery_events_user ON guided_discovery_events(user_id)",
             # ── Conversation origin tagging (app | extension | ...) ─────────────
             "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'app'",
+            # ── Ladder session reports â€” one row per resolved guided-discovery
+            #    chain, holding the AI-generated rubric-scored outcome report a
+            #    teacher can view (academic understanding, thinking-radar
+            #    dimensions, strengths/growth, suggested next topic). Generated
+            #    async by services.ladder_report after the chain resolves. ─────
+            """
+            CREATE TABLE IF NOT EXISTS ladder_session_reports (
+                id                         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                guided_discovery_event_id  UUID NOT NULL REFERENCES guided_discovery_events(id) ON DELETE CASCADE,
+                conversation_id            UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                student_id                 UUID REFERENCES users(id) ON DELETE CASCADE,
+                concept_id                 UUID REFERENCES course_concepts(id) ON DELETE CASCADE,
+                topic                      TEXT,
+                status                     TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','ready','failed')),
+                report                     JSONB,
+                error_message              TEXT,
+                created_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_ladder_session_reports_event ON ladder_session_reports(guided_discovery_event_id)",
+            "CREATE INDEX IF NOT EXISTS idx_ladder_session_reports_student_concept ON ladder_session_reports(student_id, concept_id)",
         ]:
             try:
                 await db.execute(sql)

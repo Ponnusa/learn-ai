@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { LadderReportModal } from '@/components/course/LadderReportModal';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -114,6 +115,7 @@ export default function CourseProgressPage() {
   const [sortBy,           setSortBy]           = useState<SortBy>('struggling');
   const [expandedConcept,  setExpandedConcept]  = useState<string | null>(null);
   const [conceptAnalytics, setConceptAnalytics] = useState<Record<string, QuizAnalyticsData | null | 'loading'>>({});
+  const [reportModal, setReportModal] = useState<{ conceptId: string; conceptTitle: string; studentId: string; studentName: string } | null>(null);
 
   useEffect(() => {
     if (!user) { router.replace('/auth/teacher'); return; }
@@ -625,9 +627,13 @@ export default function CourseProgressPage() {
                             </span>
                           )}
                           {cell?.guided_resolved_count > 0 && (
-                            <span className="text-[9px] text-purple-400 flex items-center gap-0.5">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setReportModal({ conceptId: c.id, conceptTitle: c.title, studentId: s.id, studentName: s.name }); }}
+                              className="text-[9px] text-purple-400 hover:text-purple-300 hover:underline flex items-center gap-0.5"
+                              title="View session report"
+                            >
                               <Footprints size={8} /> {cell.guided_resolved_count}× ({cell.guided_avg_steps} steps)
-                            </span>
+                            </button>
                           )}
                         </div>
                       </td>
@@ -659,6 +665,16 @@ export default function CourseProgressPage() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {reportModal && (
+        <LadderReportModal
+          conceptTitle={reportModal.conceptTitle}
+          studentName={reportModal.studentName}
+          fetchUrl={`/api/courses/concepts/${reportModal.conceptId}/students/${reportModal.studentId}/ladder-reports`}
+          token={token}
+          onClose={() => setReportModal(null)}
+        />
       )}
     </div>
   );

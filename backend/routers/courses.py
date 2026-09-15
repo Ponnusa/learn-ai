@@ -4741,7 +4741,8 @@ async def get_student_chat(concept_id: str, authorization: str = Header(...)):
 
 @router.post("/concepts/{concept_id}/student-chat")
 async def post_student_chat(
-    concept_id: str, req: StudentChatRequest, authorization: str = Header(...)
+    concept_id: str, req: StudentChatRequest, background_tasks: BackgroundTasks,
+    authorization: str = Header(...)
 ):
     """
     Student Q&A chat grounded in the concept's source text + PDF resources.
@@ -5044,12 +5045,70 @@ async def post_student_chat(
                 else:
                     break
             if steps > 0:
-                await db.execute("""
+                event_row = await db.fetchrow("""
                     INSERT INTO guided_discovery_events (conversation_id, user_id, message_id, steps)
-                    VALUES ($1::uuid, $2::uuid, $3::uuid, $4)
+                    VALUES ($1::uuid, $2::uuid, $3::uuid, $4) RETURNING id
                 """, conv_id, student_id, msg_row["id"], steps)
 
+                # Queue the rubric-scored outcome report as a background task
+                # â€” a second, heavier AI call that must never make the
+                # student wait on their own reply. Row starts 'pending';
+                # services.ladder_report fills it in (or marks 'failed')
+                # once the model call completes, detached from this request.
+                report_row = await db.fetchrow("""
+                    INSERT INTO ladder_session_reports
+                        (guided_discovery_event_id, conversation_id, student_id, concept_id)
+                    VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid) RETURNING id
+                """, event_row["id"], conv_id, student_id, concept_id)
+                from services.ladder_report import generate_ladder_report
+                background_tasks.add_task(generate_ladder_report, str(report_row["id"]))
+
     return {"reply": reply, "conversation_id": conv_id, "ladder_depth": ladder_depth}
+
+
+@router.get("/concepts/{concept_id}/students/{student_id}/ladder-reports")
+async def get_ladder_reports(concept_id: str, student_id: str, authorization: str = Header(...)):
+    """
+    Teacher-only: every rubric-scored ladder session report generated for
+    this (student, concept) pair, most recent first. The teacher_id filter
+    below both authorizes the request and scopes the data in one query — a
+    concept outside the caller's own courses simply returns an empty list
+    rather than a 403, since that's indistinguishable from "no reports yet"
+    and leaks nothing either way.
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        rows = await db.fetch("""
+            SELECT lsr.id, lsr.status, lsr.report, lsr.error_message, lsr.created_at, gde.steps
+            FROM ladder_session_reports lsr
+            JOIN guided_discovery_events gde ON gde.id = lsr.guided_discovery_event_id
+            JOIN course_concepts cc ON cc.id = lsr.concept_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            JOIN courses co         ON co.id = cu.course_id
+            WHERE lsr.concept_id = $1::uuid AND lsr.student_id = $2::uuid AND co.teacher_id = $3::uuid
+            ORDER BY lsr.created_at DESC
+        """, concept_id, student_id, teacher_id)
+
+    def _report(r):
+        rep = r["report"]
+        if isinstance(rep, str):
+            try:    rep = json.loads(rep)
+            except: rep = None
+        return rep
+
+    return {
+        "reports": [
+            {
+                "id":            str(r["id"]),
+                "status":        r["status"],
+                "steps":         r["steps"],
+                "report":        _report(r),
+                "error_message": r["error_message"],
+                "created_at":    r["created_at"].isoformat(),
+            }
+            for r in rows
+        ],
+    }
 
 
 @router.get("/concepts/{concept_id}/video")
