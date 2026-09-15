@@ -882,6 +882,24 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
             GROUP BY lr.student_id, lr.concept_id, tc.total
         """, course_id)
 
+        # Guided-discovery (ladder) chains resolved per (student, concept) â€”
+        # concept-scoped conversations carry study_set_id, which is how a
+        # guided_discovery_events row (keyed on conversation_id) maps back to
+        # a concept. First real signal surfaced from that table anywhere in
+        # the app â€” it's been write-only until now.
+        guided_rows = await db.fetch("""
+            SELECT gde.user_id AS student_id, cc.id AS concept_id,
+                   COUNT(*)      AS resolved_count,
+                   AVG(gde.steps) AS avg_steps,
+                   MAX(gde.created_at) AS last_resolved_at
+            FROM guided_discovery_events gde
+            JOIN conversations c    ON c.id = gde.conversation_id
+            JOIN course_concepts cc ON cc.study_set_id = c.study_set_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            WHERE cu.course_id = $1::uuid AND gde.user_id IS NOT NULL
+            GROUP BY gde.user_id, cc.id
+        """, course_id)
+
     video_total_map: dict[str, int] = {str(r["concept_id"]): int(r["total"]) for r in video_block_total_rows}
     video_watched_map: dict[tuple, int] = {
         (str(r["student_id"]), str(r["concept_id"])): int(r["watched"]) for r in video_watched_rows
@@ -913,6 +931,14 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
         for p in progress
     }
 
+    guided_map: dict[tuple, dict] = {
+        (str(r["student_id"]), str(r["concept_id"])): {
+            "resolved_count": int(r["resolved_count"]),
+            "avg_steps":      round(float(r["avg_steps"]), 1),
+        }
+        for r in guided_rows
+    }
+
     concept_list = [
         {"id": str(c["id"]), "title": c["title"], "unit_title": c["unit_title"]}
         for c in concepts
@@ -939,6 +965,8 @@ async def get_course_progress(course_id: str, authorization: str = Header(...)):
                 "quiz_attempts":          attempt_map_grid.get((sid, c["id"]), []),
                 "video_blocks_total":     video_total_map.get(c["id"], 0),
                 "video_blocks_watched":   video_watched_map.get((sid, c["id"]), 0),
+                "guided_resolved_count":  guided_map.get((sid, c["id"]), {}).get("resolved_count", 0),
+                "guided_avg_steps":       guided_map.get((sid, c["id"]), {}).get("avg_steps"),
             }
             if cell["visited"]:
                 visited_count += 1

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, Users, ExternalLink,
-  Layers, Video, BarChart2, ChevronDown, ChevronUp, HelpCircle,
+  Layers, Video, BarChart2, ChevronDown, ChevronUp, HelpCircle, Footprints,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -20,6 +20,8 @@ interface Cell {
   quiz_attempts: number[];
   video_blocks_total: number;
   video_blocks_watched: number;
+  guided_resolved_count: number;
+  guided_avg_steps: number | null;
 }
 interface Concept     { id: string; title: string; unit_title: string; }
 interface StudentRow  {
@@ -195,6 +197,10 @@ export default function CourseProgressPage() {
       : null;
     const vidStudents = cells.filter(cell => cell.video_blocks_total > 0);
     const vidDone     = vidStudents.filter(cell => cell.video_blocks_watched === cell.video_blocks_total).length;
+    const guidedCells = cells.filter(cell => cell.guided_resolved_count > 0);
+    const avgGuidedSteps = guidedCells.length > 0
+      ? guidedCells.reduce((sum, cell) => sum + (cell.guided_avg_steps ?? 0), 0) / guidedCells.length
+      : null;
     return {
       concept: c,
       visitedCount:    visited.length,
@@ -205,6 +211,8 @@ export default function CourseProgressPage() {
       avgFlashcardPct: avgFc,
       videoCompleted:  vidDone,
       videoStudents:   vidStudents.length,
+      guidedStudents:  guidedCells.length,
+      avgGuidedSteps,
     };
   });
 
@@ -425,6 +433,21 @@ export default function CourseProgressPage() {
                           </div>
                         )}
 
+                        {/* Guided (ladder) chains resolved */}
+                        {stat.guidedStudents > 0 && (
+                          <div className="text-center min-w-[56px]">
+                            <p className="text-[10px] text-[var(--tx7)] mb-0.5 flex items-center gap-0.5 justify-center">
+                              <Footprints size={8} /> Guided
+                            </p>
+                            <p className="text-sm font-semibold text-purple-400">
+                              {stat.guidedStudents}<span className="text-[var(--tx8)] font-normal text-xs">/{stat.totalStudents}</span>
+                            </p>
+                            {stat.avgGuidedSteps !== null && (
+                              <p className="text-[9px] text-[var(--tx8)] mt-0.5">{stat.avgGuidedSteps.toFixed(1)} steps avg</p>
+                            )}
+                          </div>
+                        )}
+
                         {/* Class quiz analytics toggle */}
                         {stat.avgQuizScore !== null && (
                           <button
@@ -574,6 +597,7 @@ export default function CourseProgressPage() {
                     if (attempts.length > 1) tipParts.push(`Quiz: ${attempts.join(' → ')}%`);
                     else if (attempts.length === 1) tipParts.push(`Quiz: ${attempts[0]}%`);
                     if (cell?.video_blocks_total > 0) tipParts.push(`Videos: ${cell.video_blocks_watched}/${cell.video_blocks_total} watched (≥75%)`);
+                    if (cell?.guided_resolved_count > 0) tipParts.push(`Guided: resolved ${cell.guided_resolved_count}× (${cell.guided_avg_steps} steps avg)`);
                     return (
                       <td key={c.id} className={`text-center p-2 ${MASTERY_BG[m]} ${isFirstInUnit ? 'border-l border-[var(--bd)]' : ''}`} title={tipParts.join(' · ') || undefined}>
                         <div className="flex flex-col items-center gap-0.5">
@@ -598,6 +622,11 @@ export default function CourseProgressPage() {
                           {cell?.flashcard_total > 0 && (
                             <span className="text-[9px] text-[var(--tx8)]">
                               {cell.flashcard_mastered}/{cell.flashcard_total} cards
+                            </span>
+                          )}
+                          {cell?.guided_resolved_count > 0 && (
+                            <span className="text-[9px] text-purple-400 flex items-center gap-0.5">
+                              <Footprints size={8} /> {cell.guided_resolved_count}× ({cell.guided_avg_steps} steps)
                             </span>
                           )}
                         </div>
