@@ -686,6 +686,7 @@ export const fr: Translation = {
     statusClickEdit: 'Clique pour modifier',
     statusStudySet: 'Fiche prête',
     backToCourse: 'Retour au cours',
+    backToProgress: 'Retour à la progression',
     hidePanel: 'Masquer le panneau',
     showPanel: 'Afficher le panneau',
     tabSummary: 'Résumé',

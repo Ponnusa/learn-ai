@@ -686,6 +686,7 @@ export const fi: Translation = {
     statusClickEdit: 'Klikkaa muokataksesi',
     statusStudySet: 'Opiskelusarja valmis',
     backToCourse: 'Takaisin kurssille',
+    backToProgress: 'Takaisin edistymiseen',
     hidePanel: 'Piilota paneeli',
     showPanel: 'Näytä paneeli',
     tabSummary: 'Yhteenveto',

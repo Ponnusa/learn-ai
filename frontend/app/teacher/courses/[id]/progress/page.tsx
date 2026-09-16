@@ -613,7 +613,7 @@ export default function CourseProgressPage() {
               {data.students.map(s => (
                 <tr key={s.id} className="border-b border-[var(--bd)] last:border-0 hover:bg-[var(--ov1)]">
                   <td className="p-3 sticky left-0 bg-[var(--surface)]">
-                    <button onClick={() => router.push(`/teacher/students/${s.id}`)}
+                    <button onClick={() => router.push(`/teacher/students/${s.id}?from=progress&courseId=${courseId}`)}
                       className="text-left hover:text-purple-400 transition-colors">
                       <p className="text-[var(--tx1)] font-medium">{s.name}</p>
                       <p className="text-[var(--tx8)] text-xs">{s.email}</p>

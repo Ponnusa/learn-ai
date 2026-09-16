@@ -644,6 +644,7 @@ export interface Translation {
     statusClickEdit: string;
     statusStudySet: string;
     backToCourse: string;
+    backToProgress: string;
     hidePanel: string;
     showPanel: string;
     tabSummary: string;

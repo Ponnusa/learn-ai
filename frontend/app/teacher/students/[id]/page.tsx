@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, Brain, MessageSquare, ChevronDown, ChevronUp,
   Sparkles, HelpCircle, Layers, Video, BookOpen, AlertTriangle,
@@ -259,11 +259,19 @@ function CourseSummaryPanel({ summary }: { summary: CourseSummary }) {
 }
 
 export default function TeacherStudentDetailPage() {
-  const router    = useRouter();
-  const params    = useParams();
-  const studentId = params.id as string;
+  const router       = useRouter();
+  const params       = useParams();
+  const searchParams = useSearchParams();
+  const studentId    = params.id as string;
   const { user, token } = useSessionStore();
   const { t, tF } = useTranslation();
+
+  // Where this page was navigated from (set by whoever links here) so the
+  // back button actually returns there instead of always going to the
+  // general students list, e.g. arriving from a course's progress page.
+  const fromCourseId = searchParams.get('from') === 'progress' ? searchParams.get('courseId') : null;
+  const backHref  = fromCourseId ? `/teacher/courses/${fromCourseId}/progress` : '/teacher/students';
+  const backLabel = fromCourseId ? t.teacher.backToProgress : t.teacher.backToStudents;
 
   const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
     quiz:       { label: t.teacher.kindQuiz,       icon: HelpCircle },
@@ -382,9 +390,9 @@ export default function TeacherStudentDetailPage() {
 
   return (
     <div className="p-6 max-w-3xl mx-auto pb-16">
-      <button onClick={() => router.push('/teacher/students')}
+      <button onClick={() => router.push(backHref)}
         className="flex items-center gap-1.5 text-[var(--tx7)] hover:text-[var(--purple)] text-sm mb-6 transition-colors">
-        <ArrowLeft size={15} /> {t.teacher.backToStudents}
+        <ArrowLeft size={15} /> {backLabel}
       </button>
 
       <div className="flex items-start justify-between gap-4 mb-6">

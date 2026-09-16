@@ -686,6 +686,7 @@ export const sv: Translation = {
     statusClickEdit: 'Klicka för att redigera',
     statusStudySet: 'Studieset klart',
     backToCourse: 'Tillbaka till kurs',
+    backToProgress: 'Tillbaka till förloppet',
     hidePanel: 'Dölj panel',
     showPanel: 'Visa panel',
     tabSummary: 'Sammanfattning',

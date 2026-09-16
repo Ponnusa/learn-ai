@@ -686,6 +686,7 @@ export const es: Translation = {
     statusClickEdit: 'Haz clic para editar',
     statusStudySet: 'Set de estudio listo',
     backToCourse: 'Volver al curso',
+    backToProgress: 'Volver al progreso',
     hidePanel: 'Ocultar panel',
     showPanel: 'Mostrar panel',
     tabSummary: 'Resumen',

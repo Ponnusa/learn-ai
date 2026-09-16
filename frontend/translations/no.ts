@@ -686,6 +686,7 @@ export const no: Translation = {
     statusClickEdit: 'Klikk for å redigere',
     statusStudySet: 'Studiesett klart',
     backToCourse: 'Tilbake til kurs',
+    backToProgress: 'Tilbake til fremgang',
     hidePanel: 'Skjul panel',
     showPanel: 'Vis panel',
     tabSummary: 'Sammendrag',
