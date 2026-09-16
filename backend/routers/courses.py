@@ -4721,6 +4721,7 @@ def _sanitize_transfer_check(tc: dict | None) -> dict | None:
     if out["status"] != "pending":
         out["correct_idx"] = tc.get("correct_idx")
         out["explanation"] = tc.get("explanation")
+        out["chosen_idx"] = tc.get("chosen_idx")
     return out
 
 
@@ -5242,6 +5243,7 @@ async def verify_transfer_check(
             req.message_id, json.dumps(meta),
         )
 
+        followup_text = None
         if correct:
             steps = tc.get("steps") or 1
             event_row = await db.fetchrow("""
@@ -5255,8 +5257,95 @@ async def verify_transfer_check(
             """, event_row["id"], msg["conversation_id"], student_id, concept_id)
             from services.ladder_report import generate_ladder_report
             background_tasks.add_task(generate_ladder_report, str(report_row["id"]))
+        else:
+            # Without this, the quick-check exchange only ever lived in this
+            # message's metadata â€” invisible to the tutor's own conversation
+            # history. A student typing "try again" afterward got a reply
+            # with zero awareness a check even happened. Insert a real
+            # message so it's both visible in the transcript and part of
+            # what the model sees on the next turn.
+            options = tc.get("options") or []
+            chosen_text  = options[req.chosen_idx] if 0 <= req.chosen_idx < len(options) else "that answer"
+            correct_idx  = tc.get("correct_idx")
+            correct_text = options[correct_idx] if isinstance(correct_idx, int) and 0 <= correct_idx < len(options) else ""
+            followup_text = (
+                f"Quick check: you picked \"{chosen_text}\", but the better answer was "
+                f"\"{correct_text}\" â€” {tc.get('explanation', '')}\n\n"
+                f"Want to try another quick check on this, or keep exploring?"
+            )
+            await db.execute("""
+                INSERT INTO messages (conversation_id, role, content, metadata)
+                VALUES ($1::uuid, 'assistant', $2, $3::jsonb)
+            """, msg["conversation_id"], followup_text, json.dumps({"ladder_depth": 0}))
 
-    return {"correct": correct, "status": tc["status"], "correct_idx": tc.get("correct_idx"), "explanation": tc.get("explanation")}
+    return {
+        "correct": correct, "status": tc["status"], "correct_idx": tc.get("correct_idx"),
+        "explanation": tc.get("explanation"), "followup": followup_text,
+    }
+
+
+class RetryTransferCheckRequest(BaseModel):
+    message_id: str
+    language: str = 'en'
+
+
+@router.post("/concepts/{concept_id}/student-chat/retry-check")
+async def retry_transfer_check(concept_id: str, req: RetryTransferCheckRequest, authorization: str = Header(...)):
+    """
+    Regenerates a fresh transfer-check question on the same resolving
+    message after a wrong answer â€” an explicit, deterministic retry path.
+    Relying on the model to infer that free-text "try again" refers to the
+    quiz specifically is exactly what failed before this endpoint existed
+    (it had no context the quiz ever happened) â€” a button removes the
+    need to infer intent at all.
+    """
+    student_id = await _get_student(authorization)
+    async with get_db() as db:
+        msg = await db.fetchrow("""
+            SELECT m.id, m.conversation_id, m.content, m.metadata
+            FROM messages m
+            JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.id = $1::uuid AND c.user_id = $2::uuid
+        """, req.message_id, student_id)
+        if not msg:
+            raise HTTPException(404, "Message not found")
+        concept = await db.fetchrow("""
+            SELECT cc.title, co.subject
+            FROM course_concepts cc
+            JOIN course_units cu ON cu.id = cc.unit_id
+            JOIN courses co      ON co.id = cu.course_id
+            WHERE cc.id = $1::uuid
+        """, concept_id)
+
+    meta = msg["metadata"]
+    if isinstance(meta, str):
+        try:    meta = json.loads(meta)
+        except: meta = {}
+    meta = meta or {}
+    tc = meta.get("transfer_check")
+    if not tc or tc.get("status") != "wrong":
+        raise HTTPException(400, "Can only retry after a wrong answer")
+
+    new_tc = await _generate_transfer_check(
+        concept["title"] if concept else "this concept",
+        concept["subject"] if concept else None,
+        msg["content"], req.language,
+    )
+    if not new_tc:
+        raise HTTPException(502, "Could not generate a new check right now")
+
+    meta["transfer_check"] = {
+        "question": new_tc["question"], "options": new_tc["options"],
+        "correct_idx": new_tc["correct_idx"], "explanation": new_tc.get("explanation", ""),
+        "steps": tc.get("steps", 1), "status": "pending",
+    }
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE messages SET metadata = $2::jsonb WHERE id = $1::uuid",
+            req.message_id, json.dumps(meta),
+        )
+
+    return {"message_id": req.message_id, "question": new_tc["question"], "options": new_tc["options"]}
 
 
 @router.get("/concepts/{concept_id}/students/{student_id}/ladder-reports")

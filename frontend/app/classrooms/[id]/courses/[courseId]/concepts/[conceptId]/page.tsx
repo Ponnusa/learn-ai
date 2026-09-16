@@ -33,7 +33,7 @@ type ChatMsg = {
 /** Single objectively-gradable question gating a ladder chain's eureka â€”
  *  applies the idea just resolved to a new situation, rather than trusting
  *  the tutor's own [[WAITING:0]] self-report as proof of understanding. */
-function TransferCheckCard({ check, onAnswer }: { check: TransferCheck; onAnswer: (idx: number) => void }) {
+function TransferCheckCard({ check, onAnswer, onRetry }: { check: TransferCheck; onAnswer: (idx: number) => void; onRetry: () => void }) {
   const answered = check.status !== 'pending';
   return (
     <div className="max-w-[85%] bg-[var(--ov1)] border border-cyan-500/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm">
@@ -66,6 +66,12 @@ function TransferCheckCard({ check, onAnswer }: { check: TransferCheck; onAnswer
         }`}>
           {check.explanation}
         </p>
+      )}
+      {check.status === 'wrong' && (
+        <button onClick={onRetry}
+          className="mt-2.5 text-xs px-3 py-1.5 rounded-lg border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition-colors">
+          Try another question
+        </button>
       )}
     </div>
   );
@@ -335,7 +341,10 @@ export default function StudentConceptDetailPage() {
 
   /** Grades the single-question transfer check that gates a resolved
    *  chain's eureka â€” a correct answer is what actually triggers
-   *  updateLadderState(0) now, not the tutor's own [[WAITING:0]] alone. */
+   *  updateLadderState(0) now, not the tutor's own [[WAITING:0]] alone.
+   *  On wrong, deliberately does NOT reset the ladder ref â€” it needs to
+   *  stay "active" so a later correct retry can still fire the eureka;
+   *  resetting here would silently break that. */
   async function submitTransferCheck(messageId: string, chosenIdx: number) {
     try {
       const res  = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat/verify`, {
@@ -344,12 +353,36 @@ export default function StudentConceptDetailPage() {
         body: JSON.stringify({ message_id: messageId, chosen_idx: chosenIdx }),
       });
       const data = await res.json();
-      setChatMsgs(prev => prev.map(m => (m.id === messageId && m.transfer_check)
-        ? { ...m, transfer_check: { ...m.transfer_check, status: data.status, correct_idx: data.correct_idx, explanation: data.explanation, chosen_idx: chosenIdx } }
-        : m));
+      setChatMsgs(prev => {
+        const updated = prev.map(m => (m.id === messageId && m.transfer_check)
+          ? { ...m, transfer_check: { ...m.transfer_check, status: data.status, correct_idx: data.correct_idx, explanation: data.explanation, chosen_idx: chosenIdx } }
+          : m);
+        // The backend also inserts this same text as a real message so the
+        // tutor has context on the next turn â€” mirror it here immediately
+        // rather than waiting for a reload to see it.
+        return data.followup ? [...updated, { role: 'assistant' as const, content: data.followup, ladder_depth: 0 }] : updated;
+      });
       if (data.correct) updateLadderState(0);   // resolves the chain + fires eureka, only now
-      else               resetLadderState();     // wrong â€” no eureka, quietly back to idle
     } catch { /* leave as pending â€” student can retry the click */ }
+  }
+
+  /** Explicit retry path after a wrong answer â€” a deterministic button
+   *  instead of relying on the model to infer that free-text "try again"
+   *  refers to the quiz specifically (it can't: the check never lived in
+   *  the visible conversation before submitTransferCheck's followup fix). */
+  async function retryTransferCheck(messageId: string) {
+    try {
+      const res  = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat/retry-check`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_id: messageId, language }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setChatMsgs(prev => prev.map(m => m.id === messageId
+        ? { ...m, transfer_check: { question: data.question, options: data.options, status: 'pending' } }
+        : m));
+    } catch { /* card just stays showing the old wrong result â€” student can press again */ }
   }
 
   async function _doSendChat(msg: string, resource: typeof chatResource, isDirect: boolean) {
@@ -972,7 +1005,7 @@ export default function StudentConceptDetailPage() {
                 </div>
                 {msg.role === 'assistant' && msg.transfer_check && msg.id && (
                   <div className="flex justify-start mt-1.5">
-                    <TransferCheckCard check={msg.transfer_check} onAnswer={(idx) => submitTransferCheck(msg.id!, idx)} />
+                    <TransferCheckCard check={msg.transfer_check} onAnswer={(idx) => submitTransferCheck(msg.id!, idx)} onRetry={() => retryTransferCheck(msg.id!)} />
                   </div>
                 )}
               </div>
