@@ -11,7 +11,7 @@ import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, MessageSquare, Loader2, ImageIcon,
   HelpCircle, Layers, Video, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, Send, FileText, Dumbbell, FlaskConical, Printer,
+  CheckCircle2, XCircle, Send, FileText, Dumbbell, FlaskConical, Printer, Target,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { LadderWidget } from '@/components/chat/LadderWidget';
@@ -20,6 +20,56 @@ import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+type TransferCheck = {
+  question: string; options: string[]; status: 'pending' | 'correct' | 'wrong';
+  correct_idx?: number; explanation?: string; chosen_idx?: number;
+};
+type ChatMsg = {
+  role: 'user' | 'assistant'; content: string; ladder_depth?: number | null;
+  id?: string; transfer_check?: TransferCheck | null;
+};
+
+/** Single objectively-gradable question gating a ladder chain's eureka â€”
+ *  applies the idea just resolved to a new situation, rather than trusting
+ *  the tutor's own [[WAITING:0]] self-report as proof of understanding. */
+function TransferCheckCard({ check, onAnswer }: { check: TransferCheck; onAnswer: (idx: number) => void }) {
+  const answered = check.status !== 'pending';
+  return (
+    <div className="max-w-[85%] bg-[var(--ov1)] border border-cyan-500/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm">
+      <p className="text-[10px] text-cyan-400 uppercase tracking-wide font-semibold mb-2 flex items-center gap-1">
+        <Target size={11} /> Quick check
+      </p>
+      <p className="text-[var(--tx2)] mb-2.5"><MathText inline>{check.question}</MathText></p>
+      <div className="space-y-1.5">
+        {check.options.map((opt, oi) => {
+          let cls = 'border-[var(--bd)] text-[var(--tx2)] hover:border-cyan-500/50 hover:bg-cyan-500/5';
+          if (answered) {
+            if (oi === check.correct_idx) cls = 'border-green-500/40 bg-green-500/10 text-green-400';
+            else if (oi === check.chosen_idx) cls = 'border-red-500/40 bg-red-500/10 text-red-400';
+            else cls = 'border-[var(--bd)] text-[var(--tx7)] opacity-60';
+          }
+          return (
+            <button key={oi} onClick={() => !answered && onAnswer(oi)} disabled={answered}
+              className={`w-full text-left flex items-center gap-2 px-3 py-2 border rounded-xl text-xs transition-all ${cls}`}>
+              <span className="font-mono text-[10px] opacity-70">{String.fromCharCode(65 + oi)}</span>
+              <span className="flex-1"><MathText inline>{opt}</MathText></span>
+              {answered && oi === check.correct_idx && <CheckCircle2 size={12} className="text-green-400 shrink-0" />}
+              {answered && oi === check.chosen_idx && oi !== check.correct_idx && <XCircle size={12} className="text-red-400 shrink-0" />}
+            </button>
+          );
+        })}
+      </div>
+      {answered && check.explanation && (
+        <p className={`mt-2.5 text-xs p-2.5 rounded-lg border ${
+          check.status === 'correct' ? 'bg-green-500/10 border-green-500/20 text-green-300' : 'bg-[var(--ov1)] border-[var(--bd)] text-[var(--tx6)]'
+        }`}>
+          {check.explanation}
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface ConceptImage  { id: string; url: string; caption: string; }
 interface QuizQuestion  { id: string; question: string; options: string[]; correct_idx: number; explanation: string; }
@@ -64,7 +114,6 @@ export default function StudentConceptDetailPage() {
   const [labLoaded2,  setLabLoaded2]   = useState(false);
 
   // Chat Q&A state
-  type ChatMsg = { role: 'user' | 'assistant'; content: string; ladder_depth?: number | null };
   const [chatConvId,  setChatConvId]  = useState<string | null>(null);
   const [chatMsgs,    setChatMsgs]    = useState<ChatMsg[]>([]);
   const [chatLoaded,  setChatLoaded]  = useState(false);
@@ -219,10 +268,12 @@ export default function StudentConceptDetailPage() {
         .then(data => {
           if (data?.conversation_id) setChatConvId(data.conversation_id);
           if (data?.messages?.length) {
-            const loaded: ChatMsg[] = data.messages.map((m: { role: string; content: string; ladder_depth?: number | null }) => ({
+            const loaded: ChatMsg[] = data.messages.map((m: { id?: string; role: string; content: string; ladder_depth?: number | null; transfer_check?: TransferCheck | null }) => ({
               role: m.role as 'user' | 'assistant',
               content: m.content,
               ladder_depth: m.ladder_depth,
+              id: m.id,
+              transfer_check: m.transfer_check,
             }));
             setChatMsgs(loaded);
 
@@ -282,6 +333,25 @@ export default function StudentConceptDetailPage() {
     }
   }
 
+  /** Grades the single-question transfer check that gates a resolved
+   *  chain's eureka â€” a correct answer is what actually triggers
+   *  updateLadderState(0) now, not the tutor's own [[WAITING:0]] alone. */
+  async function submitTransferCheck(messageId: string, chosenIdx: number) {
+    try {
+      const res  = await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat/verify`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message_id: messageId, chosen_idx: chosenIdx }),
+      });
+      const data = await res.json();
+      setChatMsgs(prev => prev.map(m => (m.id === messageId && m.transfer_check)
+        ? { ...m, transfer_check: { ...m.transfer_check, status: data.status, correct_idx: data.correct_idx, explanation: data.explanation, chosen_idx: chosenIdx } }
+        : m));
+      if (data.correct) updateLadderState(0);   // resolves the chain + fires eureka, only now
+      else               resetLadderState();     // wrong â€” no eureka, quietly back to idle
+    } catch { /* leave as pending â€” student can retry the click */ }
+  }
+
   async function _doSendChat(msg: string, resource: typeof chatResource, isDirect: boolean) {
     setChatMsgs(prev => [...prev, { role: 'user', content: msg }]);
     setChatSending(true);
@@ -297,8 +367,15 @@ export default function StudentConceptDetailPage() {
       });
       const data = await res.json();
       if (data.conversation_id) setChatConvId(data.conversation_id);
-      if (!isDirect) updateLadderState(data.ladder_depth);
-      setChatMsgs(prev => [...prev, { role: 'assistant', content: data.reply ?? 'Sorry, something went wrong.', ladder_depth: data.ladder_depth }]);
+      // A pending transfer check means the chain isn't actually resolved
+      // yet â€” hold off on updateLadderState (which would fire the eureka)
+      // until submitTransferCheck grades it correct.
+      if (!isDirect && !data.transfer_check) updateLadderState(data.ladder_depth);
+      setChatMsgs(prev => [...prev, {
+        role: 'assistant', content: data.reply ?? 'Sorry, something went wrong.', ladder_depth: data.ladder_depth,
+        id: data.transfer_check?.message_id,
+        transfer_check: data.transfer_check ? { question: data.transfer_check.question, options: data.transfer_check.options, status: 'pending' } : null,
+      }]);
     } catch {
       setChatMsgs(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }]);
     } finally { setChatSending(false); }
@@ -879,16 +956,23 @@ export default function StudentConceptDetailPage() {
               </p>
             )}
             {chatMsgs.map((msg, i) => (
-              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                {msg.role === 'user' ? (
-                  <div className="max-w-[80%] bg-purple-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">
-                    {msg.content}
-                  </div>
-                ) : (
-                  <div className="max-w-[85%] bg-[var(--ov1)] border border-[var(--bd)] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-[var(--tx2)] prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
-                      {preprocessMath(msg.content)}
-                    </ReactMarkdown>
+              <div key={i}>
+                <div className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  {msg.role === 'user' ? (
+                    <div className="max-w-[80%] bg-purple-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">
+                      {msg.content}
+                    </div>
+                  ) : (
+                    <div className="max-w-[85%] bg-[var(--ov1)] border border-[var(--bd)] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm text-[var(--tx2)] prose prose-sm dark:prose-invert max-w-none">
+                      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, KATEX_OPTIONS]]}>
+                        {preprocessMath(msg.content)}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+                {msg.role === 'assistant' && msg.transfer_check && msg.id && (
+                  <div className="flex justify-start mt-1.5">
+                    <TransferCheckCard check={msg.transfer_check} onAnswer={(idx) => submitTransferCheck(msg.id!, idx)} />
                   </div>
                 )}
               </div>

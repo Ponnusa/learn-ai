@@ -4712,6 +4712,65 @@ include it exactly once, as the very last line, every reply.
 """
 
 
+def _sanitize_transfer_check(tc: dict | None) -> dict | None:
+    """Strip the answer key out of a pending check before it ever reaches
+    the client â€” only revealed once status is no longer 'pending'."""
+    if not tc:
+        return None
+    out = {"question": tc.get("question"), "options": tc.get("options"), "status": tc.get("status", "pending")}
+    if out["status"] != "pending":
+        out["correct_idx"] = tc.get("correct_idx")
+        out["explanation"] = tc.get("explanation")
+    return out
+
+
+async def _generate_transfer_check(concept_title: str, subject: str | None, resolved_reply: str, language: str) -> dict | None:
+    """
+    One multiple-choice question applying the idea the student just worked
+    out to a NEW situation they haven't already discussed â€” a deliberately
+    separate, objectively-gradable check before a resolved ladder chain is
+    trusted as real understanding, rather than relying on the tutor's own
+    self-reported [[WAITING:0]] as proof. Returns None on any failure
+    (caller falls back to resolving without a check, same as before this
+    existed) rather than blocking the student's reply on it.
+    """
+    lang_instruction = ""
+    if language in _LANGUAGE_NAMES:
+        lang_instruction = f"\nWrite the question, options, and explanation entirely in {_LANGUAGE_NAMES[language]}."
+    prompt = f"""A tutor just helped a student work out the following through guided questions:
+
+CONCEPT: {concept_title}
+SUBJECT: {subject or 'General'}
+WHAT WAS JUST ESTABLISHED:
+{resolved_reply[:1500]}
+
+Write ONE multiple-choice question that tests whether the student can APPLY this
+idea to a new situation they have not already discussed â€” not something answerable
+by simply recalling or restating what was just said. Exactly 4 options, only one
+correct, distractors plausible (not obviously wrong). Keep the question to 1-2
+sentences.{lang_instruction}
+
+Return ONLY a JSON object: {{"question": "...", "options": ["...","...","...","..."], "correct_idx": 0, "explanation": "1-2 sentences"}}"""
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+            max_tokens=500,
+            temperature=0.5,
+        )
+        data = json.loads(response.choices[0].message.content)
+        if (
+            isinstance(data.get("question"), str) and data["question"].strip() and
+            isinstance(data.get("options"), list) and len(data["options"]) == 4 and
+            isinstance(data.get("correct_idx"), int) and 0 <= data["correct_idx"] <= 3
+        ):
+            return data
+    except Exception as exc:
+        logger.error(f"[transfer_check] generation failed: {exc}")
+    return None
+
+
 @router.get("/concepts/{concept_id}/student-chat")
 async def get_student_chat(concept_id: str, authorization: str = Header(...)):
     """Return the student's conversation history for this concept."""
@@ -4735,17 +4794,18 @@ async def get_student_chat(concept_id: str, authorization: str = Header(...)):
             ORDER BY created_at ASC LIMIT 60
         """, conv["id"])
 
-    def _ladder_depth(meta) -> int | None:
+    def _parse_meta(meta) -> dict:
         if isinstance(meta, str):
             try:    meta = json.loads(meta)
             except: meta = {}
-        return (meta or {}).get("ladder_depth")
+        return meta or {}
 
     return {
         "conversation_id": str(conv["id"]),
         "messages": [
             {"id": str(r["id"]), "role": r["role"], "content": r["content"],
-             "ladder_depth": _ladder_depth(r["metadata"]) if r["role"] == "assistant" else None,
+             "ladder_depth": _parse_meta(r["metadata"]).get("ladder_depth") if r["role"] == "assistant" else None,
+             "transfer_check": _sanitize_transfer_check(_parse_meta(r["metadata"]).get("transfer_check")) if r["role"] == "assistant" else None,
              "created_at": r["created_at"].isoformat()}
             for r in rows
         ],
@@ -5037,17 +5097,57 @@ async def post_student_chat(
         else:
             ladder_depth = prev_ladder_depth  # marker dropped this turn â€” carry forward
 
-    # â”€â”€ 11. Save reply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # â”€â”€ 11. Transfer check â”€€ if a chain just resolved, don't trust the
+    #         tutor's own [[WAITING:0]] as proof of understanding â€” generate
+    #         one objectively-gradable question applying the idea to a new
+    #         situation, and defer recording the resolved chain (and the
+    #         eureka celebration) until the student answers it correctly.
+    #         steps is computed here (not after insert) since the new
+    #         message doesn't exist yet to exclude from the scan. â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    verification = None
+    if chain_resolved:
+        async with get_db() as db:
+            prior_assistant = await db.fetch("""
+                SELECT metadata FROM messages
+                WHERE conversation_id = $1::uuid AND role = 'assistant'
+                ORDER BY created_at DESC LIMIT 30
+            """, conv_id)
+        steps = 0
+        for row in prior_assistant:
+            meta = row["metadata"]
+            if isinstance(meta, str):
+                try:    meta = json.loads(meta)
+                except: meta = {}
+            if ((meta or {}).get("ladder_depth") or 0) > 0:
+                steps += 1
+            else:
+                break
+        if steps > 0:
+            tc = await _generate_transfer_check(concept["title"], concept["subject"], reply, effective_language)
+            if tc:
+                verification = {
+                    "question": tc["question"], "options": tc["options"],
+                    "correct_idx": tc["correct_idx"], "explanation": tc.get("explanation", ""),
+                    "steps": steps, "status": "pending",
+                }
+            # tc is None on generation failure â€” falls through with no
+            # verification, same behaviour as before this feature existed
+            # (chain just resolves normally without a check).
+
+    # â”€â”€ 12. Save reply â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    metadata: dict = {"ladder_depth": ladder_depth}
+    if verification:
+        metadata["transfer_check"] = verification
+
     async with get_db() as db:
         msg_row = await db.fetchrow("""
             INSERT INTO messages (conversation_id, role, content, metadata)
             VALUES ($1::uuid, 'assistant', $2, $3::jsonb) RETURNING id
-        """, conv_id, reply, json.dumps({"ladder_depth": ladder_depth}))
+        """, conv_id, reply, json.dumps(metadata))
 
-        # Persist a resolved chain the same way chat.py does â€” count the run
-        # of consecutive prior assistant turns that were waiting on an answer,
-        # which is exactly what the LadderWidget counted client-side.
-        if chain_resolved:
+        if chain_resolved and not verification:
+            # No transfer check could be generated â€” fall back to the old
+            # behaviour rather than silently dropping the resolved chain.
             prior_assistant = await db.fetch("""
                 SELECT metadata FROM messages
                 WHERE conversation_id = $1::uuid AND role = 'assistant' AND id != $2::uuid
@@ -5068,12 +5168,6 @@ async def post_student_chat(
                     INSERT INTO guided_discovery_events (conversation_id, user_id, message_id, steps)
                     VALUES ($1::uuid, $2::uuid, $3::uuid, $4) RETURNING id
                 """, conv_id, student_id, msg_row["id"], steps)
-
-                # Queue the rubric-scored outcome report as a background task
-                # â€” a second, heavier AI call that must never make the
-                # student wait on their own reply. Row starts 'pending';
-                # services.ladder_report fills it in (or marks 'failed')
-                # once the model call completes, detached from this request.
                 report_row = await db.fetchrow("""
                     INSERT INTO ladder_session_reports
                         (guided_discovery_event_id, conversation_id, student_id, concept_id)
@@ -5082,7 +5176,87 @@ async def post_student_chat(
                 from services.ladder_report import generate_ladder_report
                 background_tasks.add_task(generate_ladder_report, str(report_row["id"]))
 
-    return {"reply": reply, "conversation_id": conv_id, "ladder_depth": ladder_depth}
+    return {
+        "reply": reply, "conversation_id": conv_id, "ladder_depth": ladder_depth,
+        "transfer_check": (
+            {"message_id": str(msg_row["id"]), "question": verification["question"], "options": verification["options"]}
+            if verification else None
+        ),
+    }
+
+
+class VerifyTransferCheckRequest(BaseModel):
+    message_id: str
+    chosen_idx: int
+
+
+@router.post("/concepts/{concept_id}/student-chat/verify")
+async def verify_transfer_check(
+    concept_id: str, req: VerifyTransferCheckRequest, background_tasks: BackgroundTasks,
+    authorization: str = Header(...),
+):
+    """
+    Grades the single-question transfer check that gates a ladder chain's
+    eureka moment (see _generate_transfer_check above) â€” deliberately a
+    separate, objectively-gradable step so "did the student understand"
+    isn't decided by the same model, same turn, via a self-reported marker.
+    Only a correct answer records the resolved chain and queues its
+    rubric-scored report; a wrong answer records nothing â€” no eureka, no
+    report, but the student isn't blocked from continuing the conversation.
+    """
+    student_id = await _get_student(authorization)
+
+    async with get_db() as db:
+        msg = await db.fetchrow("""
+            SELECT m.id, m.conversation_id, m.metadata
+            FROM messages m
+            JOIN conversations c ON c.id = m.conversation_id
+            WHERE m.id = $1::uuid AND c.user_id = $2::uuid
+        """, req.message_id, student_id)
+    if not msg:
+        raise HTTPException(404, "Message not found")
+
+    meta = msg["metadata"]
+    if isinstance(meta, str):
+        try:    meta = json.loads(meta)
+        except: meta = {}
+    meta = meta or {}
+    tc = meta.get("transfer_check")
+    if not tc:
+        raise HTTPException(400, "No pending transfer check on this message")
+
+    if tc.get("status") != "pending":
+        # Already graded â€” idempotent, don't re-grade or double-record a
+        # resolved chain on a retried request.
+        return {"correct": tc.get("status") == "correct", "status": tc.get("status"),
+                "correct_idx": tc.get("correct_idx"), "explanation": tc.get("explanation")}
+
+    correct = req.chosen_idx == tc.get("correct_idx")
+    tc["status"] = "correct" if correct else "wrong"
+    tc["chosen_idx"] = req.chosen_idx
+    meta["transfer_check"] = tc
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE messages SET metadata = $2::jsonb WHERE id = $1::uuid",
+            req.message_id, json.dumps(meta),
+        )
+
+        if correct:
+            steps = tc.get("steps") or 1
+            event_row = await db.fetchrow("""
+                INSERT INTO guided_discovery_events (conversation_id, user_id, message_id, steps)
+                VALUES ($1::uuid, $2::uuid, $3::uuid, $4) RETURNING id
+            """, msg["conversation_id"], student_id, msg["id"], steps)
+            report_row = await db.fetchrow("""
+                INSERT INTO ladder_session_reports
+                    (guided_discovery_event_id, conversation_id, student_id, concept_id)
+                VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid) RETURNING id
+            """, event_row["id"], msg["conversation_id"], student_id, concept_id)
+            from services.ladder_report import generate_ladder_report
+            background_tasks.add_task(generate_ladder_report, str(report_row["id"]))
+
+    return {"correct": correct, "status": tc["status"], "correct_idx": tc.get("correct_idx"), "explanation": tc.get("explanation")}
 
 
 @router.get("/concepts/{concept_id}/students/{student_id}/ladder-reports")
