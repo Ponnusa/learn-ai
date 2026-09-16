@@ -4711,6 +4711,53 @@ guiding question waiting on the student. This is a simple binary judgment â€�
 include it exactly once, as the very last line, every reply.
 """
 
+# Shared across both concept-chat branches (TEKS and non-TEKS) â€” appended
+# after each branch's own marker instructions above. Interleaves low-
+# friction multiple-choice into simplified scaffolding steps (not the
+# whole chain), narrates the strategy shift out loud instead of silently
+# asking a different question, handles an explicit stop request
+# gracefully, and gives a one-line takeaway on resolution â€” all things a
+# competitor's ladder product did visibly better in a side-by-side
+# comparison. Ends by re-affirming the "WAITING is the final line" rule
+# from above, since this text is now the most recent thing the model
+# reads and that rule must still hold even with OPTIONS/KEY_IDEA in play.
+_CONCEPT_CHAT_LADDER_ENHANCEMENTS = """
+
+--- OFFERING CHOICES WHEN SIMPLIFYING (optional) ---
+When you drop to a smaller, simpler guiding question after a stuck or
+vague answer, say so briefly first ("Let's look at this from a simpler
+angle" / "Let's break this into smaller pieces") rather than silently
+asking a different question. For that simplified question specifically
+(not every question â€” most of the chain should stay open-ended), you may
+offer 2-4 short forced-choice options if it naturally has a small set of
+plausible answers. To do this, add this block right after your question
+text, before the final marker line:
+[[OPTIONS]]
+A) first option
+B) second option
+[[/OPTIONS]]
+Only use this for genuinely simplified/fallback questions, not as a
+shortcut for every guiding question.
+
+--- IF THE STUDENT WANTS TO STOP (required) ---
+If the student asks to stop, finish, or wrap up (e.g. "can we finish",
+"that's enough for now"), don't push another question or manufacture a
+check they didn't ask for. Briefly affirm what was covered in 1-2
+sentences and close warmly.
+
+--- KEY IDEA ON RESOLUTION (required whenever you resolve a chain) ---
+The moment you circle back and give the final resolved answer to a
+guided-discovery chain (the same turn that gets [[WAITING:0]] after a
+chain that was active), add one more line right before the marker:
+[[KEY_IDEA: one-sentence takeaway in plain language]]
+Skip this for ordinary direct answers that were never mid-chain.
+
+Whether or not you use OPTIONS or KEY_IDEA on a given reply, the
+[[WAITING:N]] marker described above still MUST be the very last line of
+your reply, after any OPTIONS or KEY_IDEA block â€” never the other way
+around.
+"""
+
 
 def _sanitize_transfer_check(tc: dict | None) -> dict | None:
     """Strip the answer key out of a pending check before it ever reaches
@@ -4807,6 +4854,8 @@ async def get_student_chat(concept_id: str, authorization: str = Header(...)):
             {"id": str(r["id"]), "role": r["role"], "content": r["content"],
              "ladder_depth": _parse_meta(r["metadata"]).get("ladder_depth") if r["role"] == "assistant" else None,
              "transfer_check": _sanitize_transfer_check(_parse_meta(r["metadata"]).get("transfer_check")) if r["role"] == "assistant" else None,
+             "options": _parse_meta(r["metadata"]).get("options") if r["role"] == "assistant" else None,
+             "key_idea": _parse_meta(r["metadata"]).get("key_idea") if r["role"] == "assistant" else None,
              "created_at": r["created_at"].isoformat()}
             for r in rows
         ],
@@ -5008,7 +5057,8 @@ async def post_student_chat(
             f"something unrelated to it, gently redirect back to this concept's material "
             f"instead of answering the tangent."
         )
-        system_prompt += _TEKS_LADDER_MARKER  # ladder marker MUST be last â€” see its own comment
+        system_prompt += _TEKS_LADDER_MARKER
+        system_prompt += _CONCEPT_CHAT_LADDER_ENHANCEMENTS  # ladder marker MUST be last â€” see its own comment
     elif req.direct:
         # Student asked for a direct answer â€” give one, age-appropriately grounded in lesson content.
         system_prompt = (
@@ -5041,6 +5091,7 @@ async def post_student_chat(
             f"instead of answering the tangent."
         )
         system_prompt += ADAPTIVE_TEACHING_INSTRUCTIONS
+        system_prompt += _CONCEPT_CHAT_LADDER_ENHANCEMENTS  # ladder marker MUST be last â€” see its own comment
 
     if image_b64_url:
         system_prompt += (
@@ -5098,6 +5149,29 @@ async def post_student_chat(
         else:
             ladder_depth = prev_ladder_depth  # marker dropped this turn â€” carry forward
 
+    # â”€â”€ 10b. In-scaffold MCQ options + resolution key-idea (see
+    #          _CONCEPT_CHAT_LADDER_ENHANCEMENTS) â”€â”€ parsed the same way as
+    #          WAITING, stripped from the displayed reply either way. A
+    #          stray marker outside its intended context (OPTIONS while not
+    #          mid-chain, KEY_IDEA on a turn that didn't resolve one) is
+    #          just dropped rather than trusted blindly. â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    scaffold_options: list[str] | None = None
+    key_idea: str | None = None
+    if not req.direct:
+        options_match = re.search(r"\[\[OPTIONS\]\](.*?)\[\[/OPTIONS\]\]", reply, re.DOTALL)
+        if options_match:
+            reply = (reply[:options_match.start()] + reply[options_match.end():]).strip()
+            if (ladder_depth or 0) > 0:
+                lines = [l.strip() for l in options_match.group(1).strip().splitlines() if l.strip()]
+                if lines:
+                    scaffold_options = lines
+
+        key_idea_match = re.search(r"\[\[KEY_IDEA:(.*?)\]\]", reply, re.DOTALL)
+        if key_idea_match:
+            reply = (reply[:key_idea_match.start()] + reply[key_idea_match.end():]).strip()
+            if chain_resolved:
+                key_idea = key_idea_match.group(1).strip()
+
     # â”€â”€ 11. Transfer check â”€€ if a chain just resolved, don't trust the
     #         tutor's own [[WAITING:0]] as proof of understanding â€” generate
     #         one objectively-gradable question applying the idea to a new
@@ -5139,6 +5213,10 @@ async def post_student_chat(
     metadata: dict = {"ladder_depth": ladder_depth}
     if verification:
         metadata["transfer_check"] = verification
+    if scaffold_options:
+        metadata["options"] = scaffold_options
+    if key_idea:
+        metadata["key_idea"] = key_idea
 
     async with get_db() as db:
         msg_row = await db.fetchrow("""
@@ -5179,6 +5257,7 @@ async def post_student_chat(
 
     return {
         "reply": reply, "conversation_id": conv_id, "ladder_depth": ladder_depth,
+        "options": scaffold_options, "key_idea": key_idea,
         "transfer_check": (
             {"message_id": str(msg_row["id"]), "question": verification["question"], "options": verification["options"]}
             if verification else None

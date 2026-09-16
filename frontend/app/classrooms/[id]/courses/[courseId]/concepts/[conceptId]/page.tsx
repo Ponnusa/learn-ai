@@ -11,7 +11,7 @@ import { MathText } from '@/components/ui/MathText';
 import {
   ArrowLeft, BookOpen, MessageSquare, Loader2, ImageIcon,
   HelpCircle, Layers, Video, ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, Send, FileText, Dumbbell, FlaskConical, Printer, Target,
+  CheckCircle2, XCircle, Send, FileText, Dumbbell, FlaskConical, Printer, Target, Sparkles,
 } from 'lucide-react';
 import { ConceptTextbook } from '@/components/course/ConceptTextbook';
 import { LadderWidget } from '@/components/chat/LadderWidget';
@@ -28,6 +28,7 @@ type TransferCheck = {
 type ChatMsg = {
   role: 'user' | 'assistant'; content: string; ladder_depth?: number | null;
   id?: string; transfer_check?: TransferCheck | null;
+  options?: string[] | null; key_idea?: string | null;
 };
 
 /** Single objectively-gradable question gating a ladder chain's eureka â€”
@@ -274,12 +275,14 @@ export default function StudentConceptDetailPage() {
         .then(data => {
           if (data?.conversation_id) setChatConvId(data.conversation_id);
           if (data?.messages?.length) {
-            const loaded: ChatMsg[] = data.messages.map((m: { id?: string; role: string; content: string; ladder_depth?: number | null; transfer_check?: TransferCheck | null }) => ({
+            const loaded: ChatMsg[] = data.messages.map((m: { id?: string; role: string; content: string; ladder_depth?: number | null; transfer_check?: TransferCheck | null; options?: string[] | null; key_idea?: string | null }) => ({
               role: m.role as 'user' | 'assistant',
               content: m.content,
               ladder_depth: m.ladder_depth,
               id: m.id,
               transfer_check: m.transfer_check,
+              options: m.options,
+              key_idea: m.key_idea,
             }));
             setChatMsgs(loaded);
 
@@ -408,6 +411,8 @@ export default function StudentConceptDetailPage() {
         role: 'assistant', content: data.reply ?? 'Sorry, something went wrong.', ladder_depth: data.ladder_depth,
         id: data.transfer_check?.message_id,
         transfer_check: data.transfer_check ? { question: data.transfer_check.question, options: data.transfer_check.options, status: 'pending' } : null,
+        options: data.options ?? null,
+        key_idea: data.key_idea ?? null,
       }]);
     } catch {
       setChatMsgs(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }]);
@@ -1006,6 +1011,36 @@ export default function StudentConceptDetailPage() {
                 {msg.role === 'assistant' && msg.transfer_check && msg.id && (
                   <div className="flex justify-start mt-1.5">
                     <TransferCheckCard check={msg.transfer_check} onAnswer={(idx) => submitTransferCheck(msg.id!, idx)} onRetry={() => retryTransferCheck(msg.id!)} />
+                  </div>
+                )}
+                {/* Low-friction scaffolding choices â€” only on the latest
+                    reply; once the student replies (or clicks one), the
+                    next message pushes this out of "latest" and it stops
+                    rendering on its own. */}
+                {msg.role === 'assistant' && msg.options && msg.options.length > 0 && i === chatMsgs.length - 1 && !chatSending && (
+                  <div className="flex justify-start mt-1.5">
+                    <div className="max-w-[85%] flex flex-col gap-1.5">
+                      {msg.options.map((opt, oi) => (
+                        <button key={oi} onClick={() => _doSendChat(opt, null, directMode)}
+                          className="text-left px-3 py-2 rounded-xl border border-[var(--bd)] hover:border-purple-500/50 hover:bg-purple-500/5 text-xs text-[var(--tx2)] transition-colors">
+                          <MathText inline>{opt}</MathText>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Student-facing takeaway on resolution â€” withheld until the
+                    transfer check (if any) actually passed, so it can't leak
+                    "you got it" ahead of the real verification. */}
+                {msg.role === 'assistant' && msg.key_idea && (!msg.transfer_check || msg.transfer_check.status === 'correct') && (
+                  <div className="flex justify-start mt-1.5">
+                    <div className="max-w-[85%] bg-amber-500/8 border border-amber-500/20 rounded-xl px-3.5 py-2.5 flex items-start gap-2">
+                      <Sparkles size={13} className="text-amber-400 shrink-0 mt-0.5" />
+                      <p className="text-[var(--tx2)] text-xs leading-relaxed">
+                        <span className="text-amber-400 font-semibold">What you figured out: </span>
+                        <MathText inline>{msg.key_idea}</MathText>
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
