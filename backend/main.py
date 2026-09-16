@@ -906,12 +906,29 @@ async def lifespan(app: FastAPI):
                         WHERE lsr.guided_discovery_event_id = gde.id
                     )
                 """)
-            if not failed_rows and not missing_rows:
+                # TEMPORARY one-time regeneration for the handful of reports
+                # generated before services/ladder_report.py started folding
+                # transfer-check evidence into the transcript (2026-09-16) —
+                # every one of them is guaranteed to under-score "Transfer"
+                # regardless of what the student actually did. Scoped to a
+                # fixed cutoff (not "any old report") specifically so it
+                # only ever touches this known, non-growing set of rows —
+                # remove this block once confirmed they've regenerated.
+                stale_rows = await db.fetch(
+                    "SELECT id FROM ladder_session_reports WHERE status = 'ready' AND created_at < $1::timestamptz",
+                    "2026-09-18 00:00:00+00",
+                )
+            if not failed_rows and not missing_rows and not stale_rows:
                 return
             _log.info(
-                "Ladder report self-heal: retrying %d failed, backfilling %d missing",
-                len(failed_rows), len(missing_rows),
+                "Ladder report self-heal: retrying %d failed, backfilling %d missing, regenerating %d stale",
+                len(failed_rows), len(missing_rows), len(stale_rows),
             )
+            for row in stale_rows:
+                try:
+                    await _generate_ladder_report(str(row["id"]))
+                except Exception as exc:
+                    _log.error("Ladder report stale-regenerate FAILED for %s: %s", row["id"], exc)
             for row in failed_rows:
                 try:
                     async with get_db() as db:
