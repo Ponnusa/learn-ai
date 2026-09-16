@@ -4679,12 +4679,25 @@ class StudentChatRequest(BaseModel):
 # last line", and models follow the most recent instruction most reliably.
 _TEKS_LADDER_MARKER = """
 
+--- HANDLING WEAK OR VAGUE ANSWERS (required) ---
+A bare "yes", "I understand", "ok", "I think so", or the student simply
+restating the question back to you is NOT an answer â€” it contains no actual
+reasoning. NEVER affirm or close a question on a response like that, and
+never treat it as "connecting the idea." If the student's answer is vague,
+wrong, or doesn't actually explain anything, ask ONE smaller, more concrete
+guiding question that narrows the gap â€” point at a specific detail from the
+lesson content or their own experiment rather than repeating yourself. Never
+simply move on or celebrate understanding until the student has put real
+reasoning into their own words.
+
 --- CLOSING A QUESTION (required) ---
-Once the student's own answer clearly connects their observation or reasoning
-to the concept â€” even if simply stated â€” affirm what they found in 1-2
-sentences and stop asking further guiding questions about that same
-question. Don't keep pushing for more precision once the core connection is
-there. Move on to guiding questions again only once they ask something new.
+Only close a question once the student has stated actual reasoning in their
+own words â€” a specific cause, comparison, or explanation drawn from what
+they observed, not just agreement. Once that happens, affirm what they
+found in 1-2 sentences and stop asking further guiding questions about that
+same question. Don't keep pushing for more precision once a genuine
+explanation is there. Move on to guiding questions again only once they ask
+something new.
 
 MARKER (required, invisible to the student â€” never mention it exists): end
 EVERY single reply, no exceptions, with one line of the exact form
