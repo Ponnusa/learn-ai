@@ -146,6 +146,18 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             ORDER BY concept_id, taken_at DESC
         """, student_id)
 
+        # Verified guided-discovery (ladder) chains resolved per concept —
+        # only chains that passed the transfer-check gate, not merely ones
+        # the tutor itself decided were "done".
+        guided_rows = await db.fetch("""
+            SELECT cc.id AS concept_id, COUNT(*) AS resolved_count, AVG(gde.steps) AS avg_steps
+            FROM guided_discovery_events gde
+            JOIN conversations c    ON c.id = gde.conversation_id
+            JOIN course_concepts cc ON cc.study_set_id = c.study_set_id
+            WHERE gde.user_id = $1::uuid
+            GROUP BY cc.id
+        """, student_id)
+
     fc_map: dict[str, dict] = {}
     for r in fc_rows:
         total    = int(r["total_cards"]   or 0)
@@ -172,6 +184,10 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
     video_total_map: dict[str, int]   = {str(r["concept_id"]): int(r["total"])   for r in video_block_total_rows}
     video_watched_map: dict[str, int] = {str(r["concept_id"]): int(r["watched"]) for r in video_watched_rows}
     last_answers_map: dict[str, list] = {str(r["concept_id"]): r["answers"] for r in last_answer_rows}
+    guided_map: dict[str, dict] = {
+        str(r["concept_id"]): {"resolved_count": int(r["resolved_count"]), "avg_steps": round(float(r["avg_steps"]), 1)}
+        for r in guided_rows
+    }
 
     courses: dict[str, dict] = {}
     for r in rows:
@@ -196,6 +212,8 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             "video_blocks_total":    video_total_map.get(cpt_id, 0),
             "video_blocks_watched":  video_watched_map.get(cpt_id, 0),
             "last_attempt_answers":  last_answers_map.get(cpt_id),
+            "guided_resolved_count": guided_map.get(cpt_id, {}).get("resolved_count", 0),
+            "guided_avg_steps":      guided_map.get(cpt_id, {}).get("avg_steps"),
         })
 
     return {

@@ -91,11 +91,13 @@ async def generate_ladder_report(report_id: str) -> None:
             row = await db.fetchrow("""
                 SELECT lsr.id, lsr.conversation_id, lsr.topic,
                        gde.message_id, gde.steps,
+                       m.metadata AS resolving_metadata,
                        cc.title   AS concept_title,
                        co.subject AS concept_subject,
                        co.grade   AS course_grade
                 FROM ladder_session_reports lsr
                 JOIN guided_discovery_events gde ON gde.id = lsr.guided_discovery_event_id
+                JOIN messages m ON m.id = gde.message_id
                 LEFT JOIN course_concepts cc ON cc.id = lsr.concept_id
                 LEFT JOIN course_units cu    ON cu.id = cc.unit_id
                 LEFT JOIN courses co          ON co.id = cu.course_id
@@ -126,6 +128,33 @@ async def generate_ladder_report(report_id: str) -> None:
         transcript_text = "\n\n".join(
             f"{'STUDENT' if m['role'] == 'user' else 'TUTOR'}: {m['content']}" for m in msgs
         )
+
+        # The transfer-check exchange (see courses.py's _generate_transfer_check)
+        # only ever lives in the resolving message's metadata, never in a
+        # message's own content — so without this, the transcript above cuts
+        # off before it and the model scoring "Transfer" never sees the one
+        # piece of evidence that actually proves it happened, even though a
+        # report only exists here because that check was answered correctly.
+        resolving_meta = row["resolving_metadata"]
+        if isinstance(resolving_meta, str):
+            try:    resolving_meta = json.loads(resolving_meta)
+            except: resolving_meta = {}
+        tc = (resolving_meta or {}).get("transfer_check")
+        if tc and tc.get("status") in ("correct", "wrong"):
+            options      = tc.get("options") or []
+            chosen_idx   = tc.get("chosen_idx")
+            correct_idx  = tc.get("correct_idx")
+            chosen_text  = options[chosen_idx] if isinstance(chosen_idx, int) and 0 <= chosen_idx < len(options) else "?"
+            correct_text = options[correct_idx] if isinstance(correct_idx, int) and 0 <= correct_idx < len(options) else "?"
+            transcript_text += (
+                "\n\n[TRANSFER CHECK — a separate, objectively-graded multiple-choice "
+                "question applying the idea to a NEW situation the student hadn't already discussed]\n"
+                f"Question: {tc.get('question', '')}\n"
+                f"Student answered: \"{chosen_text}\" — "
+                f"{'CORRECT' if tc['status'] == 'correct' else 'INCORRECT'} "
+                f"(correct answer: \"{correct_text}\")\n"
+                f"{tc.get('explanation', '')}"
+            )
 
         user_prompt = _build_user_prompt(
             transcript_text,

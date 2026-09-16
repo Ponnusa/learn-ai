@@ -52,6 +52,10 @@ type SortBy   = 'title' | 'quiz' | 'mastered' | 'struggling';
 
 function getMastery(cell?: Cell): Mastery {
   if (!cell?.visited) return 'none';
+  // A verified guided-discovery resolution (passed the transfer-check gate)
+  // counts as mastery on its own, independent of quiz standing — see the
+  // matching comment in teacher/students/[id]/page.tsx's getMastery.
+  if (cell.guided_resolved_count > 0) return 'mastered';
   if (cell.quiz_score === null) return 'visited';
   if (cell.quiz_score >= 70) return 'mastered';
   if (cell.quiz_score >= 40) return 'practiced';
@@ -192,7 +196,7 @@ export default function CourseProgressPage() {
     const avgQuiz     = withQuiz.length > 0
       ? withQuiz.reduce((sum, cell) => sum + (cell.quiz_score ?? 0), 0) / withQuiz.length
       : null;
-    const mastered    = cells.filter(cell => cell.visited && (cell.quiz_score ?? -1) >= 70).length;
+    const mastered    = cells.filter(cell => cell.visited && ((cell.quiz_score ?? -1) >= 70 || cell.guided_resolved_count > 0)).length;
     const struggling  = cells.filter(cell => cell.visited && cell.quiz_score !== null && cell.quiz_score < 40).length;
     const fcStudents  = cells.filter(cell => cell.flashcard_total > 0);
     const avgFc       = fcStudents.length > 0

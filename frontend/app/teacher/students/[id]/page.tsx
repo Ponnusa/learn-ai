@@ -24,6 +24,8 @@ interface ConceptProgress {
   video_blocks_total: number;
   video_blocks_watched: number;
   last_attempt_answers: QuizAnswer[] | null;
+  guided_resolved_count: number;
+  guided_avg_steps: number | null;
 }
 interface CourseProgress  { id: string; name: string; concepts: ConceptProgress[]; }
 interface StudentProgress { id: string; name: string; email: string; courses: CourseProgress[]; }
@@ -74,6 +76,12 @@ type Mastery = 'none' | 'visited' | 'struggling' | 'practiced' | 'mastered';
 
 function getMastery(c: ConceptProgress): Mastery {
   if (!c.visited) return 'none';
+  // A verified guided-discovery resolution (passed the transfer-check gate)
+  // counts as mastery on its own — it's applying the idea to a genuinely
+  // new case under an objective, non-self-graded check, at least as strong
+  // a signal as a quiz score. Independent of quiz standing: a low quiz
+  // score on a different day doesn't erase a real, verified demonstration.
+  if (c.guided_resolved_count > 0) return 'mastered';
   if (c.quiz_score === null) return 'visited';
   if (c.quiz_score >= 70) return 'mastered';
   if (c.quiz_score >= 40) return 'practiced';
