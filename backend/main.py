@@ -886,6 +886,69 @@ async def lifespan(app: FastAPI):
                     _log.info("Backfill: copied course for section_course %s → %s", row["id"], new_cid)
             except Exception as exc:
                 _log.error("Backfill FAILED for section_course %s: %s", row["id"], exc)
+
+        # ── Self-healing: retry failed ladder reports + backfill any
+        #    guided_discovery_events that never got a report row (predates
+        #    the feature, or missed for any other reason). Runs as a
+        #    detached background task so it never blocks startup — each row
+        #    is a real AI call (~5-15s). Safe on every deploy: only acts on
+        #    'failed'/missing rows, so it's a no-op once caught up.
+        import asyncio as _asyncio
+        from services.ladder_report import generate_ladder_report as _generate_ladder_report
+
+        async def _backfill_ladder_reports():
+            async with get_db() as db:
+                failed_rows  = await db.fetch("SELECT id FROM ladder_session_reports WHERE status = 'failed'")
+                missing_rows = await db.fetch("""
+                    SELECT gde.id FROM guided_discovery_events gde
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM ladder_session_reports lsr
+                        WHERE lsr.guided_discovery_event_id = gde.id
+                    )
+                """)
+            if not failed_rows and not missing_rows:
+                return
+            _log.info(
+                "Ladder report self-heal: retrying %d failed, backfilling %d missing",
+                len(failed_rows), len(missing_rows),
+            )
+            for row in failed_rows:
+                try:
+                    async with get_db() as db:
+                        await db.execute(
+                            "UPDATE ladder_session_reports SET status = 'pending', error_message = NULL WHERE id = $1::uuid",
+                            row["id"],
+                        )
+                    await _generate_ladder_report(str(row["id"]))
+                except Exception as exc:
+                    _log.error("Ladder report retry FAILED for %s: %s", row["id"], exc)
+            for row in missing_rows:
+                try:
+                    async with get_db() as db:
+                        # study_set_id is the only link a concept-chat conversation
+                        # carries to its concept — general (non-concept) chat also
+                        # writes guided_discovery_events, so a missing concept_id
+                        # here means "not a concept chat", correctly skipped below.
+                        info = await db.fetchrow("""
+                            SELECT gde.id AS event_id, gde.conversation_id, gde.user_id AS student_id,
+                                   cc.id AS concept_id
+                            FROM guided_discovery_events gde
+                            JOIN conversations c    ON c.id = gde.conversation_id
+                            LEFT JOIN course_concepts cc ON cc.study_set_id = c.study_set_id
+                            WHERE gde.id = $1::uuid
+                        """, row["id"])
+                        if not info or not info["concept_id"] or not info["student_id"]:
+                            continue
+                        report_row = await db.fetchrow("""
+                            INSERT INTO ladder_session_reports
+                                (guided_discovery_event_id, conversation_id, student_id, concept_id)
+                            VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid) RETURNING id
+                        """, info["event_id"], info["conversation_id"], info["student_id"], info["concept_id"])
+                    await _generate_ladder_report(str(report_row["id"]))
+                except Exception as exc:
+                    _log.error("Ladder report backfill FAILED for event %s: %s", row["id"], exc)
+
+        _asyncio.create_task(_backfill_ladder_reports())
     yield
     await close_pool()
 
