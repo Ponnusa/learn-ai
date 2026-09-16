@@ -5336,6 +5336,19 @@ async def verify_transfer_check(
             """, event_row["id"], msg["conversation_id"], student_id, concept_id)
             from services.ladder_report import generate_ladder_report
             background_tasks.add_task(generate_ladder_report, str(report_row["id"]))
+
+            if tc.get("had_wrong_attempt"):
+                # A wrong-answer anchor message (below) is already sitting in
+                # the transcript from the earlier miss â€” without a matching
+                # confirmation here, that message is the last word on this
+                # check forever, even though a retry just succeeded. Both the
+                # student and the tutor's own future context need to see the
+                # resolution, not just the earlier miss.
+                followup_text = f"Nice — that's correct this time! {tc.get('explanation', '')}"
+                await db.execute("""
+                    INSERT INTO messages (conversation_id, role, content, metadata)
+                    VALUES ($1::uuid, 'assistant', $2, $3::jsonb)
+                """, msg["conversation_id"], followup_text, json.dumps({"ladder_depth": 0}))
         else:
             # Without this, the quick-check exchange only ever lived in this
             # message's metadata â€” invisible to the tutor's own conversation
@@ -5417,6 +5430,12 @@ async def retry_transfer_check(concept_id: str, req: RetryTransferCheckRequest, 
         "question": new_tc["question"], "options": new_tc["options"],
         "correct_idx": new_tc["correct_idx"], "explanation": new_tc.get("explanation", ""),
         "steps": tc.get("steps", 1), "status": "pending",
+        # Reachable only from a 'wrong' status (checked above) â€” carried
+        # forward so a later correct grading knows to post a confirming
+        # follow-up rather than leaving the earlier wrong-answer message as
+        # the last word on this check. See verify_transfer_check's
+        # `had_wrong_attempt` branch.
+        "had_wrong_attempt": True,
     }
     async with get_db() as db:
         await db.execute(
