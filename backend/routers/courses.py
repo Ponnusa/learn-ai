@@ -5007,17 +5007,17 @@ async def post_student_chat(
 
     grounding = "\n\n".join(grounding_parts) or concept["title"]
 
-    # Use course language; only override if the frontend sent an explicit non-English code
-    async with get_db() as _ldb:
-        course_lang = await _ldb.fetchval(
-            """SELECT COALESCE(NULLIF(c.language,'en'), u.language, 'en')
-               FROM course_concepts cc
-               JOIN course_units cu ON cu.id = cc.unit_id
-               JOIN courses c ON c.id = cu.course_id
-               JOIN users u ON u.id = c.teacher_id
-               WHERE cc.id = $1::uuid""", concept_id
-        ) or 'en'
-    effective_language = req.language if req.language != 'en' else course_lang
+    # Always respect the student's own explicit language setting. This used
+    # to fall back to the course's language, and beyond that to the
+    # *teacher's own personal account* language, whenever req.language was
+    # 'en' â€” treating "student's setting is English" as indistinguishable
+    # from "student never set a language", which isn't true, and a
+    # teacher's own account language has nothing to do with what language
+    # their students should be taught in regardless. That fallback chain
+    # silently forced every student in a course into the teacher's own
+    # language the moment the course itself was left on the 'en' default,
+    # even for students whose own setting was genuinely English.
+    effective_language = req.language
     lang_note = ""
     if effective_language in _LANGUAGE_NAMES:
         lang_name = _LANGUAGE_NAMES[effective_language]
