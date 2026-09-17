@@ -711,6 +711,8 @@ export default function CourseProgressPage() {
 
       {reportModal && (
         <LadderReportModal
+          conceptId={reportModal.conceptId}
+          studentId={reportModal.studentId}
           conceptTitle={reportModal.conceptTitle}
           studentName={reportModal.studentName}
           fetchUrl={`/api/courses/concepts/${reportModal.conceptId}/students/${reportModal.studentId}/ladder-reports`}

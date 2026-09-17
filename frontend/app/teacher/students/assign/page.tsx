@@ -7,6 +7,10 @@ import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+// Kept in sync with the same temporary restriction on the per-student
+// Assign Extra Practice tab — see app/teacher/students/[id]/page.tsx.
+const DISABLED_ASSIGN_KINDS = new Set(['video', 'studyset']);
+
 interface Course  { id: string; name: string; }
 interface Concept { id: string; title: string; }
 interface Unit    { id: string; title: string; concepts: Concept[]; }
@@ -125,14 +129,21 @@ function BulkAssignContent() {
         </select>
 
         <div className="flex gap-2 flex-wrap pt-1">
-          {Object.entries(KIND_LABEL).map(([kind, { label, icon: Icon }]) => (
-            <button key={kind} onClick={() => assignToAll(kind)} disabled={!!assigning || !conceptId}
-              className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-xl border border-[var(--bd)]
-                         text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
-              {assigning === kind ? <Loader2 size={14} className="animate-spin" /> : <Icon size={14} />}
-              {label}
-            </button>
-          ))}
+          {Object.entries(KIND_LABEL).map(([kind, { label, icon: Icon }]) => {
+            const isDisabled = DISABLED_ASSIGN_KINDS.has(kind);
+            return (
+              <button key={kind} onClick={() => assignToAll(kind)} disabled={isDisabled || !!assigning || !conceptId}
+                title={isDisabled ? t.teacher.comingSoon : undefined}
+                className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-xl border transition-all ${
+                  isDisabled
+                    ? 'opacity-40 cursor-not-allowed border-[var(--bd)] text-[var(--tx8)]'
+                    : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 disabled:opacity-50'
+                }`}>
+                {assigning === kind ? <Loader2 size={14} className="animate-spin" /> : <Icon size={14} />}
+                {label}
+              </button>
+            );
+          })}
         </div>
 
         {done && (

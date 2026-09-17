@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { X, Loader2, Footprints, Lightbulb, TrendingUp, ArrowUpRight } from 'lucide-react';
+import { X, Loader2, Footprints, Lightbulb, TrendingUp, ArrowUpRight, RotateCcw } from 'lucide-react';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -109,8 +109,10 @@ function BulletList({ items, color }: { items: string[]; color: string }) {
 }
 
 export function LadderReportModal({
-  conceptTitle, studentName, onClose, fetchUrl, token,
+  conceptId, studentId, conceptTitle, studentName, onClose, fetchUrl, token,
 }: {
+  conceptId: string;
+  studentId: string;
   conceptTitle: string;
   studentName: string;
   onClose: () => void;
@@ -119,11 +121,15 @@ export function LadderReportModal({
 }) {
   const [reports, setReports] = useState<ReportEntry[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [pollKey, setPollKey] = useState(0);
+  const [regenerating, setRegenerating] = useState(false);
 
   // Report generation takes several seconds (a real AI call, run as a
   // background task) — poll while any report is still 'pending' so a
   // teacher who opens this right after a chain resolves sees it flip to
   // 'ready' on its own instead of looking stuck until they close/reopen.
+  // pollKey is bumped by regenerate() below to re-enter this same effect
+  // and restart polling after manually kicking a report back to pending.
   useEffect(() => {
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | undefined;
@@ -147,9 +153,22 @@ export function LadderReportModal({
 
     load();
     return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };
-  }, [fetchUrl, token]);
+  }, [fetchUrl, token, pollKey]);
 
   const active = reports?.find(r => r.id === selected) ?? null;
+
+  async function regenerate() {
+    if (!active || regenerating) return;
+    setRegenerating(true);
+    try {
+      await fetch(`${API_BASE}/api/courses/concepts/${conceptId}/students/${studentId}/ladder-reports/${active.id}/regenerate`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+      });
+      setPollKey(k => k + 1);
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
@@ -165,9 +184,20 @@ export function LadderReportModal({
             <h2 className="text-[var(--tx1)] text-lg font-bold mt-0.5">{conceptTitle}</h2>
             <p className="text-[var(--tx7)] text-xs mt-0.5">{studentName}</p>
           </div>
-          <button onClick={onClose} className="text-[var(--tx7)] hover:text-[var(--tx2)] transition-colors shrink-0">
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            {active && active.status !== 'pending' && (
+              <button onClick={regenerate} disabled={regenerating}
+                title="Re-run the AI scoring for this session — useful if this report looks off"
+                className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-[var(--bd)]
+                           text-[var(--tx7)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
+                {regenerating ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                Regenerate
+              </button>
+            )}
+            <button onClick={onClose} className="text-[var(--tx7)] hover:text-[var(--tx2)] transition-colors">
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Session picker — only shown when more than one resolved chain exists */}

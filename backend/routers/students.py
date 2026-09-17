@@ -446,7 +446,7 @@ def _most_common(values: list[str]) -> str | None:
 
 
 @router.get("/{student_id}/courses/{course_id}/summary")
-async def get_student_course_summary(student_id: str, course_id: str, authorization: str = Header(...)):
+async def get_student_course_summary(student_id: str, course_id: str, force: bool = False, authorization: str = Header(...)):
     """
     "Complete result" for a student in one course, combining three layers:
       1. Quantitative roll-up (visited/quiz/mastery/guided-discovery stats)
@@ -458,7 +458,9 @@ async def get_student_course_summary(student_id: str, course_id: str, authorizat
       3. A short AI-written narrative synthesizing the trajectory across
          those same reports. Cached in student_course_narratives and only
          regenerated when report_count no longer matches — a new session
-         resolved since it was last written.
+         resolved since it was last written — or when `force=true` is
+         passed, letting a teacher manually retry a narrative that reads
+         wrong without waiting for a new session to resolve.
     """
     teacher_id = await _require_teacher_of_student(authorization, student_id)
 
@@ -568,7 +570,7 @@ async def get_student_course_summary(student_id: str, course_id: str, authorizat
     # ── Layer 3: AI narrative, cached until a new report lands ───────────
     layer3 = None
     if reports:
-        if cached_narrative and cached_narrative["report_count"] == len(reports):
+        if not force and cached_narrative and cached_narrative["report_count"] == len(reports):
             layer3 = {
                 "narrative":    cached_narrative["narrative"],
                 "updated_at":   cached_narrative["updated_at"].isoformat(),

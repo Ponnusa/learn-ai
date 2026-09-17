@@ -5586,6 +5586,38 @@ async def get_ladder_reports(concept_id: str, student_id: str, authorization: st
     }
 
 
+@router.post("/concepts/{concept_id}/students/{student_id}/ladder-reports/{report_id}/regenerate")
+async def regenerate_ladder_report(
+    concept_id: str, student_id: str, report_id: str, bg: BackgroundTasks, authorization: str = Header(...)
+):
+    """
+    Teacher-only: re-run the rubric-scoring AI call for one existing ladder
+    session report in place, without the student re-doing the guided chain.
+    Exists because a report can occasionally read off — the model call is
+    a single-shot generation with no self-correction today — and until now
+    the only fix was starting a brand new chat.
+    """
+    teacher_id = await _require_teacher(authorization)
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            SELECT lsr.id
+            FROM ladder_session_reports lsr
+            JOIN course_concepts cc ON cc.id = lsr.concept_id
+            JOIN course_units cu    ON cu.id = cc.unit_id
+            JOIN courses co         ON co.id = cu.course_id
+            WHERE lsr.id = $1::uuid AND lsr.concept_id = $2::uuid AND lsr.student_id = $3::uuid AND co.teacher_id = $4::uuid
+        """, report_id, concept_id, student_id, teacher_id)
+        if not row:
+            raise HTTPException(404, "Report not found")
+        await db.execute(
+            "UPDATE ladder_session_reports SET status = 'pending', error_message = NULL, updated_at = NOW() WHERE id = $1::uuid",
+            report_id,
+        )
+    from services.ladder_report import generate_ladder_report
+    bg.add_task(generate_ladder_report, report_id)
+    return {"status": "pending"}
+
+
 @router.get("/concepts/{concept_id}/video")
 async def serve_concept_video(concept_id: str):
     """

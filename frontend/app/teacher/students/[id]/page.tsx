@@ -4,13 +4,18 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, Brain, MessageSquare, ChevronDown, ChevronUp,
   Sparkles, HelpCircle, Layers, Video, BookOpen, AlertTriangle,
-  CheckCircle2, Circle, Clock, Zap, TrendingUp, TrendingDown, Minus, Footprints, Target, Star,
+  CheckCircle2, Circle, Clock, Zap, TrendingUp, TrendingDown, Minus, Footprints, Target, Star, RotateCcw,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { LevelPill } from '@/components/course/LadderReportModal';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+// Temporarily restricting Assign Extra Practice to quiz/flashcards while
+// video/study-set generation for this flow gets more attention — greyed
+// out rather than removed so re-enabling later is a one-line change.
+const DISABLED_ASSIGN_KINDS = new Set(['video', 'studyset']);
 
 interface LadderReportSummary {
   weak_dimension: string | null;
@@ -197,7 +202,7 @@ function TrendIcon({ trend }: { trend: RollupEntry['trend'] }) {
  *  deterministic Thinking Radar rollup across all resolved ladder session
  *  reports (also free — the reports are already structured JSON), and a
  *  cached AI narrative synthesizing the trajectory across those reports. */
-function CourseSummaryPanel({ summary }: { summary: CourseSummary }) {
+function CourseSummaryPanel({ summary, onRegenerate, regenerating }: { summary: CourseSummary; onRegenerate?: () => void; regenerating?: boolean }) {
   const { layer1, layer2, layer3 } = summary;
   return (
     <div className="space-y-4">
@@ -270,8 +275,17 @@ function CourseSummaryPanel({ summary }: { summary: CourseSummary }) {
       {layer3 && (
         <div className="bg-cyan-500/8 border border-cyan-500/20 rounded-xl p-4 flex items-start gap-2.5">
           <Sparkles size={14} className="text-cyan-400 shrink-0 mt-0.5" />
-          <div>
-            <p className="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold mb-1">Summary</p>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <p className="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold">Summary</p>
+              {onRegenerate && (
+                <button onClick={onRegenerate} disabled={!!regenerating}
+                  title="Regenerate this summary — useful if it reads stale or off"
+                  className="text-cyan-400/70 hover:text-cyan-300 transition-colors disabled:opacity-50 shrink-0">
+                  {regenerating ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
+                </button>
+              )}
+            </div>
             <p className="text-[var(--tx2)] text-sm leading-relaxed">{layer3.narrative}</p>
           </div>
         </div>
@@ -320,6 +334,7 @@ export default function TeacherStudentDetailPage() {
 
   const [expandedSummaryCourse, setExpandedSummaryCourse] = useState<string | null>(null);
   const [courseSummaries, setCourseSummaries] = useState<Record<string, CourseSummary | 'loading' | null>>({});
+  const [regeneratingCourse, setRegeneratingCourse] = useState<string | null>(null);
 
   const [activeTab, setActiveTab] = useState<'overview' | 'progress' | 'practice' | 'conversations'>('overview');
 
@@ -385,6 +400,17 @@ export default function TeacherStudentDetailPage() {
       setCourseSummaries(prev => ({ ...prev, [courseId]: data }));
     } catch {
       setCourseSummaries(prev => ({ ...prev, [courseId]: null }));
+    }
+  }
+
+  async function regenerateCourseSummary(courseId: string) {
+    setRegeneratingCourse(courseId);
+    try {
+      const res  = await fetch(`${API_BASE}/api/students/${studentId}/courses/${courseId}/summary?force=true`, { headers });
+      const data = res.ok ? await res.json() : null;
+      if (data) setCourseSummaries(prev => ({ ...prev, [courseId]: data }));
+    } finally {
+      setRegeneratingCourse(null);
     }
   }
 
@@ -500,19 +526,51 @@ export default function TeacherStudentDetailPage() {
             )}
           </div>
 
-          {data.courses.length > 0 && (
-            <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
-              <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3">{t.teacher.courseMasterySnapshot}</h2>
-              <div className="space-y-3">
-                {data.courses.map(course => (
-                  <div key={course.id}>
-                    <p className="text-sm text-[var(--tx2)] mb-1.5">{course.name}</p>
-                    <MasteryBar concepts={course.concepts} />
+          {data.courses.map(course => {
+            const risk = isAtRisk(course);
+            return (
+              <div key={course.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <h2 className="text-[var(--tx1)] font-semibold flex-1">{course.name}</h2>
+                  {risk && (
+                    <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      <AlertTriangle size={9} /> {t.teacher.needsAttention}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mb-4">
+                  <MasteryBar concepts={course.concepts} />
+                </div>
+
+                <button
+                  onClick={() => toggleCourseSummary(course.id)}
+                  className="w-full flex items-center justify-between gap-2 text-xs px-3 py-2 rounded-lg border border-cyan-500/30 bg-cyan-500/5 text-cyan-400 hover:bg-cyan-500/10 transition-colors"
+                >
+                  <span className="flex items-center gap-1.5 font-medium"><Sparkles size={12} /> Complete Result</span>
+                  {expandedSummaryCourse === course.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                </button>
+                {expandedSummaryCourse === course.id && (
+                  <div className="mt-3 border border-[var(--bd)] rounded-xl p-4 bg-[var(--ov1)]">
+                    {courseSummaries[course.id] === 'loading' ? (
+                      <div className="flex flex-col items-center justify-center gap-2 py-6">
+                        <Loader2 size={18} className="text-cyan-400 animate-spin" />
+                        <p className="text-[var(--tx8)] text-[10px]">Rolling up progress and writing the summary — a few seconds…</p>
+                      </div>
+                    ) : courseSummaries[course.id] ? (
+                      <CourseSummaryPanel
+                        summary={courseSummaries[course.id] as CourseSummary}
+                        onRegenerate={() => regenerateCourseSummary(course.id)}
+                        regenerating={regeneratingCourse === course.id}
+                      />
+                    ) : (
+                      <p className="text-[var(--tx7)] text-xs text-center py-4">Could not load the summary — try again.</p>
+                    )}
                   </div>
-                ))}
+                )}
               </div>
-            </div>
-          )}
+            );
+          })}
         </div>
       )}
 
@@ -570,15 +628,18 @@ export default function TeacherStudentDetailPage() {
                           <div className="flex gap-2 flex-wrap">
                             {Object.entries(KIND_LABEL).map(([kind, { label, icon: Icon }]) => {
                               const key = `${concept.id}:${kind}`;
-                              const isRecommended = concept.recommended_kind === kind;
+                              const isDisabled = DISABLED_ASSIGN_KINDS.has(kind);
+                              const isRecommended = concept.recommended_kind === kind && !isDisabled;
                               return (
                                 <button key={kind} onClick={() => assign(concept.id, kind)}
-                                  disabled={assigning === key}
-                                  title={isRecommended ? (concept.recommend_reason || undefined) : undefined}
-                                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all disabled:opacity-50 ${
-                                    isRecommended
-                                      ? 'border-purple-500/50 bg-purple-500/10 text-purple-300 hover:bg-purple-500/15'
-                                      : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400'
+                                  disabled={isDisabled || assigning === key}
+                                  title={isDisabled ? t.teacher.comingSoon : isRecommended ? (concept.recommend_reason || undefined) : undefined}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all ${
+                                    isDisabled
+                                      ? 'opacity-40 cursor-not-allowed border-[var(--bd)] text-[var(--tx8)]'
+                                      : 'disabled:opacity-50 ' + (isRecommended
+                                          ? 'border-purple-500/50 bg-purple-500/10 text-purple-300 hover:bg-purple-500/15'
+                                          : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400')
                                   }`}>
                                   {assigning === key ? <Loader2 size={14} className="animate-spin" /> : isRecommended ? <Star size={13} className="fill-purple-400 text-purple-400" /> : <Icon size={14} />}
                                   {label}
@@ -667,45 +728,13 @@ export default function TeacherStudentDetailPage() {
       ) : (
         <div className="space-y-4">
           {data.courses.map(course => {
-            const risk = isAtRisk(course);
             return (
               <div key={course.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <h2 className="text-[var(--tx1)] font-semibold flex-1">{course.name}</h2>
-                  {risk && (
-                    <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      <AlertTriangle size={9} /> {t.teacher.needsAttention}
-                    </span>
-                  )}
-                </div>
+                <h2 className="text-[var(--tx1)] font-semibold mb-3">{course.name}</h2>
 
-                {/* Mastery progress bar */}
                 <div className="mb-4">
                   <MasteryBar concepts={course.concepts} />
                 </div>
-
-                {/* Complete Result — quant roll-up + Thinking Radar rollup + AI narrative */}
-                <button
-                  onClick={() => toggleCourseSummary(course.id)}
-                  className="w-full flex items-center justify-between gap-2 text-xs px-3 py-2 mb-3 rounded-lg border border-cyan-500/30 bg-cyan-500/5 text-cyan-400 hover:bg-cyan-500/10 transition-colors"
-                >
-                  <span className="flex items-center gap-1.5 font-medium"><Sparkles size={12} /> Complete Result</span>
-                  {expandedSummaryCourse === course.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                </button>
-                {expandedSummaryCourse === course.id && (
-                  <div className="mb-4 border border-[var(--bd)] rounded-xl p-4 bg-[var(--ov1)]">
-                    {courseSummaries[course.id] === 'loading' ? (
-                      <div className="flex flex-col items-center justify-center gap-2 py-6">
-                        <Loader2 size={18} className="text-cyan-400 animate-spin" />
-                        <p className="text-[var(--tx8)] text-[10px]">Rolling up progress and writing the summary — a few seconds…</p>
-                      </div>
-                    ) : courseSummaries[course.id] ? (
-                      <CourseSummaryPanel summary={courseSummaries[course.id] as CourseSummary} />
-                    ) : (
-                      <p className="text-[var(--tx7)] text-xs text-center py-4">Could not load the summary — try again.</p>
-                    )}
-                  </div>
-                )}
 
                 {/* Per-concept rows */}
                 <div className="space-y-1">
