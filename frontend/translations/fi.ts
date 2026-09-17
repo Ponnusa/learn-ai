@@ -559,6 +559,7 @@ export const fi: Translation = {
     stageAnimation: 'Luodaan animaatiokoodia…',
     stageQueued: 'Jonossa renderöintiä varten…',
     stageRendering: 'Renderöidään animaatiota…',
+    submittedScore: 'Sait {pct}% oikein — opettajasi näkee tuloksesi',
   },
 
   messages: {
@@ -631,6 +632,8 @@ export const fi: Translation = {
     practiceRecommended: 'Suositeltu',
     practiceReadyForMore: 'Valmis lisähaasteisiin',
     practiceNoVisited: 'Ei vielä käsiteltyjä käsitteitä, joille voisi osoittaa harjoittelua.',
+    assignmentScored: '{pct}% oikein',
+    notAttemptedYet: 'Ei vielä tehty',
     courseMasterySnapshot: 'Kurssin hallinta',
     assignmentGenerating: 'Luodaan…',
     assignmentReady: 'Valmis',

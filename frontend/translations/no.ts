@@ -559,6 +559,7 @@ export const no: Translation = {
     stageAnimation: 'Genererer animasjonskode…',
     stageQueued: 'I kø for rendring…',
     stageRendering: 'Rendrer animasjon…',
+    submittedScore: 'Du fikk {pct}% — læreren din kan se resultatene dine',
   },
 
   messages: {
@@ -631,6 +632,8 @@ export const no: Translation = {
     practiceRecommended: 'Anbefalt',
     practiceReadyForMore: 'Klar for mer',
     practiceNoVisited: 'Ingen besøkte konsepter ennå å tildele øving for.',
+    assignmentScored: '{pct}% riktig',
+    notAttemptedYet: 'Ikke gjort ennå',
     courseMasterySnapshot: 'Kursmestring',
     assignmentGenerating: 'Genererer…',
     assignmentReady: 'Klar',

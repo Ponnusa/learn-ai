@@ -559,6 +559,7 @@ export const en: Translation = {
     stageAnimation: 'Generating animation code…',
     stageQueued: 'Queued for rendering…',
     stageRendering: 'Rendering animation…',
+    submittedScore: 'You scored {pct}% — your teacher can see your results',
   },
 
   messages: {
@@ -631,6 +632,8 @@ export const en: Translation = {
     practiceRecommended: 'Recommended',
     practiceReadyForMore: 'Ready for more',
     practiceNoVisited: 'No visited concepts yet to assign practice for.',
+    assignmentScored: '{pct}% scored',
+    notAttemptedYet: 'Not attempted yet',
     courseMasterySnapshot: 'Course mastery',
     assignmentGenerating: 'Generating…',
     assignmentReady: 'Ready',

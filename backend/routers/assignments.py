@@ -4,10 +4,18 @@ targeted at one struggling student instead of the whole classroom. Reuses the
 existing generation pipelines (courses.py's quiz/flashcard prompt builders, the
 Manim concept-video pipeline) rather than duplicating them.
 
-  POST /api/assignments                     — teacher creates one (kicks off generation)
-  GET  /api/assignments/student/{id}         — teacher: list a student's assignments
-  GET  /api/assignments/mine                  — student: list my assignments
-  GET  /api/assignments/{id}                  — fetch one (lazily syncs video status)
+A generated quiz/flashcard set lands in 'pending_review' rather than going
+straight to the student — a teacher must approve it first. Once approved and
+taken, a quiz attempt's score/answers are recorded back onto the same row.
+
+  POST   /api/assignments                     — teacher creates one (kicks off generation)
+  GET    /api/assignments/student/{id}         — teacher: list a student's assignments
+  GET    /api/assignments/mine                  — student: list my assignments (approved only)
+  GET    /api/assignments/{id}                  — fetch one (lazily syncs video status)
+  POST   /api/assignments/{id}/review           — teacher: approve a pending-review draft
+  POST   /api/assignments/{id}/regenerate       — teacher: re-run generation on a pending-review draft
+  DELETE /api/assignments/{id}                  — teacher: discard a pending-review or failed draft
+  POST   /api/assignments/{id}/submit           — student: record a completed quiz's score/answers
 """
 import asyncio
 import json
@@ -37,15 +45,12 @@ class CreateAssignmentRequest(BaseModel):
     kind: str
 
 
-@router.post("")
-async def create_assignment(
-    req: CreateAssignmentRequest, bg: BackgroundTasks, authorization: str = Header(...)
-):
-    if req.kind not in _KINDS:
-        raise HTTPException(400, f"kind must be one of {_KINDS}")
-
-    teacher_id = await _require_teacher_of_student(authorization, req.student_id)
-
+async def _fetch_concept_and_ladder_report(teacher_id: str, concept_id: str, student_id: str) -> tuple[dict | None, dict | None]:
+    """Look up a concept (scoped to this teacher) plus this student's own
+    latest verified ladder session report for it, if one exists. Shared by
+    create_assignment and regenerate_assignment so both feed generation the
+    same personalization signal. Returns (None, None) if the concept isn't
+    found or doesn't belong to this teacher."""
     async with get_db() as db:
         concept = await db.fetchrow("""
             SELECT cc.id, cc.title, cc.ai_summary, cc.ai_transcript, cc.source_text,
@@ -54,16 +59,9 @@ async def create_assignment(
             JOIN course_units cu ON cu.id = cc.unit_id
             JOIN courses c       ON c.id = cu.course_id
             WHERE cc.id = $1::uuid
-        """, req.concept_id)
-    if not concept or str(concept["teacher_id"]) != teacher_id:
-        raise HTTPException(404, "Concept not found")
-
-    async with get_db() as db:
-        row = await db.fetchrow("""
-            INSERT INTO student_assignments (teacher_id, student_id, concept_id, kind, title, status)
-            VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, 'generating')
-            RETURNING id
-        """, teacher_id, req.student_id, req.concept_id, req.kind, concept["title"])
+        """, concept_id)
+        if not concept or str(concept["teacher_id"]) != teacher_id:
+            return None, None
         # This student's own latest verified ladder session on this concept,
         # if one resolved — the richest personalization signal we have,
         # used below to steer generation at the actual documented weak spot
@@ -72,11 +70,47 @@ async def create_assignment(
             SELECT report FROM ladder_session_reports
             WHERE student_id = $1::uuid AND concept_id = $2::uuid AND status = 'ready'
             ORDER BY created_at DESC LIMIT 1
-        """, req.student_id, req.concept_id)
+        """, student_id, concept_id)
     ladder_report = _summarize_ladder_report(ladder_row["report"]) if ladder_row else None
+    return dict(concept), ladder_report
+
+
+async def _require_teacher_owned_assignment(assignment_id: str, authorization: str) -> dict:
+    """Teacher-only ownership check for the review/regenerate/discard actions
+    below — reuses _get_user rather than _require_teacher_of_student since
+    the assignment row's own teacher_id already proves the relationship,
+    same style already used by get_assignment's ownership check."""
+    caller_id, account_type = await _get_user(authorization)
+    if account_type not in _TEACHER_TYPES:
+        raise HTTPException(403, "Teacher only")
+    async with get_db() as db:
+        a = await db.fetchrow("SELECT * FROM student_assignments WHERE id = $1::uuid", assignment_id)
+    if not a or str(a["teacher_id"]) != caller_id:
+        raise HTTPException(404, "Assignment not found")
+    return dict(a)
+
+
+@router.post("")
+async def create_assignment(
+    req: CreateAssignmentRequest, bg: BackgroundTasks, authorization: str = Header(...)
+):
+    if req.kind not in _KINDS:
+        raise HTTPException(400, f"kind must be one of {_KINDS}")
+
+    teacher_id = await _require_teacher_of_student(authorization, req.student_id)
+    concept, ladder_report = await _fetch_concept_and_ladder_report(teacher_id, req.concept_id, req.student_id)
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+
+    async with get_db() as db:
+        row = await db.fetchrow("""
+            INSERT INTO student_assignments (teacher_id, student_id, concept_id, kind, title, status)
+            VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, 'generating')
+            RETURNING id
+        """, teacher_id, req.student_id, req.concept_id, req.kind, concept["title"])
     assignment_id = str(row["id"])
 
-    bg.add_task(_generate_assignment_bg, assignment_id, req.kind, dict(concept), req.student_id, ladder_report)
+    bg.add_task(_generate_assignment_bg, assignment_id, req.kind, concept, req.student_id, ladder_report)
     return {"id": assignment_id, "status": "generating"}
 
 
@@ -89,16 +123,20 @@ async def list_assignments_for_student(student_id: str, authorization: str = Hea
 @router.get("/mine")
 async def list_my_assignments(authorization: str = Header(...)):
     student_id = await _get_student(authorization)
-    return await _list_assignments(student_id)
+    return await _list_assignments(student_id, hide_unreviewed=True)
 
 
-async def _list_assignments(student_id: str):
+async def _list_assignments(student_id: str, hide_unreviewed: bool = False):
+    query = """
+        SELECT id, concept_id, kind, title, status, score, created_at
+        FROM student_assignments WHERE student_id = $1::uuid
+    """
+    if hide_unreviewed:
+        # A student must never see a draft still awaiting teacher approval.
+        query += " AND status != 'pending_review'"
+    query += " ORDER BY created_at DESC"
     async with get_db() as db:
-        rows = await db.fetch("""
-            SELECT id, concept_id, kind, title, status, created_at
-            FROM student_assignments WHERE student_id = $1::uuid
-            ORDER BY created_at DESC
-        """, student_id)
+        rows = await db.fetch(query, student_id)
     return [
         {
             "id":         str(r["id"]),
@@ -106,6 +144,7 @@ async def _list_assignments(student_id: str):
             "kind":       r["kind"],
             "title":      r["title"],
             "status":     r["status"],
+            "score":      r["score"],
             "created_at": r["created_at"].isoformat() if r["created_at"] else None,
         }
         for r in rows
@@ -125,6 +164,11 @@ async def get_assignment(assignment_id: str, authorization: str = Header(...)):
     owns = (is_teacher and str(a["teacher_id"]) == caller_id) or (not is_teacher and str(a["student_id"]) == caller_id)
     if not owns:
         raise HTTPException(403, "Not your assignment")
+    if not is_teacher and a["status"] == "pending_review":
+        # Second layer on top of the list endpoint's filter — a student
+        # should never see a draft awaiting approval, even by requesting
+        # its id directly.
+        raise HTTPException(404, "Assignment not found")
 
     status, error_message, video_stage, video_url = a["status"], a["error_message"], None, None
 
@@ -167,7 +211,96 @@ async def get_assignment(assignment_id: str, authorization: str = Header(...)):
         "video_url":     video_url,
         "payload":       a["payload"],
         "study_set_id":  str(a["study_set_id"]) if a["study_set_id"] else None,
+        "score":         a["score"],
+        "answers":       a["answers"],
+        "reviewed_at":   a["reviewed_at"].isoformat() if a["reviewed_at"] else None,
+        "attempted_at":  a["attempted_at"].isoformat() if a["attempted_at"] else None,
     }
+
+
+@router.post("/{assignment_id}/review")
+async def approve_assignment(assignment_id: str, authorization: str = Header(...)):
+    """Teacher approves a generated draft, making it visible to the student."""
+    a = await _require_teacher_owned_assignment(assignment_id, authorization)
+    if a["status"] != "pending_review":
+        raise HTTPException(400, "Only a pending-review assignment can be approved")
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE student_assignments SET status = 'ready', reviewed_at = NOW() WHERE id = $1::uuid",
+            assignment_id,
+        )
+    return {"status": "ready"}
+
+
+@router.post("/{assignment_id}/regenerate")
+async def regenerate_assignment(assignment_id: str, bg: BackgroundTasks, authorization: str = Header(...)):
+    """Teacher discards a pending-review draft's content and re-runs
+    generation in place, re-fetching the concept/ladder-report fresh in
+    case anything changed since the original request."""
+    a = await _require_teacher_owned_assignment(assignment_id, authorization)
+    if a["status"] != "pending_review":
+        raise HTTPException(400, "Can only regenerate a pending-review assignment")
+    if not a["concept_id"]:
+        raise HTTPException(400, "This assignment has no concept to regenerate from")
+
+    concept, ladder_report = await _fetch_concept_and_ladder_report(
+        str(a["teacher_id"]), str(a["concept_id"]), str(a["student_id"]),
+    )
+    if not concept:
+        raise HTTPException(404, "Concept not found")
+
+    async with get_db() as db:
+        await db.execute(
+            "UPDATE student_assignments SET status = 'generating', payload = NULL, error_message = NULL WHERE id = $1::uuid",
+            assignment_id,
+        )
+    bg.add_task(_generate_assignment_bg, assignment_id, a["kind"], concept, str(a["student_id"]), ladder_report)
+    return {"status": "generating"}
+
+
+@router.delete("/{assignment_id}")
+async def discard_assignment(assignment_id: str, authorization: str = Header(...)):
+    """Teacher discards a draft that's either still awaiting review or
+    failed to generate — the only two states with nothing worth keeping."""
+    a = await _require_teacher_owned_assignment(assignment_id, authorization)
+    if a["status"] not in ("pending_review", "failed"):
+        raise HTTPException(400, "Can only discard a pending-review or failed assignment")
+    async with get_db() as db:
+        await db.execute("DELETE FROM student_assignments WHERE id = $1::uuid", assignment_id)
+    return {"status": "deleted"}
+
+
+class SubmitAssignmentRequest(BaseModel):
+    score: float
+    answers: list
+
+
+@router.post("/{assignment_id}/submit")
+async def submit_assignment(assignment_id: str, req: SubmitAssignmentRequest, authorization: str = Header(...)):
+    """Student records their own completed quiz attempt — score plus the
+    same per-question answer shape already used for regular concept quizzes
+    ({qi, question, chosen, correct, ok}) — so a teacher can see completion
+    and results from the Practice tab. This didn't exist before: assignment
+    quizzes were graded entirely client-side and never reported back."""
+    student_id = await _get_student(authorization)
+    async with get_db() as db:
+        a = await db.fetchrow(
+            "SELECT student_id, kind, status FROM student_assignments WHERE id = $1::uuid", assignment_id
+        )
+    if not a or str(a["student_id"]) != student_id:
+        raise HTTPException(404, "Assignment not found")
+    if a["kind"] != "quiz":
+        raise HTTPException(400, "Only quiz assignments can be submitted")
+    if a["status"] != "ready":
+        raise HTTPException(400, "Assignment is not ready")
+
+    async with get_db() as db:
+        await db.execute("""
+            UPDATE student_assignments
+            SET score = $1, answers = $2::jsonb, attempted_at = NOW()
+            WHERE id = $3::uuid
+        """, req.score, json.dumps(req.answers), assignment_id)
+    return {"status": "recorded"}
 
 
 # ── Background generation ────────────────────────────────────────────────────
@@ -249,7 +382,7 @@ async def _generate_assignment_quiz(assignment_id: str, title: str, subject: str
 
     async with get_db() as db:
         await db.execute(
-            "UPDATE student_assignments SET payload = $1::jsonb, status = 'ready', completed_at = NOW() WHERE id = $2::uuid",
+            "UPDATE student_assignments SET payload = $1::jsonb, status = 'pending_review', completed_at = NOW() WHERE id = $2::uuid",
             json.dumps(questions), assignment_id,
         )
 
@@ -266,7 +399,7 @@ async def _generate_assignment_flashcards(assignment_id: str, title: str, source
 
     async with get_db() as db:
         await db.execute(
-            "UPDATE student_assignments SET payload = $1::jsonb, status = 'ready', completed_at = NOW() WHERE id = $2::uuid",
+            "UPDATE student_assignments SET payload = $1::jsonb, status = 'pending_review', completed_at = NOW() WHERE id = $2::uuid",
             json.dumps(cards), assignment_id,
         )
 

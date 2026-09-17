@@ -559,6 +559,7 @@ export const sv: Translation = {
     stageAnimation: 'Genererar animationskod…',
     stageQueued: 'I kö för rendering…',
     stageRendering: 'Renderar animation…',
+    submittedScore: 'Du fick {pct}% — din lärare kan se dina resultat',
   },
 
   messages: {
@@ -631,6 +632,8 @@ export const sv: Translation = {
     practiceRecommended: 'Rekommenderad',
     practiceReadyForMore: 'Redo för mer',
     practiceNoVisited: 'Inga besökta begrepp än att tilldela övning för.',
+    assignmentScored: '{pct}% rätt',
+    notAttemptedYet: 'Inte gjort än',
     courseMasterySnapshot: 'Kursbehärskning',
     assignmentGenerating: 'Genererar…',
     assignmentReady: 'Klar',

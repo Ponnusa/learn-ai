@@ -517,6 +517,7 @@ export interface Translation {
     stageAnimation: string;
     stageQueued: string;
     stageRendering: string;
+    submittedScore: string;
   };
 
   messages: {
@@ -589,6 +590,8 @@ export interface Translation {
     practiceRecommended: string;
     practiceReadyForMore: string;
     practiceNoVisited: string;
+    assignmentScored: string;
+    notAttemptedYet: string;
     courseMasterySnapshot: string;
     assignmentGenerating: string;
     assignmentReady: string;

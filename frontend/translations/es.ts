@@ -559,6 +559,7 @@ export const es: Translation = {
     stageAnimation: 'Generando código de animación…',
     stageQueued: 'En cola para renderizar…',
     stageRendering: 'Renderizando animación…',
+    submittedScore: 'Obtuviste {pct}% — tu profesor puede ver tus resultados',
   },
 
   messages: {
@@ -631,6 +632,8 @@ export const es: Translation = {
     practiceRecommended: 'Recomendado',
     practiceReadyForMore: 'Listo para más',
     practiceNoVisited: 'Aún no hay conceptos visitados para asignar práctica.',
+    assignmentScored: '{pct}% obtenido',
+    notAttemptedYet: 'Aún sin intentar',
     courseMasterySnapshot: 'Dominio del curso',
     assignmentGenerating: 'Generando…',
     assignmentReady: 'Listo',

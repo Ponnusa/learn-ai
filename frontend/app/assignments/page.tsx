@@ -26,7 +26,7 @@ interface AssignmentDetail {
 export default function AssignmentsPage() {
   const router = useRouter();
   const { user, token } = useSessionStore();
-  const { t } = useTranslation();
+  const { t, tF } = useTranslation();
 
   const KIND_LABEL: Record<string, { label: string; icon: typeof HelpCircle }> = {
     quiz:       { label: t.assignments.kindQuiz,       icon: HelpCircle },
@@ -46,9 +46,12 @@ export default function AssignmentsPage() {
   const [expandedId,   setExpandedId] = useState<string | null>(null);
   const [detail,       setDetail]     = useState<AssignmentDetail | null>(null);
   const [quizAnswers,  setQuizAnswers] = useState<Record<number, number>>({});
+  const [submitted,    setSubmitted]  = useState(false);
+  const [submittedPct, setSubmittedPct] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
+  const jsonHeaders = { ...headers, 'Content-Type': 'application/json' };
 
   useEffect(() => {
     if (!user) { router.replace('/auth/login'); return; }
@@ -68,7 +71,25 @@ export default function AssignmentsPage() {
     if (expandedId === id) { setExpandedId(null); setDetail(null); return; }
     setExpandedId(id);
     setQuizAnswers({});
+    setSubmitted(false);
+    setSubmittedPct(null);
     await fetchDetail(id);
+  }
+
+  async function submitQuizAttempt(payload: QuizQuestion[], answers: Record<number, number>) {
+    const answerList = payload.map((q, qi) => ({
+      qi, question: q.question, chosen: answers[qi], correct: q.correct_idx, ok: answers[qi] === q.correct_idx,
+    }));
+    const score = Math.round((answerList.filter(a => a.ok).length / payload.length) * 100);
+    setSubmitted(true);
+    setSubmittedPct(score);
+    if (!expandedId) return;
+    try {
+      await fetch(`${API_BASE}/api/assignments/${expandedId}/submit`, {
+        method: 'POST', headers: jsonHeaders,
+        body: JSON.stringify({ score, answers: answerList }),
+      });
+    } catch { /* the student's own view already reflects the result either way */ }
   }
 
   async function fetchDetail(id: string) {
@@ -79,6 +100,21 @@ export default function AssignmentsPage() {
     setAssignments(prev => prev.map(a => a.id === id ? { ...a, status: data.status } : a));
     if (data.status === 'generating') {
       pollRef.current = setTimeout(() => fetchDetail(id), 4000);
+    }
+  }
+
+  // Once every question in an assigned quiz has been answered, record the
+  // attempt — previously this was graded purely client-side and the
+  // teacher had no way to see whether a student even opened it. Triggered
+  // directly from the click that completes the quiz rather than an effect
+  // watching quizAnswers, since the action belongs with the event that
+  // causes it, not as a reaction to state already having changed.
+  function answerQuestion(qi: number, oi: number) {
+    const next = { ...quizAnswers, [qi]: oi };
+    setQuizAnswers(next);
+    if (!submitted && detail?.status === 'ready' && detail.kind === 'quiz' && detail.payload) {
+      const payload = detail.payload as QuizQuestion[];
+      if (Object.keys(next).length === payload.length) submitQuizAttempt(payload, next);
     }
   }
 
@@ -140,6 +176,12 @@ export default function AssignmentsPage() {
 
                     {detail.status === 'ready' && detail.kind === 'quiz' && (
                       <div className="space-y-4">
+                        {submitted && submittedPct !== null && (
+                          <p className="text-sm text-green-400 flex items-center gap-1.5 bg-green-500/8 border border-green-500/20 rounded-xl px-3 py-2">
+                            <CheckCircle2 size={14} className="shrink-0" />
+                            {tF(t.assignments.submittedScore, { pct: submittedPct })}
+                          </p>
+                        )}
                         {(detail.payload as QuizQuestion[]).map((q, qi) => {
                           const chosen = quizAnswers[qi];
                           const answered = chosen !== undefined;
@@ -156,7 +198,7 @@ export default function AssignmentsPage() {
                                   }
                                   return (
                                     <button key={oi} disabled={answered}
-                                      onClick={() => setQuizAnswers(p => ({ ...p, [qi]: oi }))}
+                                      onClick={() => answerQuestion(qi, oi)}
                                       className={`w-full text-left flex items-center gap-2 px-3 py-2 border rounded-xl text-sm transition-all ${cls}`}>
                                       <span className="flex-1"><MathText inline>{opt}</MathText></span>
                                       {answered && oi === q.correct_idx && <CheckCircle2 size={13} className="text-green-400 shrink-0" />}

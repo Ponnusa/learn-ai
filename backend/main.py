@@ -862,6 +862,16 @@ async def lifespan(app: FastAPI):
                 UNIQUE (student_id, course_id)
             )
             """,
+            # ── Assignment review gate: a generated quiz/flashcard set now
+            #    lands in 'pending_review' rather than going straight to the
+            #    student; teacher approves it ('reviewed_at') before it's
+            #    visible. Also tracks the student's own quiz attempt once
+            #    taken ('score'/'answers'/'attempted_at'), which previously
+            #    wasn't recorded anywhere â€” it was graded client-side only. ──
+            "ALTER TABLE student_assignments ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ",
+            "ALTER TABLE student_assignments ADD COLUMN IF NOT EXISTS score FLOAT",
+            "ALTER TABLE student_assignments ADD COLUMN IF NOT EXISTS answers JSONB",
+            "ALTER TABLE student_assignments ADD COLUMN IF NOT EXISTS attempted_at TIMESTAMPTZ",
         ]:
             try:
                 await db.execute(sql)

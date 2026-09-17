@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, Brain, MessageSquare, ChevronDown, ChevronUp,
@@ -67,6 +67,14 @@ interface QuizAttempt { id: string; score: number; answers: QuizAnswer[] | null;
 interface Assignment {
   id: string; concept_id: string | null; kind: string;
   title: string; status: string; created_at: string | null;
+  score: number | null;
+}
+interface AssignmentQuizQuestion { question: string; options: string[]; correct_idx: number; explanation?: string; }
+interface AssignmentFlashcard    { front: string; back: string; }
+interface AssignmentDetail {
+  id: string; kind: string; status: string;
+  payload: AssignmentQuizQuestion[] | AssignmentFlashcard[] | null;
+  score: number | null; answers: QuizAnswer[] | null;
 }
 
 interface RollupEntry {
@@ -331,6 +339,9 @@ export default function TeacherStudentDetailPage() {
 
   const [assignments,     setAssignments]     = useState<Assignment[]>([]);
   const [assigning,       setAssigning]       = useState<string | null>(null);
+  const [expandedAssignmentId,   setExpandedAssignmentId]   = useState<string | null>(null);
+  const [assignmentDetails,      setAssignmentDetails]      = useState<Record<string, AssignmentDetail>>({});
+  const [assignmentActionLoading, setAssignmentActionLoading] = useState<string | null>(null);
 
   const [expandedSummaryCourse, setExpandedSummaryCourse] = useState<string | null>(null);
   const [courseSummaries, setCourseSummaries] = useState<Record<string, CourseSummary | 'loading' | null>>({});
@@ -363,6 +374,20 @@ export default function TeacherStudentDetailPage() {
     } finally { setLoading(false); }
   }
 
+  const refreshAssignments = useCallback(async () => {
+    const r = await fetch(`${API_BASE}/api/assignments/student/${studentId}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (r.ok) setAssignments(await r.json());
+  }, [studentId, token]);
+
+  // While a teacher is watching this tab, poll for a generating assignment
+  // to land in 'pending_review' on its own — same interval/pattern as
+  // LadderReportModal's poll-while-pending.
+  useEffect(() => {
+    if (!assignments.some(a => a.status === 'generating')) return;
+    const id = setInterval(refreshAssignments, 4000);
+    return () => clearInterval(id);
+  }, [assignments, refreshAssignments]);
+
   async function assign(conceptId: string, kind: string) {
     const key = `${conceptId}:${kind}`;
     setAssigning(key);
@@ -371,11 +396,58 @@ export default function TeacherStudentDetailPage() {
         method: 'POST', headers,
         body: JSON.stringify({ student_id: studentId, concept_id: conceptId, kind }),
       });
-      if (res.ok) {
-        const r = await fetch(`${API_BASE}/api/assignments/student/${studentId}`, { headers });
-        if (r.ok) setAssignments(await r.json());
-      }
+      if (res.ok) await refreshAssignments();
     } finally { setAssigning(null); }
+  }
+
+  function forgetAssignmentDetail(id: string) {
+    setAssignmentDetails(prev => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }
+
+  async function toggleAssignment(id: string) {
+    if (expandedAssignmentId === id) { setExpandedAssignmentId(null); return; }
+    setExpandedAssignmentId(id);
+    if (assignmentDetails[id]) return;
+    const res = await fetch(`${API_BASE}/api/assignments/${id}`, { headers });
+    if (res.ok) {
+      const d: AssignmentDetail = await res.json();
+      setAssignmentDetails(prev => ({ ...prev, [id]: d }));
+    }
+  }
+
+  async function approveAssignment(id: string) {
+    setAssignmentActionLoading(`${id}:approve`);
+    try {
+      await fetch(`${API_BASE}/api/assignments/${id}/review`, { method: 'POST', headers });
+      forgetAssignmentDetail(id);
+      setExpandedAssignmentId(prev => prev === id ? null : prev);
+      await refreshAssignments();
+    } finally { setAssignmentActionLoading(null); }
+  }
+
+  async function regenerateAssignment(id: string) {
+    setAssignmentActionLoading(`${id}:regenerate`);
+    try {
+      await fetch(`${API_BASE}/api/assignments/${id}/regenerate`, { method: 'POST', headers });
+      forgetAssignmentDetail(id);
+      setExpandedAssignmentId(prev => prev === id ? null : prev);
+      await refreshAssignments();
+    } finally { setAssignmentActionLoading(null); }
+  }
+
+  async function discardAssignment(id: string) {
+    setAssignmentActionLoading(`${id}:discard`);
+    try {
+      await fetch(`${API_BASE}/api/assignments/${id}`, { method: 'DELETE', headers });
+      forgetAssignmentDetail(id);
+      setExpandedAssignmentId(prev => prev === id ? null : prev);
+      await refreshAssignments();
+    } finally { setAssignmentActionLoading(null); }
   }
 
   async function toggleQuizDrilldown(conceptId: string, hasAttempts: boolean) {
@@ -650,16 +722,99 @@ export default function TeacherStudentDetailPage() {
                           </div>
 
                           {conceptAssignments.length > 0 && (
-                            <div className="mt-2.5 pt-2.5 border-t border-[var(--bd)] space-y-1">
+                            <div className="mt-2.5 pt-2.5 border-t border-[var(--bd)] space-y-1.5">
                               {conceptAssignments.map(a => {
                                 const meta = KIND_LABEL[a.kind];
+                                const isExpanded = expandedAssignmentId === a.id;
+                                const canExpand = a.status === 'pending_review' || (a.status === 'ready' && a.kind === 'quiz' && a.score !== null);
+                                const adetail = assignmentDetails[a.id];
+                                const busy = assignmentActionLoading?.startsWith(`${a.id}:`);
                                 return (
-                                  <div key={a.id} className="flex items-center gap-2 text-xs">
-                                    {meta && <meta.icon size={11} className="text-[var(--tx7)] shrink-0" />}
-                                    <span className="flex-1 text-[var(--tx2)] truncate">{a.title}</span>
-                                    {a.status === 'generating' && <span className="text-amber-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> {t.teacher.assignmentGenerating}</span>}
-                                    {a.status === 'ready'      && <span className="text-green-400">{t.teacher.assignmentReady}</span>}
-                                    {a.status === 'failed'     && <span className="text-red-400 flex items-center gap-1"><AlertTriangle size={10} /> {t.teacher.assignmentFailed}</span>}
+                                  <div key={a.id} className="rounded-lg border border-[var(--bd)] overflow-hidden">
+                                    <button onClick={() => canExpand && toggleAssignment(a.id)} disabled={!canExpand}
+                                      className={`w-full flex items-center gap-2 text-xs px-2.5 py-2 text-left transition-colors ${canExpand ? 'hover:bg-[var(--ov1)]' : 'cursor-default'}`}>
+                                      {meta && <meta.icon size={11} className="text-[var(--tx7)] shrink-0" />}
+                                      <span className="flex-1 text-[var(--tx2)] truncate">{a.title}</span>
+                                      {a.status === 'generating' && <span className="text-amber-400 flex items-center gap-1 shrink-0"><Loader2 size={10} className="animate-spin" /> {t.teacher.assignmentGenerating}</span>}
+                                      {a.status === 'pending_review' && <span className="text-cyan-400 shrink-0">{t.teacher.assetReadyReview}</span>}
+                                      {a.status === 'ready' && a.kind === 'quiz' && a.score !== null && <span className="text-green-400 shrink-0">{tF(t.teacher.assignmentScored, { pct: Math.round(a.score) })}</span>}
+                                      {a.status === 'ready' && a.kind === 'quiz' && a.score === null && <span className="text-[var(--tx7)] shrink-0">{t.teacher.notAttemptedYet}</span>}
+                                      {a.status === 'ready' && a.kind !== 'quiz' && <span className="text-green-400 shrink-0">{t.teacher.assignmentReady}</span>}
+                                      {a.status === 'failed' && <span className="text-red-400 flex items-center gap-1 shrink-0"><AlertTriangle size={10} /> {t.teacher.assignmentFailed}</span>}
+                                      {canExpand && (isExpanded ? <ChevronUp size={11} className="text-[var(--tx7)] shrink-0" /> : <ChevronDown size={11} className="text-[var(--tx7)] shrink-0" />)}
+                                    </button>
+
+                                    {a.status === 'failed' && (
+                                      <div className="px-2.5 pb-2 flex justify-end">
+                                        <button onClick={() => discardAssignment(a.id)} disabled={!!busy}
+                                          className="text-[10px] text-[var(--tx7)] hover:text-red-400 transition-colors disabled:opacity-50">
+                                          {t.delete}
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {isExpanded && (
+                                      <div className="border-t border-[var(--bd)] p-3 bg-[var(--ov1)]">
+                                        {!adetail ? (
+                                          <Loader2 size={14} className="animate-spin text-[var(--tx7)] mx-auto block" />
+                                        ) : a.status === 'pending_review' ? (
+                                          <div className="space-y-3">
+                                            {a.kind === 'quiz' && adetail.payload && (
+                                              <div className="space-y-2.5">
+                                                {(adetail.payload as AssignmentQuizQuestion[]).map((q, qi) => (
+                                                  <div key={qi} className="text-xs">
+                                                    <p className="text-[var(--tx1)] font-medium mb-1">{qi + 1}. {q.question}</p>
+                                                    <div className="space-y-0.5 ml-3">
+                                                      {q.options.map((opt, oi) => (
+                                                        <p key={oi} className={oi === q.correct_idx ? 'text-green-400' : 'text-[var(--tx7)]'}>
+                                                          {oi === q.correct_idx ? '✓ ' : '· '}{opt}
+                                                        </p>
+                                                      ))}
+                                                    </div>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+                                            {a.kind === 'flashcards' && adetail.payload && (
+                                              <div className="grid sm:grid-cols-2 gap-2">
+                                                {(adetail.payload as AssignmentFlashcard[]).map((c, i) => (
+                                                  <div key={i} className="text-xs border border-[var(--bd)] rounded-lg p-2 bg-[var(--surface)]">
+                                                    <p className="text-[var(--tx1)] font-medium">{c.front}</p>
+                                                    <p className="text-[var(--tx7)] mt-1">{c.back}</p>
+                                                  </div>
+                                                ))}
+                                              </div>
+                                            )}
+                                            <div className="flex items-center gap-2 pt-1">
+                                              <button onClick={() => approveAssignment(a.id)} disabled={!!assignmentActionLoading}
+                                                className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/15 transition-colors disabled:opacity-50">
+                                                {assignmentActionLoading === `${a.id}:approve` ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                                                {t.teacher.approveBtn}
+                                              </button>
+                                              <button onClick={() => regenerateAssignment(a.id)} disabled={!!assignmentActionLoading}
+                                                className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-colors disabled:opacity-50">
+                                                {assignmentActionLoading === `${a.id}:regenerate` ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                                                {t.teacher.redoBtn}
+                                              </button>
+                                              <button onClick={() => discardAssignment(a.id)} disabled={!!assignmentActionLoading}
+                                                className="text-xs px-2.5 py-1.5 rounded-lg border border-[var(--bd)] text-[var(--tx7)] hover:border-red-500/40 hover:text-red-400 transition-colors disabled:opacity-50">
+                                                {t.delete}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : a.status === 'ready' && a.kind === 'quiz' && adetail.answers ? (
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            {adetail.answers.map((ans, i) => (
+                                              <span
+                                                key={i}
+                                                title={`Q${i + 1}: ${ans.question} — ${ans.ok ? 'Correct' : `Wrong (chose ${String.fromCharCode(65 + ans.chosen)})`}`}
+                                                className={`w-2.5 h-2.5 rounded-full cursor-default ${ans.ok ? 'bg-green-400' : 'bg-red-400'}`}
+                                              />
+                                            ))}
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
