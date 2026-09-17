@@ -36,8 +36,29 @@ type ChatMsg = {
  *  the tutor's own [[WAITING:0]] self-report as proof of understanding. */
 function TransferCheckCard({ check, onAnswer, onRetry }: { check: TransferCheck; onAnswer: (idx: number) => void; onRetry: () => void }) {
   const answered = check.status !== 'pending';
+
+  // Shown once, ever, per browser — makes the "why" of this check explicit
+  // (Manage-AI literacy: the point is that understanding is verified
+  // independently, not just self-reported by the tutor) rather than
+  // leaving a student to infer it from a quiz question with no context.
+  const [showExplainer, setShowExplainer] = useState(() => {
+    try {
+      return !localStorage.getItem('learnx-transfer-check-explainer-v1');
+    } catch { return false; }
+  });
+  function dismissExplainer() {
+    setShowExplainer(false);
+    try { localStorage.setItem('learnx-transfer-check-explainer-v1', '1'); } catch {}
+  }
+
   return (
     <div className="max-w-[85%] bg-[var(--ov1)] border border-cyan-500/30 rounded-2xl rounded-tl-sm px-4 py-3 text-sm">
+      {showExplainer && (
+        <div className="mb-2.5 flex items-start gap-2 text-[11px] text-cyan-300/80 bg-cyan-500/5 border border-cyan-500/20 rounded-lg px-2.5 py-2">
+          <p className="flex-1">This checks that <strong>you</strong> actually understood it yourself, not just what the AI tutor said.</p>
+          <button onClick={dismissExplainer} className="text-cyan-400/60 hover:text-cyan-300 shrink-0" aria-label="Dismiss">✕</button>
+        </div>
+      )}
       <p className="text-[10px] text-cyan-400 uppercase tracking-wide font-semibold mb-2 flex items-center gap-1">
         <Target size={11} /> Quick check
       </p>
@@ -136,6 +157,11 @@ export default function StudentConceptDetailPage() {
   const ladderRef = useRef<{ active: boolean; steps: number }>({ active: false, steps: 0 });
   // resource context: when set, next message carries this resource_id for vision/PDF grounding
   const [chatResource, setChatResource] = useState<{ id: string; title: string; type: string } | null>(null);
+  // One-time "what is this AI tutor" explainer, shown once ever per browser
+  // the first time a student opens the chat tab â€” Engage-AI literacy: makes
+  // the AI explicit rather than something students use without ever being
+  // told what it is or that it can be wrong.
+  const [showAiExplainer, setShowAiExplainer] = useState(false);
   const chatEndRef         = useRef<HTMLDivElement>(null);
   const legacyMaxWatchRef  = useRef(0);
   const lastActivityRef    = useRef(Date.now()); // updated on any user interaction
@@ -268,6 +294,9 @@ export default function StudentConceptDetailPage() {
     }
     if (activeTab === 'chat' && !chatLoaded) {
       setChatLoaded(true);
+      try {
+        if (!localStorage.getItem('learnx-ai-explainer-v1')) setShowAiExplainer(true);
+      } catch {}
       fetch(`${API_BASE}/api/courses/concepts/${conceptId}/student-chat`, {
         headers: { Authorization: `Bearer ${token}` },
       })
@@ -386,6 +415,11 @@ export default function StudentConceptDetailPage() {
         ? { ...m, transfer_check: { question: data.question, options: data.options, status: 'pending' } }
         : m));
     } catch { /* card just stays showing the old wrong result â€” student can press again */ }
+  }
+
+  function dismissAiExplainer() {
+    setShowAiExplainer(false);
+    try { localStorage.setItem('learnx-ai-explainer-v1', '1'); } catch {}
   }
 
   async function _doSendChat(msg: string, resource: typeof chatResource, isDirect: boolean) {
@@ -987,6 +1021,20 @@ export default function StudentConceptDetailPage() {
       {/* ── Chat tab content ── */}
       {activeTab === 'chat' && (
         <div className="rounded-2xl border bg-[var(--surface)] border-[var(--bd)] overflow-hidden mt-6">
+          {showAiExplainer && (
+            <div className="flex items-start gap-2.5 px-4 py-3 border-b border-[var(--bd)] bg-purple-500/5">
+              <HelpCircle size={15} className="text-purple-400 shrink-0 mt-0.5" />
+              <p className="flex-1 text-xs text-[var(--tx3)] leading-relaxed">
+                This is an AI tutor, not a person — it can make mistakes, so it is worth thinking
+                through its answers yourself. Sometimes it will ask you a question to help you work
+                something out (Guided); sometimes it will just explain (Just tell me). Either way, it
+                is here to help you learn, not just hand you answers.
+              </p>
+              <button onClick={dismissAiExplainer} className="text-[var(--tx8)] hover:text-[var(--tx3)] text-xs shrink-0" aria-label="Dismiss">
+                Got it
+              </button>
+            </div>
+          )}
           <div className="px-4 py-3 space-y-3 max-h-[480px] overflow-y-auto">
             {chatMsgs.length === 0 && (
               <p className="text-[var(--tx7)] text-sm text-center py-4">
@@ -1036,10 +1084,17 @@ export default function StudentConceptDetailPage() {
                   <div className="flex justify-start mt-1.5">
                     <div className="max-w-[85%] bg-amber-500/8 border border-amber-500/20 rounded-xl px-3.5 py-2.5 flex items-start gap-2">
                       <Sparkles size={13} className="text-amber-400 shrink-0 mt-0.5" />
-                      <p className="text-[var(--tx2)] text-xs leading-relaxed">
-                        <span className="text-amber-400 font-semibold">What you figured out: </span>
-                        <MathText inline>{msg.key_idea}</MathText>
-                      </p>
+                      <div className="flex-1">
+                        <p className="text-[var(--tx2)] text-xs leading-relaxed">
+                          <span className="text-amber-400 font-semibold">What you figured out: </span>
+                          <MathText inline>{msg.key_idea}</MathText>
+                        </p>
+                        {msg.transfer_check?.status === 'correct' && (
+                          <p className="text-green-400/80 text-[10px] mt-1.5 flex items-center gap-1">
+                            <CheckCircle2 size={10} /> Verified independently, not just self-reported by the AI
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
