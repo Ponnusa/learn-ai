@@ -5285,9 +5285,16 @@ async def post_student_chat(
                 if isinstance(pm, str):
                     try:    pm = json.loads(pm)
                     except: pm = {}
-                ct = ((pm or {}).get("transfer_check") or {}).get("check_type")
-                if ct:
-                    tested_types.add(ct)
+                prior_tc = (pm or {}).get("transfer_check")
+                if prior_tc:
+                    # Every check generated before check_type existed was,
+                    # by definition, a transfer-style check (the only kind
+                    # that existed then) — default a missing check_type to
+                    # "transfer" rather than silently not counting it, or a
+                    # concept with one old untyped chain would keep re-
+                    # picking "transfer" forever instead of ever rotating
+                    # to "constraint".
+                    tested_types.add(prior_tc.get("check_type") or "transfer")
             if "transfer" not in tested_types:
                 check_type = "transfer"
             elif "constraint" not in tested_types:
