@@ -216,12 +216,17 @@ function TrendIcon({ trend }: { trend: RollupEntry['trend'] }) {
 const TREND_LEVEL_RANK: Record<string, number> = {
   'Limited Evidence': 0, 'Beginner': 1, 'Developing': 2, 'Proficient': 3, 'Advanced': 4,
 };
-const TREND_SERIES: { key: keyof TrendPoint; label: string; color: string; width: number }[] = [
-  { key: 'academic_understanding', label: 'Overall',              color: 'text-purple-400', width: 2.5 },
-  { key: 'decision_making',        label: 'Decision-Making',      color: 'text-blue-400',   width: 1.5 },
-  { key: 'justification',          label: 'Justification',        color: 'text-amber-400',  width: 1.5 },
-  { key: 'constraint_awareness',   label: 'Constraint Awareness', color: 'text-pink-400',   width: 1.5 },
-  { key: 'transfer',               label: 'Transfer',             color: 'text-cyan-400',   width: 1.5 },
+const TREND_SERIES: { key: keyof TrendPoint; label: string; color: string; dot: string; width: number }[] = [
+  // `dot` is spelled out explicitly (not derived from `color` via string
+  // replace) because Tailwind's build-time scanner only picks up class
+  // names that appear literally in source — a computed 'bg-' + shade
+  // string is invisible to it and silently produces no CSS at all, which
+  // is exactly why the constraint-awareness legend swatch had no color.
+  { key: 'academic_understanding', label: 'Overall',              color: 'text-purple-400', dot: 'bg-purple-400', width: 2.5 },
+  { key: 'decision_making',        label: 'Decision-Making',      color: 'text-blue-400',   dot: 'bg-blue-400',   width: 1.5 },
+  { key: 'justification',          label: 'Justification',        color: 'text-amber-400',  dot: 'bg-amber-400',  width: 1.5 },
+  { key: 'constraint_awareness',   label: 'Constraint Awareness', color: 'text-pink-400',   dot: 'bg-pink-400',   width: 1.5 },
+  { key: 'transfer',               label: 'Transfer',             color: 'text-cyan-400',   dot: 'bg-cyan-400',   width: 1.5 },
 ];
 
 /** Level-over-time line chart across a student's dated ladder session
@@ -268,7 +273,7 @@ function TrendChart({ series }: { series: TrendPoint[] }) {
       <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
         {TREND_SERIES.map(s => (
           <span key={s.key} className="flex items-center gap-1 text-[10px] text-[var(--tx7)]">
-            <span className={`w-2 h-2 rounded-full ${s.color.replace('text-', 'bg-')}`} />
+            <span className={`w-2 h-2 rounded-full ${s.dot}`} />
             {s.label}
           </span>
         ))}
