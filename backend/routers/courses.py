@@ -5272,9 +5272,28 @@ async def post_student_chat(
             # otherwise (the ladder's own questions rarely branch into "does
             # this depend on X" on their own), so without this it stays
             # "Limited Evidence" by structural default, not because students
-            # can't reason about it. Weighted toward transfer since that's
-            # this gate's original purpose.
-            check_type = "constraint" if random.random() < 0.4 else "transfer"
+            # can't reason about it. Prefer whichever type this student
+            # HASN'T already been tested on for this concept (reusing
+            # prior_assistant, already fetched above, rather than a random
+            # coin flip that could easily miss one dimension entirely for a
+            # concept that only ever produces one or two resolved chains) â€”
+            # once both are covered at least once, fall back to weighted
+            # random so coverage keeps compounding rather than stalling.
+            tested_types: set = set()
+            for row in prior_assistant:
+                pm = row["metadata"]
+                if isinstance(pm, str):
+                    try:    pm = json.loads(pm)
+                    except: pm = {}
+                ct = ((pm or {}).get("transfer_check") or {}).get("check_type")
+                if ct:
+                    tested_types.add(ct)
+            if "transfer" not in tested_types:
+                check_type = "transfer"
+            elif "constraint" not in tested_types:
+                check_type = "constraint"
+            else:
+                check_type = "constraint" if random.random() < 0.4 else "transfer"
             tc = await _generate_transfer_check(concept["title"], concept["subject"], reply, effective_language, check_type)
             if tc:
                 verification = {
