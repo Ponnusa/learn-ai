@@ -1035,7 +1035,7 @@ export default function StudentConceptDetailPage() {
               </button>
             </div>
           )}
-          <div className="px-4 py-3 space-y-3 max-h-[480px] overflow-y-auto">
+          <div className="px-4 py-3 space-y-3">
             {chatMsgs.length === 0 && (
               <p className="text-[var(--tx7)] text-sm text-center py-4">
                 {t.concept.chatAskAnything} <span className="text-[var(--tx3)] font-medium">{concept.title}</span>
