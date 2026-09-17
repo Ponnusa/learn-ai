@@ -54,7 +54,10 @@ interface Assignment {
   title: string; status: string; created_at: string | null;
 }
 
-interface RollupEntry { most_common: string | null; trend: 'up' | 'down' | 'flat' | 'insufficient'; session_count: number; }
+interface RollupEntry {
+  most_common: string | null; trend: 'up' | 'down' | 'flat' | 'insufficient'; session_count: number;
+  most_common_confidence?: string | null; most_common_support_level?: string | null;
+}
 interface CourseSummary {
   layer1: {
     total_concepts: number; visited_count: number; avg_quiz_score: number | null;
@@ -191,14 +194,14 @@ function CourseSummaryPanel({ summary }: { summary: CourseSummary }) {
       {/* Layer 1 — quantitative roll-up */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
         {[
-          ['Visited', `${layer1.visited_count}/${layer1.total_concepts}`],
-          ['Avg quiz', layer1.avg_quiz_score !== null ? `${Math.round(layer1.avg_quiz_score)}%` : '—'],
-          ['Mastered', `${layer1.mastered_count}/${layer1.total_concepts}`],
-          ['Guided', String(layer1.guided_resolved_count)],
-          ['Avg steps', layer1.guided_avg_steps !== null ? layer1.guided_avg_steps.toFixed(1) : '—'],
-          ['Last active', layer1.last_active ? new Date(layer1.last_active).toLocaleDateString() : '—'],
-        ].map(([label, value]) => (
-          <div key={label} className="text-center">
+          ['Visited', `${layer1.visited_count}/${layer1.total_concepts}`, undefined],
+          ['Avg quiz', layer1.avg_quiz_score !== null ? `${Math.round(layer1.avg_quiz_score)}%` : '—', 'Average score across formal quiz attempts only — a low score here does not lower Mastered below, see that stat\'s own note.'],
+          ['Mastered', `${layer1.mastered_count}/${layer1.total_concepts}`, 'A concept counts as mastered if the student either scored 70%+ on its quiz OR resolved at least one verified guided-discovery session for it — whichever happens first. Independent of the Avg quiz number above.'],
+          ['Guided', String(layer1.guided_resolved_count), 'Guided-discovery chains resolved and verified by an independent check, not just self-reported by the AI tutor.'],
+          ['Avg steps', layer1.guided_avg_steps !== null ? layer1.guided_avg_steps.toFixed(1) : '—', 'Average number of guiding questions per resolved chain — higher can mean more scaffolding was needed, not necessarily a problem.'],
+          ['Last active', layer1.last_active ? new Date(layer1.last_active).toLocaleDateString() : '—', undefined],
+        ].map(([label, value, tooltip]) => (
+          <div key={label} className="text-center" title={tooltip}>
             <p className="text-[9px] text-[var(--tx7)] uppercase tracking-wide mb-0.5">{label}</p>
             <p className="text-sm font-semibold text-[var(--tx1)]">{value}</p>
           </div>
@@ -229,12 +232,21 @@ function CourseSummaryPanel({ summary }: { summary: CourseSummary }) {
             {DIMENSION_LABELS.map(([key, label]) => {
               const entry = layer2.thinking_radar[key];
               return (
-                <div key={key} className="flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--bd)]">
-                  <span className="text-xs text-[var(--tx2)]">{label}</span>
-                  <span className="flex items-center gap-1.5">
-                    <TrendIcon trend={entry.trend} />
-                    {entry.most_common && <LevelPill level={entry.most_common} />}
-                  </span>
+                <div key={key} className="px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--bd)]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-[var(--tx2)]">{label}</span>
+                    <span className="flex items-center gap-1.5">
+                      <TrendIcon trend={entry.trend} />
+                      {entry.most_common && <LevelPill level={entry.most_common} />}
+                    </span>
+                  </div>
+                  {(entry.most_common_support_level || entry.most_common_confidence) && (
+                    <p className="text-[9px] text-[var(--tx8)] mt-1">
+                      {entry.most_common_support_level && <>Usually {entry.most_common_support_level.toLowerCase()}</>}
+                      {entry.most_common_support_level && entry.most_common_confidence && ' · '}
+                      {entry.most_common_confidence && <>{entry.most_common_confidence} confidence</>}
+                    </p>
+                  )}
                 </div>
               );
             })}

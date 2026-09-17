@@ -367,6 +367,12 @@ def _rollup_levels(levels: list[str]) -> dict:
     return {"most_common": most_common, "trend": trend, "session_count": len(levels)}
 
 
+def _most_common(values: list[str]) -> str | None:
+    """Simple mode, no trend â€” used for confidence/support_level, where a
+    trend arrow doesn't mean much the way it does for a level."""
+    return Counter(values).most_common(1)[0][0] if values else None
+
+
 @router.get("/{student_id}/courses/{course_id}/summary")
 async def get_student_course_summary(student_id: str, course_id: str, authorization: str = Header(...)):
     """
@@ -463,11 +469,18 @@ async def get_student_course_summary(student_id: str, course_id: str, authorizat
     ]
     dim_rollups = {}
     for dim in REPORT_DIMENSIONS:
-        levels = [
-            r["report"]["thinking_radar"][dim]["level"] for r in reports
+        dim_entries = [
+            r["report"]["thinking_radar"][dim] for r in reports
             if r["report"].get("thinking_radar", {}).get(dim, {}).get("level")
         ]
-        dim_rollups[dim] = _rollup_levels(levels)
+        rollup = _rollup_levels([e["level"] for e in dim_entries])
+        # Confidence and support level are computed per-session already but
+        # were being discarded at the rollup — a teacher scanning Complete
+        # Result could see a dimension's level but never how independently
+        # it was achieved, or how confident that assessment even was.
+        rollup["most_common_confidence"]    = _most_common([e["confidence"] for e in dim_entries if e.get("confidence")])
+        rollup["most_common_support_level"] = _most_common([e["support_level"] for e in dim_entries if e.get("support_level")])
+        dim_rollups[dim] = rollup
 
     weakest = min(
         (d for d in dim_rollups if dim_rollups[d]["most_common"] is not None),
