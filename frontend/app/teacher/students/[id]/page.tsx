@@ -4,7 +4,7 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, Brain, MessageSquare, ChevronDown, ChevronUp,
   Sparkles, HelpCircle, Layers, Video, BookOpen, AlertTriangle,
-  CheckCircle2, Circle, Clock, Zap, TrendingUp, TrendingDown, Minus, Footprints, Target,
+  CheckCircle2, Circle, Clock, Zap, TrendingUp, TrendingDown, Minus, Footprints, Target, Star,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -12,6 +12,13 @@ import { LevelPill } from '@/components/course/LadderReportModal';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+interface LadderReportSummary {
+  weak_dimension: string | null;
+  weak_level: string | null;
+  next_growth_step: string | null;
+  suggested_next_topic: string | null;
+  optional_extension: string | null;
+}
 interface ConceptProgress {
   id: string; title: string;
   visited: boolean; quiz_score: number | null;
@@ -26,6 +33,9 @@ interface ConceptProgress {
   last_attempt_answers: QuizAnswer[] | null;
   guided_resolved_count: number;
   guided_avg_steps: number | null;
+  ladder_report: LadderReportSummary | null;
+  recommended_kind: string | null;
+  recommend_reason: string | null;
 }
 interface CourseProgress  { id: string; name: string; concepts: ConceptProgress[]; }
 interface StudentProgress { id: string; name: string; email: string; courses: CourseProgress[]; }
@@ -306,11 +316,12 @@ export default function TeacherStudentDetailPage() {
   const [loadingQuizHistory,  setLoadingQuizHistory]  = useState<string | null>(null);
 
   const [assignments,     setAssignments]     = useState<Assignment[]>([]);
-  const [selectedConcept, setSelectedConcept] = useState('');
   const [assigning,       setAssigning]       = useState<string | null>(null);
 
   const [expandedSummaryCourse, setExpandedSummaryCourse] = useState<string | null>(null);
   const [courseSummaries, setCourseSummaries] = useState<Record<string, CourseSummary | 'loading' | null>>({});
+
+  const [activeTab, setActiveTab] = useState<'overview' | 'progress' | 'practice' | 'conversations'>('overview');
 
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -334,20 +345,16 @@ export default function TeacherStudentDetailPage() {
       if (profileRes.ok) setProfile(await profileRes.json());
       if (convRes.ok)    setConversations(await convRes.json());
       if (assignRes.ok)  setAssignments(await assignRes.json());
-      if (!selectedConcept) {
-        const first = progress.courses?.[0]?.concepts?.[0]?.id;
-        if (first) setSelectedConcept(first);
-      }
     } finally { setLoading(false); }
   }
 
-  async function assign(kind: string) {
-    if (!selectedConcept) return;
-    setAssigning(kind);
+  async function assign(conceptId: string, kind: string) {
+    const key = `${conceptId}:${kind}`;
+    setAssigning(key);
     try {
       const res = await fetch(`${API_BASE}/api/assignments`, {
         method: 'POST', headers,
-        body: JSON.stringify({ student_id: studentId, concept_id: selectedConcept, kind }),
+        body: JSON.stringify({ student_id: studentId, concept_id: conceptId, kind }),
       });
       if (res.ok) {
         const r = await fetch(`${API_BASE}/api/assignments/student/${studentId}`, { headers });
@@ -426,103 +433,190 @@ export default function TeacherStudentDetailPage() {
         </button>
       </div>
 
-      {/* Learning profile */}
-      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
-        <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <Brain size={12} /> {t.teacher.learningProfileLabel}
-        </h2>
-        {!profile?.has_profile ? (
-          <p className="text-[var(--tx7)] text-sm">{t.teacher.noProfileYet}</p>
-        ) : (
-          <div className="space-y-3">
-            {Object.keys(profile.skill_scores).length > 0 && (
-              <div className="space-y-1.5">
-                {Object.entries(profile.skill_scores).map(([subject, score]) => (
-                  <div key={subject} className="flex items-center gap-2 text-xs">
-                    <span className="w-28 text-[var(--tx6)] truncate shrink-0">{subject}</span>
-                    <div className="flex-1 h-1.5 rounded-full bg-[var(--ov3)] overflow-hidden">
-                      <div className={`h-full rounded-full ${score >= 70 ? 'bg-green-500' : score >= 40 ? 'bg-amber-500' : 'bg-red-500'}`}
-                        style={{ width: `${score}%` }} />
-                    </div>
-                    <span className="text-[var(--tx6)] w-8 text-right shrink-0">{Math.round(score)}</span>
+      {/* Tab bar */}
+      <div className="flex items-center gap-1 mb-5 border-b border-[var(--bd)]">
+        {([
+          ['overview',      t.teacher.tabOverview,      Brain],
+          ['progress',      t.teacher.tabProgress,      Footprints],
+          ['practice',      t.teacher.tabPractice,      Sparkles],
+          ['conversations', t.teacher.tabConversations, MessageSquare],
+        ] as const).map(([key, label, Icon]) => (
+          <button key={key} onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              activeTab === key
+                ? 'border-purple-500 text-purple-400'
+                : 'border-transparent text-[var(--tx7)] hover:text-[var(--tx2)]'
+            }`}>
+            <Icon size={14} /> {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Overview tab */}
+      {activeTab === 'overview' && (
+        <div className="space-y-4">
+          <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
+            <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <Brain size={12} /> {t.teacher.learningProfileLabel}
+            </h2>
+            {!profile?.has_profile ? (
+              <p className="text-[var(--tx7)] text-sm">{t.teacher.noProfileYet}</p>
+            ) : (
+              <div className="space-y-3">
+                {Object.keys(profile.skill_scores).length > 0 && (
+                  <div className="space-y-1.5">
+                    {Object.entries(profile.skill_scores).map(([subject, score]) => (
+                      <div key={subject} className="flex items-center gap-2 text-xs">
+                        <span className="w-28 text-[var(--tx6)] truncate shrink-0">{subject}</span>
+                        <div className="flex-1 h-1.5 rounded-full bg-[var(--ov3)] overflow-hidden">
+                          <div className={`h-full rounded-full ${score >= 70 ? 'bg-green-500' : score >= 40 ? 'bg-amber-500' : 'bg-red-500'}`}
+                            style={{ width: `${score}%` }} />
+                        </div>
+                        <span className="text-[var(--tx6)] w-8 text-right shrink-0">{Math.round(score)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {profile.struggle_areas.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {profile.struggle_areas.map((a, i) => (
+                      <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">{a}</span>
+                    ))}
+                  </div>
+                )}
+                {profile.known_misconceptions.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {profile.known_misconceptions.map((m, i) => (
+                      <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">{m}</span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center gap-3 text-xs text-[var(--tx7)]">
+                  {profile.grade && <span>Grade: {profile.grade}</span>}
+                  {profile.goal  && <span>Goal: {profile.goal}</span>}
+                  <span>{profile.total_messages} AI messages</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {data.courses.length > 0 && (
+            <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
+              <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3">{t.teacher.courseMasterySnapshot}</h2>
+              <div className="space-y-3">
+                {data.courses.map(course => (
+                  <div key={course.id}>
+                    <p className="text-sm text-[var(--tx2)] mb-1.5">{course.name}</p>
+                    <MasteryBar concepts={course.concepts} />
                   </div>
                 ))}
               </div>
-            )}
-            {profile.struggle_areas.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {profile.struggle_areas.map((a, i) => (
-                  <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">{a}</span>
-                ))}
-              </div>
-            )}
-            {profile.known_misconceptions.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {profile.known_misconceptions.map((m, i) => (
-                  <span key={i} className="text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">{m}</span>
-                ))}
-              </div>
-            )}
-            <div className="flex items-center gap-3 text-xs text-[var(--tx7)]">
-              {profile.grade && <span>Grade: {profile.grade}</span>}
-              {profile.goal  && <span>Goal: {profile.goal}</span>}
-              <span>{profile.total_messages} AI messages</span>
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
-      {/* Assign extra practice */}
-      <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
-        <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
-          <Sparkles size={12} /> {t.teacher.assignExtraPractice}
-        </h2>
-        {data.courses.length === 0 ? (
-          <p className="text-[var(--tx7)] text-sm">{t.teacher.noConceptsToAssign}</p>
-        ) : (
-          <>
-            <select value={selectedConcept} onChange={e => setSelectedConcept(e.target.value)}
-              className="w-full bg-[var(--input)] border border-[var(--bd)] rounded-xl px-3 py-2 text-sm
-                         text-[var(--tx1)] outline-none focus:border-purple-500/60 transition-colors mb-3">
-              {data.courses.map(c => (
-                <optgroup key={c.id} label={c.name}>
-                  {c.concepts.map(concept => (
-                    <option key={concept.id} value={concept.id}>{concept.title}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <div className="flex gap-2 flex-wrap">
-              {Object.entries(KIND_LABEL).map(([kind, { label, icon: Icon }]) => (
-                <button key={kind} onClick={() => assign(kind)} disabled={!!assigning}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border border-[var(--bd)]
-                             text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
-                  {assigning === kind ? <Loader2 size={14} className="animate-spin" /> : <Icon size={14} />}
-                  {label}
-                </button>
-              ))}
+      {/* Practice tab — per-concept, ladder-informed */}
+      {activeTab === 'practice' && (
+        <div className="space-y-4">
+          {data.courses.length === 0 ? (
+            <div className="bg-[var(--ov1)] border border-dashed border-[var(--bd)] rounded-2xl p-6 text-center">
+              <p className="text-[var(--tx6)] text-sm">{t.teacher.noConceptsToAssign}</p>
             </div>
-          </>
-        )}
-        {assignments.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-[var(--bd)] space-y-1.5">
-            {assignments.map(a => {
-              const meta = KIND_LABEL[a.kind];
-              return (
-                <div key={a.id} className="flex items-center gap-2 text-sm">
-                  {meta && <meta.icon size={13} className="text-[var(--tx7)] shrink-0" />}
-                  <span className="flex-1 text-[var(--tx2)] truncate">{a.title}</span>
-                  {a.status === 'generating' && <span className="text-xs text-amber-400 flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> {t.teacher.assignmentGenerating}</span>}
-                  {a.status === 'ready'      && <span className="text-xs text-green-400">{t.teacher.assignmentReady}</span>}
-                  {a.status === 'failed'     && <span className="text-xs text-red-400 flex items-center gap-1"><AlertTriangle size={11} /> {t.teacher.assignmentFailed}</span>}
+          ) : (
+            (() => {
+              const order: Record<Mastery, number> = { struggling: 0, practiced: 1, visited: 2, mastered: 3, none: 4 };
+              const coursesWithVisited = data.courses
+                .map(c => ({ course: c, visited: [...c.concepts.filter(cc => cc.visited)].sort((a, b) => order[getMastery(a)] - order[getMastery(b)]) }))
+                .filter(x => x.visited.length > 0);
+              if (coursesWithVisited.length === 0) {
+                return <p className="text-[var(--tx7)] text-sm text-center py-6">{t.teacher.practiceNoVisited}</p>;
+              }
+              return coursesWithVisited.map(({ course, visited }) => (
+                <div key={course.id} className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5">
+                  <h2 className="text-[var(--tx1)] font-semibold mb-3">{course.name}</h2>
+                  <div className="space-y-3">
+                    {visited.map(concept => {
+                      const m = getMastery(concept);
+                      const conceptAssignments = assignments.filter(a => a.concept_id === concept.id);
+                      const lr = concept.ladder_report;
+                      return (
+                        <div key={concept.id} className="border border-[var(--bd)] rounded-xl p-3.5">
+                          <div className="flex items-center gap-2 mb-2">
+                            {m === 'mastered'   && <CheckCircle2 size={13} className="text-green-400 shrink-0" />}
+                            {m === 'practiced'  && <CheckCircle2 size={13} className="text-amber-400 shrink-0" />}
+                            {m === 'struggling' && <AlertTriangle size={13} className="text-red-400 shrink-0" />}
+                            {m === 'visited'    && <Circle size={13} className="text-blue-400 shrink-0" />}
+                            <span className="text-sm font-medium text-[var(--tx1)] flex-1 truncate">{concept.title}</span>
+                          </div>
+
+                          {lr && m === 'mastered' && lr.optional_extension ? (
+                            <p className="text-xs text-cyan-400 mb-2.5 flex items-start gap-1.5">
+                              <Sparkles size={11} className="shrink-0 mt-0.5" />
+                              <span>{t.teacher.practiceReadyForMore}: {lr.optional_extension}</span>
+                            </p>
+                          ) : lr && lr.weak_dimension ? (
+                            <div className="mb-2.5">
+                              <p className="text-xs text-amber-400 flex items-center gap-1">
+                                <Target size={11} />
+                                {tF(t.teacher.practiceFocusLabel, { dim: lr.weak_dimension, level: lr.weak_level || '' })}
+                              </p>
+                              {lr.next_growth_step && (
+                                <p className="text-[11px] text-[var(--tx7)] mt-0.5 ml-4">{lr.next_growth_step}</p>
+                              )}
+                            </div>
+                          ) : null}
+
+                          <div className="flex gap-2 flex-wrap">
+                            {Object.entries(KIND_LABEL).map(([kind, { label, icon: Icon }]) => {
+                              const key = `${concept.id}:${kind}`;
+                              const isRecommended = concept.recommended_kind === kind;
+                              return (
+                                <button key={kind} onClick={() => assign(concept.id, kind)}
+                                  disabled={assigning === key}
+                                  title={isRecommended ? (concept.recommend_reason || undefined) : undefined}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all disabled:opacity-50 ${
+                                    isRecommended
+                                      ? 'border-purple-500/50 bg-purple-500/10 text-purple-300 hover:bg-purple-500/15'
+                                      : 'border-[var(--bd)] text-[var(--tx6)] hover:border-purple-500/40 hover:text-purple-400'
+                                  }`}>
+                                  {assigning === key ? <Loader2 size={14} className="animate-spin" /> : isRecommended ? <Star size={13} className="fill-purple-400 text-purple-400" /> : <Icon size={14} />}
+                                  {label}
+                                  {isRecommended && <span className="text-[9px] uppercase tracking-wide opacity-80">{t.teacher.practiceRecommended}</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {conceptAssignments.length > 0 && (
+                            <div className="mt-2.5 pt-2.5 border-t border-[var(--bd)] space-y-1">
+                              {conceptAssignments.map(a => {
+                                const meta = KIND_LABEL[a.kind];
+                                return (
+                                  <div key={a.id} className="flex items-center gap-2 text-xs">
+                                    {meta && <meta.icon size={11} className="text-[var(--tx7)] shrink-0" />}
+                                    <span className="flex-1 text-[var(--tx2)] truncate">{a.title}</span>
+                                    {a.status === 'generating' && <span className="text-amber-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> {t.teacher.assignmentGenerating}</span>}
+                                    {a.status === 'ready'      && <span className="text-green-400">{t.teacher.assignmentReady}</span>}
+                                    {a.status === 'failed'     && <span className="text-red-400 flex items-center gap-1"><AlertTriangle size={10} /> {t.teacher.assignmentFailed}</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+              ));
+            })()
+          )}
+        </div>
+      )}
 
-      {/* AI tutor conversations */}
+      {/* Conversations tab */}
+      {activeTab === 'conversations' && (
       <div className="bg-[var(--surface)] border border-[var(--bd)] rounded-2xl p-5 mb-4">
         <h2 className="text-[var(--tx2)] text-xs font-semibold uppercase tracking-wider mb-3 flex items-center gap-1.5">
           <MessageSquare size={12} /> {t.teacher.aiConversations}
@@ -562,9 +656,11 @@ export default function TeacherStudentDetailPage() {
           </div>
         )}
       </div>
+      )}
 
-      {/* Course progress — per-concept detail */}
-      {data.courses.length === 0 ? (
+      {/* Progress tab — per-concept detail */}
+      {activeTab === 'progress' && (
+      data.courses.length === 0 ? (
         <div className="bg-[var(--ov1)] border border-dashed border-[var(--bd)] rounded-2xl p-6 text-center">
           <p className="text-[var(--tx6)] text-sm">{t.teacher.noCoursesAssigned}</p>
         </div>
@@ -761,7 +857,7 @@ export default function TeacherStudentDetailPage() {
             );
           })}
         </div>
-      )}
+      ))}
     </div>
   );
 }

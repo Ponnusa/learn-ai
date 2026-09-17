@@ -581,6 +581,15 @@ export interface Translation {
     noProfileYet: string;
     assignExtraPractice: string;
     noConceptsToAssign: string;
+    tabOverview: string;
+    tabProgress: string;
+    tabPractice: string;
+    tabConversations: string;
+    practiceFocusLabel: string;
+    practiceRecommended: string;
+    practiceReadyForMore: string;
+    practiceNoVisited: string;
+    courseMasterySnapshot: string;
     assignmentGenerating: string;
     assignmentReady: string;
     assignmentFailed: string;

@@ -21,7 +21,7 @@ from routers.courses import (
     _get_student, build_quiz_prompt, build_flashcard_prompt,
     _map_manim_subject, _build_concept_video_prompt,
 )
-from routers.students import _require_teacher_of_student
+from routers.students import _require_teacher_of_student, _summarize_ladder_report
 from services.ai_router import openai_client
 
 logger = logging.getLogger(__name__)
@@ -64,9 +64,19 @@ async def create_assignment(
             VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, 'generating')
             RETURNING id
         """, teacher_id, req.student_id, req.concept_id, req.kind, concept["title"])
+        # This student's own latest verified ladder session on this concept,
+        # if one resolved — the richest personalization signal we have,
+        # used below to steer generation at the actual documented weak spot
+        # instead of only the coarser struggle_areas/known_misconceptions.
+        ladder_row = await db.fetchrow("""
+            SELECT report FROM ladder_session_reports
+            WHERE student_id = $1::uuid AND concept_id = $2::uuid AND status = 'ready'
+            ORDER BY created_at DESC LIMIT 1
+        """, req.student_id, req.concept_id)
+    ladder_report = _summarize_ladder_report(ladder_row["report"]) if ladder_row else None
     assignment_id = str(row["id"])
 
-    bg.add_task(_generate_assignment_bg, assignment_id, req.kind, dict(concept), req.student_id)
+    bg.add_task(_generate_assignment_bg, assignment_id, req.kind, dict(concept), req.student_id, ladder_report)
     return {"id": assignment_id, "status": "generating"}
 
 
@@ -162,7 +172,7 @@ async def get_assignment(assignment_id: str, authorization: str = Header(...)):
 
 # ── Background generation ────────────────────────────────────────────────────
 
-async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, student_id: str):
+async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, student_id: str, ladder_report: dict | None = None):
     try:
         async with get_db() as db:
             profile = await db.fetchrow(
@@ -176,6 +186,19 @@ async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, 
             "Emphasize and reinforce these specific weak areas.\n"
             if weak_spots else ""
         )
+        # A resolved+verified guided-discovery session on this exact concept
+        # documents an actual observed weak dimension — a far more specific
+        # and trustworthy signal than the general struggle_areas list above,
+        # so it's appended on top rather than replacing it.
+        if ladder_report and ladder_report.get("weak_dimension"):
+            extra += (
+                f"This student's guided-discovery session on this concept showed their weakest area is "
+                f"{ladder_report['weak_dimension']} ({ladder_report.get('weak_level') or 'Developing'}). "
+                f"Specific growth step identified: {ladder_report.get('next_growth_step') or 'apply the idea to a new situation'}\n"
+                "Design this content to directly exercise that gap — e.g. if the gap is applying the idea "
+                "to new situations or recognizing what changes an outcome, include at least one question/card "
+                "that requires exactly that, not just recall of what was already covered.\n"
+            )
 
         source   = concept["source_text"] or concept["ai_summary"] or concept["title"]
         subject  = concept["subject"] or "General"

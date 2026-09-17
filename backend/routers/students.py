@@ -29,6 +29,54 @@ _DIMENSION_LABELS = {
 }
 
 
+def _summarize_ladder_report(report) -> dict | None:
+    """Pull the one weakest thinking_radar dimension + the report's own
+    forward-looking fields out of a ladder session report, for steering
+    Assign Extra Practice. Returns None if the report has no usable
+    dimension data at all."""
+    if isinstance(report, str):
+        try:    report = json.loads(report)
+        except Exception: return None
+    if not report:
+        return None
+    radar = report.get("thinking_radar") or {}
+    dim_entries = {d: radar[d] for d in REPORT_DIMENSIONS if radar.get(d, {}).get("level")}
+    weak_dim_key = min(dim_entries, key=lambda d: _LEVEL_RANK.get(dim_entries[d]["level"], 0)) if dim_entries else None
+    weak = dim_entries.get(weak_dim_key) if weak_dim_key else None
+    return {
+        "weak_dimension":        _DIMENSION_LABELS.get(weak_dim_key) if weak_dim_key else None,
+        "weak_level":            weak.get("level") if weak else None,
+        "next_growth_step":      weak.get("next_growth_step") if weak else None,
+        "suggested_next_topic":  report.get("suggested_next_topic"),
+        "optional_extension":    report.get("optional_extension"),
+    }
+
+
+def _recommend_practice(ladder_summary: dict | None, quiz_score: float | None,
+                         has_quiz_attempts: bool, ai_msg_count: int) -> tuple[str | None, str | None]:
+    """Deterministic (no AI call) content-kind suggestion for one concept —
+    same "pure code over an AI call where the data is already structured"
+    approach as _rollup_levels below. A resolved+verified ladder chain is
+    the richest signal (it documents an actual observed weak dimension);
+    quiz/engagement signals are the fallback for concepts with no chain
+    resolved yet. Returns (None, None) when there's no clear signal to
+    act on, e.g. already mastered via a strong quiz score."""
+    if ladder_summary:
+        dim = ladder_summary.get("weak_dimension")
+        if dim in ("Transfer", "Constraint Awareness"):
+            return "quiz", f"Focus area is {dim} — a quiz best tests applying this to a new situation."
+        if dim in ("Justification", "Decision-Making"):
+            return "studyset", f"Focus area is {dim} — a guided chat can probe their reasoning."
+        return None, None
+    if has_quiz_attempts and quiz_score is not None and quiz_score < 70:
+        return "flashcards", f"Quiz score {round(quiz_score)}% — reinforce the fundamentals first."
+    if not has_quiz_attempts and ai_msg_count == 0:
+        return "video", "Hasn't engaged with this concept yet — a fresh explainer may help."
+    if not has_quiz_attempts and ai_msg_count > 0:
+        return "studyset", "Has been chatting about this — a guided study set continues that."
+    return None, None
+
+
 async def _require_teacher_of_student(authorization: str, student_id: str) -> str:
     """Teacher auth + verifies this student is enrolled in one of the caller's classrooms."""
     teacher_id = await _require_teacher(authorization)
@@ -158,6 +206,18 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             GROUP BY cc.id
         """, student_id)
 
+        # Each concept's latest ready ladder session report — the richest
+        # signal we have on what this specific student actually struggled
+        # with on this specific concept, used below to steer "Assign Extra
+        # Practice" instead of the old blunt struggle_areas-only signal.
+        ladder_report_rows = await db.fetch("""
+            SELECT DISTINCT ON (lsr.concept_id)
+                   lsr.concept_id, lsr.report
+            FROM ladder_session_reports lsr
+            WHERE lsr.student_id = $1::uuid AND lsr.status = 'ready' AND lsr.concept_id IS NOT NULL
+            ORDER BY lsr.concept_id, lsr.created_at DESC
+        """, student_id)
+
     fc_map: dict[str, dict] = {}
     for r in fc_rows:
         total    = int(r["total_cards"]   or 0)
@@ -188,6 +248,11 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
         str(r["concept_id"]): {"resolved_count": int(r["resolved_count"]), "avg_steps": round(float(r["avg_steps"]), 1)}
         for r in guided_rows
     }
+    ladder_map: dict[str, dict] = {}
+    for r in ladder_report_rows:
+        summary = _summarize_ladder_report(r["report"])
+        if summary:
+            ladder_map[str(r["concept_id"])] = summary
 
     courses: dict[str, dict] = {}
     for r in rows:
@@ -197,6 +262,10 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
         cpt_id = str(r["concept_id"])
         fc     = fc_map.get(cpt_id, {})
         ls     = r["last_seen_at"]
+        ladder_summary = ladder_map.get(cpt_id)
+        recommended_kind, recommend_reason = _recommend_practice(
+            ladder_summary, r["quiz_score"], len(attempt_map.get(cpt_id, [])) > 0, ai_map.get(cpt_id, 0),
+        )
         courses[cid]["concepts"].append({
             "id":                 cpt_id,
             "title":              r["concept_title"],
@@ -214,6 +283,9 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             "last_attempt_answers":  last_answers_map.get(cpt_id),
             "guided_resolved_count": guided_map.get(cpt_id, {}).get("resolved_count", 0),
             "guided_avg_steps":      guided_map.get(cpt_id, {}).get("avg_steps"),
+            "ladder_report":         ladder_summary,
+            "recommended_kind":      recommended_kind,
+            "recommend_reason":      recommend_reason,
         })
 
     return {
