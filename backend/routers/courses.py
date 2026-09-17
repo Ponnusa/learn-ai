@@ -6,6 +6,7 @@ import asyncio
 import base64
 import json
 import logging
+import random
 import re
 from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Header, Request, UploadFile, File, Form
@@ -4800,19 +4801,51 @@ def _sanitize_transfer_check(tc: dict | None) -> dict | None:
     return out
 
 
-async def _generate_transfer_check(concept_title: str, subject: str | None, resolved_reply: str, language: str) -> dict | None:
+_CHECK_TYPE_INSTRUCTIONS = {
+    # "Apply this to something new" â€” the original check. Feeds the
+    # Thinking Radar's Transfer dimension.
+    "transfer": (
+        "Write ONE multiple-choice question that tests whether the student can APPLY this "
+        "idea to a new situation they have not already discussed â€” not something answerable "
+        "by simply recalling or restating what was just said."
+    ),
+    # "What factor would change this" â€” feeds Constraint Awareness, which
+    # (confirmed across several real session reports) almost never gets any
+    # evidence otherwise: the ladder's own guiding questions rarely branch
+    # into "does this depend on X" on their own, so without deliberately
+    # asking, this dimension stays "Limited Evidence" by structural default,
+    # not because students can't reason about it.
+    "constraint": (
+        "Write ONE multiple-choice question that tests whether the student recognizes a "
+        "LIMITING FACTOR, ASSUMPTION, or CONDITION that could change the answer â€” for example "
+        "whether the outcome depends on the specific material/substance, amount, pressure, or "
+        "some other condition not yet discussed. Ask them to identify whether or how changing "
+        "one such condition would affect the outcome â€” not to simply restate what was already "
+        "established."
+    ),
+}
+
+
+async def _generate_transfer_check(
+    concept_title: str, subject: str | None, resolved_reply: str, language: str,
+    check_type: str = "transfer",
+) -> dict | None:
     """
-    One multiple-choice question applying the idea the student just worked
-    out to a NEW situation they haven't already discussed â€” a deliberately
-    separate, objectively-gradable check before a resolved ladder chain is
-    trusted as real understanding, rather than relying on the tutor's own
-    self-reported [[WAITING:0]] as proof. Returns None on any failure
-    (caller falls back to resolving without a check, same as before this
-    existed) rather than blocking the student's reply on it.
+    One multiple-choice question checking the idea the student just worked
+    out â€” a deliberately separate, objectively-gradable check before a
+    resolved ladder chain is trusted as real understanding, rather than
+    relying on the tutor's own self-reported [[WAITING:0]] as proof.
+    check_type picks WHAT it tests (see _CHECK_TYPE_INSTRUCTIONS) â€” varied
+    at the call site rather than always testing the same dimension, so
+    evidence accumulates for more than just Transfer over many sessions,
+    without adding a second question to any single chain. Returns None on
+    any failure (caller falls back to resolving without a check, same as
+    before this existed) rather than blocking the student's reply on it.
     """
     lang_instruction = ""
     if language in _LANGUAGE_NAMES:
         lang_instruction = f"\nWrite the question, options, and explanation entirely in {_LANGUAGE_NAMES[language]}."
+    check_instruction = _CHECK_TYPE_INSTRUCTIONS.get(check_type, _CHECK_TYPE_INSTRUCTIONS["transfer"])
     prompt = f"""A tutor just helped a student work out the following through guided questions:
 
 CONCEPT: {concept_title}
@@ -4820,9 +4853,7 @@ SUBJECT: {subject or 'General'}
 WHAT WAS JUST ESTABLISHED:
 {resolved_reply[:1500]}
 
-Write ONE multiple-choice question that tests whether the student can APPLY this
-idea to a new situation they have not already discussed â€” not something answerable
-by simply recalling or restating what was just said. Exactly 4 options, only one
+{check_instruction} Exactly 4 options, only one
 correct, distractors plausible (not obviously wrong). Keep the question to 1-2
 sentences.{lang_instruction}
 
@@ -5236,12 +5267,20 @@ async def post_student_chat(
             else:
                 break
         if steps > 0:
-            tc = await _generate_transfer_check(concept["title"], concept["subject"], reply, effective_language)
+            # Vary what the single check tests rather than adding a second
+            # one â€” Constraint Awareness gets essentially no evidence
+            # otherwise (the ladder's own questions rarely branch into "does
+            # this depend on X" on their own), so without this it stays
+            # "Limited Evidence" by structural default, not because students
+            # can't reason about it. Weighted toward transfer since that's
+            # this gate's original purpose.
+            check_type = "constraint" if random.random() < 0.4 else "transfer"
+            tc = await _generate_transfer_check(concept["title"], concept["subject"], reply, effective_language, check_type)
             if tc:
                 verification = {
                     "question": tc["question"], "options": tc["options"],
                     "correct_idx": tc["correct_idx"], "explanation": tc.get("explanation", ""),
-                    "steps": steps, "status": "pending",
+                    "steps": steps, "status": "pending", "check_type": check_type,
                 }
             # tc is None on generation failure â€” falls through with no
             # verification, same behaviour as before this feature existed
@@ -5456,10 +5495,11 @@ async def retry_transfer_check(concept_id: str, req: RetryTransferCheckRequest, 
     if not tc or tc.get("status") != "wrong":
         raise HTTPException(400, "Can only retry after a wrong answer")
 
+    check_type = tc.get("check_type", "transfer")  # retry tests the same dimension, not a switch
     new_tc = await _generate_transfer_check(
         concept["title"] if concept else "this concept",
         concept["subject"] if concept else None,
-        msg["content"], req.language,
+        msg["content"], req.language, check_type,
     )
     if not new_tc:
         raise HTTPException(502, "Could not generate a new check right now")
@@ -5467,7 +5507,7 @@ async def retry_transfer_check(concept_id: str, req: RetryTransferCheckRequest, 
     meta["transfer_check"] = {
         "question": new_tc["question"], "options": new_tc["options"],
         "correct_idx": new_tc["correct_idx"], "explanation": new_tc.get("explanation", ""),
-        "steps": tc.get("steps", 1), "status": "pending",
+        "steps": tc.get("steps", 1), "status": "pending", "check_type": check_type,
         # Reachable only from a 'wrong' status (checked above) â€” carried
         # forward so a later correct grading knows to post a confirming
         # follow-up rather than leaving the earlier wrong-answer message as

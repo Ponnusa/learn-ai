@@ -146,9 +146,21 @@ async def generate_ladder_report(report_id: str) -> None:
             correct_idx  = tc.get("correct_idx")
             chosen_text  = options[chosen_idx] if isinstance(chosen_idx, int) and 0 <= chosen_idx < len(options) else "?"
             correct_text = options[correct_idx] if isinstance(correct_idx, int) and 0 <= correct_idx < len(options) else "?"
+            # check_type picks which dimension this evidence should count
+            # toward (courses.py varies it per chain so Constraint Awareness
+            # gets a real chance too, not just Transfer every time) â€” label
+            # it accordingly so the rubric model attributes it correctly.
+            check_type = tc.get("check_type", "transfer")
+            label = (
+                "CONSTRAINT-AWARENESS CHECK — a separate, objectively-graded multiple-choice "
+                "question testing whether the student recognizes a limiting factor, assumption, "
+                "or condition that could change the answer"
+                if check_type == "constraint" else
+                "TRANSFER CHECK — a separate, objectively-graded multiple-choice question "
+                "applying the idea to a NEW situation the student hadn't already discussed"
+            )
             transcript_text += (
-                "\n\n[TRANSFER CHECK — a separate, objectively-graded multiple-choice "
-                "question applying the idea to a NEW situation the student hadn't already discussed]\n"
+                f"\n\n[{label}]\n"
                 f"Question: {tc.get('question', '')}\n"
                 f"Student answered: \"{chosen_text}\" — "
                 f"{'CORRECT' if tc['status'] == 'correct' else 'INCORRECT'} "
