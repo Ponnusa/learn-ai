@@ -187,10 +187,25 @@ async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, 
             if weak_spots else ""
         )
         # A resolved+verified guided-discovery session on this exact concept
-        # documents an actual observed weak dimension — a far more specific
-        # and trustworthy signal than the general struggle_areas list above,
-        # so it's appended on top rather than replacing it.
-        if ladder_report and ladder_report.get("weak_dimension"):
+        # is the richest signal we have — but it cuts two different ways.
+        # A report only exists once a chain has been verified, i.e. this
+        # concept is already mastered, so if the report also offered a
+        # concrete stretch idea (optional_extension — the same text shown
+        # to the teacher as "Ready for more"), this should be enrichment,
+        # not more remediation on something already mastered. Only fall
+        # back to targeting the weakest dimension when there's no stretch
+        # idea to build on — mirrors the same precedence the Practice tab
+        # UI uses to decide between its "Ready for more" and "Focus" lines.
+        if ladder_report and ladder_report.get("optional_extension"):
+            extra += (
+                f"This student has already mastered this concept (they resolved a verified guided-discovery "
+                f"session on it). They're ready for enrichment, not remediation. Their tutor session suggested "
+                f"this stretch direction: {ladder_report['optional_extension']}\n"
+                "Design this content as an enrichment/extension challenge building on that idea — go deeper, "
+                "broader, or harder than a standard review of this concept, not basic reinforcement of what "
+                "they already showed they understand.\n"
+            )
+        elif ladder_report and ladder_report.get("weak_dimension"):
             extra += (
                 f"This student's guided-discovery session on this concept showed their weakest area is "
                 f"{ladder_report['weak_dimension']} ({ladder_report.get('weak_level') or 'Developing'}). "
