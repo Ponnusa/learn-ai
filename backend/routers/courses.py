@@ -23,6 +23,18 @@ router = APIRouter(prefix="/api/courses", tags=["courses"])
 
 _LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French', 'no': 'Norwegian'}
 
+# A student claiming understanding/completion in their own words, checked
+# independently of the tutor's own [[WAITING:N]] self-report â€” the marker
+# is itself just the model's self-assessment, and (confirmed from a real
+# transcript) it can silently stay stuck mid-chain on a reply that reads as
+# fully resolved, letting the conversation fizzle out with no transfer-check
+# ever firing. English-only for now â€” a real gap for non-English chats.
+_CLOSING_CLAIM_RE = re.compile(
+    r"\b(i'?m\s+clear|i\s+understand|i\s+get\s+it|got\s+it|makes\s+sense|"
+    r"i'?m\s+done|that'?s\s+all|no\s+more\s+questions|i'?m\s+good)\b",
+    re.IGNORECASE,
+)
+
 
 async def _summarize_one_concept(concept_id: str, course: dict | None):
     """Generate AI summary + transcript for a single concept ('Generate explanation')."""
@@ -5148,6 +5160,16 @@ async def post_student_chat(
             chain_resolved = ladder_depth == 0 and (prev_ladder_depth or 0) > 0
         else:
             ladder_depth = prev_ladder_depth  # marker dropped this turn â€” carry forward
+
+        # Don't trust the marker alone to say a chain is over â€” if the
+        # student's OWN message plainly claims understanding/completion
+        # while a chain was active, treat it as resolved for gating
+        # purposes even though this turn's own marker didn't flip to 0.
+        # Forces ladder_depth to actually close too, not just chain_resolved,
+        # so the ladder widget and everything downstream agree it's done.
+        if not chain_resolved and (prev_ladder_depth or 0) > 0 and _CLOSING_CLAIM_RE.search(req.message):
+            chain_resolved = True
+            ladder_depth = 0
 
     # â”€â”€ 10b. In-scaffold MCQ options + resolution key-idea (see
     #          _CONCEPT_CHAT_LADDER_ENHANCEMENTS) â”€â”€ parsed the same way as
