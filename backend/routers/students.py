@@ -393,17 +393,33 @@ async def get_student_course_summary(student_id: str, course_id: str, authorizat
             raise HTTPException(404, "Course not found")
         student = await db.fetchrow("SELECT id, name FROM users WHERE id = $1::uuid", student_id)
 
+        # A verified guided-discovery resolution counts toward "Mastered"
+        # here too, same rule already applied to the progress-grid's
+        # getMastery() on the frontend (a passed transfer-check is at least
+        # as strong a signal as a quiz score) â€” this endpoint's own
+        # mastered_count had been left checking quiz_score alone, which is
+        # why it could show 0 even with real guided-discovery activity.
         stats = await db.fetchrow("""
             SELECT
-                COUNT(cc.id)                                                 AS total_concepts,
-                COUNT(*) FILTER (WHERE scp.visited)                         AS visited_count,
-                AVG(scp.quiz_score) FILTER (WHERE scp.quiz_score IS NOT NULL) AS avg_quiz_score,
-                COUNT(*) FILTER (WHERE scp.visited AND scp.quiz_score >= 70) AS mastered_count,
-                MAX(scp.last_seen_at)                                       AS last_active
+                COUNT(cc.id)                                                     AS total_concepts,
+                COUNT(*) FILTER (WHERE scp.visited)                             AS visited_count,
+                AVG(scp.quiz_score) FILTER (WHERE scp.quiz_score IS NOT NULL)     AS avg_quiz_score,
+                COUNT(*) FILTER (
+                    WHERE scp.visited AND (scp.quiz_score >= 70 OR gc.resolved_count > 0)
+                )                                                                AS mastered_count,
+                MAX(scp.last_seen_at)                                           AS last_active
             FROM course_concepts cc
             JOIN course_units cu ON cu.id = cc.unit_id
             LEFT JOIN student_concept_progress scp
                    ON scp.concept_id = cc.id AND scp.student_id = $1::uuid
+            LEFT JOIN (
+                SELECT cc2.id AS concept_id, COUNT(*) AS resolved_count
+                FROM guided_discovery_events gde
+                JOIN conversations c     ON c.id = gde.conversation_id
+                JOIN course_concepts cc2 ON cc2.study_set_id = c.study_set_id
+                WHERE gde.user_id = $1::uuid
+                GROUP BY cc2.id
+            ) gc ON gc.concept_id = cc.id
             WHERE cu.course_id = $2::uuid
         """, student_id, course_id)
 
