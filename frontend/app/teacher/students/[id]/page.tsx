@@ -4,7 +4,7 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, Brain, MessageSquare, ChevronDown, ChevronUp,
   Sparkles, HelpCircle, Layers, Video, BookOpen, AlertTriangle,
-  CheckCircle2, Circle, Clock, Zap, TrendingUp, TrendingDown, Minus, Footprints, Target, Star, RotateCcw,
+  CheckCircle2, Circle, Clock, Zap, TrendingUp, TrendingDown, Minus, Footprints, Target, Star, RotateCcw, XCircle,
 } from 'lucide-react';
 import { useSessionStore } from '@/store/sessionStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -802,15 +802,31 @@ export default function TeacherStudentDetailPage() {
                                               </button>
                                             </div>
                                           </div>
-                                        ) : a.status === 'ready' && a.kind === 'quiz' && adetail.answers ? (
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            {adetail.answers.map((ans, i) => (
-                                              <span
-                                                key={i}
-                                                title={`Q${i + 1}: ${ans.question} — ${ans.ok ? 'Correct' : `Wrong (chose ${String.fromCharCode(65 + ans.chosen)})`}`}
-                                                className={`w-2.5 h-2.5 rounded-full cursor-default ${ans.ok ? 'bg-green-400' : 'bg-red-400'}`}
-                                              />
-                                            ))}
+                                        ) : a.status === 'ready' && a.kind === 'quiz' && adetail.answers && adetail.payload ? (
+                                          <div className="space-y-3">
+                                            {(adetail.payload as AssignmentQuizQuestion[]).map((q, qi) => {
+                                              const ans = adetail.answers!.find(x => x.qi === qi);
+                                              const chosen = ans?.chosen;
+                                              return (
+                                                <div key={qi} className="text-xs">
+                                                  <p className="text-[var(--tx1)] font-medium mb-1.5">{qi + 1}. {q.question}</p>
+                                                  <div className="space-y-1">
+                                                    {q.options.map((opt, oi) => {
+                                                      const isCorrect = oi === q.correct_idx;
+                                                      const isChosenWrong = oi === chosen && !isCorrect;
+                                                      return (
+                                                        <p key={oi} className={`flex items-center gap-1.5 ${isCorrect ? 'text-green-400' : isChosenWrong ? 'text-red-400' : 'text-[var(--tx7)]'}`}>
+                                                          {isCorrect ? <CheckCircle2 size={11} className="shrink-0" />
+                                                            : isChosenWrong ? <XCircle size={11} className="shrink-0" />
+                                                            : <span className="w-[11px] shrink-0" />}
+                                                          {opt}
+                                                        </p>
+                                                      );
+                                                    })}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
                                           </div>
                                         ) : null}
                                       </div>

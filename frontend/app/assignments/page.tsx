@@ -14,13 +14,16 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface AssignmentSummary {
   id: string; concept_id: string | null; kind: string; title: string; status: string; created_at: string | null;
+  score: number | null;
 }
 interface QuizQuestion { question: string; options: string[]; correct_idx: number; explanation?: string; }
 interface Flashcard    { front: string; back: string; }
+interface SubmittedAnswer { qi: number; question: string; chosen: number; correct: number; ok: boolean; }
 interface AssignmentDetail {
   id: string; kind: string; title: string; status: string;
   error_message: string | null; video_stage: string | null; video_url: string | null;
   payload: QuizQuestion[] | Flashcard[] | null; study_set_id: string | null;
+  score: number | null; answers: SubmittedAnswer[] | null;
 }
 
 export default function AssignmentsPage() {
@@ -97,7 +100,17 @@ export default function AssignmentsPage() {
     if (!res.ok) return;
     const data: AssignmentDetail = await res.json();
     setDetail(data);
-    setAssignments(prev => prev.map(a => a.id === id ? { ...a, status: data.status } : a));
+    setAssignments(prev => prev.map(a => a.id === id ? { ...a, status: data.status, score: data.score } : a));
+    // A quiz already attempted (survives a refresh — this is read straight
+    // back from the server, not just kept in local state) restores as
+    // already-answered and locked, rather than a blank retake.
+    if (data.kind === 'quiz' && data.answers) {
+      const restored: Record<number, number> = {};
+      data.answers.forEach(a => { restored[a.qi] = a.chosen; });
+      setQuizAnswers(restored);
+      setSubmitted(true);
+      setSubmittedPct(data.score !== null ? Math.round(data.score) : null);
+    }
     if (data.status === 'generating') {
       pollRef.current = setTimeout(() => fetchDetail(id), 4000);
     }
@@ -110,9 +123,10 @@ export default function AssignmentsPage() {
   // watching quizAnswers, since the action belongs with the event that
   // causes it, not as a reaction to state already having changed.
   function answerQuestion(qi: number, oi: number) {
+    if (submitted) return; // one attempt only — also enforced server-side
     const next = { ...quizAnswers, [qi]: oi };
     setQuizAnswers(next);
-    if (!submitted && detail?.status === 'ready' && detail.kind === 'quiz' && detail.payload) {
+    if (detail?.status === 'ready' && detail.kind === 'quiz' && detail.payload) {
       const payload = detail.payload as QuizQuestion[];
       if (Object.keys(next).length === payload.length) submitQuizAttempt(payload, next);
     }
@@ -157,6 +171,11 @@ export default function AssignmentsPage() {
                   </div>
                   {a.status === 'generating' && <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />}
                   {a.status === 'failed'     && <AlertTriangle size={14} className="text-red-400 shrink-0" />}
+                  {a.status === 'ready' && a.kind === 'quiz' && a.score !== null && (
+                    <span className="text-xs text-green-400 flex items-center gap-1 shrink-0">
+                      <CheckCircle2 size={13} /> {Math.round(a.score)}%
+                    </span>
+                  )}
                   {expandedId === a.id ? <ChevronUp size={14} className="text-[var(--tx7)] shrink-0" /> : <ChevronDown size={14} className="text-[var(--tx7)] shrink-0" />}
                 </button>
 

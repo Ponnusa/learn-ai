@@ -285,7 +285,7 @@ async def submit_assignment(assignment_id: str, req: SubmitAssignmentRequest, au
     student_id = await _get_student(authorization)
     async with get_db() as db:
         a = await db.fetchrow(
-            "SELECT student_id, kind, status FROM student_assignments WHERE id = $1::uuid", assignment_id
+            "SELECT student_id, kind, status, attempted_at FROM student_assignments WHERE id = $1::uuid", assignment_id
         )
     if not a or str(a["student_id"]) != student_id:
         raise HTTPException(404, "Assignment not found")
@@ -293,6 +293,11 @@ async def submit_assignment(assignment_id: str, req: SubmitAssignmentRequest, au
         raise HTTPException(400, "Only quiz assignments can be submitted")
     if a["status"] != "ready":
         raise HTTPException(400, "Assignment is not ready")
+    if a["attempted_at"] is not None:
+        # One attempt per assigned quiz — enforced server-side, not just by
+        # the UI locking answers in, so a student can't retake it by
+        # replaying the request directly.
+        raise HTTPException(400, "This quiz has already been submitted")
 
     async with get_db() as db:
         await db.execute("""
