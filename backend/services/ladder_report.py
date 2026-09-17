@@ -146,19 +146,32 @@ async def generate_ladder_report(report_id: str) -> None:
             correct_idx  = tc.get("correct_idx")
             chosen_text  = options[chosen_idx] if isinstance(chosen_idx, int) and 0 <= chosen_idx < len(options) else "?"
             correct_text = options[correct_idx] if isinstance(correct_idx, int) and 0 <= correct_idx < len(options) else "?"
-            # check_type picks which dimension this evidence should count
-            # toward (courses.py varies it per chain so Constraint Awareness
-            # gets a real chance too, not just Transfer every time) â€” label
-            # it accordingly so the rubric model attributes it correctly.
-            check_type = tc.get("check_type", "transfer")
-            label = (
-                "CONSTRAINT-AWARENESS CHECK — a separate, objectively-graded multiple-choice "
-                "question testing whether the student recognizes a limiting factor, assumption, "
-                "or condition that could change the answer"
-                if check_type == "constraint" else
-                "TRANSFER CHECK — a separate, objectively-graded multiple-choice question "
-                "applying the idea to a NEW situation the student hadn't already discussed"
-            )
+            # check_type picks which dimension(s) this evidence should count
+            # toward â€” label it accordingly so the rubric model attributes
+            # it correctly. "combined" (the current default) tests both
+            # Transfer and Constraint Awareness in one question; "transfer"/
+            # "constraint" are older single-dimension checks, still handled
+            # for any already-generated reports referencing one.
+            check_type = tc.get("check_type") or "transfer"
+            if check_type == "combined":
+                label = (
+                    "TRANSFER + CONSTRAINT-AWARENESS CHECK — a single objectively-graded "
+                    "multiple-choice question that requires BOTH applying the idea to a new "
+                    "situation the student hadn't already discussed AND recognizing whether a "
+                    "specific factor or condition changes the outcome in that situation. Use "
+                    "this as evidence for both the Transfer and Constraint Awareness dimensions"
+                )
+            elif check_type == "constraint":
+                label = (
+                    "CONSTRAINT-AWARENESS CHECK — a separate, objectively-graded multiple-choice "
+                    "question testing whether the student recognizes a limiting factor, assumption, "
+                    "or condition that could change the answer"
+                )
+            else:
+                label = (
+                    "TRANSFER CHECK — a separate, objectively-graded multiple-choice question "
+                    "applying the idea to a NEW situation the student hadn't already discussed"
+                )
             transcript_text += (
                 f"\n\n[{label}]\n"
                 f"Question: {tc.get('question', '')}\n"

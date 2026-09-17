@@ -4823,6 +4823,21 @@ _CHECK_TYPE_INSTRUCTIONS = {
         "one such condition would affect the outcome â€” not to simply restate what was already "
         "established."
     ),
+    # Tests both at once, in the one question every chain already gets â€”
+    # most concepts only ever produce a single resolved chain per student
+    # (confirmed across real usage), so requiring a second chain to reach
+    # Constraint Awareness coverage meant most concepts never got there at
+    # all. This is the default now; "transfer"/"constraint" stay available
+    # above for anywhere a single-dimension question is specifically wanted.
+    "combined": (
+        "Write ONE multiple-choice question that does BOTH of the following at once: "
+        "(1) applies the idea to a NEW situation the student has not already discussed, AND "
+        "(2) requires recognizing whether or how a specific factor or condition (a different "
+        "material, amount, pressure, or substance, for example) changes the outcome in that "
+        "new situation. It should only be answerable by combining applying the idea to "
+        "something new with reasoning about what changes the outcome â€” not by simply "
+        "recalling or restating what was just discussed."
+    ),
 }
 
 
@@ -5267,40 +5282,16 @@ async def post_student_chat(
             else:
                 break
         if steps > 0:
-            # Vary what the single check tests rather than adding a second
-            # one â€” Constraint Awareness gets essentially no evidence
-            # otherwise (the ladder's own questions rarely branch into "does
-            # this depend on X" on their own), so without this it stays
-            # "Limited Evidence" by structural default, not because students
-            # can't reason about it. Prefer whichever type this student
-            # HASN'T already been tested on for this concept (reusing
-            # prior_assistant, already fetched above, rather than a random
-            # coin flip that could easily miss one dimension entirely for a
-            # concept that only ever produces one or two resolved chains) â€”
-            # once both are covered at least once, fall back to weighted
-            # random so coverage keeps compounding rather than stalling.
-            tested_types: set = set()
-            for row in prior_assistant:
-                pm = row["metadata"]
-                if isinstance(pm, str):
-                    try:    pm = json.loads(pm)
-                    except: pm = {}
-                prior_tc = (pm or {}).get("transfer_check")
-                if prior_tc:
-                    # Every check generated before check_type existed was,
-                    # by definition, a transfer-style check (the only kind
-                    # that existed then) — default a missing check_type to
-                    # "transfer" rather than silently not counting it, or a
-                    # concept with one old untyped chain would keep re-
-                    # picking "transfer" forever instead of ever rotating
-                    # to "constraint".
-                    tested_types.add(prior_tc.get("check_type") or "transfer")
-            if "transfer" not in tested_types:
-                check_type = "transfer"
-            elif "constraint" not in tested_types:
-                check_type = "constraint"
-            else:
-                check_type = "constraint" if random.random() < 0.4 else "transfer"
+            # A single "combined" question tests both Transfer and
+            # Constraint Awareness at once â€” most concepts only ever
+            # produce ONE resolved chain per student (confirmed across real
+            # usage), so an earlier version that rotated between separate
+            # transfer-only and constraint-only checks across chains left
+            # most concepts stuck only ever testing transfer, since they
+            # never got a second chain to rotate into. One question,
+            # answering both, works regardless of how many chains a
+            # concept ends up producing.
+            check_type = "combined"
             tc = await _generate_transfer_check(concept["title"], concept["subject"], reply, effective_language, check_type)
             if tc:
                 verification = {
@@ -5521,7 +5512,7 @@ async def retry_transfer_check(concept_id: str, req: RetryTransferCheckRequest, 
     if not tc or tc.get("status") != "wrong":
         raise HTTPException(400, "Can only retry after a wrong answer")
 
-    check_type = tc.get("check_type", "transfer")  # retry tests the same dimension, not a switch
+    check_type = tc.get("check_type") or "combined"  # retry tests the same thing, not a switch
     new_tc = await _generate_transfer_check(
         concept["title"] if concept else "this concept",
         concept["subject"] if concept else None,
