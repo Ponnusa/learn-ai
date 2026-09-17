@@ -561,10 +561,23 @@ async def get_student_course_summary(student_id: str, course_id: str, force: boo
         key=lambda d: _LEVEL_RANK.get(dim_rollups[d]["most_common"], 0),
         default=None,
     )
+    # Raw chronological sequence (oldest first, `reports` is already sorted
+    # this way) behind the mode+trend rollup above — the rollup alone can't
+    # show a teacher the actual trajectory across sessions, just its net
+    # direction. Pure reshaping of data already fetched, no extra AI cost.
+    trend_series = [
+        {
+            "date": r["created_at"].date().isoformat() if r["created_at"] else None,
+            "academic_understanding": r["report"].get("academic_understanding", {}).get("level"),
+            **{dim: r["report"].get("thinking_radar", {}).get(dim, {}).get("level") for dim in REPORT_DIMENSIONS},
+        }
+        for r in reports
+    ]
     layer2 = {
         "academic_understanding": _rollup_levels(academic_levels),
         "thinking_radar": dim_rollups,
         "focus_recommendation": _DIMENSION_LABELS.get(weakest) if weakest else None,
+        "trend_series": trend_series,
     }
 
     # ── Layer 3: AI narrative, cached until a new report lands ───────────

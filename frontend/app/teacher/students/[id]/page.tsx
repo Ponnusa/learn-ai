@@ -81,6 +81,12 @@ interface RollupEntry {
   most_common: string | null; trend: 'up' | 'down' | 'flat' | 'insufficient'; session_count: number;
   most_common_confidence?: string | null; most_common_support_level?: string | null;
 }
+interface TrendPoint {
+  date: string | null;
+  academic_understanding: string | null;
+  decision_making: string | null; justification: string | null;
+  constraint_awareness: string | null; transfer: string | null;
+}
 interface CourseSummary {
   layer1: {
     total_concepts: number; visited_count: number; avg_quiz_score: number | null;
@@ -94,6 +100,7 @@ interface CourseSummary {
       constraint_awareness: RollupEntry; transfer: RollupEntry;
     };
     focus_recommendation: string | null;
+    trend_series: TrendPoint[];
   };
   layer3: { narrative: string; updated_at: string | null; report_count: number } | null;
 }
@@ -206,6 +213,70 @@ function TrendIcon({ trend }: { trend: RollupEntry['trend'] }) {
   return null; // 'insufficient' — not enough sessions to call a trend yet
 }
 
+const TREND_LEVEL_RANK: Record<string, number> = {
+  'Limited Evidence': 0, 'Beginner': 1, 'Developing': 2, 'Proficient': 3, 'Advanced': 4,
+};
+const TREND_SERIES: { key: keyof TrendPoint; label: string; color: string; width: number }[] = [
+  { key: 'academic_understanding', label: 'Overall',              color: 'text-purple-400', width: 2.5 },
+  { key: 'decision_making',        label: 'Decision-Making',      color: 'text-blue-400',   width: 1.5 },
+  { key: 'justification',          label: 'Justification',        color: 'text-amber-400',  width: 1.5 },
+  { key: 'constraint_awareness',   label: 'Constraint Awareness', color: 'text-pink-400',   width: 1.5 },
+  { key: 'transfer',               label: 'Transfer',             color: 'text-cyan-400',   width: 1.5 },
+];
+
+/** Level-over-time line chart across a student's dated ladder session
+ *  reports for one course — the rollup above only gives a net up/down/flat
+ *  direction; this shows the actual trajectory a teacher can read at a
+ *  glance. Hand-rolled SVG rather than a charting library: five short
+ *  categorical (0-4 rank) series, well within what plain polylines handle
+ *  cleanly. Needs at least two sessions to be a "trend" at all. */
+function TrendChart({ series }: { series: TrendPoint[] }) {
+  if (series.length < 2) return null;
+  const rankOf = (level: string | null) => TREND_LEVEL_RANK[level ?? ''] ?? 0;
+  const x = (i: number) => 20 + (i * 270) / (series.length - 1);
+  const y = (rank: number) => 90 - rank * 20;
+
+  return (
+    <div className="border border-[var(--bd)] rounded-xl p-3.5 bg-[var(--surface)]">
+      <p className="text-[10px] text-[var(--tx7)] uppercase tracking-wide mb-2">Level over time ({series.length} sessions)</p>
+      <svg viewBox="0 0 300 100" className="w-full h-auto" preserveAspectRatio="none">
+        {[0, 1, 2, 3, 4].map(rank => (
+          <line key={rank} x1={18} x2={292} y1={y(rank)} y2={y(rank)} className="stroke-[var(--bd)]" strokeWidth={0.5} />
+        ))}
+        {['Ltd', 'Beg', 'Dev', 'Prof', 'Adv'].map((label, rank) => (
+          <text key={label} x={0} y={y(rank) + 3} className="fill-[var(--tx8)]" fontSize={7}>{label}</text>
+        ))}
+        {TREND_SERIES.map(s => {
+          const points = series.map((p, i) => `${x(i)},${y(rankOf(p[s.key]))}`).join(' ');
+          return (
+            <g key={s.key} className={s.color}>
+              <polyline points={points} fill="none" stroke="currentColor" strokeWidth={s.width}
+                strokeLinejoin="round" strokeLinecap="round" opacity={0.9} />
+              {series.map((p, i) => (
+                <circle key={i} cx={x(i)} cy={y(rankOf(p[s.key]))} r={s.width} fill="currentColor">
+                  <title>{`${s.label}: ${p[s.key] ?? 'Limited Evidence'}${p.date ? ` (${p.date})` : ''}`}</title>
+                </circle>
+              ))}
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex justify-between text-[9px] text-[var(--tx8)] mt-0.5 px-[18px]">
+        <span>{series[0].date}</span>
+        <span>{series[series.length - 1].date}</span>
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2">
+        {TREND_SERIES.map(s => (
+          <span key={s.key} className="flex items-center gap-1 text-[10px] text-[var(--tx7)]">
+            <span className={`w-2 h-2 rounded-full ${s.color.replace('text-', 'bg-')}`} />
+            {s.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** "Complete result" panel — three layers: quantitative roll-up (free),
  *  deterministic Thinking Radar rollup across all resolved ladder session
  *  reports (also free — the reports are already structured JSON), and a
@@ -278,6 +349,9 @@ function CourseSummaryPanel({ summary, onRegenerate, regenerating }: { summary: 
       ) : (
         <p className="text-[var(--tx7)] text-xs">No guided-discovery sessions resolved yet in this course — the Thinking Radar rollup and narrative fill in once one resolves.</p>
       )}
+
+      {/* Level-over-time trend chart — needs 2+ sessions, renders nothing below that */}
+      <TrendChart series={layer2.trend_series} />
 
       {/* Layer 3 — AI narrative */}
       {layer3 && (
