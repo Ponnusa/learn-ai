@@ -13,7 +13,7 @@ from collections import Counter
 from fastapi import APIRouter, HTTPException, Header
 
 from database import get_db
-from routers.courses import _require_teacher
+from routers.courses import _require_teacher, _LANGUAGE_NAMES
 from services.ai_router import openai_client
 from services.ladder_report import REPORT_DIMENSIONS
 
@@ -33,7 +33,10 @@ def _summarize_ladder_report(report) -> dict | None:
     """Pull the one weakest thinking_radar dimension + the report's own
     forward-looking fields out of a ladder session report, for steering
     Assign Extra Practice. Returns None if the report has no usable
-    dimension data at all."""
+    dimension data at all. weak_dimension is the raw dimension key (e.g.
+    "constraint_awareness"), not a display label — the frontend localizes
+    it, since a pre-formatted English string baked into an API response
+    can't be translated later."""
     if isinstance(report, str):
         try:    report = json.loads(report)
         except Exception: return None
@@ -44,7 +47,7 @@ def _summarize_ladder_report(report) -> dict | None:
     weak_dim_key = min(dim_entries, key=lambda d: _LEVEL_RANK.get(dim_entries[d]["level"], 0)) if dim_entries else None
     weak = dim_entries.get(weak_dim_key) if weak_dim_key else None
     return {
-        "weak_dimension":        _DIMENSION_LABELS.get(weak_dim_key) if weak_dim_key else None,
+        "weak_dimension":        weak_dim_key,
         "weak_level":            weak.get("level") if weak else None,
         "next_growth_step":      weak.get("next_growth_step") if weak else None,
         "suggested_next_topic":  report.get("suggested_next_topic"),
@@ -53,28 +56,31 @@ def _summarize_ladder_report(report) -> dict | None:
 
 
 def _recommend_practice(ladder_summary: dict | None, quiz_score: float | None,
-                         has_quiz_attempts: bool, ai_msg_count: int) -> tuple[str | None, str | None]:
+                         has_quiz_attempts: bool, ai_msg_count: int) -> tuple[str | None, str | None, dict | None]:
     """Deterministic (no AI call) content-kind suggestion for one concept —
     same "pure code over an AI call where the data is already structured"
     approach as _rollup_levels below. A resolved+verified ladder chain is
     the richest signal (it documents an actual observed weak dimension);
     quiz/engagement signals are the fallback for concepts with no chain
-    resolved yet. Returns (None, None) when there's no clear signal to
-    act on, e.g. already mastered via a strong quiz score."""
+    resolved yet. Returns (kind, reason_key, reason_params) — reason_key
+    names a fixed template the frontend renders (and localizes) itself,
+    rather than shipping a pre-rendered English sentence that can't be
+    translated. (None, None, None) means no clear signal to act on, e.g.
+    already mastered via a strong quiz score."""
     if ladder_summary:
         dim = ladder_summary.get("weak_dimension")
-        if dim in ("Transfer", "Constraint Awareness"):
-            return "quiz", f"Focus area is {dim} — a quiz best tests applying this to a new situation."
-        if dim in ("Justification", "Decision-Making"):
-            return "studyset", f"Focus area is {dim} — a guided chat can probe their reasoning."
-        return None, None
+        if dim in ("transfer", "constraint_awareness"):
+            return "quiz", "focus_quiz", {"dim": dim}
+        if dim in ("justification", "decision_making"):
+            return "studyset", "focus_studyset", {"dim": dim}
+        return None, None, None
     if has_quiz_attempts and quiz_score is not None and quiz_score < 70:
-        return "flashcards", f"Quiz score {round(quiz_score)}% — reinforce the fundamentals first."
+        return "flashcards", "low_quiz_score", {"score": round(quiz_score)}
     if not has_quiz_attempts and ai_msg_count == 0:
-        return "video", "Hasn't engaged with this concept yet — a fresh explainer may help."
+        return "video", "not_engaged_video", None
     if not has_quiz_attempts and ai_msg_count > 0:
-        return "studyset", "Has been chatting about this — a guided study set continues that."
-    return None, None
+        return "studyset", "not_engaged_chat", None
+    return None, None, None
 
 
 async def _require_teacher_of_student(authorization: str, student_id: str) -> str:
@@ -263,7 +269,7 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
         fc     = fc_map.get(cpt_id, {})
         ls     = r["last_seen_at"]
         ladder_summary = ladder_map.get(cpt_id)
-        recommended_kind, recommend_reason = _recommend_practice(
+        recommended_kind, recommend_reason_key, recommend_reason_params = _recommend_practice(
             ladder_summary, r["quiz_score"], len(attempt_map.get(cpt_id, [])) > 0, ai_map.get(cpt_id, 0),
         )
         courses[cid]["concepts"].append({
@@ -283,9 +289,10 @@ async def get_student_progress(student_id: str, authorization: str = Header(...)
             "last_attempt_answers":  last_answers_map.get(cpt_id),
             "guided_resolved_count": guided_map.get(cpt_id, {}).get("resolved_count", 0),
             "guided_avg_steps":      guided_map.get(cpt_id, {}).get("avg_steps"),
-            "ladder_report":         ladder_summary,
-            "recommended_kind":      recommended_kind,
-            "recommend_reason":      recommend_reason,
+            "ladder_report":            ladder_summary,
+            "recommended_kind":         recommended_kind,
+            "recommend_reason_key":     recommend_reason_key,
+            "recommend_reason_params":  recommend_reason_params,
         })
 
     return {
@@ -472,6 +479,7 @@ async def get_student_course_summary(student_id: str, course_id: str, force: boo
         if not course:
             raise HTTPException(404, "Course not found")
         student = await db.fetchrow("SELECT id, name FROM users WHERE id = $1::uuid", student_id)
+        teacher_language = await db.fetchval("SELECT language FROM users WHERE id = $1::uuid", teacher_id)
 
         # A verified guided-discovery resolution counts toward "Mastered"
         # here too, same rule already applied to the progress-grid's
@@ -576,7 +584,7 @@ async def get_student_course_summary(student_id: str, course_id: str, force: boo
     layer2 = {
         "academic_understanding": _rollup_levels(academic_levels),
         "thinking_radar": dim_rollups,
-        "focus_recommendation": _DIMENSION_LABELS.get(weakest) if weakest else None,
+        "focus_recommendation": weakest,  # raw dimension key (e.g. "constraint_awareness") — frontend localizes the label
         "trend_series": trend_series,
     }
 
@@ -606,17 +614,24 @@ async def get_student_course_summary(student_id: str, course_id: str, force: boo
                 f"STUDENT: {student['name']}\nCOURSE: {course['name']}\n\n"
                 f"SESSIONS (chronological, oldest first):\n" + "\n".join(session_lines)
             )
+            narrative_system_prompt = (
+                "You are an expert learning-progress analyst writing a short course-level "
+                "summary for a teacher, synthesizing several already rubric-scored tutoring "
+                "sessions for one student in one course. Write 3-5 sentences, warm but "
+                "precise, referencing concrete trends across sessions rather than restating "
+                "each one individually. End with the single most useful thing for the "
+                "teacher to know going forward."
+            )
+            # Teacher-facing content belongs in the teacher's own language —
+            # left unspecified before, this happened to read as English in
+            # practice only because its input (level names, dates) is itself
+            # English, not because it was actually guaranteed.
+            if teacher_language in _LANGUAGE_NAMES:
+                narrative_system_prompt += f" Write it in {_LANGUAGE_NAMES[teacher_language]}, not English."
             response = await openai_client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": (
-                        "You are an expert learning-progress analyst writing a short course-level "
-                        "summary for a teacher, synthesizing several already rubric-scored tutoring "
-                        "sessions for one student in one course. Write 3-5 sentences, warm but "
-                        "precise, referencing concrete trends across sessions rather than restating "
-                        "each one individually. End with the single most useful thing for the "
-                        "teacher to know going forward."
-                    )},
+                    {"role": "system", "content": narrative_system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
                 max_tokens=400,

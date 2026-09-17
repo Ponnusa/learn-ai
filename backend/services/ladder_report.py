@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 REPORT_DIMENSIONS = ("decision_making", "justification", "constraint_awareness", "transfer")
 
+# Local copy of the small language-code map used throughout routers/courses.py
+# — duplicated rather than imported to avoid a services -> routers dependency.
+_LANGUAGE_NAMES = {'fi': 'Finnish', 'sv': 'Swedish', 'es': 'Spanish', 'fr': 'French', 'no': 'Norwegian'}
+
 _REPORT_SYSTEM_PROMPT = """You are an expert learning-assessment analyst.
 
 You will be given a transcript of a guided-discovery (Socratic) tutoring
@@ -94,13 +98,15 @@ async def generate_ladder_report(report_id: str) -> None:
                        m.metadata AS resolving_metadata,
                        cc.title   AS concept_title,
                        co.subject AS concept_subject,
-                       co.grade   AS course_grade
+                       co.grade   AS course_grade,
+                       tu.language AS teacher_language
                 FROM ladder_session_reports lsr
                 JOIN guided_discovery_events gde ON gde.id = lsr.guided_discovery_event_id
                 JOIN messages m ON m.id = gde.message_id
                 LEFT JOIN course_concepts cc ON cc.id = lsr.concept_id
                 LEFT JOIN course_units cu    ON cu.id = cc.unit_id
                 LEFT JOIN courses co          ON co.id = cu.course_id
+                LEFT JOIN users tu             ON tu.id = co.teacher_id
                 WHERE lsr.id = $1::uuid
             """, report_id)
         if not row:
@@ -188,10 +194,31 @@ async def generate_ladder_report(report_id: str) -> None:
             row["course_grade"],
         )
 
+        # This report is teacher-facing, so it belongs in the TEACHER's own
+        # language, not the student's — a teacher who doesn't read the
+        # student's language would otherwise get back an unreadable report,
+        # since the model had no explicit instruction and would just mirror
+        # whatever language the transcript happened to be in. The enum-like
+        # fields (level/confidence/support_level) must stay in fixed English
+        # values regardless — the frontend matches on those exact strings
+        # for pill colors and trend ranking, so translating them would
+        # silently break that.
+        system_prompt = _REPORT_SYSTEM_PROMPT
+        teacher_language = row["teacher_language"]
+        if teacher_language in _LANGUAGE_NAMES:
+            system_prompt += (
+                f"\n\nIMPORTANT: Write every free-text field in {_LANGUAGE_NAMES[teacher_language]} — "
+                "academic_understanding.summary, every dimension's description/observable_evidence/"
+                "next_growth_step, strengths, areas_for_growth, next_steps, teacher_insight, "
+                "suggested_next_topic, and optional_extension. Do not use English for these. "
+                "However, keep level, confidence, and support_level values exactly as one of the "
+                "fixed English options listed above — never translate those."
+            )
+
         response = await openai_client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": _REPORT_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             max_tokens=2000,

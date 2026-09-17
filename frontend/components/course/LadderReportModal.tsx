@@ -1,8 +1,54 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { X, Loader2, Footprints, Lightbulb, TrendingUp, ArrowUpRight, RotateCcw } from 'lucide-react';
+import { useTranslation } from '@/hooks/useTranslation';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+type TeacherT = ReturnType<typeof useTranslation>['t']['teacher'];
+
+// Mirrors the same raw-key/enum-value lookups used on the student detail
+// page — the backend deliberately returns keys and fixed English enum
+// values here, not pre-formatted labels, so they can be localized. Kept as
+// its own small copy rather than a shared import to avoid a cross-module
+// dependency for four tiny switch statements.
+function dimLabel(t: TeacherT, dim: string): string {
+  switch (dim) {
+    case 'decision_making':      return t.dimDecisionMaking;
+    case 'justification':        return t.dimJustification;
+    case 'constraint_awareness': return t.dimConstraintAwareness;
+    case 'transfer':             return t.dimTransfer;
+    default: return dim;
+  }
+}
+function levelLabel(t: TeacherT, level: string): string {
+  switch (level) {
+    case 'Limited Evidence': return t.levelLimitedEvidence;
+    case 'Beginner':         return t.levelBeginner;
+    case 'Developing':       return t.levelDeveloping;
+    case 'Proficient':       return t.levelProficient;
+    case 'Advanced':         return t.levelAdvanced;
+    default: return level;
+  }
+}
+function confidenceLabel(t: TeacherT, c: string): string {
+  switch (c) {
+    case 'High':         return t.confidenceHigh;
+    case 'Medium':       return t.confidenceMedium;
+    case 'Low':          return t.confidenceLow;
+    case 'Insufficient': return t.confidenceInsufficient;
+    default: return c;
+  }
+}
+function supportLabel(t: TeacherT, s: string): string {
+  switch (s) {
+    case 'Independent':          return t.supportIndependent;
+    case 'Occasional prompting': return t.supportOccasional;
+    case 'Heavy prompting':      return t.supportHeavy;
+    case 'Not applicable':       return t.supportNotApplicable;
+    default: return s;
+  }
+}
 
 interface RadarDimension {
   level: string;
@@ -36,11 +82,8 @@ interface ReportEntry {
   created_at: string;
 }
 
-const DIMENSION_LABELS: [keyof ReportBody['thinking_radar'], string][] = [
-  ['decision_making', 'Decision-Making'],
-  ['justification', 'Justification'],
-  ['constraint_awareness', 'Constraint Awareness'],
-  ['transfer', 'Transfer'],
+const DIMENSION_KEYS: (keyof ReportBody['thinking_radar'])[] = [
+  'decision_making', 'justification', 'constraint_awareness', 'transfer',
 ];
 
 const LEVEL_STYLE: Record<string, string> = {
@@ -55,28 +98,30 @@ function levelStyle(level: string): string {
 }
 
 export function LevelPill({ level }: { level: string }) {
+  const { t } = useTranslation();
   return (
     <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border ${levelStyle(level)}`}>
-      {level}
+      {levelLabel(t.teacher, level)}
     </span>
   );
 }
 
-function RadarCard({ label, dim }: { label: string; dim: RadarDimension }) {
+function RadarCard({ dimKey, dim }: { dimKey: keyof ReportBody['thinking_radar']; dim: RadarDimension }) {
+  const { t } = useTranslation();
   return (
     <div className="bg-[var(--ov1)] border border-[var(--bd)] rounded-xl p-4">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[var(--tx1)] text-sm font-semibold">{label}</span>
+        <span className="text-[var(--tx1)] text-sm font-semibold">{dimLabel(t.teacher, dimKey)}</span>
         <LevelPill level={dim.level} />
       </div>
       <p className="text-[var(--tx3)] text-xs leading-relaxed mb-3">{dim.description}</p>
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[10px] mb-2">
-        <div><span className="text-[var(--tx8)] uppercase tracking-wide">Confidence</span><p className="text-[var(--tx3)] mt-0.5">{dim.confidence}</p></div>
-        <div><span className="text-[var(--tx8)] uppercase tracking-wide">Support level</span><p className="text-[var(--tx3)] mt-0.5">{dim.support_level}</p></div>
+        <div><span className="text-[var(--tx8)] uppercase tracking-wide">{t.teacher.confidenceLabel}</span><p className="text-[var(--tx3)] mt-0.5">{confidenceLabel(t.teacher, dim.confidence)}</p></div>
+        <div><span className="text-[var(--tx8)] uppercase tracking-wide">{t.teacher.supportLevelLabel}</span><p className="text-[var(--tx3)] mt-0.5">{supportLabel(t.teacher, dim.support_level)}</p></div>
       </div>
       {dim.observable_evidence?.length > 0 && (
         <div className="mb-2">
-          <span className="text-[10px] text-[var(--tx8)] uppercase tracking-wide">Observable evidence</span>
+          <span className="text-[10px] text-[var(--tx8)] uppercase tracking-wide">{t.teacher.observableEvidenceLabel}</span>
           <ul className="mt-1 space-y-0.5">
             {dim.observable_evidence.map((e, i) => (
               <li key={i} className="text-[var(--tx4)] text-xs flex items-start gap-1.5">
@@ -88,7 +133,7 @@ function RadarCard({ label, dim }: { label: string; dim: RadarDimension }) {
       )}
       {dim.next_growth_step && (
         <p className="text-[10px] text-purple-300/80 border-t border-[var(--bd)] pt-2 mt-2">
-          <span className="text-[var(--tx8)] uppercase tracking-wide">Next: </span>{dim.next_growth_step}
+          <span className="text-[var(--tx8)] uppercase tracking-wide">{t.teacher.nextGrowthStepPrefix}</span>{dim.next_growth_step}
         </p>
       )}
     </div>
@@ -119,6 +164,7 @@ export function LadderReportModal({
   fetchUrl: string;
   token: string | null;
 }) {
+  const { t, tF } = useTranslation();
   const [reports, setReports] = useState<ReportEntry[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [pollKey, setPollKey] = useState(0);
@@ -179,7 +225,7 @@ export function LadderReportModal({
         <div className="sticky top-0 bg-[var(--surface)] border-b border-[var(--bd)] px-5 py-4 flex items-start justify-between gap-3 z-10">
           <div>
             <p className="text-[10px] text-purple-400 uppercase tracking-wider font-semibold flex items-center gap-1.5">
-              <Footprints size={11} /> Ladder Session Report
+              <Footprints size={11} /> {t.teacher.ladderSessionReportLabel}
             </p>
             <h2 className="text-[var(--tx1)] text-lg font-bold mt-0.5">{conceptTitle}</h2>
             <p className="text-[var(--tx7)] text-xs mt-0.5">{studentName}</p>
@@ -187,11 +233,11 @@ export function LadderReportModal({
           <div className="flex items-center gap-3 shrink-0">
             {active && active.status !== 'pending' && (
               <button onClick={regenerate} disabled={regenerating}
-                title="Re-run the AI scoring for this session — useful if this report looks off"
+                title={t.teacher.regenerateReportTooltip}
                 className="flex items-center gap-1.5 text-[10px] px-2.5 py-1.5 rounded-lg border border-[var(--bd)]
                            text-[var(--tx7)] hover:border-purple-500/40 hover:text-purple-400 transition-all disabled:opacity-50">
                 {regenerating ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
-                Regenerate
+                {t.teacher.redoBtn}
               </button>
             )}
             <button onClick={onClose} className="text-[var(--tx7)] hover:text-[var(--tx2)] transition-colors">
@@ -210,7 +256,7 @@ export function LadderReportModal({
                     ? 'border-purple-500/50 bg-purple-500/15 text-purple-300'
                     : 'border-[var(--bd)] text-[var(--tx7)] hover:border-purple-500/40'
                 }`}>
-                {new Date(r.created_at).toLocaleDateString()} {i === 0 && '(latest)'}
+                {new Date(r.created_at).toLocaleDateString()} {i === 0 && t.teacher.latestLabel}
               </button>
             ))}
           </div>
@@ -222,34 +268,34 @@ export function LadderReportModal({
               <Loader2 size={22} className="text-purple-400 animate-spin" />
             </div>
           ) : reports.length === 0 ? (
-            <p className="text-[var(--tx7)] text-sm text-center py-8">No guided-discovery sessions resolved yet for this concept.</p>
+            <p className="text-[var(--tx7)] text-sm text-center py-8">{t.teacher.noSessionsForConcept}</p>
           ) : active?.status === 'pending' ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12">
               <Loader2 size={22} className="text-purple-400 animate-spin" />
-              <p className="text-[var(--tx7)] text-xs">Generating report…</p>
-              <p className="text-[var(--tx8)] text-[10px]">Usually takes about 10-15 seconds — this updates automatically</p>
+              <p className="text-[var(--tx7)] text-xs">{t.teacher.generatingReportLabel}</p>
+              <p className="text-[var(--tx8)] text-[10px]">{t.teacher.generatingReportHint}</p>
             </div>
           ) : active?.status === 'failed' ? (
-            <p className="text-red-400 text-sm text-center py-8">Report generation failed{active.error_message ? `: ${active.error_message}` : '.'}</p>
+            <p className="text-red-400 text-sm text-center py-8">{t.teacher.reportGenerationFailed}{active.error_message ? `: ${active.error_message}` : '.'}</p>
           ) : active?.report ? (
             <div className="space-y-5">
-              <p className="text-[var(--tx8)] text-[11px]">Resolved in {active.steps} guided step{active.steps === 1 ? '' : 's'} · {new Date(active.created_at).toLocaleString()}</p>
+              <p className="text-[var(--tx8)] text-[11px]">{tF(t.teacher.resolvedInStepsLabel, { n: active.steps })} · {new Date(active.created_at).toLocaleString()}</p>
 
               {/* Academic Understanding */}
               <div className="border-l-2 border-purple-500 pl-4">
-                <p className="text-[10px] text-[var(--tx8)] uppercase tracking-wider mb-1">Academic Understanding</p>
+                <p className="text-[10px] text-[var(--tx8)] uppercase tracking-wider mb-1">{t.teacher.dimAcademicUnderstanding}</p>
                 <div className="flex items-center gap-2 mb-1.5">
-                  <span className="text-[var(--tx1)] text-base font-bold">{active.report.academic_understanding.level}</span>
+                  <span className="text-[var(--tx1)] text-base font-bold">{levelLabel(t.teacher, active.report.academic_understanding.level)}</span>
                 </div>
                 <p className="text-[var(--tx3)] text-sm leading-relaxed">{active.report.academic_understanding.summary}</p>
               </div>
 
               {/* Thinking Radar */}
               <div>
-                <p className="text-[10px] text-[var(--tx8)] uppercase tracking-wider mb-2">Thinking Radar — how they thought</p>
+                <p className="text-[10px] text-[var(--tx8)] uppercase tracking-wider mb-2">{t.teacher.thinkingRadarSectionLabel}</p>
                 <div className="grid sm:grid-cols-2 gap-3">
-                  {DIMENSION_LABELS.map(([key, label]) => (
-                    <RadarCard key={key} label={label} dim={active.report!.thinking_radar[key]} />
+                  {DIMENSION_KEYS.map(key => (
+                    <RadarCard key={key} dimKey={key} dim={active.report!.thinking_radar[key]} />
                   ))}
                 </div>
               </div>
@@ -257,15 +303,15 @@ export function LadderReportModal({
               {/* Strengths / Growth / Next steps */}
               <div className="grid sm:grid-cols-3 gap-4">
                 <div>
-                  <p className="text-[10px] text-green-400 uppercase tracking-wider mb-1.5 font-semibold">Strengths</p>
+                  <p className="text-[10px] text-green-400 uppercase tracking-wider mb-1.5 font-semibold">{t.teacher.strengthsLabel}</p>
                   <BulletList items={active.report.strengths} color="bg-green-400" />
                 </div>
                 <div>
-                  <p className="text-[10px] text-amber-400 uppercase tracking-wider mb-1.5 font-semibold">Areas for Growth</p>
+                  <p className="text-[10px] text-amber-400 uppercase tracking-wider mb-1.5 font-semibold">{t.teacher.areasForGrowthLabel}</p>
                   <BulletList items={active.report.areas_for_growth} color="bg-amber-400" />
                 </div>
                 <div>
-                  <p className="text-[10px] text-purple-400 uppercase tracking-wider mb-1.5 font-semibold">Next Steps</p>
+                  <p className="text-[10px] text-purple-400 uppercase tracking-wider mb-1.5 font-semibold">{t.teacher.nextStepsLabel}</p>
                   <BulletList items={active.report.next_steps} color="bg-purple-400" />
                 </div>
               </div>
@@ -274,7 +320,7 @@ export function LadderReportModal({
               <div className="bg-purple-500/8 border border-purple-500/20 rounded-xl p-4 flex items-start gap-2.5">
                 <Lightbulb size={15} className="text-purple-400 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-[10px] text-purple-400 uppercase tracking-wider font-semibold mb-1">Teacher Insight</p>
+                  <p className="text-[10px] text-purple-400 uppercase tracking-wider font-semibold mb-1">{t.teacher.teacherInsightLabel}</p>
                   <p className="text-[var(--tx2)] text-sm leading-relaxed">{active.report.teacher_insight}</p>
                 </div>
               </div>
@@ -283,13 +329,13 @@ export function LadderReportModal({
               <div className="grid sm:grid-cols-2 gap-3">
                 <div className="border border-[var(--bd)] rounded-xl p-3.5">
                   <p className="text-[10px] text-[var(--tx8)] uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                    <TrendingUp size={10} /> Suggested Next Topic
+                    <TrendingUp size={10} /> {t.teacher.suggestedNextTopicLabel}
                   </p>
                   <p className="text-[var(--tx2)] text-xs leading-relaxed">{active.report.suggested_next_topic}</p>
                 </div>
                 <div className="border border-[var(--bd)] rounded-xl p-3.5">
                   <p className="text-[10px] text-[var(--tx8)] uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                    <ArrowUpRight size={10} /> Optional Extension
+                    <ArrowUpRight size={10} /> {t.teacher.optionalExtensionLabel}
                   </p>
                   <p className="text-[var(--tx2)] text-xs leading-relaxed">{active.report.optional_extension}</p>
                 </div>

@@ -40,7 +40,8 @@ interface ConceptProgress {
   guided_avg_steps: number | null;
   ladder_report: LadderReportSummary | null;
   recommended_kind: string | null;
-  recommend_reason: string | null;
+  recommend_reason_key: string | null;
+  recommend_reason_params: Record<string, string | number> | null;
 }
 interface CourseProgress  { id: string; name: string; concepts: ConceptProgress[]; }
 interface StudentProgress { id: string; name: string; email: string; courses: CourseProgress[]; }
@@ -199,11 +200,8 @@ function MasteryBar({ concepts }: { concepts: ConceptProgress[] }) {
   );
 }
 
-const DIMENSION_LABELS: [keyof CourseSummary['layer2']['thinking_radar'], string][] = [
-  ['decision_making', 'Decision-Making'],
-  ['justification', 'Justification'],
-  ['constraint_awareness', 'Constraint Awareness'],
-  ['transfer', 'Transfer'],
+const DIMENSION_KEYS: (keyof CourseSummary['layer2']['thinking_radar'])[] = [
+  'decision_making', 'justification', 'constraint_awareness', 'transfer',
 ];
 
 function TrendIcon({ trend }: { trend: RollupEntry['trend'] }) {
@@ -213,20 +211,80 @@ function TrendIcon({ trend }: { trend: RollupEntry['trend'] }) {
   return null; // 'insufficient' — not enough sessions to call a trend yet
 }
 
+// The backend intentionally returns raw keys/enum values here (not
+// pre-formatted English labels) precisely so they can be localized —
+// baking a display string into an API response would make it untranslatable.
+type TeacherT = ReturnType<typeof useTranslation>['t']['teacher'];
+
+function dimLabel(t: TeacherT, dim: string | null | undefined): string {
+  switch (dim) {
+    case 'decision_making':      return t.dimDecisionMaking;
+    case 'justification':        return t.dimJustification;
+    case 'constraint_awareness': return t.dimConstraintAwareness;
+    case 'transfer':             return t.dimTransfer;
+    default: return dim ?? '';
+  }
+}
+function levelLabel(t: TeacherT, level: string | null | undefined): string {
+  switch (level) {
+    case 'Limited Evidence': return t.levelLimitedEvidence;
+    case 'Beginner':         return t.levelBeginner;
+    case 'Developing':       return t.levelDeveloping;
+    case 'Proficient':       return t.levelProficient;
+    case 'Advanced':         return t.levelAdvanced;
+    default: return level ?? '';
+  }
+}
+function confidenceLabel(t: TeacherT, c: string | null | undefined): string {
+  switch (c) {
+    case 'High':         return t.confidenceHigh;
+    case 'Medium':       return t.confidenceMedium;
+    case 'Low':          return t.confidenceLow;
+    case 'Insufficient': return t.confidenceInsufficient;
+    default: return c ?? '';
+  }
+}
+function supportLabel(t: TeacherT, s: string | null | undefined): string {
+  switch (s) {
+    case 'Independent':          return t.supportIndependent;
+    case 'Occasional prompting': return t.supportOccasional;
+    case 'Heavy prompting':      return t.supportHeavy;
+    case 'Not applicable':       return t.supportNotApplicable;
+    default: return s ?? '';
+  }
+}
+function recommendReasonText(
+  t: TeacherT, tF: (tpl: string, vars: Record<string, string | number>) => string,
+  key: string | null | undefined, params: Record<string, string | number> | null | undefined,
+): string | undefined {
+  if (!key) return undefined;
+  const p = params ?? {};
+  switch (key) {
+    case 'focus_quiz':        return tF(t.reasonFocusQuiz, { dim: dimLabel(t, String(p.dim ?? '')) });
+    case 'focus_studyset':    return tF(t.reasonFocusStudyset, { dim: dimLabel(t, String(p.dim ?? '')) });
+    case 'low_quiz_score':    return tF(t.reasonLowQuizScore, { score: p.score ?? '' });
+    case 'not_engaged_video': return t.reasonNotEngagedVideo;
+    case 'not_engaged_chat':  return t.reasonNotEngagedChat;
+    default: return undefined;
+  }
+}
+
 const TREND_LEVEL_RANK: Record<string, number> = {
   'Limited Evidence': 0, 'Beginner': 1, 'Developing': 2, 'Proficient': 3, 'Advanced': 4,
 };
-const TREND_SERIES: { key: keyof TrendPoint; label: string; color: string; dot: string; width: number }[] = [
+const TREND_SERIES: { key: keyof TrendPoint; dimKey: string | null; color: string; dot: string; width: number }[] = [
   // `dot` is spelled out explicitly (not derived from `color` via string
   // replace) because Tailwind's build-time scanner only picks up class
   // names that appear literally in source — a computed 'bg-' + shade
   // string is invisible to it and silently produces no CSS at all, which
   // is exactly why the constraint-awareness legend swatch had no color.
-  { key: 'academic_understanding', label: 'Overall',              color: 'text-purple-400', dot: 'bg-purple-400', width: 2.5 },
-  { key: 'decision_making',        label: 'Decision-Making',      color: 'text-blue-400',   dot: 'bg-blue-400',   width: 1.5 },
-  { key: 'justification',          label: 'Justification',        color: 'text-amber-400',  dot: 'bg-amber-400',  width: 1.5 },
-  { key: 'constraint_awareness',   label: 'Constraint Awareness', color: 'text-pink-400',   dot: 'bg-pink-400',   width: 1.5 },
-  { key: 'transfer',               label: 'Transfer',             color: 'text-cyan-400',   dot: 'bg-cyan-400',   width: 1.5 },
+  // dimKey is null for the academic_understanding row, which isn't one of
+  // the four thinking_radar dimensions dimLabel() maps.
+  { key: 'academic_understanding', dimKey: null,                    color: 'text-purple-400', dot: 'bg-purple-400', width: 2.5 },
+  { key: 'decision_making',        dimKey: 'decision_making',       color: 'text-blue-400',   dot: 'bg-blue-400',   width: 1.5 },
+  { key: 'justification',          dimKey: 'justification',         color: 'text-amber-400',  dot: 'bg-amber-400',  width: 1.5 },
+  { key: 'constraint_awareness',   dimKey: 'constraint_awareness',  color: 'text-pink-400',   dot: 'bg-pink-400',   width: 1.5 },
+  { key: 'transfer',               dimKey: 'transfer',              color: 'text-cyan-400',   dot: 'bg-cyan-400',   width: 1.5 },
 ];
 
 /** Level-over-time line chart across a student's dated ladder session
@@ -236,20 +294,22 @@ const TREND_SERIES: { key: keyof TrendPoint; label: string; color: string; dot: 
  *  categorical (0-4 rank) series, well within what plain polylines handle
  *  cleanly. Needs at least two sessions to be a "trend" at all. */
 function TrendChart({ series }: { series: TrendPoint[] }) {
+  const { t, tF } = useTranslation();
   if (series.length < 2) return null;
   const rankOf = (level: string | null) => TREND_LEVEL_RANK[level ?? ''] ?? 0;
   const x = (i: number) => 20 + (i * 270) / (series.length - 1);
   const y = (rank: number) => 90 - rank * 20;
+  const seriesLabel = (dimKey: string | null) => dimKey ? dimLabel(t.teacher, dimKey) : t.teacher.trendOverallLabel;
 
   return (
     <div className="border border-[var(--bd)] rounded-xl p-3.5 bg-[var(--surface)]">
-      <p className="text-[10px] text-[var(--tx7)] uppercase tracking-wide mb-2">Level over time ({series.length} sessions)</p>
+      <p className="text-[10px] text-[var(--tx7)] uppercase tracking-wide mb-2">{tF(t.teacher.levelOverTimeLabel, { n: series.length })}</p>
       <svg viewBox="0 0 300 100" className="w-full h-auto" preserveAspectRatio="none">
         {[0, 1, 2, 3, 4].map(rank => (
           <line key={rank} x1={18} x2={292} y1={y(rank)} y2={y(rank)} className="stroke-[var(--bd)]" strokeWidth={0.5} />
         ))}
-        {['Ltd', 'Beg', 'Dev', 'Prof', 'Adv'].map((label, rank) => (
-          <text key={label} x={0} y={y(rank) + 3} className="fill-[var(--tx8)]" fontSize={7}>{label}</text>
+        {[t.teacher.levelLimitedEvidence, t.teacher.levelBeginner, t.teacher.levelDeveloping, t.teacher.levelProficient, t.teacher.levelAdvanced].map((label, rank) => (
+          <text key={label} x={0} y={y(rank) + 3} className="fill-[var(--tx8)]" fontSize={7}>{label.slice(0, 4)}</text>
         ))}
         {TREND_SERIES.map(s => {
           const points = series.map((p, i) => `${x(i)},${y(rankOf(p[s.key]))}`).join(' ');
@@ -259,7 +319,7 @@ function TrendChart({ series }: { series: TrendPoint[] }) {
                 strokeLinejoin="round" strokeLinecap="round" opacity={0.9} />
               {series.map((p, i) => (
                 <circle key={i} cx={x(i)} cy={y(rankOf(p[s.key]))} r={s.width} fill="currentColor">
-                  <title>{`${s.label}: ${p[s.key] ?? 'Limited Evidence'}${p.date ? ` (${p.date})` : ''}`}</title>
+                  <title>{`${seriesLabel(s.dimKey)}: ${levelLabel(t.teacher, p[s.key] ?? 'Limited Evidence')}${p.date ? ` (${p.date})` : ''}`}</title>
                 </circle>
               ))}
             </g>
@@ -274,7 +334,7 @@ function TrendChart({ series }: { series: TrendPoint[] }) {
         {TREND_SERIES.map(s => (
           <span key={s.key} className="flex items-center gap-1 text-[10px] text-[var(--tx7)]">
             <span className={`w-2 h-2 rounded-full ${s.dot}`} />
-            {s.label}
+            {seriesLabel(s.dimKey)}
           </span>
         ))}
       </div>
@@ -287,18 +347,19 @@ function TrendChart({ series }: { series: TrendPoint[] }) {
  *  reports (also free — the reports are already structured JSON), and a
  *  cached AI narrative synthesizing the trajectory across those reports. */
 function CourseSummaryPanel({ summary, onRegenerate, regenerating }: { summary: CourseSummary; onRegenerate?: () => void; regenerating?: boolean }) {
+  const { t, tF } = useTranslation();
   const { layer1, layer2, layer3 } = summary;
   return (
     <div className="space-y-4">
       {/* Layer 1 — quantitative roll-up */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
         {[
-          ['Visited', `${layer1.visited_count}/${layer1.total_concepts}`, undefined],
-          ['Avg quiz', layer1.avg_quiz_score !== null ? `${Math.round(layer1.avg_quiz_score)}%` : '—', 'Average score across formal quiz attempts only — a low score here does not lower Mastered below, see that stat\'s own note.'],
-          ['Mastered', `${layer1.mastered_count}/${layer1.total_concepts}`, 'A concept counts as mastered if the student either scored 70%+ on its quiz OR resolved at least one verified guided-discovery session for it — whichever happens first. Independent of the Avg quiz number above.'],
-          ['Guided', String(layer1.guided_resolved_count), 'Guided-discovery chains resolved and verified by an independent check, not just self-reported by the AI tutor.'],
-          ['Avg steps', layer1.guided_avg_steps !== null ? layer1.guided_avg_steps.toFixed(1) : '—', 'Average number of guiding questions per resolved chain — higher can mean more scaffolding was needed, not necessarily a problem.'],
-          ['Last active', layer1.last_active ? new Date(layer1.last_active).toLocaleDateString() : '—', undefined],
+          [t.teacher.statVisited, `${layer1.visited_count}/${layer1.total_concepts}`, undefined],
+          [t.teacher.statAvgQuiz, layer1.avg_quiz_score !== null ? `${Math.round(layer1.avg_quiz_score)}%` : '—', t.teacher.statAvgQuizTooltip],
+          [t.teacher.statMastered, `${layer1.mastered_count}/${layer1.total_concepts}`, t.teacher.statMasteredTooltip],
+          [t.teacher.statGuided, String(layer1.guided_resolved_count), t.teacher.statGuidedTooltip],
+          [t.teacher.statAvgSteps, layer1.guided_avg_steps !== null ? layer1.guided_avg_steps.toFixed(1) : '—', t.teacher.statAvgStepsTooltip],
+          [t.teacher.statLastActive, layer1.last_active ? new Date(layer1.last_active).toLocaleDateString() : '—', undefined],
         ].map(([label, value, tooltip]) => (
           <div key={label} className="text-center" title={tooltip}>
             <p className="text-[9px] text-[var(--tx7)] uppercase tracking-wide mb-0.5">{label}</p>
@@ -312,28 +373,28 @@ function CourseSummaryPanel({ summary, onRegenerate, regenerating }: { summary: 
         <div>
           <div className="flex items-center justify-between mb-2">
             <p className="text-[10px] text-[var(--tx7)] uppercase tracking-wide flex items-center gap-1">
-              <Footprints size={10} /> Thinking Radar rollup ({layer2.academic_understanding.session_count} session{layer2.academic_understanding.session_count === 1 ? '' : 's'})
+              <Footprints size={10} /> {tF(t.teacher.thinkingRadarRollupLabel, { n: layer2.academic_understanding.session_count })}
             </p>
             {layer2.focus_recommendation && (
               <span className="text-[10px] text-amber-400 flex items-center gap-1">
-                <Target size={10} /> Focus: {layer2.focus_recommendation}
+                <Target size={10} /> {tF(t.teacher.focusRecommendationLabel, { dim: dimLabel(t.teacher, layer2.focus_recommendation) })}
               </span>
             )}
           </div>
           <div className="grid sm:grid-cols-2 gap-2">
             <div className="flex items-center justify-between px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--bd)]">
-              <span className="text-xs text-[var(--tx2)]">Academic Understanding</span>
+              <span className="text-xs text-[var(--tx2)]">{t.teacher.dimAcademicUnderstanding}</span>
               <span className="flex items-center gap-1.5">
                 <TrendIcon trend={layer2.academic_understanding.trend} />
                 {layer2.academic_understanding.most_common && <LevelPill level={layer2.academic_understanding.most_common} />}
               </span>
             </div>
-            {DIMENSION_LABELS.map(([key, label]) => {
+            {DIMENSION_KEYS.map(key => {
               const entry = layer2.thinking_radar[key];
               return (
                 <div key={key} className="px-3 py-2 rounded-lg bg-[var(--surface)] border border-[var(--bd)]">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-[var(--tx2)]">{label}</span>
+                    <span className="text-xs text-[var(--tx2)]">{dimLabel(t.teacher, key)}</span>
                     <span className="flex items-center gap-1.5">
                       <TrendIcon trend={entry.trend} />
                       {entry.most_common && <LevelPill level={entry.most_common} />}
@@ -341,9 +402,9 @@ function CourseSummaryPanel({ summary, onRegenerate, regenerating }: { summary: 
                   </div>
                   {(entry.most_common_support_level || entry.most_common_confidence) && (
                     <p className="text-[9px] text-[var(--tx8)] mt-1">
-                      {entry.most_common_support_level && <>Usually {entry.most_common_support_level.toLowerCase()}</>}
+                      {entry.most_common_support_level && <>{tF(t.teacher.usuallySupportLabel, { support: supportLabel(t.teacher, entry.most_common_support_level) })}</>}
                       {entry.most_common_support_level && entry.most_common_confidence && ' · '}
-                      {entry.most_common_confidence && <>{entry.most_common_confidence} confidence</>}
+                      {entry.most_common_confidence && <>{tF(t.teacher.confidenceSuffixLabel, { confidence: confidenceLabel(t.teacher, entry.most_common_confidence) })}</>}
                     </p>
                   )}
                 </div>
@@ -352,7 +413,7 @@ function CourseSummaryPanel({ summary, onRegenerate, regenerating }: { summary: 
           </div>
         </div>
       ) : (
-        <p className="text-[var(--tx7)] text-xs">No guided-discovery sessions resolved yet in this course — the Thinking Radar rollup and narrative fill in once one resolves.</p>
+        <p className="text-[var(--tx7)] text-xs">{t.teacher.noSessionsResolvedYet}</p>
       )}
 
       {/* Level-over-time trend chart — needs 2+ sessions, renders nothing below that */}
@@ -364,10 +425,10 @@ function CourseSummaryPanel({ summary, onRegenerate, regenerating }: { summary: 
           <Sparkles size={14} className="text-cyan-400 shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2 mb-1">
-              <p className="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold">Summary</p>
+              <p className="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold">{t.teacher.summaryLabel}</p>
               {onRegenerate && (
                 <button onClick={onRegenerate} disabled={!!regenerating}
-                  title="Regenerate this summary — useful if it reads stale or off"
+                  title={t.teacher.regenerateSummaryTooltip}
                   className="text-cyan-400/70 hover:text-cyan-300 transition-colors disabled:opacity-50 shrink-0">
                   {regenerating ? <Loader2 size={11} className="animate-spin" /> : <RotateCcw size={11} />}
                 </button>
@@ -698,7 +759,7 @@ export default function TeacherStudentDetailPage() {
                   onClick={() => toggleCourseSummary(course.id)}
                   className="w-full flex items-center justify-between gap-2 text-xs px-3 py-2 rounded-lg border border-cyan-500/30 bg-cyan-500/5 text-cyan-400 hover:bg-cyan-500/10 transition-colors"
                 >
-                  <span className="flex items-center gap-1.5 font-medium"><Sparkles size={12} /> Complete Result</span>
+                  <span className="flex items-center gap-1.5 font-medium"><Sparkles size={12} /> {t.teacher.completeResultLabel}</span>
                   {expandedSummaryCourse === course.id ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                 </button>
                 {expandedSummaryCourse === course.id && (
@@ -706,7 +767,7 @@ export default function TeacherStudentDetailPage() {
                     {courseSummaries[course.id] === 'loading' ? (
                       <div className="flex flex-col items-center justify-center gap-2 py-6">
                         <Loader2 size={18} className="text-cyan-400 animate-spin" />
-                        <p className="text-[var(--tx8)] text-[10px]">Rolling up progress and writing the summary — a few seconds…</p>
+                        <p className="text-[var(--tx8)] text-[10px]">{t.teacher.rollingUpProgress}</p>
                       </div>
                     ) : courseSummaries[course.id] ? (
                       <CourseSummaryPanel
@@ -715,7 +776,7 @@ export default function TeacherStudentDetailPage() {
                         regenerating={regeneratingCourse === course.id}
                       />
                     ) : (
-                      <p className="text-[var(--tx7)] text-xs text-center py-4">Could not load the summary — try again.</p>
+                      <p className="text-[var(--tx7)] text-xs text-center py-4">{t.teacher.couldNotLoadSummary}</p>
                     )}
                   </div>
                 )}
@@ -768,7 +829,7 @@ export default function TeacherStudentDetailPage() {
                             <div className="mb-2.5">
                               <p className="text-xs text-amber-400 flex items-center gap-1">
                                 <Target size={11} />
-                                {tF(t.teacher.practiceFocusLabel, { dim: lr.weak_dimension, level: lr.weak_level || '' })}
+                                {tF(t.teacher.practiceFocusLabel, { dim: dimLabel(t.teacher, lr.weak_dimension), level: lr.weak_level ? levelLabel(t.teacher, lr.weak_level) : '' })}
                               </p>
                               {lr.next_growth_step && (
                                 <p className="text-[11px] text-[var(--tx7)] mt-0.5 ml-4">{lr.next_growth_step}</p>
@@ -784,7 +845,7 @@ export default function TeacherStudentDetailPage() {
                               return (
                                 <button key={kind} onClick={() => assign(concept.id, kind)}
                                   disabled={isDisabled || assigning === key}
-                                  title={isDisabled ? t.teacher.comingSoon : isRecommended ? (concept.recommend_reason || undefined) : undefined}
+                                  title={isDisabled ? t.teacher.comingSoon : isRecommended ? recommendReasonText(t.teacher, tF, concept.recommend_reason_key, concept.recommend_reason_params) : undefined}
                                   className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-xl border transition-all ${
                                     isDisabled
                                       ? 'opacity-40 cursor-not-allowed border-[var(--bd)] text-[var(--tx8)]'

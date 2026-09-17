@@ -29,7 +29,7 @@ from routers.courses import (
     _get_student, build_quiz_prompt, build_flashcard_prompt,
     _map_manim_subject, _build_concept_video_prompt,
 )
-from routers.students import _require_teacher_of_student, _summarize_ladder_report
+from routers.students import _require_teacher_of_student, _summarize_ladder_report, _DIMENSION_LABELS
 from services.ai_router import openai_client
 
 logger = logging.getLogger(__name__)
@@ -358,9 +358,14 @@ async def _generate_assignment_bg(assignment_id: str, kind: str, concept: dict, 
                 "they already showed they understand.\n"
             )
         elif ladder_report and ladder_report.get("weak_dimension"):
+            # weak_dimension is a raw key (e.g. "constraint_awareness") since
+            # the summarizer no longer bakes in an English display label —
+            # this is just AI prompt text, not shown to any user, so a
+            # human-readable label here is purely for the model's benefit.
+            dim_label = _DIMENSION_LABELS.get(ladder_report["weak_dimension"], ladder_report["weak_dimension"])
             extra += (
                 f"This student's guided-discovery session on this concept showed their weakest area is "
-                f"{ladder_report['weak_dimension']} ({ladder_report.get('weak_level') or 'Developing'}). "
+                f"{dim_label} ({ladder_report.get('weak_level') or 'Developing'}). "
                 f"Specific growth step identified: {ladder_report.get('next_growth_step') or 'apply the idea to a new situation'}\n"
                 "Design this content to directly exercise that gap — e.g. if the gap is applying the idea "
                 "to new situations or recognizing what changes an outcome, include at least one question/card "
