@@ -14,7 +14,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface AssignmentSummary {
   id: string; concept_id: string | null; kind: string; title: string; status: string; created_at: string | null;
-  score: number | null;
+  score: number | null; course_name: string | null;
 }
 interface QuizQuestion { question: string; options: string[]; correct_idx: number; explanation?: string; }
 interface Flashcard    { front: string; back: string; }
@@ -23,7 +23,7 @@ interface AssignmentDetail {
   id: string; kind: string; title: string; status: string;
   error_message: string | null; video_stage: string | null; video_url: string | null;
   payload: QuizQuestion[] | Flashcard[] | null; study_set_id: string | null;
-  score: number | null; answers: SubmittedAnswer[] | null;
+  score: number | null; answers: SubmittedAnswer[] | null; course_name: string | null;
 }
 
 export default function AssignmentsPage() {
@@ -181,6 +181,11 @@ export default function AssignmentsPage() {
 
                 {expandedId === a.id && detail && (
                   <div className="border-t border-[var(--bd)] p-4">
+                    {(detail.course_name || a.title) && (
+                      <p className="text-[var(--tx7)] text-xs mb-3">
+                        {detail.course_name}{detail.course_name && a.title ? ' › ' : ''}{a.title}
+                      </p>
+                    )}
                     {detail.status === 'generating' && (
                       <p className="text-[var(--tx7)] text-sm flex items-center gap-2">
                         <Loader2 size={14} className="animate-spin" />

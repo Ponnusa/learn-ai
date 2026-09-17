@@ -128,24 +128,30 @@ async def list_my_assignments(authorization: str = Header(...)):
 
 async def _list_assignments(student_id: str, hide_unreviewed: bool = False):
     query = """
-        SELECT id, concept_id, kind, title, status, score, created_at
-        FROM student_assignments WHERE student_id = $1::uuid
+        SELECT sa.id, sa.concept_id, sa.kind, sa.title, sa.status, sa.score, sa.created_at,
+               co.name AS course_name
+        FROM student_assignments sa
+        LEFT JOIN course_concepts cc ON cc.id = sa.concept_id
+        LEFT JOIN course_units cu    ON cu.id = cc.unit_id
+        LEFT JOIN courses co         ON co.id = cu.course_id
+        WHERE sa.student_id = $1::uuid
     """
     if hide_unreviewed:
         # A student must never see a draft still awaiting teacher approval.
-        query += " AND status != 'pending_review'"
-    query += " ORDER BY created_at DESC"
+        query += " AND sa.status != 'pending_review'"
+    query += " ORDER BY sa.created_at DESC"
     async with get_db() as db:
         rows = await db.fetch(query, student_id)
     return [
         {
-            "id":         str(r["id"]),
-            "concept_id": str(r["concept_id"]) if r["concept_id"] else None,
-            "kind":       r["kind"],
-            "title":      r["title"],
-            "status":     r["status"],
-            "score":      r["score"],
-            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "id":          str(r["id"]),
+            "concept_id":  str(r["concept_id"]) if r["concept_id"] else None,
+            "kind":        r["kind"],
+            "title":       r["title"],
+            "status":      r["status"],
+            "score":       r["score"],
+            "course_name": r["course_name"],
+            "created_at":  r["created_at"].isoformat() if r["created_at"] else None,
         }
         for r in rows
     ]
@@ -157,7 +163,14 @@ async def get_assignment(assignment_id: str, authorization: str = Header(...)):
     is_teacher = account_type in _TEACHER_TYPES
 
     async with get_db() as db:
-        a = await db.fetchrow("SELECT * FROM student_assignments WHERE id = $1::uuid", assignment_id)
+        a = await db.fetchrow("""
+            SELECT sa.*, co.name AS course_name
+            FROM student_assignments sa
+            LEFT JOIN course_concepts cc ON cc.id = sa.concept_id
+            LEFT JOIN course_units cu    ON cu.id = cc.unit_id
+            LEFT JOIN courses co         ON co.id = cu.course_id
+            WHERE sa.id = $1::uuid
+        """, assignment_id)
     if not a:
         raise HTTPException(404, "Assignment not found")
 
@@ -211,6 +224,7 @@ async def get_assignment(assignment_id: str, authorization: str = Header(...)):
         "video_url":     video_url,
         "payload":       a["payload"],
         "study_set_id":  str(a["study_set_id"]) if a["study_set_id"] else None,
+        "course_name":   a["course_name"],
         "score":         a["score"],
         "answers":       a["answers"],
         "reviewed_at":   a["reviewed_at"].isoformat() if a["reviewed_at"] else None,
