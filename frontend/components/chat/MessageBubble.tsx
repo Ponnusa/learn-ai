@@ -608,11 +608,16 @@ interface MessageBubbleProps {
   onDeleteVideo?: () => void;
   /** Auth token forwarded to status cards */
   token?: string;
+  /** Active bilingual-mode explanation language for this conversation, if
+   *  any (locked for the whole conversation once set) — read-aloud must
+   *  follow this, not the account/course language, since the message
+   *  content itself is already written in it. */
+  explanationLang?: string | null;
 }
 
 export function MessageBubble({
   message, onChipClick, onMakeVisual, onTestYourself, onSimplify, onGoDeeper,
-  videoId, onDeleteVideo, token,
+  videoId, onDeleteVideo, token, explanationLang,
 }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [ttsLoading, setTtsLoading] = useState(false);
@@ -641,7 +646,11 @@ export function MessageBubble({
     globalStopTts = stopTts;
     setTtsLoading(true);
     try {
-      const blob = await getChatMessageAudio(message.id, language);
+      // Prefer this exact message's own recorded language (most reliable —
+      // tied to what it was actually generated as) over the live session
+      // prop, falling back to the account language when neither applies.
+      const speakLang = message.metadata?.explanation_language ?? explanationLang ?? language;
+      const blob = await getChatMessageAudio(message.id, speakLang);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.playbackRate = getSavedAudioSpeed();

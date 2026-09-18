@@ -388,7 +388,11 @@ export default function HomePage() {
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
         subject:         subject ?? currentSubject?.subject,
-        language,
+        // Bilingual mode is locked for the whole conversation once set, so
+        // whatever explanation language the reply itself used is exactly
+        // what this video should follow too — otherwise a student reading
+        // an English explanation gets a Finnish-narrated video right after.
+        language:        explanationLang ?? language,
         grade_level:     grade ?? undefined,
       }, token ?? undefined);
 
@@ -428,7 +432,9 @@ export default function HomePage() {
         user_id:         user?.id,
         session_id:      sessionId ?? undefined,
         subject:         subject ?? currentSubject?.subject,
-        language,
+        // Same reasoning as handleMakeVisual — keep the quiz in whatever
+        // language the reply it's testing was actually written in.
+        language:        explanationLang ?? language,
       }, token ?? undefined);
 
       if (!res.questions || res.questions.length === 0) {
@@ -622,6 +628,7 @@ export default function HomePage() {
                     videoId={videoByMsgId[msg.id]}
                     onDeleteVideo={() => setVideoByMsgId(prev => { const n = { ...prev }; delete n[msg.id]; return n; })}
                     token={token ?? undefined}
+                    explanationLang={explanationLang}
                   />
                 </div>
               ))
