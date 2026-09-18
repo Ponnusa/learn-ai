@@ -38,6 +38,7 @@ interface Message {
     quiz_topic?: string;
     num_questions?: number;
     ladder_depth?: number | null;
+    explanation_language?: string | null;
   };
 }
 
@@ -349,7 +350,7 @@ export default function HomePage() {
         id:       res.message_id,
         role:     'assistant',
         content:  res.reply,
-        metadata: { chips: res.chips, subject: res.subject, ladder_depth: res.ladder_depth },
+        metadata: { chips: res.chips, subject: res.subject, ladder_depth: res.ladder_depth, explanation_language: res.explanation_language },
       }]);
     } catch (e: any) {
       const isLimit = e.message === 'session_limit_reached' || e.message === 'Daily message limit reached';
@@ -553,7 +554,7 @@ export default function HomePage() {
         id:       res.message_id,
         role:     'assistant',
         content:  res.reply,
-        metadata: { chips: res.chips, subject: res.subject, ladder_depth: res.ladder_depth },
+        metadata: { chips: res.chips, subject: res.subject, ladder_depth: res.ladder_depth, explanation_language: res.explanation_language },
       }]);
     } catch (e: any) {
       const isLimit = e.message === 'session_limit_reached' || e.message === 'Daily message limit reached';

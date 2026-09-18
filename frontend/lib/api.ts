@@ -155,6 +155,7 @@ export const sendMessage = (data: {
   chips: string[];
   subject: { subject: string; subtopic: string; icon: string } | null;
   ladder_depth?: number | null;
+  explanation_language?: string | null;
 }>('/api/chat/send', data, token);
 
 export async function getChatMessageAudio(messageId: string, language = 'en'): Promise<Blob> {

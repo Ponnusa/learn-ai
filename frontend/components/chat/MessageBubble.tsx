@@ -18,6 +18,10 @@ import { getQuiz, getVideoStatus, retryVideo, regenerateVideo, deleteVideo, getC
 import { QualityBadge, QualityBanner } from '@/components/video/QualityBadge';
 import { getSavedAudioSpeed } from '@/components/ui/AudioPlayer';
 
+const EXPLAIN_LANG_NAMES: Record<string, string> = {
+  en: 'English', fi: 'Finnish', sv: 'Swedish', es: 'Spanish', fr: 'French', no: 'Norwegian',
+};
+
 function decodeHtml(s: string): string {
   if (typeof document === 'undefined') return s;
   const el = document.createElement('textarea');
@@ -45,6 +49,11 @@ interface Message {
      *  offering "what do you want to do next" is confusing when the model is
      *  actually waiting on a specific answer. */
     ladder_depth?: number | null;
+    /** Set when bilingual mode was active for this specific reply — the
+     *  language it was actually written in (e.g. 'fi'), so a student
+     *  scrolling back through the conversation can tell at a glance which
+     *  replies were translated, including after a reload. */
+    explanation_language?: string | null;
   };
 }
 
@@ -702,9 +711,18 @@ export function MessageBubble({
       </div>
 
       <div className="flex-1 min-w-0">
-        {subject?.subject && (
-          <div className="mb-2">
-            <SubjectBadge subject={subject.subject} subtopic={subject.subtopic} />
+        {(subject?.subject || message.metadata?.explanation_language) && (
+          <div className="mb-2 flex items-center gap-2 flex-wrap">
+            {subject?.subject && <SubjectBadge subject={subject.subject} subtopic={subject.subtopic} />}
+            {message.metadata?.explanation_language && (
+              <span
+                title={`Explained in ${EXPLAIN_LANG_NAMES[message.metadata.explanation_language] ?? message.metadata.explanation_language}`}
+                className="text-[9px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded
+                           bg-blue-500/10 text-blue-400 border border-blue-500/20"
+              >
+                {message.metadata.explanation_language}
+              </span>
+            )}
           </div>
         )}
 

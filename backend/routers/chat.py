@@ -388,12 +388,25 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
     # ── 6. Generate suggestion chips (background-ish, fast) ──────────────────
     chips = await generate_chips(reply_text, req.language)
 
+    # Same condition build_chat_prompt uses to decide whether bilingual mode
+    # actually applied to this reply — stored per-message (not just sent as
+    # a request setting) so the student can see which language each reply
+    # actually came back in, including on reload/history.
+    effective_explanation_language = (
+        req.explanation_language
+        if req.explanation_language and req.explanation_language != req.language
+        else None
+    )
+
     # ── 7. Save AI reply + update conversation ───────────────────────────────
     async with get_db() as db:
         msg_row = await db.fetchrow("""
             INSERT INTO messages (conversation_id, role, content, metadata)
             VALUES ($1, 'assistant', $2, $3::jsonb) RETURNING id, created_at
-        """, conv_id, reply_text, json.dumps({"chips": chips, "subject": subject_data, "ladder_depth": ladder_depth}))
+        """, conv_id, reply_text, json.dumps({
+            "chips": chips, "subject": subject_data, "ladder_depth": ladder_depth,
+            "explanation_language": effective_explanation_language,
+        }))
 
         msg_count_row = await db.fetchrow(
             "SELECT COUNT(*) as cnt FROM messages WHERE conversation_id = $1", conv_id
@@ -461,6 +474,7 @@ async def send_message(req: ChatRequest, bg: BackgroundTasks):
         "chips": chips,
         "subject": subject_data,
         "ladder_depth": ladder_depth,
+        "explanation_language": effective_explanation_language,
     }
 
 

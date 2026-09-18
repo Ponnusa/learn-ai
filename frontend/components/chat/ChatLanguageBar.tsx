@@ -1,6 +1,6 @@
 'use client';
 import { useState } from 'react';
-import { Globe, X } from 'lucide-react';
+import { Globe, Lock, X } from 'lucide-react';
 
 const LANG_OPTIONS = [
   { code: 'en', flag: '🇬🇧', label: 'English' },
@@ -23,16 +23,17 @@ export function ChatLanguageBar({ courseLang, explanationLang, onExplainLangChan
   const courseOpt  = LANG_OPTIONS.find(l => l.code === courseLang);
   const explainOpt = LANG_OPTIONS.find(l => l.code === explanationLang);
 
-  function handleDismiss() {
-    onExplainLangChange(null);
-    setPickerOpen(false);
-  }
-
   return (
     <div className="shrink-0 border-b border-[var(--bd)] bg-[var(--bg)] px-4 py-1.5 flex items-center justify-end min-h-[34px]">
       {explanationLang ? (
-        /* Active: course → explain pill */
-        <div className="flex items-center gap-1.5 text-[11px]">
+        /* Active — locked for the rest of this conversation once chosen, so
+           a student can't flip between languages mid-thread (confusing for
+           both the student and the model's own context). It resets back to
+           off automatically in a new or different conversation. */
+        <div
+          className="flex items-center gap-1.5 text-[11px]"
+          title="Locked for this conversation — start a new chat to change the explanation language"
+        >
           <span className="text-[var(--tx7)]">Explaining in</span>
           <span className="text-blue-400 font-medium">
             {courseOpt?.flag} {courseOpt?.label}
@@ -41,13 +42,7 @@ export function ChatLanguageBar({ courseLang, explanationLang, onExplainLangChan
           <span className="text-blue-400 font-medium">
             {explainOpt?.flag} {explainOpt?.label}
           </span>
-          <button
-            onClick={handleDismiss}
-            title="Disable bilingual mode"
-            className="ml-1 text-blue-400/50 hover:text-blue-300 transition-colors"
-          >
-            <X size={12} />
-          </button>
+          <Lock size={10} className="ml-0.5 text-[var(--tx9)]" />
         </div>
       ) : pickerOpen ? (
         /* Picker open */
