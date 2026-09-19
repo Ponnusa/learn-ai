@@ -189,6 +189,17 @@ export default function HomePage() {
       });
       setMessages(loadedMessages);
 
+      // Restore bilingual mode from history too — otherwise a page refresh
+      // (which routes through this same function, see the
+      // activeConversationId effect below) silently drops the per-
+      // conversation lock, letting a student pick a *different* explanation
+      // language after reloading the very conversation it was locked for —
+      // exactly the mixed-language mess the lock exists to prevent.
+      const lastExplained = [...loadedMessages].reverse()
+        .find(m => m.role === 'assistant' && m.metadata?.explanation_language)
+        ?.metadata?.explanation_language;
+      setExplanationLang(lastExplained ?? null);
+
       // Restore ladder state from persisted history — the same ladder_depth
       // signal that drives updateLadderState() live is already sitting in
       // each assistant message's metadata, so a conversation left mid-chain
