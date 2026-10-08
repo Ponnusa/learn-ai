@@ -18,33 +18,32 @@ import tempfile
 from gtts import gTTS
 
 
-def _play_file(path: str) -> None:
+def _mpg123_args(path: str) -> list[str]:
     # -b raises mpg123's output buffer; the Pi 1's weak audio path
     # underruns constantly with the default tiny buffer. ALSA's own
     # underrun warnings go straight to stderr regardless of -q, so
     # they're suppressed here too — they're noise, not failures.
-    #
-    # stdin=DEVNULL is the important one: mpg123 grabs the controlling
-    # terminal for its own interactive keyboard controls (pause/seek/quit)
-    # whenever its stdin is a real TTY. That steals every keystroke while
-    # it's playing, and killing it mid-playback (stop()) doesn't give it
-    # a chance to restore the terminal afterward — breaking input() even
-    # once playback is over. Feeding it /dev/null means it never touches
-    # the terminal's input at all, no matter how it's threaded.
-    subprocess.run(
-        ["mpg123", "-q", "-b", "2048", path],
-        check=True,
-        stdin=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    return ["mpg123", "-q", "-b", "2048", path]
+
+
+def _popen_kwargs() -> dict:
+    # stdin=DEVNULL alone isn't enough: mpg123's interactive keyboard
+    # controls (pause/seek/quit/bookmark) open /dev/tty directly to grab
+    # the controlling terminal, bypassing its own stdin entirely — that's
+    # why keystrokes kept getting stolen (and playback could hang/loop)
+    # even with stdin redirected. start_new_session=True puts the child
+    # in a brand new session with NO controlling terminal at all, so
+    # opening /dev/tty fails outright — there's nothing for it to grab,
+    # regardless of which mechanism it uses to try.
+    return dict(stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+
+def _play_file(path: str) -> None:
+    subprocess.run(_mpg123_args(path), check=True, **_popen_kwargs())
 
 
 def _play_file_async(path: str) -> subprocess.Popen:
-    return subprocess.Popen(
-        ["mpg123", "-q", "-b", "2048", path],
-        stdin=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    return subprocess.Popen(_mpg123_args(path), **_popen_kwargs())
 
 
 def stop(proc: subprocess.Popen | None) -> None:
