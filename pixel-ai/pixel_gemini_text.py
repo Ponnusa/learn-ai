@@ -12,13 +12,15 @@ history instead of managing a messages list by hand.
 """
 import logging
 import os
+import queue
+import threading
 
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
 import pixel_tts
-from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_THINKING, STATE_TALKING, STATE_HAPPY
+from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_THINKING, STATE_TALKING
 from pixel_listen import listen
 
 load_dotenv()
@@ -43,6 +45,48 @@ PERSONA = (
 _STOP_WORDS = ("stop", "quit", "exit")
 
 
+def _speak_and_listen(text: str | None, prompt: str) -> str:
+    """Speak (if there's anything to say) and listen at the same time.
+
+    Typing while Pixel is still talking used to leave mpg123 and the
+    keyboard both contending for the terminal, which could hang or loop
+    instead of cleanly interrupting — same barge-in fix already used in
+    pixel_discussion.py. If text is None/empty (the very first turn),
+    this is just a plain listen().
+    """
+    if not text:
+        return listen(prompt=prompt)
+
+    answers: "queue.Queue[str]" = queue.Queue()
+    state = {"proc": None, "path": None, "cancelled": False}
+    lock = threading.Lock()
+
+    def _speak_worker() -> None:
+        proc, path = pixel_tts.speak_async(text)
+        with lock:
+            if state["cancelled"]:
+                pixel_tts.stop(proc)
+                pixel_tts.cleanup_speech(path)
+            else:
+                state["proc"], state["path"] = proc, path
+
+    threading.Thread(target=_speak_worker, daemon=True).start()
+    threading.Thread(target=lambda: answers.put(listen(prompt=prompt)), daemon=True).start()
+
+    while True:
+        try:
+            answer = answers.get(timeout=0.15)
+            break
+        except queue.Empty:
+            continue
+
+    with lock:
+        state["cancelled"] = True
+        pixel_tts.stop(state["proc"])
+        pixel_tts.cleanup_speech(state["path"])
+    return answer
+
+
 def main() -> None:
     client = genai.Client(api_key=GEMINI_API_KEY)
     chat = client.chats.create(
@@ -52,10 +96,12 @@ def main() -> None:
 
     face.start()
     print("Pixel (text mode, Gemini — LearnX paused). Type to chat, or 'quit'.")
+    reply = None  # what to speak while listening for the next line; None on turn 1
     try:
         while True:
-            face.set_state(STATE_LISTENING)
-            text = listen(prompt="You: ")
+            face.set_state(STATE_TALKING if reply else STATE_LISTENING)
+            text = _speak_and_listen(reply, prompt="You: ")
+            reply = None
             if not text:
                 continue
             if text.lower() in _STOP_WORDS:
@@ -68,13 +114,9 @@ def main() -> None:
             except Exception:
                 logger.exception("Gemini send_message failed")
                 print("Sorry, I couldn't reach Gemini.")
-                face.set_state(STATE_IDLE)
                 continue
 
-            face.set_state(STATE_TALKING)
             print(f"Pixel: {reply}")
-            pixel_tts.speak(reply)
-            face.set_state(STATE_HAPPY)
     finally:
         face.set_state(STATE_IDLE)
         face.stop()
