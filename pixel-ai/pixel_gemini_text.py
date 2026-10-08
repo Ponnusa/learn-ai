@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 # A plain chat model, not a Live one — no audio streaming needed here.
-MODEL = os.environ.get("GEMINI_TEXT_MODEL", "gemini-2.5-flash")
+# gemini-2.5-flash 404s now: Google's own error says it's "no longer
+# available to new users" and points at gemini-3.8-flash directly.
+MODEL = os.environ.get("GEMINI_TEXT_MODEL", "gemini-3.8-flash")
 
 PERSONA = (
     "You're Pixel, a friendly, casual desk companion robot for a student. "
