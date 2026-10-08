@@ -122,13 +122,24 @@ def _is_turn_complete(response) -> bool:
     return bool(getattr(server_content, "turn_complete", False)) if server_content else False
 
 
+def _write_audio(playback_proc: subprocess.Popen, audio_bytes: bytes) -> None:
+    playback_proc.stdin.write(audio_bytes)
+    playback_proc.stdin.flush()
+
+
 async def _receive_and_play(session, playback_proc: subprocess.Popen) -> None:
+    loop = asyncio.get_event_loop()
     async for response in session.receive():
         audio_bytes = _extract_audio(response)
         if audio_bytes:
             face.set_state(STATE_TALKING)
-            playback_proc.stdin.write(audio_bytes)
-            playback_proc.stdin.flush()
+            # Writing directly here (no executor) blocks the WHOLE
+            # asyncio event loop if aplay's pipe buffer fills or the
+            # ALSA device is slow -- which also stalls the websocket
+            # library's background keepalive-ping handling, and that's
+            # exactly what was producing "keepalive ping timeout"
+            # disconnects right after the first real audio reply.
+            await loop.run_in_executor(None, _write_audio, playback_proc, audio_bytes)
         if _is_turn_complete(response):
             face.set_state(STATE_LISTENING)
 
