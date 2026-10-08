@@ -82,6 +82,31 @@ turns, which `pixel_brain.ask()` already supports. Say "stop", "skip", or
 "just tell me" at any prompt to bail out to a direct answer, mirroring
 the backend's own documented shortcut phrase.
 
+### Discussion mode: chunked, paced delivery of any reply
+
+`pixel_discussion.py` is another separate standalone script, same
+non-interfering approach as `pixel_ladder.py`:
+
+```bash
+python pixel_discussion.py
+```
+
+The backend's guided-discovery logic only sometimes asks a real question
+and waits — plenty of conceptual questions still just get a full direct
+explanation (`ladder_depth` stays 0). This mode doesn't depend on that:
+it splits ANY reply into its own natural structure (the `###` headings
+and `---` dividers the backend already tends to use for longer
+explanations — a short answer with neither stays one chunk) and delivers
+one piece at a time, pausing after each to check in. Pressing enter (or
+saying "continue"/"more") just advances to the next piece with no network
+call; typing anything else sends it to the backend as the next turn in
+the same conversation, abandoning whatever pieces were left — so the
+student can genuinely branch instead of clicking through a fixed script.
+Speech for each chunk uses a local, rougher markdown/LaTeX cleanup
+(`_clean_for_speech`) since the backend's own cleanup endpoint only voices
+a whole stored message, not a partial chunk — formula pronunciation isn't
+as polished as the full-message path `pixel_main.py` uses.
+
 ### Not yet implemented (explicitly out of scope for Phase 1)
 
 - Real game generation (`pixel_game.py` is a stub).
