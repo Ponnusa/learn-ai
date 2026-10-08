@@ -35,7 +35,10 @@ from google.genai import types
 
 from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_TALKING
 
-logging.basicConfig(level=logging.INFO)
+# %(asctime)s was missing before -- made it impossible to tell from a
+# pasted log how long a "stuck" gap actually lasted, or whether anything
+# was still happening during it.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(name)s:%(message)s")
 logger = logging.getLogger(__name__)
 
 load_dotenv()
@@ -85,6 +88,8 @@ def _start_playback() -> subprocess.Popen:
 
 async def _send_mic_audio(session, capture_proc: subprocess.Popen) -> None:
     loop = asyncio.get_event_loop()
+    chunks_sent = 0
+    last_heartbeat = loop.time()
     while True:
         chunk = await loop.run_in_executor(None, capture_proc.stdout.read, _CHUNK_BYTES)
         if not chunk:
@@ -99,6 +104,13 @@ async def _send_mic_audio(session, capture_proc: subprocess.Popen) -> None:
         await session.send_realtime_input(
             audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={SEND_RATE}")
         )
+        chunks_sent += 1
+        # One line every ~5s, not every chunk (10/s would be spam) --
+        # proves the mic-send loop is still alive and actually sending
+        # during any "stuck" gap, rather than guessing.
+        if loop.time() - last_heartbeat >= 5:
+            logger.info("mic send alive: %d chunks sent so far", chunks_sent)
+            last_heartbeat = loop.time()
 
 
 def _extract_audio(response) -> bytes | None:
@@ -142,6 +154,7 @@ async def _receive_and_play(session, playback_proc: subprocess.Popen) -> None:
             await loop.run_in_executor(None, _write_audio, playback_proc, audio_bytes)
         if _is_turn_complete(response):
             face.set_state(STATE_LISTENING)
+            logger.info("turn complete -- listening again")
 
 
 def _stop_proc(proc: subprocess.Popen | None, timeout: float = 2) -> None:
