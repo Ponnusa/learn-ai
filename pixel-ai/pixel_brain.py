@@ -17,6 +17,10 @@ import requests
 import config
 
 _TIMEOUT = 15
+# chat/send waits synchronously on a GPT-4o completion (up to 2048 tokens)
+# plus parallel subject detection — a longer explanation can run well past
+# 15s even with nothing wrong on either end.
+_CHAT_TIMEOUT = 45
 _VIDEO_POLL_INTERVAL = 2
 _VIDEO_POLL_TIMEOUT = 90
 
@@ -44,7 +48,7 @@ def ask(message: str, image_url: str | None = None, conversation_id: str | None 
     resp = requests.post(
         f"{config.LEARNX_API_URL}/api/chat/send",
         json=payload,
-        timeout=_TIMEOUT,
+        timeout=_CHAT_TIMEOUT,
     )
     resp.raise_for_status()
     return resp.json()
