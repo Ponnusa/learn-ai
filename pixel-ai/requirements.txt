@@ -4,3 +4,4 @@ pygame
 flask
 python-dotenv
 google-genai
+websockets

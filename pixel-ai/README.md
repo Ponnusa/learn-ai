@@ -213,6 +213,63 @@ Env vars: `GEMINI_API_KEY` (required), `GEMINI_TEXT_MODEL` (default
 `gemini-3.8-flash`), `PIXEL_MIC_DEVICE`, `PIXEL_VAD_START_RMS`,
 `PIXEL_VAD_SILENCE_MS`, `PIXEL_VAD_MIN_MS`.
 
+### OpenAI voice mode: same local VAD, persistent streaming connection
+
+`pixel_openai_voice.py` is a third transport option, separate provider
+from everything else (LearnX paused, doesn't touch Gemini at all):
+
+```bash
+python pixel_openai_voice.py
+```
+
+Uses OpenAI's **Realtime API** — a persistent streaming WebSocket, like
+Gemini Live, but deliberately with its server-side turn detection
+disabled (`turn_detection: null`) in favor of the exact same local
+silence-detection state machine `pixel_gemini_voice.py` already proved
+reliable. After watching Gemini's server-side VAD silently break after
+one turn, this doesn't trust a second provider's server VAD blind
+either — local control, just over a lower-latency persistent connection
+instead of one-shot `generateContent` calls per utterance.
+
+**Everything below was verified live against the real API with a
+working key before this file was written** — not guessed from docs,
+which kept surfacing a stale/conflicting Beta vs GA split with different
+event names:
+- No `OpenAI-Beta` header needed — confirmed this account speaks the
+  current (GA) wire format, with event names like
+  `response.output_audio.delta` / `response.output_audio_transcript.delta`
+  (not the older beta `response.audio.delta` / `response.text.delta`).
+- `session.update` requires an explicit `"type": "realtime"` field and a
+  nested `session.audio.input/output.format` structure. **Input rate
+  must be ≥24000** — confirmed via a real `"integer below minimum
+  value"` error when 16000 was tried. Unlike Gemini's asymmetric
+  16kHz-in/24kHz-out, this API wants 24kHz for both directions.
+- The manual-turn flow (`input_audio_buffer.append` → `.commit` →
+  `response.create`) was tested end-to-end with synthetic audio through
+  the actual `_record_and_stream_utterance`/`_receive_response`
+  functions (not reimplemented mock logic) against the live API: got a
+  real reply back, correct transcript, correct audio byte count, correct
+  mute/un-mute timing.
+
+Real, confirmed model names on the account (`GET /v1/models`, filtered
+for `realtime`): `gpt-realtime` (default), `gpt-realtime-1.5`,
+`gpt-realtime-2`, `gpt-realtime-2.1`, `gpt-realtime-2.1-mini`,
+`gpt-realtime-mini`, `gpt-realtime-translate`, `gpt-realtime-whisper`.
+
+Memory save at session end uses a separate short-lived connection with a
+duplicated (not shared — different transport) version of
+`pixel_memory`'s summarization prompt, since `summarize_and_remember()`
+expects a google-genai chat object.
+
+**Before running, check** (same as the other voice scripts):
+`arecord -l` for your mic's card/device, a raw `arecord`/`aplay`
+round-trip test — **at 24000 Hz this time, not 16000** — and
+`PIXEL_MIC_DEVICE` set if `default` doesn't route to it. Same VAD knobs
+apply: `PIXEL_VAD_START_RMS`, `PIXEL_VAD_SILENCE_MS`, `PIXEL_VAD_MIN_MS`.
+
+Env vars: `OPENAI_API_KEY` (required), `OPENAI_REALTIME_MODEL` (default
+`gpt-realtime`), plus the shared `PIXEL_MIC_DEVICE`/`PIXEL_VAD_*` vars.
+
 ### Gemini text mode: same casual chat, no mic required
 
 `pixel_gemini_text.py` is the keyboard fallback for when there's no
