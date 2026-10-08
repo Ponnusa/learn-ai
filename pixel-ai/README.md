@@ -60,6 +60,28 @@ python pixel_main.py
   LearnX backend has no game-code-generation endpoint today. Would need
   new backend work, not just a new client.
 
+### Ladder mode: short one-to-one guided-discovery conversations
+
+`pixel_ladder.py` is a separate standalone script — it only imports
+`pixel_face`/`pixel_tts`/`pixel_listen`/`pixel_brain`, never edits them,
+so it can be run independently of `pixel_main.py`:
+
+```bash
+python pixel_ladder.py
+```
+
+Type a topic; Pixel will ask a guiding question and wait for your typed
+answer instead of dumping a full explanation, continuing the exchange for
+as many turns as the backend's own teaching logic decides (2-12 is
+typical, fully open-ended, no cap on the backend side). This isn't new
+backend behavior — `POST /api/chat/send` already decides per-reply
+whether to ask a guiding question (`ladder_depth > 0`) or answer directly,
+the same mechanism behind the web app's ladder-rail widget. The only
+client-side requirement is reusing the same `conversation_id` across
+turns, which `pixel_brain.ask()` already supports. Say "stop", "skip", or
+"just tell me" at any prompt to bail out to a direct answer, mirroring
+the backend's own documented shortcut phrase.
+
 ### Not yet implemented (explicitly out of scope for Phase 1)
 
 - Real game generation (`pixel_game.py` is a stub).
