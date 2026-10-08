@@ -15,6 +15,7 @@ without needing any real backend or database.
 """
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,12 @@ logger = logging.getLogger(__name__)
 _PERSONA_DIR = os.path.join(os.path.dirname(__file__), "persona")
 _IDENTITY_PATH = os.path.join(_PERSONA_DIR, "IDENTITY.md")
 _MEMORY_PATH = os.path.join(_PERSONA_DIR, "MEMORY.md")
+# Pixel's current name, chosen by whoever's using this device -- not
+# generic (doesn't belong in IDENTITY.md) and not personal data about a
+# student (doesn't belong in MEMORY.md's category either), but same
+# reasoning as MEMORY.md: a live local customization, gitignored.
+_NAME_PATH = os.path.join(_PERSONA_DIR, "NAME.txt")
+DEFAULT_NAME = "Pixel"
 
 # One extra Gemini call at session end, not after every turn — keeps
 # cost down and avoids cluttering memory with trivial small talk.
@@ -55,6 +62,43 @@ def load_context() -> str:
     if memory:
         parts.append("What you remember about this student so far:\n" + memory)
     return "\n\n".join(parts)
+
+
+def load_name() -> str:
+    return _read(_NAME_PATH) or DEFAULT_NAME
+
+
+def set_name(name: str) -> None:
+    name = name.strip()
+    if not name:
+        return
+    os.makedirs(_PERSONA_DIR, exist_ok=True)
+    with open(_NAME_PATH, "w", encoding="utf-8") as f:
+        f.write(name)
+
+
+# Common ways someone might actually say this out loud. Not full NLU --
+# a tool-call-based approach (the model itself deciding when the intent
+# is "rename me") would handle phrasing variety much better, but that's
+# unverified new protocol surface; this is the simpler, already-provable
+# option for a first version.
+_RENAME_PATTERN = re.compile(
+    r"(?:your name is(?: now)?|i(?:'ll| will) call you|"
+    r"you(?:'re| are) now called|from now on,? your name is|"
+    r"let'?s call you|your new name is)\s+([A-Za-z][A-Za-z\-']{1,20})\b",
+    re.IGNORECASE,
+)
+
+
+def detect_rename_request(text: str) -> str | None:
+    """Returns the requested new name if `text` contains an explicit
+    rename phrase, else None. Checked against the student's own
+    transcribed speech, not Pixel's replies."""
+    match = _RENAME_PATTERN.search(text)
+    if not match:
+        return None
+    candidate = match.group(1).strip()
+    return candidate[:1].upper() + candidate[1:]
 
 
 def remember(fact: str) -> None:

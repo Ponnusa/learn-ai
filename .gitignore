@@ -43,3 +43,5 @@ pixel-ai/.env
 pixel-ai/persona/MEMORY.md
 # Opt-in debug recordings of the student's actual voice (PIXEL_AUDIO_LOG_DIR) -- never committed.
 pixel-ai/audio_log/
+# Pixel's current name if renamed locally -- a live customization, not generic shared identity.
+pixel-ai/persona/NAME.txt

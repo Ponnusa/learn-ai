@@ -427,6 +427,24 @@ and avoid cluttering memory with one-off small talk ("NOTHING" if there's
 nothing worth keeping). Verified the file I/O and summarization parsing
 with a mocked chat session before shipping.
 
+**Renaming Pixel** (both `pixel_openai_voice.py` and
+`pixel_openai_voice_semantic.py` support this): say something like
+"your name is now Bolt" or "I'll call you Rex" and
+`pixel_memory.detect_rename_request()` picks it up from your
+transcribed speech, persists it to `persona/NAME.txt` (gitignored, same
+reasoning as `MEMORY.md` — a live local customization, not generic
+shared identity), and pushes a fresh `session.update` so the rest of
+that same session uses the new name — not just future runs. This is a
+plain local pattern-matcher for common phrasings, not full language
+understanding — the model itself deciding via a declared tool call
+would handle phrasing variety better, but that's unverified new
+protocol surface; this is the simpler, already-provable option.
+Verified live end-to-end through the actual production functions:
+saying "your name is now Bolt" correctly persisted it, and the very
+next turn in the same session replied "my name's Bolt" — confirmed the
+regex also correctly ignores the student stating their *own* name
+("my name is Saravana" never triggers a rename).
+
 ### Discussion mode: chunked, paced delivery of any reply
 
 `pixel_discussion.py` is another separate standalone script, same

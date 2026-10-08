@@ -85,16 +85,28 @@ EAGERNESS = os.environ.get("PIXEL_SEMANTIC_VAD_EAGERNESS", "high")
 
 AUDIO_LOG_DIR = os.environ.get("PIXEL_AUDIO_LOG_DIR")
 
-PERSONA = (
-    "You're Pixel, a friendly, casual desk companion robot for a student. "
-    "Keep replies short and conversational, like a real spoken chat with "
-    "a curious friend, not a lecture. Warm, a little playful, genuinely "
-    "interested in what the student says. "
-    "Each audio clip may contain more than one thing the student said — "
-    "if they change topic or ask something unrelated partway through "
-    "(like your name, or a personal question), answer THAT directly "
-    "first, don't just keep riding the previous topic's momentum."
-)
+def _build_persona(name: str) -> str:
+    return (
+        f"You're {name}, a friendly, casual desk companion robot for a student. "
+        "Keep replies short and conversational, like a real spoken chat with "
+        "a curious friend, not a lecture. Warm, a little playful, genuinely "
+        "interested in what the student says. "
+        "Each audio clip may contain more than one thing the student said — "
+        "if they change topic or ask something unrelated partway through "
+        "(like your name, or a personal question), answer THAT directly "
+        "first, don't just keep riding the previous topic's momentum."
+    )
+
+
+def _build_system_instruction() -> str:
+    """Reads the current name + memory fresh each time -- so a rename
+    detected mid-session is picked up correctly even across a reconnect,
+    not just at startup."""
+    instruction = _build_persona(pixel_memory.load_name())
+    remembered = pixel_memory.load_context()
+    if remembered:
+        instruction = f"{instruction}\n\n{remembered}"
+    return instruction
 
 _SUMMARIZE_PROMPT = (
     "Below is a transcript of a casual chat between you (Pixel, a desk "
@@ -174,10 +186,10 @@ async def _capture_reader(capture_proc: subprocess.Popen, queue: "asyncio.Queue[
         await queue.put(chunk)
 
 
-async def _session_update(
-    ws, instructions: str, modalities: tuple[str, ...] = ("audio",),
+def _build_session_dict(
+    instructions: str, modalities: tuple[str, ...] = ("audio",),
     max_output_tokens: int | None = 600, use_semantic_vad: bool = True,
-) -> None:
+) -> dict:
     session: dict = {
         "type": "realtime",
         "output_modalities": modalities,
@@ -206,10 +218,29 @@ async def _session_update(
             },
             "output": {"format": {"type": "audio/pcm", "rate": SAMPLE_RATE}},
         }
+    return session
+
+
+async def _session_update(
+    ws, instructions: str, modalities: tuple[str, ...] = ("audio",),
+    max_output_tokens: int | None = 600, use_semantic_vad: bool = True,
+) -> None:
+    session = _build_session_dict(instructions, modalities, max_output_tokens, use_semantic_vad)
     await ws.send(json.dumps({"type": "session.update", "session": session}))
     ack = json.loads(await ws.recv())
     if ack.get("type") == "error":
         raise RuntimeError(f"session.update rejected: {ack['error']}")
+
+
+async def _send_session_update_no_wait(ws, instructions: str) -> None:
+    """Like _session_update, but doesn't consume a reply -- for use from
+    inside _receive_loop's own async-for, where a nested ws.recv() could
+    steal a message meant for the main loop's next iteration (_send_loop
+    is also sending concurrently on the same connection). The
+    session.updated ack (or an error) just flows through as an ordinary,
+    currently-unhandled event on the next iteration instead."""
+    session = _build_session_dict(instructions)
+    await ws.send(json.dumps({"type": "session.update", "session": session}))
 
 
 async def _send_loop(
@@ -278,6 +309,14 @@ async def _receive_loop(
             if user_transcript:
                 print(f"You: {user_transcript}")
                 transcript_log.append(f"Student: {user_transcript}")
+                new_name = pixel_memory.detect_rename_request(user_transcript)
+                if new_name:
+                    pixel_memory.set_name(new_name)
+                    print(f"(Pixel's name is now {new_name})")
+                    # Takes effect starting next turn, not this one --
+                    # the server already auto-triggered this turn's
+                    # response before we could see this transcript.
+                    await _send_session_update_no_wait(ws, _build_system_instruction())
             if transcript:
                 print(f"Pixel: {transcript}")
                 transcript_log.append(f"Pixel: {transcript}")
@@ -332,16 +371,14 @@ async def _summarize_and_remember(transcript_log: list[str]) -> None:
 
 async def run() -> None:
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-    system_instruction = PERSONA
-    remembered = pixel_memory.load_context()
-    if remembered:
-        system_instruction = f"{PERSONA}\n\n{remembered}"
 
     face.start()
-    print(f"Pixel is listening (USB mic, OpenAI Realtime, semantic_vad eagerness={EAGERNESS}). Ctrl+C to stop.")
+    print(f"{pixel_memory.load_name()} is listening (USB mic, OpenAI Realtime, "
+          f"semantic_vad eagerness={EAGERNESS}). Ctrl+C to stop.")
     transcript_log: list[str] = []
     try:
         while True:
+            system_instruction = _build_system_instruction()
             capture_proc = _start_capture()
             playback_proc = _start_playback()
             pixel_speaking = asyncio.Event()

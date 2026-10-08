@@ -86,16 +86,17 @@ _PRE_ROLL_CHUNKS = 3
 # instead of guessing from the reply text alone.
 AUDIO_LOG_DIR = os.environ.get("PIXEL_AUDIO_LOG_DIR")
 
-PERSONA = (
-    "You're Pixel, a friendly, casual desk companion robot for a student. "
-    "Keep replies short and conversational, like a real spoken chat with "
-    "a curious friend, not a lecture. Warm, a little playful, genuinely "
-    "interested in what the student says. "
-    "Each audio clip may contain more than one thing the student said — "
-    "if they change topic or ask something unrelated partway through "
-    "(like your name, or a personal question), answer THAT directly "
-    "first, don't just keep riding the previous topic's momentum."
-)
+def _build_persona(name: str) -> str:
+    return (
+        f"You're {name}, a friendly, casual desk companion robot for a student. "
+        "Keep replies short and conversational, like a real spoken chat with "
+        "a curious friend, not a lecture. Warm, a little playful, genuinely "
+        "interested in what the student says. "
+        "Each audio clip may contain more than one thing the student said — "
+        "if they change topic or ask something unrelated partway through "
+        "(like your name, or a personal question), answer THAT directly "
+        "first, don't just keep riding the previous topic's momentum."
+    )
 
 # Mirrors pixel_memory._SUMMARIZE_PROMPT's contract exactly (one fact per
 # line, or NOTHING) -- duplicated as plain text rather than reaching into
@@ -356,6 +357,14 @@ async def _conversation_loop(
         if user_transcript:
             print(f"You: {user_transcript}")
             transcript_log.append(f"Student: {user_transcript}")
+            new_name = pixel_memory.detect_rename_request(user_transcript)
+            if new_name:
+                pixel_memory.set_name(new_name)
+                print(f"(Pixel's name is now {new_name})")
+                # Takes effect starting next turn in this same session,
+                # not this one -- response.create for this turn already
+                # fired before we could see this transcript.
+                await _session_update(ws, _build_system_instruction())
         print(f"Pixel: {reply}")
         transcript_log.append(f"Pixel: {reply}")
         _log_utterance(audio_bytes, reply)
@@ -402,18 +411,26 @@ async def _summarize_and_remember(transcript_log: list[str]) -> None:
         pixel_memory.remember(line)
 
 
-async def run() -> None:
-    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
-    system_instruction = PERSONA
+def _build_system_instruction() -> str:
+    """Reads the current name + memory fresh each time -- so a rename
+    detected mid-session is picked up correctly even across a reconnect,
+    not just at startup."""
+    instruction = _build_persona(pixel_memory.load_name())
     remembered = pixel_memory.load_context()
     if remembered:
-        system_instruction = f"{PERSONA}\n\n{remembered}"
+        instruction = f"{instruction}\n\n{remembered}"
+    return instruction
+
+
+async def run() -> None:
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
 
     face.start()
     print("Pixel is listening (USB mic, OpenAI Realtime). Ctrl+C to stop.")
     transcript_log: list[str] = []
     try:
         while True:
+            system_instruction = _build_system_instruction()
             capture_proc = _start_capture()
             playback_proc = _start_playback()
             pixel_speaking = asyncio.Event()
