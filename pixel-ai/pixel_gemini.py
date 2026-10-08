@@ -133,6 +133,22 @@ async def _receive_and_play(session, playback_proc: subprocess.Popen) -> None:
             face.set_state(STATE_LISTENING)
 
 
+def _stop_proc(proc: subprocess.Popen | None, timeout: float = 2) -> None:
+    """terminate() alone doesn't block until the process (and whatever
+    hardware it's holding, e.g. the USB mic device) is actually released
+    -- that gap was exactly why every reconnect after the first failed
+    with "Device or resource busy": a new arecord kept starting before
+    the old one had actually let go of the device."""
+    if proc is None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
 async def run() -> None:
     client = genai.Client(api_key=GEMINI_API_KEY)
     config = types.LiveConnectConfig(
@@ -161,10 +177,16 @@ async def run() -> None:
                 logger.exception("Live session ended unexpectedly -- reconnecting")
                 print("Connection dropped — reconnecting...")
             finally:
-                capture_proc.terminate()
-                playback_proc.stdin.close()
-                playback_proc.terminate()
-            await asyncio.sleep(1)
+                _stop_proc(capture_proc)
+                try:
+                    playback_proc.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+                _stop_proc(playback_proc)
+            # Extra grace period beyond the process actually exiting --
+            # some USB audio drivers release the device a beat slower
+            # than the process itself exits.
+            await asyncio.sleep(2)
     finally:
         face.set_state(STATE_IDLE)
         face.stop()
