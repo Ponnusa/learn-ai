@@ -301,6 +301,65 @@ recorded bytes (not just a chunk count) so there's something to save,
 and the saved WAV round-trips correctly (right channels/width/rate,
 matches the JSONL entry's `audio_file`/`utterance_ms`).
 
+### OpenAI voice mode (semantic VAD): experimental, server-side turn detection
+
+`pixel_openai_voice_semantic.py` is the experimental sibling to
+`pixel_openai_voice.py` above. That one deliberately disables the
+server's turn detection (`turn_detection: null`) in favor of our own
+local silence-detection state machine, specifically to avoid repeating
+the mistake of trusting a provider's server-side VAD blind (that's
+exactly what killed `pixel_gemini.py`'s Live sessions after one turn).
+This file makes the opposite choice — it trusts OpenAI's **semantic
+VAD** to decide turn boundaries — after live-testing specifically to
+confirm it isn't the same trap:
+
+```bash
+python pixel_openai_voice_semantic.py
+```
+
+**What was actually verified live before writing this** (not assumed):
+- `eagerness: "low"` never advanced past `speech_started` for a
+  synthetic tone (semantic VAD needs real linguistic content, not just
+  loud audio — confirmed separately) and, even with real synthesized
+  speech and a 5-second silence tail, got stuck indefinitely past 55+
+  seconds without ever reaching `speech_stopped`.
+- `eagerness: "medium"` completed turn 1 cleanly but turn 2 produced an
+  **empty** `response.done` with `speech_stopped`/`committed`/
+  `response.created` all missing — a flaky race, not just slow.
+- `eagerness: "high"` completed two full, correct multi-turn cycles —
+  twice over, repeated the test to be sure. That's the only one used
+  here (`PIXEL_SEMANTIC_VAD_EAGERNESS`, default `high`) — don't change
+  it without re-verifying the same way, since `low`/`medium` had real
+  problems, not just slowness.
+- Then ran the **actual production functions** from this file
+  (`_session_update`, `_send_loop`, `_receive_loop`) against the live
+  API with two real synthesized utterances fed through a queue exactly
+  as `_capture_reader` would — first attempt truncated turn 1's reply
+  because the test fed audio faster than real-time (not how a real mic
+  behaves); fixed to realistic ~100ms-per-chunk pacing and both turns
+  completed with full, correct transcripts.
+
+**Architecturally this is not just a config change** from
+`pixel_openai_voice.py` — enabling server-side turn detection means the
+server decides when a turn starts/ends and auto-triggers responses, so
+the send loop streams continuously (gated only by the no-AEC mute, not
+by local amplitude thresholds) and the receive loop reacts to
+`input_audio_buffer.speech_started`/`speech_stopped` events instead of
+calling `.commit()`/`response.create()` itself. Closer in shape to
+`pixel_gemini.py`'s loop than to `pixel_openai_voice.py`'s. The
+`PIXEL_VAD_*` tuning vars don't apply here — there's no local VAD to
+tune, the server does that now. `PIXEL_AUDIO_LOG_DIR` still works, just
+buffers between `speech_started`/`speech_stopped` instead of using a
+local state machine's own accumulation.
+
+**The real tradeoff**: `eagerness: "high"` is less patient about natural
+mid-sentence pauses than `low`/`medium` would be if they worked —
+closer to simple energy-based VAD with some semantic awareness layered
+on top, not the "waits through thoughtful pauses" behavior that made
+semantic VAD interesting in the first place. Whether that's worth it
+over the proven manual version in `pixel_openai_voice.py` is a real
+judgment call, not a clear upgrade.
+
 ### Gemini text mode: same casual chat, no mic required
 
 `pixel_gemini_text.py` is the keyboard fallback for when there's no
