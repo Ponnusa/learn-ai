@@ -183,13 +183,26 @@ forwarding muted while Pixel is talking (same no-AEC reasoning as
 round-trip test, and `PIXEL_MIC_DEVICE` set if `default` doesn't route
 to it.
 
-Two VAD knobs if it's too trigger-happy or too insensitive for your
+Three VAD knobs if it's too trigger-happy or too insensitive for your
 specific mic/room — ambient noise floor and real speech level both vary
-a lot by hardware:
-- `PIXEL_VAD_START_RMS` (default `300`) — loudness threshold to start
+a lot by hardware. 300 was too sensitive on a webcam mic, triggering on
+background noise and flooding the conversation with nonsense exchanges
+("I can hear you rustling around over there!"). Watch the "ambient
+level: current=X peak=Y" log line while it's waiting for speech — that's
+real data from your actual setup, not a guess:
+- `PIXEL_VAD_START_RMS` (default `600`) — loudness threshold to start
   recording.
 - `PIXEL_VAD_SILENCE_MS` (default `800`) — how long a pause has to be
   before an utterance is considered finished.
+- `PIXEL_VAD_MIN_MS` (default `600`) — utterances shorter than this are
+  discarded before ever reaching Gemini (a noise blip that briefly
+  crossed the threshold, not real speech).
+
+Also logs each utterance's captured duration right before sending it —
+useful for telling apart "two sentences got merged because the pause
+between them was too short" from "captured cleanly but the model stayed
+anchored to a previous topic," which look identical from the reply text
+alone.
 
 Verified the WAV encoding and the full start/stop/mute state machine
 with synthetic audio (silence, "loud" samples, genuine concurrent
@@ -198,7 +211,7 @@ the test transcripts.
 
 Env vars: `GEMINI_API_KEY` (required), `GEMINI_TEXT_MODEL` (default
 `gemini-3.8-flash`), `PIXEL_MIC_DEVICE`, `PIXEL_VAD_START_RMS`,
-`PIXEL_VAD_SILENCE_MS`.
+`PIXEL_VAD_SILENCE_MS`, `PIXEL_VAD_MIN_MS`.
 
 ### Gemini text mode: same casual chat, no mic required
 
