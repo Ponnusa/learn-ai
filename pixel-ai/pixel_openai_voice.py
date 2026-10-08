@@ -138,22 +138,30 @@ async def _capture_reader(capture_proc: subprocess.Popen, queue: "asyncio.Queue[
         await queue.put(chunk)
 
 
-async def _session_update(ws, instructions: str) -> None:
-    await ws.send(json.dumps({
-        "type": "session.update",
-        "session": {
-            "type": "realtime",
-            "output_modalities": ["audio"],
-            "instructions": instructions,
-            "audio": {
-                "input": {
-                    "format": {"type": "audio/pcm", "rate": SAMPLE_RATE},
-                    "turn_detection": None,
-                },
-                "output": {"format": {"type": "audio/pcm", "rate": SAMPLE_RATE}},
+async def _session_update(
+    ws, instructions: str, modalities: tuple[str, ...] = ("audio",), max_output_tokens: int | None = 600
+) -> None:
+    session: dict = {
+        "type": "realtime",
+        "output_modalities": modalities,
+        "instructions": instructions,
+    }
+    if max_output_tokens is not None:
+        # Confirmed real session field (seen echoed back in session.created
+        # as "max_output_tokens":"inf" by default) -- caps reply length so
+        # an occasional long-winded response doesn't balloon audio-output
+        # token cost. PERSONA already asks for short replies; this is a
+        # hard backstop, not the primary control.
+        session["max_output_tokens"] = max_output_tokens
+    if "audio" in modalities:
+        session["audio"] = {
+            "input": {
+                "format": {"type": "audio/pcm", "rate": SAMPLE_RATE},
+                "turn_detection": None,
             },
-        },
-    }))
+            "output": {"format": {"type": "audio/pcm", "rate": SAMPLE_RATE}},
+        }
+    await ws.send(json.dumps({"type": "session.update", "session": session}))
     ack = json.loads(await ws.recv())
     if ack.get("type") == "error":
         raise RuntimeError(f"session.update rejected: {ack['error']}")
@@ -293,7 +301,12 @@ async def _summarize_and_remember(transcript_log: list[str]) -> None:
     try:
         async with websockets.connect(REALTIME_URL, additional_headers=headers) as ws:
             await ws.recv()  # session.created
-            await _session_update(ws, "You summarize conversations concisely.")
+            # text-only modality: the model never speaks this internal
+            # summary, so generating audio for it would just burn audio
+            # tokens (confirmed live: text-only responses show
+            # audio_tokens: 0 in response.done's usage) for a reply
+            # nobody ever hears.
+            await _session_update(ws, "You summarize conversations concisely.", modalities=("text",))
             await ws.send(json.dumps({
                 "type": "conversation.item.create",
                 "item": {"type": "message", "role": "user",
@@ -303,7 +316,7 @@ async def _summarize_and_remember(transcript_log: list[str]) -> None:
             text = ""
             async for raw in ws:
                 data = json.loads(raw)
-                if data.get("type") == "response.output_audio_transcript.delta":
+                if data.get("type") == "response.output_text.delta":
                     text += data.get("delta", "")
                 elif data.get("type") == "response.done":
                     break

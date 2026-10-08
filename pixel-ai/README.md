@@ -270,6 +270,24 @@ apply: `PIXEL_VAD_START_RMS`, `PIXEL_VAD_SILENCE_MS`, `PIXEL_VAD_MIN_MS`.
 Env vars: `OPENAI_API_KEY` (required), `OPENAI_REALTIME_MODEL` (default
 `gpt-realtime`), plus the shared `PIXEL_MIC_DEVICE`/`PIXEL_VAD_*` vars.
 
+**Cost**: audio tokens are priced much higher than text tokens, and a
+long-running voice session means a turn's cost grows with however much
+prior conversation the model has to carry as context. Two things
+already in the code to keep that down:
+- `max_output_tokens` is capped (default 600) so an occasional
+  long-winded reply doesn't balloon audio-output cost — `PERSONA`
+  already asks for short replies, this is just a hard backstop.
+- The end-of-session memory save uses `output_modalities: ("text",)`,
+  not audio — confirmed live that a text-only response shows
+  `audio_tokens: 0` in its usage, since nobody ever hears that internal
+  summary anyway.
+
+The biggest lever is the model itself: `gpt-realtime-mini` (confirmed
+available on the same key via `GET /v1/models`) is very likely
+substantially cheaper per token than the full `gpt-realtime` — for
+casual-chat-tier replies, that's probably the first thing to try if
+cost matters more than voice quality. Set `OPENAI_REALTIME_MODEL=gpt-realtime-mini`.
+
 ### Gemini text mode: same casual chat, no mic required
 
 `pixel_gemini_text.py` is the keyboard fallback for when there's no
