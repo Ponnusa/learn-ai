@@ -28,10 +28,12 @@ def _auth_headers() -> dict:
 def ask(message: str, image_url: str | None = None, conversation_id: str | None = None,
         language: str = config.DEFAULT_LANGUAGE) -> dict:
     """Send a question (optionally with a photo URL) and get a text reply."""
+    # user_id only, no session_id: conversations.session_id is a foreign key
+    # to a real anonymous_sessions row, and we don't have one — sending a
+    # made-up value there breaks the INSERT with a 500.
     payload = {
         "message": message,
         "user_id": config.LEARNX_USER_ID,
-        "session_id": config.SESSION_ID,
         "language": language,
     }
     if image_url:

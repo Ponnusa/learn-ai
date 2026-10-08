@@ -5,11 +5,22 @@ Runs its own render loop on a background thread so the rest of Pixel
 swaps the render target to the ST7789 display; callers only ever touch
 set_state(), never pygame directly.
 """
+import logging
 import math
+import os
 import threading
 import time
 
 import pygame
+
+logger = logging.getLogger(__name__)
+
+# Pi OS Lite has no desktop/X server, so SDL's default driver probe
+# (wayland/x11/kmsdrm) fails with "EGL not initialized". Try raw
+# framebuffer drivers first instead. Which name actually works depends on
+# the SDL2 build on a given Pi OS image, so we try each in turn rather
+# than guessing one.
+_SDL_VIDEO_DRIVER_CANDIDATES = ("fbcon", "fbdev", "kmsdrm", "directfb")
 
 STATE_IDLE = "idle"
 STATE_LISTENING = "listening"
@@ -58,9 +69,29 @@ class PixelFace:
         with self._lock:
             return self._state
 
+    def _create_screen(self):
+        os.environ.setdefault("SDL_FBDEV", "/dev/fb0")
+        for driver in _SDL_VIDEO_DRIVER_CANDIDATES:
+            os.environ["SDL_VIDEODRIVER"] = driver
+            try:
+                pygame.display.quit()
+                pygame.display.init()
+                return pygame.display.set_mode((self._width, self._height))
+            except pygame.error:
+                continue
+        return None
+
     def _run(self) -> None:
         pygame.init()
-        screen = pygame.display.set_mode((self._width, self._height))
+        screen = self._create_screen()
+        if screen is None:
+            logger.warning(
+                "No usable SDL video driver for the face display (tried %s) — "
+                "running without a visible face.",
+                ", ".join(_SDL_VIDEO_DRIVER_CANDIDATES),
+            )
+            self._running = False
+            return
         pygame.display.set_caption("Pixel")
         clock = pygame.time.Clock()
         t = 0.0

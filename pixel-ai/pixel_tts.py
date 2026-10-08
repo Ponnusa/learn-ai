@@ -21,7 +21,15 @@ def speak(text: str, lang: str = "en") -> None:
     os.close(fd)
     try:
         gTTS(text=text, lang=lang).save(path)
-        subprocess.run(["mpg123", "-q", path], check=True)
+        # -b raises mpg123's output buffer; the Pi 1's weak audio path
+        # underruns constantly with the default tiny buffer. ALSA's own
+        # underrun warnings go straight to stderr regardless of -q, so
+        # they're suppressed here too — they're noise, not failures.
+        subprocess.run(
+            ["mpg123", "-q", "-b", "2048", path],
+            check=True,
+            stderr=subprocess.DEVNULL,
+        )
     finally:
         try:
             os.remove(path)
