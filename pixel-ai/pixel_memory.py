@@ -82,10 +82,27 @@ def set_name(name: str) -> None:
 # is "rename me") would handle phrasing variety much better, but that's
 # unverified new protocol surface; this is the simpler, already-provable
 # option for a first version.
+#
+# Broadened after two real, distinct phrasings slipped through the
+# original pattern list in actual use ("I need to name you as Chitty",
+# "I changed your name to Chitti") -- neither matched "your name is"/
+# "I'll call you"/etc. Still just a pattern list, not understanding, so
+# this will keep needing phrases added as new ones are found missed.
 _RENAME_PATTERN = re.compile(
-    r"(?:your name is(?: now)?|i(?:'ll| will) call you|"
-    r"you(?:'re| are) now called|from now on,? your name is|"
-    r"let'?s call you|your new name is)\s+([A-Za-z][A-Za-z\-']{1,20})\b",
+    r"(?:"
+    r"your (?:new )?name is(?: now)?|"
+    r"from now on,? your name is|"
+    r"you(?:'re| are) now called|"
+    r"let'?s call you|"
+    r"name yourself|"
+    r"i(?:'ll| will) call you|"
+    r"i(?:'m| am) (?:going to )?call(?:ing)? you|"
+    r"i(?:'ve| have) changed your name to|"
+    r"i changed your name to|"
+    r"i(?:'m| am) chang(?:e|ing) your name to|"
+    r"i (?:need|want) to (?:name|call|rename) you(?: as)?|"
+    r"i(?:'m| am) naming you"
+    r")\s+([A-Za-z][A-Za-z\-']{1,20})\b",
     re.IGNORECASE,
 )
 
