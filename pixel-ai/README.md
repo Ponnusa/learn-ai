@@ -82,6 +82,51 @@ turns, which `pixel_brain.ask()` already supports. Say "stop", "skip", or
 "just tell me" at any prompt to bail out to a direct answer, mirroring
 the backend's own documented shortcut phrase.
 
+### Gemini mode: real-time voice conversation (LearnX paused)
+
+`pixel_gemini.py` is another standalone script, same non-interfering
+approach — it doesn't import `config.py` at all (LearnX is paused for
+this module entirely, by request), only `pixel_face` for shared states.
+
+```bash
+python pixel_gemini.py
+```
+
+Uses the Gemini **Live API** for real-time, bidirectional voice — you
+talk through a USB headset, Pixel talks back, and turn-taking/
+interruption are handled by the API itself rather than custom threading
+(the race-condition barge-in logic in `pixel_discussion.py` doesn't apply
+here). Audio is captured/played via `arecord`/`aplay` subprocess, not
+PyAudio — same reasoning `pixel_tts.py` already used shelling out to
+`mpg123` instead of a Python audio library: avoids native bindings
+(PortAudio) on this ARM hardware.
+
+**Before running, check:**
+1. **Mic hardware**: the Pi's own 3.5mm jack is output-only — you need a
+   USB headset (confirmed working for this). Run `arecord -l` to find its
+   card/device, then sanity-test the hardware path with no Python
+   involved at all: `arecord -D plughw:<card>,<dev> -f S16_LE -r 16000 -c 1 -d 5 test.wav && aplay test.wav`.
+   If that round-trip doesn't work, nothing above it will either.
+2. **`pip install google-genai`** on the Pi — its core deps are `httpx`,
+   `pydantic`, `websockets`, `anyio`, `tenacity`, `google-auth` (no
+   `grpcio`, which is what sank the Azure SDK on this chip), and it's
+   listed on piwheels.org, so it's a much better ARMv6 bet than Azure's
+   SDK was — but still worth confirming it actually installs before
+   relying on it.
+3. **Key type**: a Google AI Studio key (`genai.Client(api_key=...)`,
+   what this script assumes) vs. a Vertex AI key need different client
+   setup — confirm which kind `GEMINI_API_KEY` is.
+4. **Model name**: Live-capable model names shift fast (e.g.
+   `gemini-live-2.5-flash-native-audio`, or a newer preview by the time
+   you read this). Override with `GEMINI_LIVE_MODEL` if the default 404s
+   — check which models your key can actually reach.
+5. Set `PIXEL_MIC_DEVICE` (e.g. `plughw:1,0`, from step 1's `arecord -l`)
+   if `default` doesn't route to the USB headset.
+
+Env vars used: `GEMINI_API_KEY` (required), `GEMINI_LIVE_MODEL`,
+`PIXEL_MIC_DEVICE` — set in `.env`, loaded the same way `config.py` loads
+LearnX's variables, just a separate set.
+
 ### Discussion mode: chunked, paced delivery of any reply
 
 `pixel_discussion.py` is another separate standalone script, same

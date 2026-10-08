@@ -3,3 +3,4 @@ gTTS
 pygame
 flask
 python-dotenv
+google-genai
