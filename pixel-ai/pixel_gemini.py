@@ -80,8 +80,12 @@ def _start_capture() -> subprocess.Popen:
 
 
 def _start_playback() -> subprocess.Popen:
+    # -B sets ALSA's buffer-time (microseconds) -- same underrun fix
+    # applied to pixel_openai_voice.py's aplay call and pixel_tts.py's
+    # mpg123 call (-b 2048); never applied here before.
     return subprocess.Popen(
-        ["aplay", "-f", "S16_LE", "-r", str(RECEIVE_RATE), "-c", "1", "-t", "raw", "-"],
+        ["aplay", "-f", "S16_LE", "-r", str(RECEIVE_RATE), "-c", "1", "-t", "raw",
+         "-B", "500000", "-"],
         stdin=subprocess.PIPE,
     )
 

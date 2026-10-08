@@ -112,8 +112,15 @@ def _start_capture() -> subprocess.Popen:
 
 
 def _start_playback() -> subprocess.Popen:
+    # -B sets ALSA's buffer-time (microseconds) -- same fix pixel_tts.py
+    # already needed for mpg123 (-b 2048), just never applied here.
+    # Audio deltas arrive over the network from OpenAI's servers with no
+    # guaranteed steady pacing; with ALSA's default (small) buffer, any
+    # timing jitter in that delivery starves the hardware buffer outright
+    # -- that's what "underrun!!!" is. 500ms gives real cushion against it.
     return subprocess.Popen(
-        ["aplay", "-f", "S16_LE", "-r", str(SAMPLE_RATE), "-c", "1", "-t", "raw", "-"],
+        ["aplay", "-f", "S16_LE", "-r", str(SAMPLE_RATE), "-c", "1", "-t", "raw",
+         "-B", "500000", "-"],
         stdin=subprocess.PIPE,
     )
 
