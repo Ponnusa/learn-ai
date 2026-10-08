@@ -133,6 +133,29 @@ Env vars used: `GEMINI_API_KEY` (required), `GEMINI_LIVE_MODEL`,
 `PIXEL_MIC_DEVICE` — set in `.env`, loaded the same way `config.py` loads
 LearnX's variables, just a separate set.
 
+### Gemini text mode: same casual chat, no mic required
+
+`pixel_gemini_text.py` is the keyboard fallback for when there's no
+working mic yet (e.g. the USB headset isn't recognized) — same persona
+and intent as `pixel_gemini.py`, LearnX still paused, just typed input
+instead of live audio, and Gemini's regular chat API
+(`client.chats.create()`/`chat.send_message()`, built-in multi-turn
+history) instead of the Live API:
+
+```bash
+python pixel_gemini_text.py
+```
+
+Replies are spoken aloud via the same gTTS+mpg123 pipeline
+`pixel_main.py` uses for its gTTS fallback path. The persona instruction
+explicitly bans markdown/LaTeX in the prompt itself, since Gemini's
+regular text replies have no backend-side cleanup step the way LearnX's
+chat-audio endpoint does — if it ever slips in formatting anyway, gTTS
+will read it out literally.
+
+Env vars: `GEMINI_API_KEY` (required), `GEMINI_TEXT_MODEL` (default
+`gemini-2.5-flash`).
+
 ### Discussion mode: chunked, paced delivery of any reply
 
 `pixel_discussion.py` is another separate standalone script, same
