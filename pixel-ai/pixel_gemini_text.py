@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+import pixel_memory
 import pixel_tts
 from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_THINKING, STATE_TALKING
 from pixel_listen import listen
@@ -89,14 +90,19 @@ def _speak_and_listen(text: str | None, prompt: str) -> str:
 
 def main() -> None:
     client = genai.Client(api_key=GEMINI_API_KEY)
+    system_instruction = PERSONA
+    remembered = pixel_memory.load_context()
+    if remembered:
+        system_instruction = f"{PERSONA}\n\n{remembered}"
     chat = client.chats.create(
         model=MODEL,
-        config=types.GenerateContentConfig(system_instruction=PERSONA),
+        config=types.GenerateContentConfig(system_instruction=system_instruction),
     )
 
     face.start()
     print("Pixel (text mode, Gemini — LearnX paused). Type to chat, or 'quit'.")
     reply = None  # what to speak while listening for the next line; None on turn 1
+    transcript: list[str] = []
     try:
         while True:
             face.set_state(STATE_TALKING if reply else STATE_LISTENING)
@@ -117,7 +123,10 @@ def main() -> None:
                 continue
 
             print(f"Pixel: {reply}")
+            transcript.append(f"Student: {text}")
+            transcript.append(f"Pixel: {reply}")
     finally:
+        pixel_memory.summarize_and_remember(chat, transcript)
         face.set_state(STATE_IDLE)
         face.stop()
 

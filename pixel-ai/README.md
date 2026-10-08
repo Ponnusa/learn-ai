@@ -154,7 +154,35 @@ chat-audio endpoint does — if it ever slips in formatting anyway, gTTS
 will read it out literally.
 
 Env vars: `GEMINI_API_KEY` (required), `GEMINI_TEXT_MODEL` (default
-`gemini-2.5-flash`).
+`gemini-3.8-flash` — `gemini-2.5-flash` 404s now, deprecated for new
+users as of this writing).
+
+Typing while Pixel is still speaking cuts it off immediately and sends
+what you typed as the next message (`_speak_and_listen`, same barge-in
+pattern as `pixel_discussion.py`) — speaking and listening run on
+separate threads and race each other rather than one blocking the other.
+
+### Persistent memory across restarts
+
+`pixel_memory.py` is what makes Pixel remember things between separate
+runs of `pixel_gemini_text.py` — without it, `client.chats.create()`'s
+history only lasts for one running process. Two plain files in
+`persona/`, same spirit as OmniBot's persona-file pattern:
+
+- `IDENTITY.md` — Pixel's own generic personality. Safe to commit, no
+  personal data.
+- `MEMORY.md` — facts about the specific student (name, interests,
+  ongoing projects). **Gitignored, never committed** — this is personal
+  data, created on first write if it doesn't exist yet.
+
+Both get read into the system instruction at startup
+(`pixel_memory.load_context()`). At the end of each session, one extra
+Gemini call (`summarize_and_remember()`) asks the model to pull out at
+most 3 short, durable facts worth keeping from that conversation and
+appends them to `MEMORY.md` — not after every turn, to keep cost down
+and avoid cluttering memory with one-off small talk ("NOTHING" if there's
+nothing worth keeping). Verified the file I/O and summarization parsing
+with a mocked chat session before shipping.
 
 ### Discussion mode: chunked, paced delivery of any reply
 

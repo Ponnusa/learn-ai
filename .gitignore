@@ -38,3 +38,6 @@ pixel-ai/pixel_env/
 pixel-ai/**/__pycache__/
 pixel-ai/*.pyc
 pixel-ai/.env
+# Personal data about a specific student -- never committed.
+# persona/IDENTITY.md (Pixel's own generic personality) stays tracked.
+pixel-ai/persona/MEMORY.md
