@@ -16,6 +16,12 @@ import requests
 
 import config
 
+# A plain requests.post()/get() opens a fresh TCP+TLS connection every
+# call. On the Pi 1's single 700MHz ARMv6 core (no hardware crypto), that
+# handshake is real, repeated overhead — a shared Session keeps the
+# connection to the backend warm across calls.
+_session = requests.Session()
+
 _TIMEOUT = 15
 # chat/send waits synchronously on a GPT-4o completion (up to 2048 tokens)
 # plus parallel subject detection — a longer explanation can run well past
@@ -45,7 +51,7 @@ def ask(message: str, image_url: str | None = None, conversation_id: str | None 
     if conversation_id:
         payload["conversation_id"] = conversation_id
 
-    resp = requests.post(
+    resp = _session.post(
         f"{config.LEARNX_API_URL}/api/chat/send",
         json=payload,
         timeout=_CHAT_TIMEOUT,
@@ -58,7 +64,7 @@ def upload_image(file_bytes: bytes, filename: str, content_type: str) -> str:
     """Upload an image to the backend and return its public URL."""
     files = {"file": (filename, file_bytes, content_type)}
     data = {"user_id": config.LEARNX_USER_ID}
-    resp = requests.post(
+    resp = _session.post(
         f"{config.LEARNX_API_URL}/api/uploads",
         files=files,
         data=data,
@@ -70,7 +76,7 @@ def upload_image(file_bytes: bytes, filename: str, content_type: str) -> str:
 
 def request_video(prompt: str, language: str = config.DEFAULT_LANGUAGE) -> str:
     """Kick off an async Manim video for a short word-problem/prompt. Returns video_id."""
-    resp = requests.post(
+    resp = _session.post(
         f"{config.LEARNX_API_URL}/api/public/v1/videos/generate",
         json={"prompt": prompt, "language": language},
         headers=_auth_headers(),
@@ -85,7 +91,7 @@ def poll_video(video_id: str, interval: int = _VIDEO_POLL_INTERVAL,
     """Poll a video's status until it's done, failed, or the timeout is hit."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        resp = requests.get(
+        resp = _session.get(
             f"{config.LEARNX_API_URL}/api/public/v1/videos/{video_id}",
             headers=_auth_headers(),
             timeout=_TIMEOUT,
