@@ -1,0 +1,5 @@
+requests
+gTTS
+pygame
+flask
+python-dotenv

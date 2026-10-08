@@ -32,3 +32,9 @@ worker.py
 # Local planning docs — not for version control
 SPRINT_*.md
 *.plan.md
+
+# Pixel AI (Raspberry Pi companion robot client)
+pixel-ai/pixel_env/
+pixel-ai/**/__pycache__/
+pixel-ai/*.pyc
+pixel-ai/.env
