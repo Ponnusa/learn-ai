@@ -11,14 +11,24 @@ Python 3.11.2, ethernet, HDMI out, 3.5mm audio out. No mic/speaker/display
 hardware is connected yet, so this phase uses a keyboard and an HDMI
 pygame window instead.
 
-### Prerequisite: a LearnX API key
+### Prerequisite: a LearnX developer account + approved API key
 
-The video endpoints (`/api/public/v1/videos/...`) require a real,
-approved API key from the `api_keys` table (`Authorization: Bearer
-lx_live_...`). This must be provisioned on the backend/DB side before
-Pixel can request animations — it isn't something this folder's code can
-create for itself. `/api/chat/send` and `/api/uploads` need no auth
-header, just a `user_id`.
+`LEARNX_API_URL` must point at the backend directly
+(`https://learn-ai-production.up.railway.app`) — `learnx-ai.com` is only
+the Vercel-hosted frontend and 307-redirects `/api/...` calls, it never
+reaches the FastAPI backend.
+
+One call to `POST /api/developer/signup` (email, password, company_name,
+description) creates both a real `users` row — its `user.id` is what
+`LEARNX_USER_ID` must be, since `/api/chat/send` does a foreign-key
+insert against `users(id)` and rejects an arbitrary string — and an
+`lx_live_...` key in `api_key.api_key` (shown once, save it immediately).
+The key comes back `status: "pending"`; `/api/public/v1/videos/...`
+rejects anything not `approved`, so a super-admin has to flip it (either
+`POST /api/admin/developer-keys/{key_id}/approve` with a super-admin JWT,
+or `UPDATE api_keys SET status='approved', approved_at=NOW() WHERE id=...`
+directly against the DB). `/api/chat/send` and `/api/uploads` don't need
+the API key at all, just the `user_id`.
 
 ### Setup on the Pi
 

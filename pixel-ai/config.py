@@ -21,7 +21,7 @@ def _require(name: str) -> str:
     return value
 
 
-LEARNX_API_URL = os.environ.get("LEARNX_API_URL", "https://learnx-ai.com").rstrip("/")
+LEARNX_API_URL = os.environ.get("LEARNX_API_URL", "https://learn-ai-production.up.railway.app").rstrip("/")
 LEARNX_API_KEY = _require("LEARNX_API_KEY")
 LEARNX_USER_ID = _require("LEARNX_USER_ID")
 
