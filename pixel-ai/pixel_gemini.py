@@ -25,6 +25,7 @@ The "defer to LearnX for real science questions" split is a follow-up
 once this base layer is confirmed working end-to-end on real hardware.
 """
 import asyncio
+import logging
 import os
 import subprocess
 
@@ -33,6 +34,9 @@ from google import genai
 from google.genai import types
 
 from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_TALKING
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -127,22 +131,32 @@ async def run() -> None:
         system_instruction=PERSONA,
     )
 
-    capture_proc = _start_capture()
-    playback_proc = _start_playback()
     face.start()
-    face.set_state(STATE_LISTENING)
-
     print("Pixel is listening (USB headset). Ctrl+C to stop.")
     try:
-        async with client.aio.live.connect(model=MODEL, config=config) as session:
-            await asyncio.gather(
-                _send_mic_audio(session, capture_proc),
-                _receive_and_play(session, playback_proc),
-            )
+        while True:
+            capture_proc = _start_capture()
+            playback_proc = _start_playback()
+            face.set_state(STATE_LISTENING)
+            try:
+                async with client.aio.live.connect(model=MODEL, config=config) as session:
+                    await asyncio.gather(
+                        _send_mic_audio(session, capture_proc),
+                        _receive_and_play(session, playback_proc),
+                    )
+            except Exception:
+                # The Live session can close on its own (idle timeout,
+                # server hiccup, etc.) -- logged in full here so the real
+                # cause is visible next time, instead of the whole script
+                # just going silent/dying. Reconnect rather than give up.
+                logger.exception("Live session ended unexpectedly -- reconnecting")
+                print("Connection dropped — reconnecting...")
+            finally:
+                capture_proc.terminate()
+                playback_proc.stdin.close()
+                playback_proc.terminate()
+            await asyncio.sleep(1)
     finally:
-        capture_proc.terminate()
-        playback_proc.stdin.close()
-        playback_proc.terminate()
         face.set_state(STATE_IDLE)
         face.stop()
 

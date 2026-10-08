@@ -93,10 +93,15 @@ python pixel_gemini.py
 ```
 
 Uses the Gemini **Live API** for real-time, bidirectional voice — you
-talk through a USB headset, Pixel talks back, and turn-taking/
-interruption are handled by the API itself rather than custom threading
-(the race-condition barge-in logic in `pixel_discussion.py` doesn't apply
-here). Audio is captured/played via `arecord`/`aplay` subprocess, not
+talk through a USB mic (a headset or a webcam's built-in mic both work,
+anything that shows up in `arecord -l`), Pixel talks back, and
+turn-taking/interruption are handled by the API itself rather than
+custom threading (the race-condition barge-in logic in
+`pixel_discussion.py` doesn't apply here). The Live session can close on
+its own (idle timeout, server-side hiccup) — `run()` reconnects
+automatically when that happens rather than dying silently, logging the
+real exception each time so the actual cause is visible if it keeps
+recurring. Audio is captured/played via `arecord`/`aplay` subprocess, not
 PyAudio — same reasoning `pixel_tts.py` already used shelling out to
 `mpg123` instead of a Python audio library: avoids native bindings
 (PortAudio) on this ARM hardware.
