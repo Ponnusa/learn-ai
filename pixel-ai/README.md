@@ -82,7 +82,23 @@ turns, which `pixel_brain.ask()` already supports. Say "stop", "skip", or
 "just tell me" at any prompt to bail out to a direct answer, mirroring
 the backend's own documented shortcut phrase.
 
-### Gemini mode: real-time voice conversation (LearnX paused)
+### Gemini Live mode: parked, not recommended (see voice mode instead)
+
+**Status: parked after extensive testing.** Live sessions reliably
+produced exactly one good reply, then permanent silence until an idle
+timeout forced a reconnect — reproduced identically across two different
+models (`gemini-2.5-flash-native-audio-latest` and `gemini-3.8-live`),
+with conclusive proof via a corrected heartbeat log (`mic: N read, M
+actually sent, K muted`) that audio was continuously and successfully
+reaching the server for 30+ seconds with zero response. That rules out
+every client-side theory tried (device-busy reconnects, a blocking
+playback write, VAD tuning, muting for echo) — this is a server-side
+session-handling issue with the Live API's automatic activity detection,
+not fixable from this codebase. **Use `pixel_gemini_voice.py` instead**
+(next section) — same persona, same persistent memory, but turn-based
+over the regular `generateContent` API instead of a Live session, and it
+actually works. Kept here for reference/history, not as something to
+build on.
 
 `pixel_gemini.py` is another standalone script, same non-interfering
 approach — it doesn't import `config.py` at all (LearnX is paused for
@@ -137,6 +153,52 @@ PyAudio — same reasoning `pixel_tts.py` already used shelling out to
 Env vars used: `GEMINI_API_KEY` (required), `GEMINI_LIVE_MODEL`,
 `PIXEL_MIC_DEVICE` — set in `.env`, loaded the same way `config.py` loads
 LearnX's variables, just a separate set.
+
+### Gemini voice mode: real mic input, no Live API (recommended)
+
+`pixel_gemini_voice.py` is the actually-working replacement for Live
+voice. Same non-interfering pattern, no `config.py` import, LearnX
+paused:
+
+```bash
+python pixel_gemini_voice.py
+```
+
+No persistent streaming session, no server-side voice activity
+detection — turn-based, built entirely from pieces already proven
+reliable: `arecord` for capture (continuously drained by a background
+task so it never blocks, regardless of what the rest of the loop is
+doing), simple **local** silence detection (stdlib `audioop.rms` — no
+new dependency) to decide when you've finished one utterance, and the
+recorded clip sent as a WAV `Part` to the exact same chat session
+`pixel_gemini_text.py` uses (`client.chats.create()`/`chat.send_message()`
+with a `[Part.from_bytes(data=wav_bytes, mime_type="audio/wav")]`
+message) — same persona, same persistent memory via `pixel_memory.py`.
+Replies are spoken via `pixel_tts`'s async primitives, with mic
+forwarding muted while Pixel is talking (same no-AEC reasoning as
+`pixel_gemini.py`'s mute, now proven to actually matter here too).
+
+**Before running, check** (same as `pixel_gemini.py`'s checklist):
+`arecord -l` for your mic's card/device, a raw `arecord`/`aplay`
+round-trip test, and `PIXEL_MIC_DEVICE` set if `default` doesn't route
+to it.
+
+Two VAD knobs if it's too trigger-happy or too insensitive for your
+specific mic/room — ambient noise floor and real speech level both vary
+a lot by hardware:
+- `PIXEL_VAD_START_RMS` (default `300`) — loudness threshold to start
+  recording.
+- `PIXEL_VAD_SILENCE_MS` (default `800`) — how long a pause has to be
+  before an utterance is considered finished.
+
+Verified the WAV encoding and the full start/stop/mute state machine
+with synthetic audio (silence, "loud" samples, genuine concurrent
+interleaving for the mute case) before shipping — see commit history for
+the test transcripts.
+
+Env vars: `GEMINI_API_KEY` (required), `GEMINI_TEXT_MODEL` (default
+`gemini-3.8-flash`), `PIXEL_MIC_DEVICE`, `PIXEL_VAD_START_RMS`,
+`PIXEL_VAD_SILENCE_MS`.
 
 ### Gemini text mode: same casual chat, no mic required
 
