@@ -22,6 +22,13 @@ logger = logging.getLogger(__name__)
 # than guessing one.
 _SDL_VIDEO_DRIVER_CANDIDATES = ("fbcon", "fbdev", "kmsdrm", "directfb")
 
+# pygame.init() also opens an ALSA audio device for pygame.mixer, which we
+# never use (gTTS + mpg123 handle all audio) — left alone, it fights
+# mpg123 for the same device and spams ALSA underrun warnings continuously,
+# even when nothing is being spoken. The dummy driver keeps SDL's audio
+# subsystem from touching real hardware at all.
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+
 STATE_IDLE = "idle"
 STATE_LISTENING = "listening"
 STATE_THINKING = "thinking"
