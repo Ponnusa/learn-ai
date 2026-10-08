@@ -79,7 +79,11 @@ PERSONA = (
     "a curious friend, not a lecture. Warm, a little playful, genuinely "
     "interested in what the student says. Plain spoken sentences only — "
     "no markdown, no bullet points, no headings, no LaTeX — this gets "
-    "read aloud by a text-to-speech engine that can't pronounce symbols."
+    "read aloud by a text-to-speech engine that can't pronounce symbols. "
+    "Each audio clip may contain more than one thing the student said — "
+    "if they change topic or ask something unrelated partway through "
+    "(like your name, or a personal question), answer THAT directly "
+    "first, don't just keep riding the previous topic's momentum."
 )
 
 
@@ -185,6 +189,14 @@ async def _conversation_loop(
     while True:
         face.set_state(STATE_LISTENING)
         audio_bytes = await _record_utterance(queue, pixel_speaking)
+        utterance_ms = len(audio_bytes) / (SAMPLE_RATE * SAMPLE_WIDTH) * 1000
+        # No visibility before this into what was actually captured per
+        # utterance -- a long recording (several unrelated sentences
+        # merged because a pause between them was under
+        # PIXEL_VAD_SILENCE_MS) and "captured cleanly but the model
+        # stayed anchored to prior context" look identical from the
+        # reply alone. This at least tells us which one happened.
+        logger.info("utterance captured: %.0fms of audio", utterance_ms)
 
         face.set_state(STATE_THINKING)
         wav_bytes = _pcm_to_wav(audio_bytes)
