@@ -198,6 +198,11 @@ async def _session_update(
                     }
                     if use_semantic_vad else None
                 ),
+                # Without this, transcript_log only ever contained
+                # Pixel's own replies, never what the student actually
+                # said -- confirmed live: conversation.item.input_audio_
+                # transcription.completed gives an accurate transcript.
+                "transcription": {"model": "whisper-1"},
             },
             "output": {"format": {"type": "audio/pcm", "rate": SAMPLE_RATE}},
         }
@@ -240,6 +245,7 @@ async def _receive_loop(
 ) -> None:
     loop = asyncio.get_event_loop()
     transcript = ""
+    user_transcript = ""
     spoke_any_audio = False
     async for raw in ws:
         data = json.loads(raw)
@@ -253,6 +259,11 @@ async def _receive_loop(
             face.set_state(STATE_THINKING)
             recording_state["active"] = False
             recording_state["last_buffer"] = b"".join(recording_state["buffer"])
+        elif t == "conversation.item.input_audio_transcription.completed":
+            # Without this, transcript_log only ever had Pixel's own
+            # replies -- memory extraction was blind to what the student
+            # actually said. Confirmed live this fires before response.done.
+            user_transcript = data.get("transcript", "")
         elif t == "response.output_audio.delta":
             if not spoke_any_audio:
                 face.set_state(STATE_TALKING)
@@ -264,11 +275,15 @@ async def _receive_loop(
         elif t == "response.output_audio_transcript.delta":
             transcript += data.get("delta", "")
         elif t == "response.done":
+            if user_transcript:
+                print(f"You: {user_transcript}")
+                transcript_log.append(f"Student: {user_transcript}")
             if transcript:
                 print(f"Pixel: {transcript}")
                 transcript_log.append(f"Pixel: {transcript}")
                 _log_utterance(recording_state.get("last_buffer", b""), transcript)
             transcript = ""
+            user_transcript = ""
             if spoke_any_audio:
                 # Let aplay's buffered tail actually finish before
                 # un-muting -- same reasoning as pixel_gemini.py's mute.

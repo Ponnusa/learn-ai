@@ -261,6 +261,18 @@ duplicated (not shared — different transport) version of
 `pixel_memory`'s summarization prompt, since `summarize_and_remember()`
 expects a google-genai chat object.
 
+**The transcript log includes what the student actually said, not just
+Pixel's replies.** This wasn't true at first — `transcript_log` only
+ever had `f"Pixel: {reply}"`, so memory extraction was completely blind
+to the student's half of the conversation; a name only survived if
+Pixel happened to repeat it back in a reply. Fixed by requesting
+`"transcription": {"model": "whisper-1"}` on `session.audio.input` and
+capturing `conversation.item.input_audio_transcription.completed`
+(fires before `response.done` in practice). Verified live end-to-end: a
+synthesized "my name is Saravana" utterance now shows up as
+`transcript_log` as `"Student: ..."`, survives the summarization step,
+and actually lands in `MEMORY.md`.
+
 **Before running, check** (same as the other voice scripts):
 `arecord -l` for your mic's card/device, a raw `arecord`/`aplay`
 round-trip test — **at 24000 Hz this time, not 16000** — and
@@ -350,7 +362,11 @@ calling `.commit()`/`response.create()` itself. Closer in shape to
 `PIXEL_VAD_*` tuning vars don't apply here — there's no local VAD to
 tune, the server does that now. `PIXEL_AUDIO_LOG_DIR` still works, just
 buffers between `speech_started`/`speech_stopped` instead of using a
-local state machine's own accumulation.
+local state machine's own accumulation. Same input-transcription fix as
+`pixel_openai_voice.py` applies here too — `transcript_log` captures
+`"Student: ..."` via `conversation.item.input_audio_transcription.completed`,
+not just Pixel's own replies, so memory extraction actually sees what
+the student said.
 
 **The real tradeoff**: `eagerness: "high"` is less patient about natural
 mid-sentence pauses than `low`/`medium` would be if they worked —

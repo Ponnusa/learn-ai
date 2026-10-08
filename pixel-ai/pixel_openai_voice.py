@@ -209,6 +209,14 @@ async def _session_update(
             "input": {
                 "format": {"type": "audio/pcm", "rate": SAMPLE_RATE},
                 "turn_detection": None,
+                # Without this, transcript_log only ever contained
+                # Pixel's own replies, never what the student actually
+                # said -- confirmed live: conversation.item.input_audio_
+                # transcription.completed gives an accurate transcript
+                # ("My name is Saravana, and I like robotics."). Memory
+                # extraction was blind to the student's half of the
+                # conversation without it.
+                "transcription": {"model": "whisper-1"},
             },
             "output": {"format": {"type": "audio/pcm", "rate": SAMPLE_RATE}},
         }
@@ -279,11 +287,17 @@ async def _record_and_stream_utterance(
             return b"".join(sent)
 
 
-async def _receive_response(ws, playback_proc: subprocess.Popen, pixel_speaking: asyncio.Event) -> str:
+async def _receive_response(
+    ws, playback_proc: subprocess.Popen, pixel_speaking: asyncio.Event
+) -> tuple[str, str]:
     """Drains events for one response turn: plays audio deltas, collects
-    the transcript, returns once response.done arrives."""
+    the transcript, returns (user_transcript, reply) once response.done
+    arrives. user_transcript comes from conversation.item.input_audio_
+    transcription.completed, which the committed utterance always
+    triggers before response.done in practice (confirmed live)."""
     loop = asyncio.get_event_loop()
     transcript = ""
+    user_transcript = ""
     spoke_any_audio = False
     async for raw in ws:
         data = json.loads(raw)
@@ -298,16 +312,18 @@ async def _receive_response(ws, playback_proc: subprocess.Popen, pixel_speaking:
             await loop.run_in_executor(None, playback_proc.stdin.flush)
         elif t == "response.output_audio_transcript.delta":
             transcript += data.get("delta", "")
+        elif t == "conversation.item.input_audio_transcription.completed":
+            user_transcript = data.get("transcript", "")
         elif t == "response.done":
             if spoke_any_audio:
                 # Let aplay's buffered tail actually finish before
                 # un-muting -- same reasoning as pixel_gemini.py's mute.
                 await asyncio.sleep(0.5)
                 pixel_speaking.clear()
-            return transcript
+            return user_transcript, transcript
         elif t == "error":
             raise RuntimeError(f"Realtime API error: {data.get('error')}")
-    return transcript
+    return user_transcript, transcript
 
 
 async def _conversation_loop(
@@ -336,7 +352,10 @@ async def _conversation_loop(
             continue
         await ws.send(json.dumps({"type": "response.create"}))
 
-        reply = await _receive_response(ws, playback_proc, pixel_speaking)
+        user_transcript, reply = await _receive_response(ws, playback_proc, pixel_speaking)
+        if user_transcript:
+            print(f"You: {user_transcript}")
+            transcript_log.append(f"Student: {user_transcript}")
         print(f"Pixel: {reply}")
         transcript_log.append(f"Pixel: {reply}")
         _log_utterance(audio_bytes, reply)
