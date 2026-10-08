@@ -35,14 +35,28 @@ def _auth_headers() -> dict:
     return {"Authorization": f"Bearer {config.LEARNX_API_KEY}"}
 
 
+# ChatRequest has no "keep it brief"/"voice mode" field — chat/send is the
+# same endpoint the web app uses, tuned for a page with headings and LaTeX.
+# The only lever available without touching shared backend behavior is
+# asking for a different style inline in the message itself.
+_CONVERSATIONAL_STYLE = (
+    "You're Pixel, a voice-only desk companion robot speaking out loud to "
+    "a student, not writing a web page. Reply in 1-3 short, casual "
+    "sentences. No headings, no bullet lists, no LaTeX. Give the simple, "
+    "intuitive version first; go into formulas or technical depth only if "
+    "the student explicitly asks for it."
+)
+
+
 def ask(message: str, image_url: str | None = None, conversation_id: str | None = None,
-        language: str = config.DEFAULT_LANGUAGE) -> dict:
+        language: str = config.DEFAULT_LANGUAGE, simple: bool = True) -> dict:
     """Send a question (optionally with a photo URL) and get a text reply."""
     # user_id only, no session_id: conversations.session_id is a foreign key
     # to a real anonymous_sessions row, and we don't have one — sending a
     # made-up value there breaks the INSERT with a 500.
+    text = f"{_CONVERSATIONAL_STYLE}\n\nStudent: {message}" if simple else message
     payload = {
-        "message": message,
+        "message": text,
         "user_id": config.LEARNX_USER_ID,
         "language": language,
     }

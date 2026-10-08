@@ -107,6 +107,21 @@ Speech for each chunk uses a local, rougher markdown/LaTeX cleanup
 a whole stored message, not a partial chunk — formula pronunciation isn't
 as polished as the full-message path `pixel_main.py` uses.
 
+**True barge-in:** Pixel speaks and listens at the same time
+(`_speak_and_listen`) — the input prompt appears on screen the instant a
+chunk starts, not after it finishes, and playback is cut off immediately
+the moment you start answering. You're never stuck waiting for Pixel to
+finish talking before you can respond, mid-sentence or not.
+
+**Replies are asked to stay short and conversational.** `pixel_brain.ask()`
+wraps every outgoing message with an instruction telling the model it's a
+voice-only companion robot, not a web page — 1-3 short sentences, no
+headings/bullets/LaTeX unless asked for the math. There's no "voice mode"
+field on `/api/chat/send` to flip instead, so this is the only lever
+available without changing shared backend behavior; the tradeoff is that
+this instruction text becomes part of the stored conversation history
+alongside the student's actual words, same as any other turn.
+
 ### Not yet implemented (explicitly out of scope for Phase 1)
 
 - Real game generation (`pixel_game.py` is a stub).

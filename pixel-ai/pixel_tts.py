@@ -30,6 +30,49 @@ def _play_file(path: str) -> None:
     )
 
 
+def _play_file_async(path: str) -> subprocess.Popen:
+    return subprocess.Popen(
+        ["mpg123", "-q", "-b", "2048", path],
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def stop(proc: subprocess.Popen | None) -> None:
+    """Cut off playback immediately — this is what makes barge-in work."""
+    if proc is None or proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+def cleanup_speech(path: str | None) -> None:
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def speak_async(text: str, lang: str = "en") -> tuple[subprocess.Popen | None, str | None]:
+    """Synthesize local text with gTTS and start playback without blocking.
+
+    Synthesis itself (the gTTS network call) still briefly blocks before
+    playback starts — only the playback step is interruptible. Caller must
+    call cleanup_speech(path) once done with it, whether stop() cut it off
+    early or it finished naturally.
+    """
+    if not text:
+        return None, None
+    fd, path = tempfile.mkstemp(suffix=".mp3")
+    os.close(fd)
+    gTTS(text=text, lang=lang).save(path)
+    return _play_file_async(path), path
+
+
 def speak(text: str, lang: str = "en") -> None:
     """Synthesize local text with gTTS and play it. Blocks until done."""
     if not text:

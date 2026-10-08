@@ -17,7 +17,9 @@ can genuinely branch the discussion instead of just clicking through a
 fixed script.
 """
 import logging
+import queue
 import re
+import threading
 
 import pixel_brain
 import pixel_tts
@@ -83,6 +85,52 @@ def _ask(message: str, conversation_id: str | None) -> tuple[list[str], str | No
     return chunk_reply(result.get("reply", "")), result.get("conversation_id")
 
 
+def _speak_and_listen(text: str, prompt: str) -> str:
+    """Speak and listen at the same time — true barge-in.
+
+    Starts playback without blocking, starts a background thread blocking
+    on listen() for the student's input, and races them: the prompt shows
+    up on screen immediately (listen() prints it right away), so the
+    student can start typing before Pixel finishes talking. The moment an
+    answer arrives, playback is cut off immediately if it's still going —
+    this is what makes it feel like a real conversation instead of
+    "wait for the robot to finish its monologue."
+    """
+    answers: "queue.Queue[str]" = queue.Queue()
+    state = {"proc": None, "path": None, "cancelled": False}
+    lock = threading.Lock()
+
+    def _speak_worker() -> None:
+        # gTTS synthesis is a blocking network call — runs in its own
+        # thread so the listener below starts at the same instant, not
+        # after synthesis finishes.
+        proc, path = pixel_tts.speak_async(text)
+        with lock:
+            if state["cancelled"]:
+                # Student already answered before synthesis finished —
+                # don't let this start playing into the next turn.
+                pixel_tts.stop(proc)
+                pixel_tts.cleanup_speech(path)
+            else:
+                state["proc"], state["path"] = proc, path
+
+    threading.Thread(target=_speak_worker, daemon=True).start()
+    threading.Thread(target=lambda: answers.put(listen(prompt=prompt)), daemon=True).start()
+
+    while True:
+        try:
+            answer = answers.get(timeout=0.15)
+            break
+        except queue.Empty:
+            continue
+
+    with lock:
+        state["cancelled"] = True
+        pixel_tts.stop(state["proc"])
+        pixel_tts.cleanup_speech(state["path"])
+    return answer
+
+
 def run_discussion(topic: str) -> None:
     conversation_id = None
     message = topic
@@ -105,14 +153,12 @@ def run_discussion(topic: str) -> None:
         chunk = pending.pop(0)
         face.set_state(STATE_TALKING)
         print(f"Pixel: {chunk}")
-        pixel_tts.speak(_clean_for_speech(chunk))
+        hint = "(enter to continue, or ask something)" if pending else \
+               "(say more to keep exploring, ask anything else, or 'stop')"
+        print(hint)
 
         face.set_state(STATE_LISTENING)
-        if pending:
-            print("(enter to continue, or ask something)")
-        else:
-            print("(say more to keep exploring, ask anything else, or 'stop')")
-        answer = listen(prompt="You: ")
+        answer = _speak_and_listen(_clean_for_speech(chunk), prompt="You: ")
 
         if answer.lower() in _STOP_WORDS:
             face.set_state(STATE_IDLE)
