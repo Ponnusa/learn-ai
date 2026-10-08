@@ -116,10 +116,16 @@ PyAudio — same reasoning `pixel_tts.py` already used shelling out to
 3. **Key type**: a Google AI Studio key (`genai.Client(api_key=...)`,
    what this script assumes) vs. a Vertex AI key need different client
    setup — confirm which kind `GEMINI_API_KEY` is.
-4. **Model name**: Live-capable model names shift fast (e.g.
-   `gemini-live-2.5-flash-native-audio`, or a newer preview by the time
-   you read this). Override with `GEMINI_LIVE_MODEL` if the default 404s
-   — check which models your key can actually reach.
+4. **Model name**: default is `gemini-2.5-flash-native-audio-latest`,
+   confirmed live-capable on the real key via
+   `GET /v1beta/models?key=...&pageSize=1000`, filtered for
+   `bidiGenerateContent` in `supportedGenerationMethods` — not guessed.
+   Other options that showed up the same way:
+   `gemini-3.1-flash-live-preview`, `gemini-3.8-live` (newest generation),
+   `gemini-3.8-live-extended-thinking`. These shift over time — re-run
+   that same query against your own key if the default ever 404s, rather
+   than guessing from docs (the model name in the original Live API docs,
+   `gemini-live-2.5-flash-native-audio`, didn't exist on this key at all).
 5. Set `PIXEL_MIC_DEVICE` (e.g. `plughw:1,0`, from step 1's `arecord -l`)
    if `default` doesn't route to the USB headset.
 

@@ -37,10 +37,13 @@ from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_TALKING
 load_dotenv()
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-# Live-capable model names shift fast — override via env if this one's
-# gone stale by the time you're reading this; check your key's available
-# models in Google AI Studio if it 404s.
-MODEL = os.environ.get("GEMINI_LIVE_MODEL", "gemini-live-2.5-flash-native-audio")
+# Confirmed against the real key via GET /v1beta/models?pageSize=1000,
+# filtered for "bidiGenerateContent" in supportedGenerationMethods — not
+# guessed. Other live-capable options on this key as of the check:
+# gemini-3.1-flash-live-preview, gemini-3.8-live (newest generation),
+# gemini-3.8-live-extended-thinking, gemini-3.5-live-translate-preview.
+# Model names shift fast — re-run that same query if this one 404s.
+MODEL = os.environ.get("GEMINI_LIVE_MODEL", "gemini-2.5-flash-native-audio-latest")
 # `arecord -l` to find your USB headset's card/device, e.g. "plughw:1,0".
 CAPTURE_DEVICE = os.environ.get("PIXEL_MIC_DEVICE", "default")
 
