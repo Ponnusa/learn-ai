@@ -178,6 +178,22 @@ async def run() -> None:
     config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],
         system_instruction=PERSONA,
+        # Reported symptom: continuous mic audio was reaching Gemini
+        # fine (confirmed via the heartbeat log), but it took ~15-20s of
+        # talking before any reply came back -- server-side VAD waiting
+        # out a long silence window before deciding you'd finished
+        # speaking. Explicit, aggressive settings instead of relying on
+        # defaults: react to speech starting/ending quickly, and commit
+        # to "done speaking" after a short 400ms pause instead of
+        # whatever the default silence window actually is.
+        realtime_input_config=types.RealtimeInputConfig(
+            automatic_activity_detection=types.AutomaticActivityDetection(
+                start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
+                end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_HIGH,
+                prefix_padding_ms=200,
+                silence_duration_ms=400,
+            )
+        ),
     )
 
     face.start()
