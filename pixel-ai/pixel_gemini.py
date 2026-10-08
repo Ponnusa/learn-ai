@@ -90,7 +90,9 @@ async def _send_mic_audio(
     session, capture_proc: subprocess.Popen, pixel_speaking: asyncio.Event
 ) -> None:
     loop = asyncio.get_event_loop()
+    chunks_read = 0
     chunks_sent = 0
+    chunks_muted = 0
     last_heartbeat = loop.time()
     while True:
         chunk = await loop.run_in_executor(None, capture_proc.stdout.read, _CHUNK_BYTES)
@@ -103,6 +105,7 @@ async def _send_mic_audio(
             raise RuntimeError(
                 f"arecord exited unexpectedly (exit code {capture_proc.poll()})"
             )
+        chunks_read += 1
         # No acoustic echo cancellation on this hardware -- the webcam
         # mic picks up Pixel's own voice straight out of the speaker.
         # Fed back into the session, that looks like new "user speech"
@@ -112,16 +115,23 @@ async def _send_mic_audio(
         # forward mic audio while Pixel is speaking. Still read and
         # discard it (not skipping the read itself) so arecord's buffer
         # doesn't back up while muted.
-        if not pixel_speaking.is_set():
+        if pixel_speaking.is_set():
+            chunks_muted += 1
+        else:
             await session.send_realtime_input(
                 audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={SEND_RATE}")
             )
-        chunks_sent += 1
-        # One line every ~5s, not every chunk (10/s would be spam) --
-        # proves the mic-send loop is still alive and actually sending
-        # during any "stuck" gap, rather than guessing.
+            chunks_sent += 1
+        # One line every ~5s, not every chunk (10/s would be spam). This
+        # used to log chunks_read mislabeled as "sent" even while muted
+        # -- fixed to report real counts, since that was masking exactly
+        # the kind of bug (mute stuck on, nothing actually reaching
+        # Gemini) this is meant to rule out.
         if loop.time() - last_heartbeat >= 5:
-            logger.info("mic send alive: %d chunks sent so far", chunks_sent)
+            logger.info(
+                "mic: %d read, %d actually sent, %d muted so far",
+                chunks_read, chunks_sent, chunks_muted,
+            )
             last_heartbeat = loop.time()
 
 
