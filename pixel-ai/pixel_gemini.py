@@ -65,11 +65,14 @@ PERSONA = (
 
 
 def _start_capture() -> subprocess.Popen:
+    # stderr NOT suppressed here (unlike most other subprocess calls in
+    # this codebase) -- arecord dying silently with its real ALSA error
+    # swallowed is exactly what produced "nothing happens, no crash" when
+    # it stopped producing audio after the first exchange. Let it print.
     return subprocess.Popen(
         ["arecord", "-D", CAPTURE_DEVICE, "-f", "S16_LE", "-r", str(SEND_RATE),
          "-c", "1", "-t", "raw"],
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
     )
 
 
@@ -77,7 +80,6 @@ def _start_playback() -> subprocess.Popen:
     return subprocess.Popen(
         ["aplay", "-f", "S16_LE", "-r", str(RECEIVE_RATE), "-c", "1", "-t", "raw", "-"],
         stdin=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
     )
 
 
@@ -86,7 +88,14 @@ async def _send_mic_audio(session, capture_proc: subprocess.Popen) -> None:
     while True:
         chunk = await loop.run_in_executor(None, capture_proc.stdout.read, _CHUNK_BYTES)
         if not chunk:
-            break
+            # arecord exited (EOF on its stdout) -- treat this as a real
+            # failure rather than quietly ending this coroutine while
+            # _receive_and_play keeps waiting forever with no new input
+            # ever arriving. Raising here lets run()'s reconnect loop
+            # catch it, log the real cause, and restart capture/playback.
+            raise RuntimeError(
+                f"arecord exited unexpectedly (exit code {capture_proc.poll()})"
+            )
         await session.send_realtime_input(
             audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={SEND_RATE}")
         )
