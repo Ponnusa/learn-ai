@@ -66,10 +66,17 @@ _CHUNK_MS = 100
 _CHUNK_BYTES = int(SAMPLE_RATE * SAMPLE_WIDTH * _CHUNK_MS / 1000)
 
 # Tune these if it's too trigger-happy or too insensitive -- ambient
-# noise floor and real speech level both vary a lot by mic/room.
-_START_RMS = int(os.environ.get("PIXEL_VAD_START_RMS", "300"))
+# noise floor and real speech level both vary a lot by mic/room. 300 was
+# triggering on rustling/background noise on this webcam mic -- raised
+# the default, but the "ambient level" log line in _record_utterance is
+# what actually tells you the right number for your specific setup.
+_START_RMS = int(os.environ.get("PIXEL_VAD_START_RMS", "600"))
 _END_SILENCE_MS = int(os.environ.get("PIXEL_VAD_SILENCE_MS", "800"))
 _MAX_UTTERANCE_MS = 20000
+# Noise blips that briefly cross _START_RMS still produce a short
+# recording -- discard anything shorter than this instead of sending
+# near-silence to Gemini and getting a guessed/hallucinated reply.
+_MIN_UTTERANCE_MS = int(os.environ.get("PIXEL_VAD_MIN_MS", "600"))
 _PRE_ROLL_CHUNKS = 3  # ~300ms kept from just before speech is detected,
                       # so the first word doesn't get clipped off.
 
@@ -134,10 +141,13 @@ async def _record_utterance(queue: "asyncio.Queue[bytes]", pixel_speaking: async
     trailing silence has passed. Chunks arriving while Pixel itself is
     talking are discarded, not treated as user speech -- no AEC on this
     hardware, same reasoning as pixel_gemini.py's mute."""
+    loop = asyncio.get_event_loop()
     pre_roll: list[bytes] = []
     buffer: list[bytes] = []
     recording = False
     silence_ms = 0
+    ambient_peak = 0
+    last_ambient_log = loop.time()
 
     while True:
         chunk = await queue.get()
@@ -149,6 +159,21 @@ async def _record_utterance(queue: "asyncio.Queue[bytes]", pixel_speaking: async
         rms = audioop.rms(chunk, SAMPLE_WIDTH)
 
         if not recording:
+            # No idea what this mic's actual noise floor vs. real-speech
+            # level looks like without seeing real numbers -- a fixed
+            # default threshold was triggering on rustling/background
+            # noise, flooding the conversation with nonsense exchanges.
+            # This gives the real data needed to pick PIXEL_VAD_START_RMS
+            # correctly for this specific hardware/room instead of
+            # guessing another magic number blind.
+            ambient_peak = max(ambient_peak, rms)
+            if loop.time() - last_ambient_log >= 2:
+                logger.info(
+                    "ambient level: current=%d peak=%d (start threshold=%d)",
+                    rms, ambient_peak, _START_RMS,
+                )
+                ambient_peak = 0
+                last_ambient_log = loop.time()
             pre_roll.append(chunk)
             if len(pre_roll) > _PRE_ROLL_CHUNKS:
                 pre_roll.pop(0)
@@ -197,6 +222,14 @@ async def _conversation_loop(
         # stayed anchored to prior context" look identical from the
         # reply alone. This at least tells us which one happened.
         logger.info("utterance captured: %.0fms of audio", utterance_ms)
+        if utterance_ms < _MIN_UTTERANCE_MS:
+            # A noise blip that crossed _START_RMS just long enough to
+            # trigger recording, not real speech -- skip the Gemini call
+            # entirely rather than sending near-silence and getting a
+            # guessed/hallucinated reply back.
+            logger.info("utterance too short (%.0fms < %dms) -- discarding, not a real question",
+                        utterance_ms, _MIN_UTTERANCE_MS)
+            continue
 
         face.set_state(STATE_THINKING)
         wav_bytes = _pcm_to_wav(audio_bytes)
