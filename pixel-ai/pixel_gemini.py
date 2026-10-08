@@ -86,7 +86,9 @@ def _start_playback() -> subprocess.Popen:
     )
 
 
-async def _send_mic_audio(session, capture_proc: subprocess.Popen) -> None:
+async def _send_mic_audio(
+    session, capture_proc: subprocess.Popen, pixel_speaking: asyncio.Event
+) -> None:
     loop = asyncio.get_event_loop()
     chunks_sent = 0
     last_heartbeat = loop.time()
@@ -101,9 +103,19 @@ async def _send_mic_audio(session, capture_proc: subprocess.Popen) -> None:
             raise RuntimeError(
                 f"arecord exited unexpectedly (exit code {capture_proc.poll()})"
             )
-        await session.send_realtime_input(
-            audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={SEND_RATE}")
-        )
+        # No acoustic echo cancellation on this hardware -- the webcam
+        # mic picks up Pixel's own voice straight out of the speaker.
+        # Fed back into the session, that looks like new "user speech"
+        # and confuses the server's turn detection: exactly one good
+        # reply per session, then permanent silence, matched what kept
+        # showing up in testing. Simplest fix without real AEC: don't
+        # forward mic audio while Pixel is speaking. Still read and
+        # discard it (not skipping the read itself) so arecord's buffer
+        # doesn't back up while muted.
+        if not pixel_speaking.is_set():
+            await session.send_realtime_input(
+                audio=types.Blob(data=chunk, mime_type=f"audio/pcm;rate={SEND_RATE}")
+            )
         chunks_sent += 1
         # One line every ~5s, not every chunk (10/s would be spam) --
         # proves the mic-send loop is still alive and actually sending
@@ -139,12 +151,15 @@ def _write_audio(playback_proc: subprocess.Popen, audio_bytes: bytes) -> None:
     playback_proc.stdin.flush()
 
 
-async def _receive_and_play(session, playback_proc: subprocess.Popen) -> None:
+async def _receive_and_play(
+    session, playback_proc: subprocess.Popen, pixel_speaking: asyncio.Event
+) -> None:
     loop = asyncio.get_event_loop()
     async for response in session.receive():
         audio_bytes = _extract_audio(response)
         if audio_bytes:
             face.set_state(STATE_TALKING)
+            pixel_speaking.set()
             # Writing directly here (no executor) blocks the WHOLE
             # asyncio event loop if aplay's pipe buffer fills or the
             # ALSA device is slow -- which also stalls the websocket
@@ -153,6 +168,12 @@ async def _receive_and_play(session, playback_proc: subprocess.Popen) -> None:
             # disconnects right after the first real audio reply.
             await loop.run_in_executor(None, _write_audio, playback_proc, audio_bytes)
         if _is_turn_complete(response):
+            # aplay buffers what we've already written -- give any
+            # already-queued tail a moment to actually finish playing
+            # before un-muting the mic, or its last fraction of a second
+            # could still leak back in as "new" input.
+            await asyncio.sleep(0.5)
+            pixel_speaking.clear()
             face.set_state(STATE_LISTENING)
             logger.info("turn complete -- listening again")
 
@@ -202,12 +223,13 @@ async def run() -> None:
         while True:
             capture_proc = _start_capture()
             playback_proc = _start_playback()
+            pixel_speaking = asyncio.Event()
             face.set_state(STATE_LISTENING)
             try:
                 async with client.aio.live.connect(model=MODEL, config=config) as session:
                     await asyncio.gather(
-                        _send_mic_audio(session, capture_proc),
-                        _receive_and_play(session, playback_proc),
+                        _send_mic_audio(session, capture_proc, pixel_speaking),
+                        _receive_and_play(session, playback_proc, pixel_speaking),
                     )
             except Exception:
                 # The Live session can close on its own (idle timeout,
