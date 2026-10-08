@@ -23,9 +23,18 @@ def _play_file(path: str) -> None:
     # underruns constantly with the default tiny buffer. ALSA's own
     # underrun warnings go straight to stderr regardless of -q, so
     # they're suppressed here too — they're noise, not failures.
+    #
+    # stdin=DEVNULL is the important one: mpg123 grabs the controlling
+    # terminal for its own interactive keyboard controls (pause/seek/quit)
+    # whenever its stdin is a real TTY. That steals every keystroke while
+    # it's playing, and killing it mid-playback (stop()) doesn't give it
+    # a chance to restore the terminal afterward — breaking input() even
+    # once playback is over. Feeding it /dev/null means it never touches
+    # the terminal's input at all, no matter how it's threaded.
     subprocess.run(
         ["mpg123", "-q", "-b", "2048", path],
         check=True,
+        stdin=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
 
@@ -33,6 +42,7 @@ def _play_file(path: str) -> None:
 def _play_file_async(path: str) -> subprocess.Popen:
     return subprocess.Popen(
         ["mpg123", "-q", "-b", "2048", path],
+        stdin=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
 
