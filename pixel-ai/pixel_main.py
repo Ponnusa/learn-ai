@@ -26,6 +26,7 @@ def handle_question(text: str) -> None:
     try:
         result = pixel_brain.ask(text)
         reply = result.get("reply", "")
+        message_id = result.get("message_id")
     except Exception:
         logger.exception("chat/send failed")
         face.set_state(STATE_IDLE)
@@ -34,7 +35,11 @@ def handle_question(text: str) -> None:
 
     face.set_state(STATE_TALKING)
     print(f"Pixel: {reply}")
-    pixel_tts.speak(pixel_tts.summarize_for_speech(reply))
+    try:
+        pixel_tts.speak_reply_audio(pixel_brain.get_message_audio(message_id))
+    except Exception:
+        logger.exception("chat audio fetch failed, falling back to gTTS")
+        pixel_tts.speak(reply)
     face.set_state(STATE_HAPPY)
 
 

@@ -60,6 +60,24 @@ def ask(message: str, image_url: str | None = None, conversation_id: str | None 
     return resp.json()
 
 
+def get_message_audio(message_id: str, language: str = config.DEFAULT_LANGUAGE) -> bytes:
+    """Fetch spoken audio for a chat reply — the same endpoint the LearnX
+    web app's "read aloud" button uses. The backend runs the message
+    through GPT-4o-mini first to strip LaTeX/markdown into natural spoken
+    prose (so "$F=ma$" becomes "F equals m a", not literal dollar signs
+    and asterisks), then voices it with OpenAI tts-1 and caches the
+    result — unlike speaking our own raw text with gTTS, which has no
+    idea the message contains markup. No auth header needed.
+    """
+    resp = _session.get(
+        f"{config.LEARNX_API_URL}/api/chat/messages/{message_id}/audio",
+        params={"language": language},
+        timeout=_CHAT_TIMEOUT,
+    )
+    resp.raise_for_status()
+    return resp.content
+
+
 def upload_image(file_bytes: bytes, filename: str, content_type: str) -> str:
     """Upload an image to the backend and return its public URL."""
     files = {"file": (filename, file_bytes, content_type)}

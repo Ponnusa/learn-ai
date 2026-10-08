@@ -35,13 +35,18 @@ def receive_photo():
         image_url = pixel_brain.upload_image(photo.read(), photo.filename or "photo.jpg", content_type)
         result = pixel_brain.ask(question, image_url=image_url)
         reply = result.get("reply", "")
+        message_id = result.get("message_id")
     except Exception:
         logger.exception("Photo explanation failed")
         face.set_state(STATE_IDLE)
         return jsonify({"error": "failed to get an explanation"}), 502
 
     face.set_state(STATE_TALKING)
-    pixel_tts.speak(pixel_tts.summarize_for_speech(reply))
+    try:
+        pixel_tts.speak_reply_audio(pixel_brain.get_message_audio(message_id))
+    except Exception:
+        logger.exception("chat audio fetch failed, falling back to gTTS")
+        pixel_tts.speak(reply)
     face.set_state(STATE_IDLE)
 
     return jsonify({"reply": reply})

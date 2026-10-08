@@ -43,9 +43,13 @@ python pixel_main.py
 ### What works today
 
 - Type a question -> `POST /api/chat/send` -> the full reply is printed,
-  gTTS speaks just the first couple of sentences (`pixel_tts.summarize_for_speech`)
-  to keep narration short, face animates (idle/listening/thinking/talking/happy)
-  on the HDMI window.
+  then spoken via `GET /api/chat/messages/{id}/audio` (the same endpoint
+  the LearnX web app's "read aloud" button uses — it runs the message
+  through GPT-4o-mini first to strip LaTeX/markdown into natural spoken
+  prose, so Pixel doesn't read out literal asterisks and dollar signs the
+  way raw gTTS on markdown text would). Falls back to gTTS on the raw
+  reply only if that call fails. Face animates
+  (idle/listening/thinking/talking/happy) on the HDMI window.
 - `video: <word problem>` -> `POST /api/public/v1/videos/generate`, polls
   `GET /api/public/v1/videos/{id}` (~60s), prints the resulting URL. No
   local video player is wired up yet — that's a later phase.
@@ -59,15 +63,17 @@ python pixel_main.py
 ### Not yet implemented (explicitly out of scope for Phase 1)
 
 - Real game generation (`pixel_game.py` is a stub).
-- Azure TTS (sticking with gTTS even once hardware arrives — there's no
-  public Azure-TTS-for-arbitrary-text endpoint on the backend).
+- Azure TTS (there's no public Azure-TTS-for-arbitrary-text endpoint on
+  the backend — chat replies are voiced via the existing OpenAI tts-1
+  chat-audio endpoint instead; ad-hoc local phrases still use gTTS).
 - Any ST7789/I2S mic/speaker hardware code.
 
 ## Phase 2 (when hardware arrives)
 
 - Swap `pixel_listen.py`'s `listen()` from keyboard to the ZTS6631 I2S mic.
 - Swap `pixel_tts.py`'s playback device from `mpg123` to the MAX98357A
-  I2S speaker (synthesis stays gTTS).
+  I2S speaker (synthesis sources — backend chat-audio + gTTS fallback —
+  stay the same).
 - Swap `pixel_face.py`'s render target from the HDMI window to the ST7789
   SPI display.
 
