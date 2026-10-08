@@ -288,6 +288,19 @@ substantially cheaper per token than the full `gpt-realtime` — for
 casual-chat-tier replies, that's probably the first thing to try if
 cost matters more than voice quality. Set `OPENAI_REALTIME_MODEL=gpt-realtime-mini`.
 
+**Debugging aid**: set `PIXEL_AUDIO_LOG_DIR` to save every sent
+utterance as a timestamped WAV plus a `session_log.jsonl` line pairing
+it with the reply text (`_log_utterance()`), so you can listen back
+later and check for overlap/merged-utterance issues instead of guessing
+from the reply alone — this is what would have made the earlier
+"quadratic equation vs. your name" confusion instantly diagnosable.
+Opt-in, unset by default — these are real voice recordings and the SD
+card is small. Gitignored (`pixel-ai/audio_log/`), same as `MEMORY.md`.
+Verified live: `_record_and_stream_utterance()` now returns the actual
+recorded bytes (not just a chunk count) so there's something to save,
+and the saved WAV round-trips correctly (right channels/width/rate,
+matches the JSONL entry's `audio_file`/`utterance_ms`).
+
 ### Gemini text mode: same casual chat, no mic required
 
 `pixel_gemini_text.py` is the keyboard fallback for when there's no

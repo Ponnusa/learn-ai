@@ -39,10 +39,13 @@ import asyncio
 import audioop  # stdlib; deprecated (PEP 594) but present on 3.11, see
                 # pixel_gemini_voice.py's note -- same caveat applies here.
 import base64
+import io
 import json
 import logging
 import os
 import subprocess
+import wave
+from datetime import datetime
 
 import websockets
 from dotenv import load_dotenv
@@ -75,6 +78,13 @@ _END_SILENCE_MS = int(os.environ.get("PIXEL_VAD_SILENCE_MS", "800"))
 _MAX_UTTERANCE_MS = 20000
 _MIN_UTTERANCE_MS = int(os.environ.get("PIXEL_VAD_MIN_MS", "600"))
 _PRE_ROLL_CHUNKS = 3
+
+# Opt-in debugging aid: unset by default so normal use never silently
+# fills up a small SD card with recordings. Set to a directory path to
+# save every sent utterance (as WAV) alongside the reply it got, so you
+# can later listen back and check for overlap/merged-utterance issues
+# instead of guessing from the reply text alone.
+AUDIO_LOG_DIR = os.environ.get("PIXEL_AUDIO_LOG_DIR")
 
 PERSONA = (
     "You're Pixel, a friendly, casual desk companion robot for a student. "
@@ -136,6 +146,40 @@ def _stop_proc(proc: subprocess.Popen | None, timeout: float = 2) -> None:
         proc.wait()
 
 
+def _pcm_to_wav(pcm_bytes: bytes) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(SAMPLE_WIDTH)
+        wf.setframerate(SAMPLE_RATE)
+        wf.writeframes(pcm_bytes)
+    return buf.getvalue()
+
+
+def _log_utterance(audio_bytes: bytes, reply_text: str) -> None:
+    """Saves the sent utterance as a WAV plus one JSONL line pairing it
+    with the reply, for later review -- a no-op unless PIXEL_AUDIO_LOG_DIR
+    is set. Millisecond-precision timestamp since multiple utterances can
+    land within the same second."""
+    if not AUDIO_LOG_DIR:
+        return
+    try:
+        os.makedirs(AUDIO_LOG_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        wav_name = f"{timestamp}.wav"
+        with open(os.path.join(AUDIO_LOG_DIR, wav_name), "wb") as f:
+            f.write(_pcm_to_wav(audio_bytes))
+        with open(os.path.join(AUDIO_LOG_DIR, "session_log.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "timestamp": timestamp,
+                "audio_file": wav_name,
+                "utterance_ms": round(len(audio_bytes) / (SAMPLE_RATE * SAMPLE_WIDTH) * 1000),
+                "reply": reply_text,
+            }) + "\n")
+    except OSError:
+        logger.exception("failed to write audio log entry")
+
+
 async def _capture_reader(capture_proc: subprocess.Popen, queue: "asyncio.Queue[bytes]") -> None:
     loop = asyncio.get_event_loop()
     while True:
@@ -176,17 +220,18 @@ async def _session_update(
 
 async def _record_and_stream_utterance(
     ws, queue: "asyncio.Queue[bytes]", pixel_speaking: asyncio.Event
-) -> int:
+) -> bytes:
     """Same local silence-detection state machine as
-    pixel_gemini_voice.py's _record_utterance, but streams chunks to the
-    websocket as they're captured instead of buffering a full clip --
-    fits this API's append/commit design and avoids holding the whole
-    utterance in memory first. Returns the number of chunks sent."""
+    pixel_gemini_voice.py's _record_utterance. Streams chunks to the
+    websocket as they're captured (fits this API's append/commit design)
+    but ALSO accumulates them, unlike the original version that only
+    returned a count -- needed so _log_utterance() below has something
+    to actually save. Returns the raw PCM bytes sent."""
     loop = asyncio.get_event_loop()
     pre_roll: list[bytes] = []
+    sent: list[bytes] = []
     recording = False
     silence_ms = 0
-    sent_chunks = 0
     ambient_peak = 0
     last_ambient_log = loop.time()
 
@@ -222,16 +267,16 @@ async def _record_and_stream_utterance(
                 silence_ms = 0
                 for piece in pre_roll:
                     await _send(piece)
-                    sent_chunks += 1
+                    sent.append(piece)
             continue
 
         await _send(chunk)
-        sent_chunks += 1
+        sent.append(chunk)
         silence_ms = silence_ms + _CHUNK_MS if rms < _START_RMS else 0
 
-        total_ms = sent_chunks * _CHUNK_MS
+        total_ms = len(sent) * _CHUNK_MS
         if silence_ms >= _END_SILENCE_MS or total_ms >= _MAX_UTTERANCE_MS:
-            return sent_chunks
+            return b"".join(sent)
 
 
 async def _receive_response(ws, playback_proc: subprocess.Popen, pixel_speaking: asyncio.Event) -> str:
@@ -271,13 +316,13 @@ async def _conversation_loop(
 ) -> None:
     while True:
         face.set_state(STATE_LISTENING)
-        sent_chunks = await _record_and_stream_utterance(ws, queue, pixel_speaking)
-        utterance_ms = sent_chunks * _CHUNK_MS
-        logger.info("utterance captured: %dms of audio", utterance_ms)
+        audio_bytes = await _record_and_stream_utterance(ws, queue, pixel_speaking)
+        utterance_ms = len(audio_bytes) / (SAMPLE_RATE * SAMPLE_WIDTH) * 1000
+        logger.info("utterance captured: %.0fms of audio", utterance_ms)
 
         if utterance_ms < _MIN_UTTERANCE_MS:
             logger.info(
-                "utterance too short (%dms < %dms) -- discarding, not a real question",
+                "utterance too short (%.0fms < %dms) -- discarding, not a real question",
                 utterance_ms, _MIN_UTTERANCE_MS,
             )
             await ws.send(json.dumps({"type": "input_audio_buffer.clear"}))
@@ -294,6 +339,7 @@ async def _conversation_loop(
         reply = await _receive_response(ws, playback_proc, pixel_speaking)
         print(f"Pixel: {reply}")
         transcript_log.append(f"Pixel: {reply}")
+        _log_utterance(audio_bytes, reply)
 
 
 async def _summarize_and_remember(transcript_log: list[str]) -> None:
