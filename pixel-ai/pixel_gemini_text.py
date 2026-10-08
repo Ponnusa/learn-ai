@@ -10,6 +10,7 @@ pixel_face/pixel_tts/pixel_listen.
 Uses client.chats.create()/chat.send_message() for built-in multi-turn
 history instead of managing a messages list by hand.
 """
+import logging
 import os
 
 from dotenv import load_dotenv
@@ -21,6 +22,8 @@ from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_THINKING, STATE_
 from pixel_listen import listen
 
 load_dotenv()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 # A plain chat model, not a Live one — no audio streaming needed here.
@@ -61,6 +64,7 @@ def main() -> None:
                 response = chat.send_message(text)
                 reply = response.text or ""
             except Exception:
+                logger.exception("Gemini send_message failed")
                 print("Sorry, I couldn't reach Gemini.")
                 face.set_state(STATE_IDLE)
                 continue
