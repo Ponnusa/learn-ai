@@ -6,10 +6,24 @@ playback device changes (mpg123/headphone jack -> I2S/MAX98357A), not the
 synthesis path.
 """
 import os
+import re
 import subprocess
 import tempfile
 
 from gtts import gTTS
+
+
+def summarize_for_speech(text: str, max_sentences: int = 2) -> str:
+    """First few sentences only — the full text still gets printed/shown.
+
+    Not the same thing as the web chat's "read aloud" cleanup (which runs
+    the WHOLE message through GPT-4o-mini to strip LaTeX/markdown for
+    natural pronunciation, not to shorten it). This is a plain client-side
+    cut, no extra network round trip, specifically to cut narration time.
+    """
+    sentences = re.split(r"(?<=[.!?])\s+", text.strip())
+    short = " ".join(sentences[:max_sentences]).strip()
+    return short or text
 
 
 def speak(text: str, lang: str = "en") -> None:

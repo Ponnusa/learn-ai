@@ -41,7 +41,7 @@ def receive_photo():
         return jsonify({"error": "failed to get an explanation"}), 502
 
     face.set_state(STATE_TALKING)
-    pixel_tts.speak(reply)
+    pixel_tts.speak(pixel_tts.summarize_for_speech(reply))
     face.set_state(STATE_IDLE)
 
     return jsonify({"reply": reply})

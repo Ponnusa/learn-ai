@@ -33,9 +33,9 @@ def handle_question(text: str) -> None:
         return
 
     face.set_state(STATE_TALKING)
-    pixel_tts.speak(reply)
-    face.set_state(STATE_HAPPY)
     print(f"Pixel: {reply}")
+    pixel_tts.speak(pixel_tts.summarize_for_speech(reply))
+    face.set_state(STATE_HAPPY)
 
 
 def handle_video(prompt: str) -> None:

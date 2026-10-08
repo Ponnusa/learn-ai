@@ -42,8 +42,10 @@ python pixel_main.py
 
 ### What works today
 
-- Type a question -> `POST /api/chat/send` -> gTTS speaks the reply, face
-  animates (idle/listening/thinking/talking/happy) on the HDMI window.
+- Type a question -> `POST /api/chat/send` -> the full reply is printed,
+  gTTS speaks just the first couple of sentences (`pixel_tts.summarize_for_speech`)
+  to keep narration short, face animates (idle/listening/thinking/talking/happy)
+  on the HDMI window.
 - `video: <word problem>` -> `POST /api/public/v1/videos/generate`, polls
   `GET /api/public/v1/videos/{id}` (~60s), prints the resulting URL. No
   local video player is wired up yet — that's a later phase.
