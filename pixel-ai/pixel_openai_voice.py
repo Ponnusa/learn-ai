@@ -246,12 +246,15 @@ def _encode_append_message(chunk: bytes) -> str:
     })
 
 
-def _decode_and_play(playback_proc: subprocess.Popen, b64_audio: str) -> None:
+def _decode_and_play(playback_proc: subprocess.Popen, b64_audio: str) -> int:
     """Decode + write + flush in one executor dispatch instead of
-    separate ones -- fewer thread-pool round trips per audio delta."""
+    separate ones -- fewer thread-pool round trips per audio delta.
+    Returns the decoded byte count so the caller can track how much
+    audio has actually been queued for playback."""
     audio_bytes = base64.b64decode(b64_audio)
     playback_proc.stdin.write(audio_bytes)
     playback_proc.stdin.flush()
+    return len(audio_bytes)
 
 
 async def _record_and_stream_utterance(
@@ -329,6 +332,8 @@ async def _receive_response(
     transcript = ""
     user_transcript = ""
     spoke_any_audio = False
+    audio_bytes_total = 0
+    playback_started_at = 0.0
     async for raw in ws:
         data = await loop.run_in_executor(None, json.loads, raw)
         t = data.get("type")
@@ -337,16 +342,29 @@ async def _receive_response(
                 face.set_state(STATE_TALKING)
                 pixel_speaking.set()
                 spoke_any_audio = True
-            await loop.run_in_executor(None, _decode_and_play, playback_proc, data["delta"])
+                audio_bytes_total = 0
+                playback_started_at = loop.time()
+            audio_bytes_total += await loop.run_in_executor(
+                None, _decode_and_play, playback_proc, data["delta"])
         elif t == "response.output_audio_transcript.delta":
             transcript += data.get("delta", "")
         elif t == "conversation.item.input_audio_transcription.completed":
             user_transcript = data.get("transcript", "")
         elif t == "response.done":
             if spoke_any_audio:
-                # Let aplay's buffered tail actually finish before
-                # un-muting -- same reasoning as pixel_gemini.py's mute.
-                await asyncio.sleep(0.5)
+                # A flat 0.5s guess here let Pixel's own trailing audio
+                # (still draining through the OS pipe + aplay's ALSA
+                # buffer, not bounded tightly by -B 500000) get picked
+                # back up by the mic and misread as the student's next
+                # turn -- confirmed via a real session log showing
+                # Pixel's own phrases echoed back verbatim as "Student:"
+                # lines. Wait out the reply's actual decoded duration
+                # (minus whatever's already elapsed since playback
+                # started, since deltas don't always arrive in real time)
+                # plus a fixed drain margin, instead of a fixed guess.
+                expected_s = audio_bytes_total / (SAMPLE_RATE * SAMPLE_WIDTH)
+                elapsed = loop.time() - playback_started_at
+                await asyncio.sleep(max(0.0, expected_s - elapsed) + 0.6)
                 pixel_speaking.clear()
             return user_transcript, transcript
         elif t == "error":

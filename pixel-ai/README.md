@@ -369,6 +369,31 @@ the change — no correctness regression, both turns still completed
 with correct transcripts — but the actual audio-glitch improvement on
 real Pi hardware is still pending a hands-on test.
 
+**Fixed Pixel hearing and transcribing its own voice as the student's
+next turn.** A real session transcript on the Pi showed Pixel's own
+phrases ("What's on your mind?", "Easy as that.") coming back verbatim
+as `Student:` lines right after Pixel said them — a feedback loop, not
+a transcription bug. Root cause: the mic un-mute after Pixel finishes
+talking used a flat `0.5s` guess regardless of reply length, but the
+real latency before audio is actually fully out of the speaker is the
+OS pipe buffer plus `aplay`'s own `-B 500000` ALSA buffer — not
+tightly bounded by that 500ms, especially for longer replies whose
+audio deltas arrive faster than they play back. The mic would unmute
+while Pixel's own trailing audio was still physically draining out,
+get picked back up (no AEC on this hardware), and get misread as a new
+turn. Fixed by tracking the actual decoded byte count of each reply and
+computing a real wait time — `(bytes_total / (rate * width)) - elapsed
+since playback started, plus a fixed 0.6s drain margin` — instead of a
+fixed guess; `_decode_and_play()` now returns the decoded byte count so
+the receive loop can accumulate it. Verified with a standalone test of
+the formula against both a "burst" delivery pattern (all deltas
+arriving before playback could possibly have kept up — the old flat
+guess would leave the mic unmuted ~3s too early) and a "paced,
+real-time" delivery pattern (where the old guess happened to be close
+to right) — correctly waits out nearly the full remaining duration in
+the first case and just the margin in the second, rather than a fixed
+amount either way.
+
 ### OpenAI voice mode (semantic VAD): experimental, server-side turn detection
 
 `pixel_openai_voice_semantic.py` is the experimental sibling to
