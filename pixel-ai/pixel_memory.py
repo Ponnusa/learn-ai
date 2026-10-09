@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 _PERSONA_DIR = os.path.join(os.path.dirname(__file__), "persona")
 _IDENTITY_PATH = os.path.join(_PERSONA_DIR, "IDENTITY.md")
 _MEMORY_PATH = os.path.join(_PERSONA_DIR, "MEMORY.md")
+# Raw per-session transcripts, saved before summarization is even
+# attempted -- a safety net so a crashed/failed summarization call
+# doesn't lose the conversation outright (it used to live only in an
+# in-memory list that died with the process). Gitignored, same
+# sensitivity as MEMORY.md.
+_TRANSCRIPT_DIR = os.path.join(_PERSONA_DIR, "transcripts")
+_CURRENT_HEADER = "## Current"
+_HISTORY_HEADER = "## History"
 # Pixel's current name, chosen by whoever's using this device -- not
 # generic (doesn't belong in IDENTITY.md) and not personal data about a
 # student (doesn't belong in MEMORY.md's category either), but same
@@ -32,19 +40,27 @@ DEFAULT_NAME = "Pixel"
 
 # One extra Gemini call at session end, not after every turn — keeps
 # cost down and avoids cluttering memory with trivial small talk.
+# Tagged CURRENT/EVENT output (instead of one flat fact-per-line list)
+# so a corrected fact (e.g. a renamed companion, a corrected grade)
+# replaces the old value in MEMORY.md's Current section instead of
+# just piling up next to it forever in a flat append-only list.
 _SUMMARIZE_PROMPT = (
     "Below is a transcript of a casual chat between you (Pixel, a desk "
     "companion robot) and a student. Pull out at most 3 short, durable "
-    "things worth remembering for next time: facts about the student "
-    "(name, interests, ongoing projects, things they mentioned caring "
-    "about), AND things worth carrying forward from the conversation "
-    "itself — an unfinished topic to pick back up, something you "
-    "(Pixel) promised to help with or follow up on, a running joke or "
-    "shared moment that makes the friendship feel continuous rather "
-    "than starting from scratch every time. Skip anything trivial or "
-    "one-off (like asking about the weather). One item per line, plain "
-    "text, no numbering or markdown. If there's nothing worth keeping, "
-    "reply with exactly: NOTHING\n\n"
+    "things worth remembering for next time, each tagged as one of two "
+    "kinds:\n"
+    "CURRENT: a stable fact about the student that should replace any "
+    "previous value of the same kind — name, grade, a recurring "
+    "interest. Format: CURRENT: key: value (e.g. "
+    "'CURRENT: name: Saravana' or 'CURRENT: interests: robotics, "
+    "building things').\n"
+    "EVENT: something worth carrying forward from this specific "
+    "conversation — an unfinished topic to pick back up, something you "
+    "(Pixel) promised to follow up on, a running joke or shared moment. "
+    "Format: EVENT: <text>.\n"
+    "Skip anything trivial or one-off (like asking about the weather). "
+    "One tagged item per line, plain text, no numbering or markdown. If "
+    "there's nothing worth keeping, reply with exactly: NOTHING\n\n"
     "Transcript:\n{transcript}"
 )
 
@@ -57,15 +73,62 @@ def _read(path: str) -> str:
         return ""
 
 
+def _parse_memory(text: str) -> tuple[dict[str, str], list[str]]:
+    """Splits MEMORY.md into (current facts, history log). Tolerates the
+    old flat `- [date] fact` format with no headers at all — every
+    bullet line is kept as history rather than silently dropped, so
+    nothing already saved from before this split is lost."""
+    current: dict[str, str] = {}
+    history: list[str] = []
+    if _CURRENT_HEADER not in text and _HISTORY_HEADER not in text:
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("-"):
+                history.append(line[1:].strip())
+        return current, history
+
+    section = None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped == _CURRENT_HEADER:
+            section = "current"
+            continue
+        if stripped == _HISTORY_HEADER:
+            section = "history"
+            continue
+        if not stripped.startswith("-"):
+            continue
+        item = stripped[1:].strip()
+        if section == "current" and ":" in item:
+            key, value = item.split(":", 1)
+            current[key.strip().lower()] = value.strip()
+        elif section == "history":
+            history.append(item)
+    return current, history
+
+
+def _render_memory(current: dict[str, str], history: list[str]) -> str:
+    lines = [_CURRENT_HEADER]
+    lines += [f"- {key}: {value}" for key, value in current.items()]
+    lines.append("")
+    lines.append(_HISTORY_HEADER)
+    lines += [f"- {item}" for item in history]
+    return "\n".join(lines) + "\n"
+
+
 def load_context() -> str:
     """Identity + remembered facts, ready to fold into a system instruction."""
     identity = _read(_IDENTITY_PATH)
-    memory = _read(_MEMORY_PATH)
+    current, history = _parse_memory(_read(_MEMORY_PATH))
     parts = []
     if identity:
         parts.append(identity)
-    if memory:
-        parts.append("What you remember from before (about the student and your ongoing friendship):\n" + memory)
+    if current:
+        lines = "\n".join(f"- {key}: {value}" for key, value in current.items())
+        parts.append("What you currently know about the student:\n" + lines)
+    if history:
+        lines = "\n".join(f"- {item}" for item in history)
+        parts.append("What's happened in your ongoing friendship:\n" + lines)
     return "\n\n".join(parts)
 
 
@@ -123,15 +186,75 @@ def detect_rename_request(text: str) -> str | None:
     return candidate[:1].upper() + candidate[1:]
 
 
-def remember(fact: str) -> None:
-    """Append one fact to MEMORY.md, creating the file/folder if needed."""
+def remember_current(key: str, value: str) -> None:
+    """Upserts one durable fact into MEMORY.md's Current section — a
+    repeat key (e.g. 'name') replaces the old value instead of piling up
+    next to it, fixing the old flat-list behavior where a corrected fact
+    just sat alongside the stale one forever."""
+    key = key.strip().lower()
+    value = value.strip()
+    if not key or not value:
+        return
+    os.makedirs(_PERSONA_DIR, exist_ok=True)
+    current, history = _parse_memory(_read(_MEMORY_PATH))
+    current[key] = value
+    with open(_MEMORY_PATH, "w", encoding="utf-8") as f:
+        f.write(_render_memory(current, history))
+
+
+def remember_event(fact: str) -> None:
+    """Appends one dated, one-off item to MEMORY.md's History section —
+    unfinished topics, promises, shared moments. Always additive, same
+    as the old flat-list `remember()` behavior."""
     fact = fact.strip()
     if not fact:
         return
     os.makedirs(_PERSONA_DIR, exist_ok=True)
+    current, history = _parse_memory(_read(_MEMORY_PATH))
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    with open(_MEMORY_PATH, "a", encoding="utf-8") as f:
-        f.write(f"- [{timestamp}] {fact}\n")
+    history.append(f"[{timestamp}] {fact}")
+    with open(_MEMORY_PATH, "w", encoding="utf-8") as f:
+        f.write(_render_memory(current, history))
+
+
+def save_transcript(transcript: list[str]) -> None:
+    """Raw session text to _TRANSCRIPT_DIR, before summarization is even
+    attempted — a safety net so a crashed/failed summarization call
+    doesn't lose the conversation outright. Best-effort: a write failure
+    here must never block the session from ending normally."""
+    if not transcript:
+        return
+    try:
+        os.makedirs(_TRANSCRIPT_DIR, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(_TRANSCRIPT_DIR, f"{timestamp}.txt")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(transcript) + "\n")
+    except OSError:
+        logger.exception("failed to save raw transcript")
+
+
+def apply_summary(text: str) -> None:
+    """Routes one summarization reply's CURRENT:/EVENT: tagged lines to
+    the right MEMORY.md section. A line the model didn't tag (format
+    drift) is still kept, as an event, rather than silently dropped."""
+    text = (text or "").strip()
+    if not text or text.upper() == "NOTHING":
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        lowered = line.lower()
+        if lowered.startswith("current:"):
+            parts = line.split(":", 2)
+            if len(parts) == 3:
+                remember_current(parts[1], parts[2])
+                continue
+        if lowered.startswith("event:"):
+            remember_event(line.split(":", 1)[1])
+            continue
+        remember_event(line)
 
 
 def summarize_and_remember(chat, transcript: list[str]) -> None:
@@ -143,6 +266,7 @@ def summarize_and_remember(chat, transcript: list[str]) -> None:
     """
     if not transcript:
         return
+    save_transcript(transcript)
     prompt = _SUMMARIZE_PROMPT.format(transcript="\n".join(transcript))
     try:
         response = chat.send_message(prompt)
@@ -150,8 +274,4 @@ def summarize_and_remember(chat, transcript: list[str]) -> None:
     except Exception:
         logger.exception("memory summarization failed")
         return
-
-    if not text or text.upper() == "NOTHING":
-        return
-    for line in text.splitlines():
-        remember(line)
+    apply_summary(text)

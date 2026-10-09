@@ -108,19 +108,28 @@ def _build_system_instruction() -> str:
         instruction = f"{instruction}\n\n{remembered}"
     return instruction
 
+# Mirrors pixel_memory._SUMMARIZE_PROMPT's contract exactly (tagged
+# CURRENT:/EVENT: lines, or NOTHING) -- see pixel_openai_voice.py's
+# identical comment for why the prompt text is duplicated but the
+# parsing (apply_summary) and transcript saving (save_transcript) are
+# shared via pixel_memory.
 _SUMMARIZE_PROMPT = (
     "Below is a transcript of a casual chat between you (Pixel, a desk "
     "companion robot) and a student. Pull out at most 3 short, durable "
-    "things worth remembering for next time: facts about the student "
-    "(name, interests, ongoing projects, things they mentioned caring "
-    "about), AND things worth carrying forward from the conversation "
-    "itself — an unfinished topic to pick back up, something you "
-    "(Pixel) promised to help with or follow up on, a running joke or "
-    "shared moment that makes the friendship feel continuous rather "
-    "than starting from scratch every time. Skip anything trivial or "
-    "one-off (like asking about the weather). One item per line, plain "
-    "text, no numbering or markdown. If there's nothing worth keeping, "
-    "reply with exactly: NOTHING\n\n"
+    "things worth remembering for next time, each tagged as one of two "
+    "kinds:\n"
+    "CURRENT: a stable fact about the student that should replace any "
+    "previous value of the same kind — name, grade, a recurring "
+    "interest. Format: CURRENT: key: value (e.g. "
+    "'CURRENT: name: Saravana' or 'CURRENT: interests: robotics, "
+    "building things').\n"
+    "EVENT: something worth carrying forward from this specific "
+    "conversation — an unfinished topic to pick back up, something you "
+    "(Pixel) promised to follow up on, a running joke or shared moment. "
+    "Format: EVENT: <text>.\n"
+    "Skip anything trivial or one-off (like asking about the weather). "
+    "One tagged item per line, plain text, no numbering or markdown. If "
+    "there's nothing worth keeping, reply with exactly: NOTHING\n\n"
     "Transcript:\n{transcript}"
 )
 
@@ -362,6 +371,7 @@ async def _receive_loop(
 async def _summarize_and_remember(transcript_log: list[str]) -> None:
     if not transcript_log:
         return
+    pixel_memory.save_transcript(transcript_log)
     prompt = _SUMMARIZE_PROMPT.format(transcript="\n".join(transcript_log))
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
     try:
@@ -388,10 +398,7 @@ async def _summarize_and_remember(transcript_log: list[str]) -> None:
         logger.exception("memory summarization failed")
         return
 
-    if not text or text.strip().upper() == "NOTHING":
-        return
-    for line in text.splitlines():
-        pixel_memory.remember(line)
+    pixel_memory.apply_summary(text)
 
 
 async def run() -> None:

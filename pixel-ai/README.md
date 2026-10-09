@@ -435,12 +435,36 @@ history only lasts for one running process. Two plain files in
 
 Both get read into the system instruction at startup
 (`pixel_memory.load_context()`). At the end of each session, one extra
-Gemini call (`summarize_and_remember()`) asks the model to pull out at
-most 3 short, durable facts worth keeping from that conversation and
-appends them to `MEMORY.md` — not after every turn, to keep cost down
-and avoid cluttering memory with one-off small talk ("NOTHING" if there's
-nothing worth keeping). Verified the file I/O and summarization parsing
-with a mocked chat session before shipping.
+model call (`summarize_and_remember()`/`apply_summary()`) asks for at
+most 3 short, durable things worth keeping from that conversation —
+not after every turn, to keep cost down and avoid cluttering memory
+with one-off small talk ("NOTHING" if there's nothing worth keeping).
+
+**`MEMORY.md` is split into two sections, not one flat list.** A
+`## Current` section holds stable key/value facts (name, grade, a
+recurring interest) that get **replaced** when the model reports an
+updated value for the same key — fixes the earlier problem where a
+corrected name just sat next to the stale one forever. A `## History`
+section is the dated, append-only log of one-off things worth carrying
+forward (unfinished topics, promises, shared moments). The
+summarization prompt asks the model to tag each line `CURRENT: key:
+value` or `EVENT: <text>`; `apply_summary()` routes each to the right
+section, and still keeps an untagged line (as an event) rather than
+silently dropping it if the model doesn't follow the format exactly.
+Old flat-format `MEMORY.md` files (no headers at all) are read as pure
+history on first load — nothing already saved is lost by the format
+change. Verified with a standalone test covering: old-format
+backward-compat, a repeated key replacing instead of duplicating, event
+appends, all three `apply_summary()` routing cases, and the `NOTHING`
+no-op.
+
+**Raw per-session transcripts are now saved to `persona/transcripts/`
+before summarization is even attempted** (`pixel_memory.save_transcript()`),
+not just held in an in-memory list that died with the process. A
+crashed or failed summarization call used to mean that session's
+conversation was gone for good; now the raw text survives regardless,
+as a safety net for re-summarizing later if needed. Gitignored
+(`pixel-ai/persona/transcripts/`), same sensitivity as `MEMORY.md`.
 
 **Renaming Pixel** (both `pixel_openai_voice.py` and
 `pixel_openai_voice_semantic.py` support this): say something like
