@@ -479,44 +479,79 @@ anything reaches the LLM.
 Setup, on the **fast machine** (not the Pi):
 ```bash
 # Ollama itself: https://ollama.com -- not a pip package
-ollama pull llama3        # or phi3, or anything else you want to try
+ollama pull phi3:mini     # or llama3, or anything else you want to try
 pip install -r requirements-llm-server.txt
 python local_stt_server.py
 ```
 Setup, on the **Pi**:
 ```bash
 # in .env: PIXEL_STT_URL / PIXEL_OLLAMA_URL pointed at the fast
-# machine's IP, PIXEL_OLLAMA_MODEL matching whatever you pulled
+# machine's IP, PIXEL_OLLAMA_MODEL matching whatever you actually
+# pulled (check with `curl http://<fast-machine-ip>:11434/api/tags`)
 python pixel_ollama_voice.py
 ```
 
 **Architecturally**, this reuses `pixel_gemini_voice.py`'s proven
 local-VAD record-until-silence approach (no server-side VAD to debug)
-rather than either OpenAI script's streaming-websocket shape, since
-the two-step STT-then-chat flow is naturally turn-based, not
-streaming. Ollama's `/api/chat` is stateless per request — unlike
-Gemini's `chat` object, which keeps history server-side — so this
-script keeps its own `messages` list locally and resends it every
-turn, capped at `PIXEL_OLLAMA_MAX_HISTORY` entries (default 20) so a
-long conversation doesn't make every turn slower on what's likely a
-CPU-bound local model. Rename detection, goodbye-phrase/idle-timeout
-session-ending, and memory summarization all reuse the exact same
-`pixel_memory.py` functions as the OpenAI scripts — one small
-improvement here: because `messages[0]` is just local state rather
-than a server-side session, a mid-conversation rename takes effect on
-*that same turn's* reply, not "starting next turn" like the OpenAI
-scripts' documented limitation.
+for capturing the student's speech, since the STT-then-chat flow is
+naturally turn-based on the input side. Ollama's `/api/chat` is
+stateless per request — unlike Gemini's `chat` object, which keeps
+history server-side — so this script keeps its own `messages` list
+locally and resends it every turn, capped at `PIXEL_OLLAMA_MAX_HISTORY`
+entries (default 20) so a long conversation doesn't make every turn
+slower on what's likely a CPU-bound local model. Rename detection,
+goodbye-phrase/idle-timeout session-ending, and memory summarization
+all reuse the exact same `pixel_memory.py` functions as the OpenAI
+scripts — one small improvement here: because `messages[0]` is just
+local state rather than a server-side session, a mid-conversation
+rename takes effect on *that same turn's* reply, not "starting next
+turn" like the OpenAI scripts' documented limitation.
 
-**Not yet verified live** — no Ollama/STT server was available while
-building this. What *is* verified: both files are syntax-clean, and
-the actual production `_conversation_loop`/`_transcribe`/`_ollama_chat`
-functions were exercised against a mocked STT/Ollama/TTS to confirm
-the turn logic itself — rename taking effect on the same turn, goodbye
-only ending the session after the farewell fully plays, transcript
-logging, and history capping all behave correctly. The real network
-calls, actual local-model reply quality/latency on real hardware, and
-`faster-whisper` transcription accuracy on this specific mic are all
-still a hands-on test away.
+**On the output side, the reply is streamed and spoken sentence-by-
+sentence**, not generated in full before anything is said.
+`_stream_ollama_reply()` calls Ollama with `stream: true`, bridges the
+synchronous `requests` streaming iterator into asyncio via a
+background thread and a plain thread-safe queue, and speaks each
+completed sentence (split on `.`/`!`/`?`) as soon as it's available —
+the text-side equivalent of OpenAI's Realtime API streaming audio
+deltas instead of waiting for a full response. `pixel_speaking` is
+set once for the whole reply, not per sentence, so there's no mute/
+unmute flicker between sentences. Added after live testing showed the
+original blocking-until-done call made Pixel noticeably slower to
+start talking than the OpenAI voice modes, especially for longer
+replies on a CPU-bound local model. Verified the pipelining itself
+with a mocked streaming worker that simulates realistic generation
+delays: the first sentence was spoken at ~13% of the way through total
+generation time, not only after it finished, confirming sentences
+really do get spoken progressively rather than queued up and played
+back after the fact.
+
+**Live-verified independently once the actual fast machine was
+available** — found and fixed two real bugs along the way:
+- Ollama responded `model 'llama3' not found` — the fast machine only
+  had `phi3:mini` pulled. `ollama pull <model>` and
+  `PIXEL_OLLAMA_MODEL` just need to agree on an actually-installed
+  model; confirmed a real `/api/chat` call against `phi3:mini` returns
+  a correct reply.
+- `local_stt_server.py`'s first live request crashed with
+  `TypeError: open() got an unexpected keyword argument
+  'metadata_errors'` — a `faster-whisper`/PyAV version incompatibility
+  (PyAV >= 14 removed an argument `faster-whisper`'s bundled
+  `decode_audio()` still passes; PyAV < 14 had no prebuilt wheel for
+  this Python version and failed to build from source without MSVC
+  Build Tools). Fixed by decoding the WAV ourselves via stdlib `wave`
+  and handing `faster-whisper` a plain NumPy array instead of raw
+  bytes — since we fully control the sender's format, that code path
+  never touches PyAV at all. Verified the decode math against known
+  sample values (mono and stereo) before the real re-test, then
+  confirmed live: a real request now returns `200 OK` with no crash.
+
+**Still not verified live**: the sentence-streaming pipeline itself
+(confirmed correct against a mock, not yet run against the real
+Ollama/STT servers together), and real speech transcription accuracy
+on the actual Pi mic — the live tests so far used a synthetic tone,
+which correctly round-tripped to empty text but isn't a real accuracy
+test.
 
 ### Gemini text mode: same casual chat, no mic required
 

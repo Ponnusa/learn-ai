@@ -17,10 +17,21 @@ understanding at all:
 No API costs and no internet dependency once both servers are up --
 the tradeoff is reply quality (a local 3-8B model vs GPT-4o/Gemini
 class) and needing a separate always-on machine on the same network.
-Not yet verified live (no Ollama/STT server available while writing
-this) -- syntax-checked and the turn logic exercised with the actual
-production functions against a mocked STT/Ollama, but the real
-network calls and local-model reply quality still need a hands-on test.
+
+Speaks sentence-by-sentence as Ollama streams its reply, instead of
+waiting for the whole thing to finish generating -- a CPU-bound local
+model producing a multi-sentence reply can easily take several
+seconds total, and that full wait before saying anything was the main
+latency gap versus OpenAI's Realtime API (which streams audio deltas
+as they're generated). _stream_ollama_reply() is the text-side
+equivalent: speech starts after the first sentence while the model is
+still generating the rest. Live-verified both pieces independently
+(Ollama's /api/chat with a real pulled model, local_stt_server.py
+transcribing a real WAV) once the actual fast machine was available,
+including two real dependency bugs found and fixed along the way (a
+faster-whisper/PyAV version incompatibility, wrong default model name)
+-- the sentence-streaming pipeline itself is syntax-checked but not
+yet run end-to-end on real hardware.
 
 Ollama's /api/chat is stateless per request, unlike Gemini's chat
 object which keeps history server-side -- this script keeps its own
@@ -36,8 +47,11 @@ import asyncio
 import audioop  # stdlib; deprecated (PEP 594) but present on 3.11, see
                 # pixel_gemini_voice.py's note -- same caveat applies here.
 import io
+import json
 import logging
 import os
+import queue as thread_queue
+import re
 import subprocess
 import wave
 
@@ -73,6 +87,16 @@ _MIN_UTTERANCE_MS = int(os.environ.get("PIXEL_VAD_MIN_MS", "600"))
 _PRE_ROLL_CHUNKS = 3
 
 _MAX_HISTORY_MESSAGES = int(os.environ.get("PIXEL_OLLAMA_MAX_HISTORY", "20"))
+
+# Flush and speak as soon as a complete sentence is available, instead
+# of waiting for the whole reply to finish generating -- a local
+# CPU-bound model generating a multi-sentence reply can easily take
+# several seconds total, and waiting for all of it before saying
+# anything is exactly the "slow" gap OpenAI's Realtime API doesn't
+# have (it streams audio deltas as they're generated). This is the
+# text-side equivalent: speech starts after the first sentence, while
+# the model is still generating the rest.
+_SENTENCE_END = re.compile(r"[.!?](\s|$)")
 
 # Same rationale as both OpenAI voice scripts: without one of these,
 # memory summarization only fires on Ctrl+C/a crash, never during
@@ -225,17 +249,17 @@ async def _idle_watchdog(last_activity: dict) -> None:
             raise _SessionEnd("idle timeout")
 
 
-async def _speak(text: str, pixel_speaking: asyncio.Event) -> None:
-    pixel_speaking.set()
+async def _speak_sentence(text: str) -> None:
+    """Plays one sentence's TTS audio. Deliberately doesn't touch
+    pixel_speaking -- the caller (_stream_ollama_reply) manages mute
+    state once across the whole streamed reply, not per sentence, so
+    there's no brief unmute flicker (and its 0.3s drain margin paid
+    multiple times) between sentences."""
     loop = asyncio.get_event_loop()
-    try:
-        proc, path = await loop.run_in_executor(None, pixel_tts.speak_async, text)
-        if proc is not None:
-            await loop.run_in_executor(None, proc.wait)
-        pixel_tts.cleanup_speech(path)
-    finally:
-        await asyncio.sleep(0.3)
-        pixel_speaking.clear()
+    proc, path = await loop.run_in_executor(None, pixel_tts.speak_async, text)
+    if proc is not None:
+        await loop.run_in_executor(None, proc.wait)
+    pixel_tts.cleanup_speech(path)
 
 
 def _transcribe(wav_bytes: bytes) -> str:
@@ -246,6 +270,9 @@ def _transcribe(wav_bytes: bytes) -> str:
 
 
 def _ollama_chat(messages: list[dict]) -> str:
+    """Non-streaming, blocking-until-done call -- used only for the
+    end-of-session memory summary, which is never spoken, so there's
+    no latency to hide there."""
     resp = requests.post(OLLAMA_URL, json={
         "model": OLLAMA_MODEL,
         "messages": messages,
@@ -253,6 +280,78 @@ def _ollama_chat(messages: list[dict]) -> str:
     }, timeout=60)
     resp.raise_for_status()
     return resp.json().get("message", {}).get("content", "").strip()
+
+
+def _ollama_chat_stream_worker(messages: list[dict], out_queue: "thread_queue.Queue") -> None:
+    """Runs in a background thread (via run_in_executor, not awaited)
+    -- requests' streaming iterator is synchronous, this bridges it
+    into the asyncio world via a plain thread-safe queue, which the
+    async side polls with its own run_in_executor(None, queue.get)
+    calls. Puts each content delta as it streams in, then a final None
+    sentinel so the consumer knows the reply is complete."""
+    try:
+        resp = requests.post(OLLAMA_URL, json={
+            "model": OLLAMA_MODEL,
+            "messages": messages,
+            "stream": True,
+        }, stream=True, timeout=60)
+        resp.raise_for_status()
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            data = json.loads(line)
+            delta = data.get("message", {}).get("content", "")
+            if delta:
+                out_queue.put(delta)
+            if data.get("done"):
+                break
+    except Exception as e:
+        out_queue.put(e)
+    finally:
+        out_queue.put(None)
+
+
+async def _stream_ollama_reply(messages: list[dict], pixel_speaking: asyncio.Event) -> str:
+    """Speaks each completed sentence as soon as it's available instead
+    of waiting for the full reply -- see _SENTENCE_END's comment for
+    why. pixel_speaking is set once for the whole reply, not per
+    sentence, so muting doesn't flicker between sentences."""
+    loop = asyncio.get_event_loop()
+    q: "thread_queue.Queue" = thread_queue.Queue()
+    # Not awaited -- this schedules the worker on the executor's thread
+    # pool and returns immediately, so it runs concurrently while this
+    # coroutine polls the queue below.
+    loop.run_in_executor(None, _ollama_chat_stream_worker, messages, q)
+
+    pixel_speaking.set()
+    face.set_state(STATE_TALKING)
+    buffer = ""
+    full_reply = ""
+    try:
+        while True:
+            item = await loop.run_in_executor(None, q.get)
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            buffer += item
+            full_reply += item
+            while True:
+                match = _SENTENCE_END.search(buffer)
+                if not match:
+                    break
+                sentence, buffer = buffer[:match.end()].strip(), buffer[match.end():]
+                if sentence:
+                    await _speak_sentence(sentence)
+        if buffer.strip():
+            await _speak_sentence(buffer.strip())
+    finally:
+        # Same drain-margin reasoning as the OpenAI scripts' unmute
+        # timing fix -- let the last sentence's audio actually finish
+        # draining through aplay before un-muting.
+        await asyncio.sleep(0.3)
+        pixel_speaking.clear()
+    return full_reply.strip()
 
 
 async def _conversation_loop(
@@ -299,7 +398,9 @@ async def _conversation_loop(
         del messages[1:-_MAX_HISTORY_MESSAGES]  # keep system message + last N turns
 
         try:
-            reply = await loop.run_in_executor(None, _ollama_chat, messages)
+            # Speaks sentence-by-sentence as Ollama streams them, rather
+            # than waiting for the whole reply -- see _SENTENCE_END.
+            reply = await _stream_ollama_reply(messages, pixel_speaking)
         except Exception:
             logger.exception("Ollama request failed")
             messages.pop()  # don't leave an unanswered turn in history
@@ -311,13 +412,11 @@ async def _conversation_loop(
 
         print(f"Pixel: {reply}")
         transcript_log.append(f"Pixel: {reply}")
-        face.set_state(STATE_TALKING)
-        await _speak(reply, pixel_speaking)
 
         if is_goodbye:
-            # Raised only after _speak() above returns, i.e. after the
-            # farewell reply has fully played -- same reasoning as both
-            # OpenAI voice scripts' goodbye handling.
+            # Raised only after _stream_ollama_reply above returns,
+            # i.e. after the farewell reply has fully played -- same
+            # reasoning as both OpenAI voice scripts' goodbye handling.
             raise _SessionEnd("goodbye detected")
 
 
