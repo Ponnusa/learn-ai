@@ -186,6 +186,31 @@ def detect_rename_request(text: str) -> str | None:
     return candidate[:1].upper() + candidate[1:]
 
 
+# A real end-of-conversation signal, not just Ctrl+C/a crash -- the
+# voice scripts' outer loop reconnects on every Exception except
+# KeyboardInterrupt, so memory summarization otherwise never fires
+# during normal continuous operation. Same caveat as rename detection:
+# a pattern list, not understanding, so some natural goodbyes will
+# still slip through -- the idle timeout in the voice scripts is the
+# backstop for those.
+_GOODBYE_PATTERN = re.compile(
+    r"\b(?:"
+    r"bye|goodbye|good bye|"
+    r"see you(?: later| soon| tomorrow| around)?|"
+    r"i(?:'m| am) (?:done|finished|heading out|leaving)(?: for now| for today)?|"
+    r"that'?s (?:all|it) for (?:now|today)|"
+    r"talk to you later|catch you later|gotta go|got to go"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def detect_goodbye(text: str) -> bool:
+    """True if `text` (the student's transcribed speech) sounds like
+    they're ending the conversation."""
+    return bool(_GOODBYE_PATTERN.search(text))
+
+
 def remember_current(key: str, value: str) -> None:
     """Upserts one durable fact into MEMORY.md's Current section — a
     repeat key (e.g. 'name') replaces the old value instead of piling up

@@ -532,6 +532,36 @@ conversation was gone for good; now the raw text survives regardless,
 as a safety net for re-summarizing later if needed. Gitignored
 (`pixel-ai/persona/transcripts/`), same sensitivity as `MEMORY.md`.
 
+**A real end-of-conversation signal, not just Ctrl+C/a crash.** Both
+OpenAI voice scripts' outer loop reconnects on every `Exception` except
+`KeyboardInterrupt` — so without this, memory summarization never fired
+during normal continuous use, only when you manually stopped the
+script. Two ways a conversation now ends on its own, both of which
+save memory and start fresh (reloading `MEMORY.md`, so the very next
+conversation already has it):
+- **Saying goodbye** — `pixel_memory.detect_goodbye()` checks the
+  student's transcribed speech for common sign-offs ("bye", "see you
+  later", "that's all for today", "gotta go", etc.), same pattern-list
+  approach and same caveat as rename detection. The session only ends
+  *after* that turn's farewell reply has fully played, not mid-sentence.
+- **Idle timeout** (`PIXEL_IDLE_TIMEOUT_S`, default 300s) — a
+  `_idle_watchdog()` coroutine runs alongside the mic/playback loops
+  and ends the conversation if nothing real has happened for that long,
+  for when the student just walks away without saying anything. Not
+  the same bug as the no-AEC echo loop fixed above — this coroutine
+  only reacts to the shared `last_activity` timestamp, which real
+  speech-detection events refresh.
+
+Both raise a dedicated `_SessionEnd` exception, caught separately from
+real connection errors in `run()`'s reconnect loop — a dropped
+connection still just reconnects silently, only a deliberate session
+end triggers a memory save. Verified the idle-timeout timing logic
+standalone (does not fire early, an activity reset correctly delays
+it, does fire after a real idle period) and the goodbye regex against
+13 realistic sign-off phrasings plus negatives — the full live path
+(goodbye mid-conversation actually ending it on real hardware) is
+still pending a hands-on test.
+
 **Renaming Pixel** (both `pixel_openai_voice.py` and
 `pixel_openai_voice_semantic.py` support this): say something like
 "your name is now Bolt" or "I'll call you Rex" and

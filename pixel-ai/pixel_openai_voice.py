@@ -86,6 +86,29 @@ _PRE_ROLL_CHUNKS = 3
 # instead of guessing from the reply text alone.
 AUDIO_LOG_DIR = os.environ.get("PIXEL_AUDIO_LOG_DIR")
 
+# Without one of these, memory summarization only ever fires on
+# Ctrl+C/a crash -- run()'s outer loop reconnects on every other
+# Exception, so it never fires during normal continuous operation.
+_IDLE_TIMEOUT_S = float(os.environ.get("PIXEL_IDLE_TIMEOUT_S", "300"))
+
+
+class _SessionEnd(Exception):
+    """Raised to deliberately end the current conversation (goodbye
+    phrase detected, or idle timeout) so run()'s outer loop can save
+    memory and start a fresh one -- distinct from a real connection
+    error, which should just reconnect without summarizing."""
+
+
+async def _idle_watchdog(last_activity: dict) -> None:
+    """Fallback for when the student just walks away without saying
+    goodbye. Runs alongside the other loops in asyncio.gather()."""
+    loop = asyncio.get_event_loop()
+    while True:
+        await asyncio.sleep(10)
+        if loop.time() - last_activity["at"] >= _IDLE_TIMEOUT_S:
+            raise _SessionEnd("idle timeout")
+
+
 def _build_persona(name: str) -> str:
     return (
         f"You're {name}, a friendly, casual desk companion robot for a student. "
@@ -374,11 +397,17 @@ async def _receive_response(
 
 async def _conversation_loop(
     ws, queue: "asyncio.Queue[bytes]", playback_proc: subprocess.Popen,
-    pixel_speaking: asyncio.Event, transcript_log: list[str],
+    pixel_speaking: asyncio.Event, transcript_log: list[str], last_activity: dict,
 ) -> None:
+    loop = asyncio.get_event_loop()
     while True:
         face.set_state(STATE_LISTENING)
         audio_bytes = await _record_and_stream_utterance(ws, queue, pixel_speaking)
+        # _record_and_stream_utterance only returns once real speech-like
+        # audio crossed the local VAD threshold, so reaching this line at
+        # all is itself real activity -- update before the length check
+        # below, which only decides whether it's worth a round trip.
+        last_activity["at"] = loop.time()
         utterance_ms = len(audio_bytes) / (SAMPLE_RATE * SAMPLE_WIDTH) * 1000
         logger.info("utterance captured: %.0fms of audio", utterance_ms)
 
@@ -413,6 +442,11 @@ async def _conversation_loop(
         print(f"Pixel: {reply}")
         transcript_log.append(f"Pixel: {reply}")
         _log_utterance(audio_bytes, reply)
+        if user_transcript and pixel_memory.detect_goodbye(user_transcript):
+            # _receive_response already waited out the farewell reply's
+            # full playback before returning (same unmute-timing logic
+            # as the echo fix above), so it's already fully spoken.
+            raise _SessionEnd("goodbye detected")
 
 
 async def _summarize_and_remember(transcript_log: list[str]) -> None:
@@ -469,7 +503,8 @@ async def run() -> None:
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
 
     face.start()
-    print("Pixel is listening (USB mic, OpenAI Realtime). Ctrl+C to stop.")
+    print(f"Pixel is listening (USB mic, OpenAI Realtime, idle timeout "
+          f"{_IDLE_TIMEOUT_S:.0f}s). Say goodbye or Ctrl+C to end a conversation.")
     transcript_log: list[str] = []
     try:
         while True:
@@ -478,14 +513,20 @@ async def run() -> None:
             playback_proc = _start_playback()
             pixel_speaking = asyncio.Event()
             queue: "asyncio.Queue[bytes]" = asyncio.Queue()
+            last_activity = {"at": asyncio.get_event_loop().time()}
             try:
                 async with websockets.connect(REALTIME_URL, additional_headers=headers) as ws:
                     await ws.recv()  # session.created
                     await _session_update(ws, system_instruction)
                     await asyncio.gather(
                         _capture_reader(capture_proc, queue),
-                        _conversation_loop(ws, queue, playback_proc, pixel_speaking, transcript_log),
+                        _conversation_loop(ws, queue, playback_proc, pixel_speaking, transcript_log, last_activity),
+                        _idle_watchdog(last_activity),
                     )
+            except _SessionEnd as e:
+                print(f"(ending conversation: {e} -- saving memory)")
+                await _summarize_and_remember(transcript_log)
+                transcript_log.clear()
             except Exception:
                 logger.exception("Session ended unexpectedly -- reconnecting")
                 print("Connection dropped — reconnecting...")
