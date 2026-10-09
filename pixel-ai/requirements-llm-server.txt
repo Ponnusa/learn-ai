@@ -4,3 +4,12 @@
 fastapi
 uvicorn
 faster-whisper
+numpy
+# Deliberately NOT listing `av` (PyAV) -- local_stt_server.py decodes
+# WAV input itself via stdlib `wave` instead of faster-whisper's
+# PyAV-based decode_audio(), after hitting a real faster-whisper/PyAV
+# version incompatibility on a fresh Python install (PyAV >= 14 removed
+# an argument faster-whisper's bundled call still passes; PyAV < 14 had
+# no prebuilt wheel and failed to build from source without MSVC Build
+# Tools). faster-whisper still depends on av transitively for its own
+# use, but this server's own code path never calls into it.
