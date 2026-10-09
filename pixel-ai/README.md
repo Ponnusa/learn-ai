@@ -40,6 +40,47 @@ cp .env.example .env   # fill in LEARNX_API_KEY and LEARNX_USER_ID
 python pixel_main.py
 ```
 
+**Getting the face to actually show up on an HDMI display (TV or the
+eventual LCD) on a fresh Pi OS Lite image took three separate real
+fixes, found on actual hardware, in this order** — worth doing all
+three on a fresh SD card before assuming the face is broken:
+1. **Display not detected at boot**: if `cat /proc/fb` is empty and
+   `dmesg` shows `[drm] Cannot find any crtc or sizes`, the Pi booted
+   before it saw the TV as connected. Add `hdmi_force_hotplug=1` to
+   `/boot/firmware/config.txt`, make sure the TV is on and already on
+   the right input *before* powering the Pi on, then `sudo reboot`.
+2. **Missing Mesa EGL/GBM libraries**: Pi OS **Lite** has no
+   desktop/X11/Wayland stack, so the Mesa userspace libraries SDL2's
+   `kmsdrm` driver needs (even for plain 2D — KMSDRM fundamentally
+   renders through GBM+EGL) aren't installed by default. Symptom:
+   `pygame.error: EGL not initialized`. Fix: `sudo apt install -y
+   libgbm1 libegl1 libgles2 libgl1-mesa-dri`.
+3. **Confirmed `fbdev` is a dead end on this pygame build**: pip's
+   `pygame` wheel wasn't compiled with fbdev support at all
+   (`pygame.error: fbdev not available`, unconditionally, regardless of
+   the above fixes) — `kmsdrm` is the one that actually works on
+   current Pi OS (Bookworm+), which is why it's first in
+   `pixel_face.py`'s driver fallback list.
+
+To isolate the display path from everything else (no mic/API key
+needed), test it standalone:
+```bash
+python3 -c "
+from pixel_face import face
+import time
+face.start()
+time.sleep(30)
+face.stop()
+"
+```
+`kmsdrm` was observed returning a `640x480` surface regardless of the
+`480x320` requested in `pixel_face.py`'s `set_mode()` call — it seems
+to hand back whatever mode it actually negotiated with the display,
+not the requested size. `PixelFace`'s drawing math assumes the
+requested size, so the face may render small/off-center rather than
+centered until that's reconciled against the real returned surface
+size.
+
 ### What works today
 
 - Type a question -> `POST /api/chat/send` -> the full reply is printed,
