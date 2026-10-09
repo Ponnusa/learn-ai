@@ -105,11 +105,16 @@ def _build_persona(name: str) -> str:
 _SUMMARIZE_PROMPT = (
     "Below is a transcript of a casual chat between you (Pixel, a desk "
     "companion robot) and a student. Pull out at most 3 short, durable "
-    "facts worth remembering for next time — their name, interests, "
-    "ongoing projects, things they mentioned caring about. Skip anything "
-    "trivial or one-off (like asking about the weather). One fact per "
-    "line, plain text, no numbering or markdown. If there's nothing "
-    "worth keeping, reply with exactly: NOTHING\n\n"
+    "things worth remembering for next time: facts about the student "
+    "(name, interests, ongoing projects, things they mentioned caring "
+    "about), AND things worth carrying forward from the conversation "
+    "itself — an unfinished topic to pick back up, something you "
+    "(Pixel) promised to help with or follow up on, a running joke or "
+    "shared moment that makes the friendship feel continuous rather "
+    "than starting from scratch every time. Skip anything trivial or "
+    "one-off (like asking about the weather). One item per line, plain "
+    "text, no numbering or markdown. If there's nothing worth keeping, "
+    "reply with exactly: NOTHING\n\n"
     "Transcript:\n{transcript}"
 )
 
@@ -227,6 +232,21 @@ async def _session_update(
         raise RuntimeError(f"session.update rejected: {ack['error']}")
 
 
+def _encode_append_message(chunk: bytes) -> str:
+    return json.dumps({
+        "type": "input_audio_buffer.append",
+        "audio": base64.b64encode(chunk).decode("ascii"),
+    })
+
+
+def _decode_and_play(playback_proc: subprocess.Popen, b64_audio: str) -> None:
+    """Decode + write + flush in one executor dispatch instead of
+    separate ones -- fewer thread-pool round trips per audio delta."""
+    audio_bytes = base64.b64decode(b64_audio)
+    playback_proc.stdin.write(audio_bytes)
+    playback_proc.stdin.flush()
+
+
 async def _record_and_stream_utterance(
     ws, queue: "asyncio.Queue[bytes]", pixel_speaking: asyncio.Event
 ) -> bytes:
@@ -245,10 +265,12 @@ async def _record_and_stream_utterance(
     last_ambient_log = loop.time()
 
     async def _send(piece: bytes) -> None:
-        await ws.send(json.dumps({
-            "type": "input_audio_buffer.append",
-            "audio": base64.b64encode(piece).decode("ascii"),
-        }))
+        # Offloaded -- base64+json.dumps inline on the event loop was
+        # part of what caused severe underruns in the semantic_vad
+        # sibling script; lower-impact here since this only runs while
+        # actively recording (not continuously), but same root cause.
+        message = await loop.run_in_executor(None, _encode_append_message, piece)
+        await ws.send(message)
 
     while True:
         chunk = await queue.get()
@@ -301,16 +323,14 @@ async def _receive_response(
     user_transcript = ""
     spoke_any_audio = False
     async for raw in ws:
-        data = json.loads(raw)
+        data = await loop.run_in_executor(None, json.loads, raw)
         t = data.get("type")
         if t == "response.output_audio.delta":
             if not spoke_any_audio:
                 face.set_state(STATE_TALKING)
                 pixel_speaking.set()
                 spoke_any_audio = True
-            audio_bytes = base64.b64decode(data["delta"])
-            await loop.run_in_executor(None, playback_proc.stdin.write, audio_bytes)
-            await loop.run_in_executor(None, playback_proc.stdin.flush)
+            await loop.run_in_executor(None, _decode_and_play, playback_proc, data["delta"])
         elif t == "response.output_audio_transcript.delta":
             transcript += data.get("delta", "")
         elif t == "conversation.item.input_audio_transcription.completed":

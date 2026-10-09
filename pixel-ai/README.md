@@ -313,6 +313,21 @@ recorded bytes (not just a chunk count) so there's something to save,
 and the saved WAV round-trips correctly (right channels/width/rate,
 matches the JSONL entry's `audio_file`/`utterance_ms`).
 
+**Fixed severe ALSA underruns**: `base64`/`json` encode and decode for
+every audio chunk — both sending mic audio and playing back the
+reply — were running synchronously inline on the asyncio event loop,
+competing with `aplay`'s write path for CPU on this single-core chip
+and causing multi-second audible glitches. Moved both directions to
+`run_in_executor` via two small helpers, `_encode_append_message()`
+(send) and `_decode_and_play()` (combines decode + write + flush into
+one executor dispatch, receive). Same fix applied to
+`pixel_openai_voice_semantic.py` below (same root cause, worse there
+since its receive loop never blocks waiting for a response). Re-ran
+the existing multi-turn integration test against the live API after
+the change — no correctness regression, both turns still completed
+with correct transcripts — but the actual audio-glitch improvement on
+real Pi hardware is still pending a hands-on test.
+
 ### OpenAI voice mode (semantic VAD): experimental, server-side turn detection
 
 `pixel_openai_voice_semantic.py` is the experimental sibling to
@@ -444,6 +459,33 @@ saying "your name is now Bolt" correctly persisted it, and the very
 next turn in the same session replied "my name's Bolt" — confirmed the
 regex also correctly ignores the student stating their *own* name
 ("my name is Saravana" never triggers a rename).
+
+**Pattern list broadened after a real session log showed two missed
+phrasings**: "I need to name you as Chitty" and "I changed your name to
+Chitti" — neither matched the original "your name is"/"I'll call
+you"/etc. list. Added patterns for "I changed/am changing your name
+to", "I need/want to name/call/rename you (as)", and "I'm naming you".
+Re-verified against 18 cases (all the original phrasings, both missed
+real-world ones, and the negative "my name is ..." case) before and
+after the change — still just a growing pattern list, not understanding,
+so new real phrasings can still slip through; a tool-call-based
+approach remains the more robust unverified alternative mentioned
+above.
+
+**Memory now also captures the conversation itself, not just static
+facts about the student.** The summarization prompt (shared by
+`pixel_memory.py`, `pixel_openai_voice.py`, and
+`pixel_openai_voice_semantic.py`) originally only asked for facts like
+name/interests/projects. Broadened to also ask for things worth
+carrying forward from the conversation — an unfinished topic to pick
+back up, something Pixel promised to follow up on, a running joke or
+shared moment — so Pixel reads more like a continuous friend than a
+device that resets context every session. `load_context()`'s framing
+updated to match ("...your ongoing friendship"). Verified live: a
+transcript with an unfinished "factoring quadratics, pick it up
+tomorrow" thread, a durable interest ("likes robotics"), and a trivial
+weather exchange correctly kept the first two and dropped the weather
+one.
 
 ### Discussion mode: chunked, paced delivery of any reply
 

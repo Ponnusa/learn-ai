@@ -35,11 +35,16 @@ DEFAULT_NAME = "Pixel"
 _SUMMARIZE_PROMPT = (
     "Below is a transcript of a casual chat between you (Pixel, a desk "
     "companion robot) and a student. Pull out at most 3 short, durable "
-    "facts worth remembering for next time — their name, interests, "
-    "ongoing projects, things they mentioned caring about. Skip anything "
-    "trivial or one-off (like asking about the weather). One fact per "
-    "line, plain text, no numbering or markdown. If there's nothing "
-    "worth keeping, reply with exactly: NOTHING\n\n"
+    "things worth remembering for next time: facts about the student "
+    "(name, interests, ongoing projects, things they mentioned caring "
+    "about), AND things worth carrying forward from the conversation "
+    "itself — an unfinished topic to pick back up, something you "
+    "(Pixel) promised to help with or follow up on, a running joke or "
+    "shared moment that makes the friendship feel continuous rather "
+    "than starting from scratch every time. Skip anything trivial or "
+    "one-off (like asking about the weather). One item per line, plain "
+    "text, no numbering or markdown. If there's nothing worth keeping, "
+    "reply with exactly: NOTHING\n\n"
     "Transcript:\n{transcript}"
 )
 
@@ -60,7 +65,7 @@ def load_context() -> str:
     if identity:
         parts.append(identity)
     if memory:
-        parts.append("What you remember about this student so far:\n" + memory)
+        parts.append("What you remember from before (about the student and your ongoing friendship):\n" + memory)
     return "\n\n".join(parts)
 
 

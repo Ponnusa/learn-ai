@@ -111,11 +111,16 @@ def _build_system_instruction() -> str:
 _SUMMARIZE_PROMPT = (
     "Below is a transcript of a casual chat between you (Pixel, a desk "
     "companion robot) and a student. Pull out at most 3 short, durable "
-    "facts worth remembering for next time — their name, interests, "
-    "ongoing projects, things they mentioned caring about. Skip anything "
-    "trivial or one-off (like asking about the weather). One fact per "
-    "line, plain text, no numbering or markdown. If there's nothing "
-    "worth keeping, reply with exactly: NOTHING\n\n"
+    "things worth remembering for next time: facts about the student "
+    "(name, interests, ongoing projects, things they mentioned caring "
+    "about), AND things worth carrying forward from the conversation "
+    "itself — an unfinished topic to pick back up, something you "
+    "(Pixel) promised to help with or follow up on, a running joke or "
+    "shared moment that makes the friendship feel continuous rather "
+    "than starting from scratch every time. Skip anything trivial or "
+    "one-off (like asking about the weather). One item per line, plain "
+    "text, no numbering or markdown. If there's nothing worth keeping, "
+    "reply with exactly: NOTHING\n\n"
     "Transcript:\n{transcript}"
 )
 
@@ -243,6 +248,23 @@ async def _send_session_update_no_wait(ws, instructions: str) -> None:
     await ws.send(json.dumps({"type": "session.update", "session": session}))
 
 
+def _encode_append_message(chunk: bytes) -> str:
+    return json.dumps({
+        "type": "input_audio_buffer.append",
+        "audio": base64.b64encode(chunk).decode("ascii"),
+    })
+
+
+def _decode_and_play(playback_proc: subprocess.Popen, b64_audio: str) -> None:
+    """Decode + write + flush in one executor dispatch instead of three
+    separate ones (decode was inline before; write/flush were already
+    offloaded but as two separate calls) -- fewer thread-pool round
+    trips per audio delta, which arrive frequently during playback."""
+    audio_bytes = base64.b64decode(b64_audio)
+    playback_proc.stdin.write(audio_bytes)
+    playback_proc.stdin.flush()
+
+
 async def _send_loop(
     ws, queue: "asyncio.Queue[bytes]", pixel_speaking: asyncio.Event, recording_state: dict
 ) -> None:
@@ -258,10 +280,13 @@ async def _send_loop(
         chunk = await queue.get()
         if pixel_speaking.is_set():
             continue
-        await ws.send(json.dumps({
-            "type": "input_audio_buffer.append",
-            "audio": base64.b64encode(chunk).decode("ascii"),
-        }))
+        # base64-encoding + json.dumps were running inline on the event
+        # loop every ~100ms, forever -- on a single weak core, that's
+        # exactly the kind of blocking that starves aplay's buffer into
+        # an underrun. Offloading to a thread lets the loop keep
+        # servicing the playback write path while this runs.
+        message = await loop.run_in_executor(None, _encode_append_message, chunk)
+        await ws.send(message)
         if recording_state["active"]:
             recording_state["buffer"].append(chunk)
         chunks_sent += 1
@@ -279,7 +304,9 @@ async def _receive_loop(
     user_transcript = ""
     spoke_any_audio = False
     async for raw in ws:
-        data = json.loads(raw)
+        # Also offloaded -- parsing every incoming message inline was
+        # part of the same event-loop contention causing the underruns.
+        data = await loop.run_in_executor(None, json.loads, raw)
         t = data.get("type")
 
         if t == "input_audio_buffer.speech_started":
@@ -300,9 +327,7 @@ async def _receive_loop(
                 face.set_state(STATE_TALKING)
                 pixel_speaking.set()
                 spoke_any_audio = True
-            audio_bytes = base64.b64decode(data["delta"])
-            await loop.run_in_executor(None, playback_proc.stdin.write, audio_bytes)
-            await loop.run_in_executor(None, playback_proc.stdin.flush)
+            await loop.run_in_executor(None, _decode_and_play, playback_proc, data["delta"])
         elif t == "response.output_audio_transcript.delta":
             transcript += data.get("delta", "")
         elif t == "response.done":
