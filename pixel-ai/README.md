@@ -457,6 +457,67 @@ semantic VAD interesting in the first place. Whether that's worth it
 over the proven manual version in `pixel_openai_voice.py` is a real
 judgment call, not a clear upgrade.
 
+### Ollama voice mode: fully local, no API costs, experimental
+
+`pixel_ollama_voice.py` trades cloud quality for zero running cost and
+no internet dependency: a separate always-on "fast machine" on the
+same WiFi network runs both a local speech-to-text server
+(`local_stt_server.py`, this repo) and [Ollama](https://ollama.com)
+itself (LLaMA 3, Phi-3, or anything else Ollama can run). The Pi just
+needs its USB mic, gTTS (already proven), and network access to that
+machine — no OpenAI/Gemini API key touched at all.
+
+**Why this needs two separate calls, not one.** Every other voice mode
+in this repo uses a cloud model that understands audio directly
+(Gemini's `generateContent`, OpenAI's Realtime API) — one call handles
+both "what did the student say" and "what should Pixel reply."
+LLaMA 3 / Phi-3 via Ollama are text-only, with no audio understanding
+at all, so this mode needs an explicit speech-to-text step
+(`faster-whisper`, behind a one-endpoint FastAPI server) before
+anything reaches the LLM.
+
+Setup, on the **fast machine** (not the Pi):
+```bash
+# Ollama itself: https://ollama.com -- not a pip package
+ollama pull llama3        # or phi3, or anything else you want to try
+pip install -r requirements-llm-server.txt
+python local_stt_server.py
+```
+Setup, on the **Pi**:
+```bash
+# in .env: PIXEL_STT_URL / PIXEL_OLLAMA_URL pointed at the fast
+# machine's IP, PIXEL_OLLAMA_MODEL matching whatever you pulled
+python pixel_ollama_voice.py
+```
+
+**Architecturally**, this reuses `pixel_gemini_voice.py`'s proven
+local-VAD record-until-silence approach (no server-side VAD to debug)
+rather than either OpenAI script's streaming-websocket shape, since
+the two-step STT-then-chat flow is naturally turn-based, not
+streaming. Ollama's `/api/chat` is stateless per request — unlike
+Gemini's `chat` object, which keeps history server-side — so this
+script keeps its own `messages` list locally and resends it every
+turn, capped at `PIXEL_OLLAMA_MAX_HISTORY` entries (default 20) so a
+long conversation doesn't make every turn slower on what's likely a
+CPU-bound local model. Rename detection, goodbye-phrase/idle-timeout
+session-ending, and memory summarization all reuse the exact same
+`pixel_memory.py` functions as the OpenAI scripts — one small
+improvement here: because `messages[0]` is just local state rather
+than a server-side session, a mid-conversation rename takes effect on
+*that same turn's* reply, not "starting next turn" like the OpenAI
+scripts' documented limitation.
+
+**Not yet verified live** — no Ollama/STT server was available while
+building this. What *is* verified: both files are syntax-clean, and
+the actual production `_conversation_loop`/`_transcribe`/`_ollama_chat`
+functions were exercised against a mocked STT/Ollama/TTS to confirm
+the turn logic itself — rename taking effect on the same turn, goodbye
+only ending the session after the farewell fully plays, transcript
+logging, and history capping all behave correctly. The real network
+calls, actual local-model reply quality/latency on real hardware, and
+`faster-whisper` transcription accuracy on this specific mic are all
+still a hands-on test away.
+
 ### Gemini text mode: same casual chat, no mic required
 
 `pixel_gemini_text.py` is the keyboard fallback for when there's no

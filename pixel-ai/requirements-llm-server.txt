@@ -1,0 +1,6 @@
+# For the separate "fast machine" running local_stt_server.py --
+# NOT installed on the Pi (pixel-ai/requirements.txt is for the Pi).
+# Ollama itself is installed separately (https://ollama.com), not via pip.
+fastapi
+uvicorn
+faster-whisper
