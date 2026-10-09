@@ -16,15 +16,19 @@ import pygame
 logger = logging.getLogger(__name__)
 
 # Pi OS Lite has no desktop/X server, so SDL's default driver probe
-# (wayland/x11/kmsdrm) fails with "EGL not initialized". Try raw
-# framebuffer drivers first instead. Which name actually works depends on
-# the SDL2 build on a given Pi OS image, so we try each in turn rather
-# than guessing one. "RPI" (SDL's dedicated dispmanx driver for the
-# Pi's legacy VideoCore IV graphics stack) comes first -- on a Pi 1 B+
-# there's no /dev/dri (that needs the newer vc4-kms-v3d driver, Pi 2/3/4
-# only) so kmsdrm can never work, and real-hardware testing showed
-# fbcon/fbdev/kmsdrm/directfb all failing with no visible face at all.
-_SDL_VIDEO_DRIVER_CANDIDATES = ("RPI", "fbcon", "fbdev", "kmsdrm", "directfb")
+# (wayland/x11/kmsdrm) fails with "EGL not initialized". Which driver
+# actually works depends on the OS image's graphics stack, so we try
+# each in turn rather than guessing one:
+# - "kmsdrm" is correct on current Raspberry Pi OS (Bookworm+), which
+#   uses the real KMS driver (dtoverlay=vc4-kms-v3d in config.txt) even
+#   on a Pi 1 B+ -- confirmed /dev/dri/card0 exists there. Real-hardware
+#   testing found this failing not because of the driver name but
+#   because the kernel hadn't detected any connected display at boot
+#   ("[drm] Cannot find any crtc or sizes" in dmesg) -- fixed via
+#   hdmi_force_hotplug=1 in config.txt, not a driver-list change.
+# - "RPI"/"fbcon"/"fbdev"/"directfb" are fallbacks for older Pi OS
+#   images still on the legacy (pre-KMS) dispmanx/fbdev graphics stack.
+_SDL_VIDEO_DRIVER_CANDIDATES = ("kmsdrm", "RPI", "fbcon", "fbdev", "directfb")
 
 # pygame.init() also opens an ALSA audio device for pygame.mixer, which we
 # never use (gTTS + mpg123 handle all audio) — left alone, it fights
