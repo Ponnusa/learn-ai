@@ -19,8 +19,12 @@ logger = logging.getLogger(__name__)
 # (wayland/x11/kmsdrm) fails with "EGL not initialized". Try raw
 # framebuffer drivers first instead. Which name actually works depends on
 # the SDL2 build on a given Pi OS image, so we try each in turn rather
-# than guessing one.
-_SDL_VIDEO_DRIVER_CANDIDATES = ("fbcon", "fbdev", "kmsdrm", "directfb")
+# than guessing one. "RPI" (SDL's dedicated dispmanx driver for the
+# Pi's legacy VideoCore IV graphics stack) comes first -- on a Pi 1 B+
+# there's no /dev/dri (that needs the newer vc4-kms-v3d driver, Pi 2/3/4
+# only) so kmsdrm can never work, and real-hardware testing showed
+# fbcon/fbdev/kmsdrm/directfb all failing with no visible face at all.
+_SDL_VIDEO_DRIVER_CANDIDATES = ("RPI", "fbcon", "fbdev", "kmsdrm", "directfb")
 
 # pygame.init() also opens an ALSA audio device for pygame.mixer, which we
 # never use (gTTS + mpg123 handle all audio) — left alone, it fights
