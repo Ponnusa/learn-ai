@@ -30,6 +30,15 @@ import os
 import re
 
 import requests
+from dotenv import load_dotenv
+
+# Standalone module -- loads its own .env rather than relying on
+# whichever caller happens to import it first having already called
+# this. Reading os.environ directly without it (what the superseded
+# pixel_ollama_cloud.py also did) only works by accident, depending on
+# import order -- confirmed live this actually breaks pixel_ladder.py,
+# which has nothing else in its import chain that loads .env at all.
+load_dotenv()
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 SIMPLE_MODEL = os.environ.get("PIXEL_DIRECT_SIMPLE_MODEL", "gpt-4o-mini")
