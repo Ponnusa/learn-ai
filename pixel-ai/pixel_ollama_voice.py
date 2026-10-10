@@ -66,6 +66,7 @@ import requests
 from dotenv import load_dotenv
 
 import pixel_memory
+import pixel_ollama_router
 # gTTS, not Piper -- Piper's onnxruntime dependency has no prebuilt
 # wheel for ARMv6 (the Pi 1 B+), so pixel_tts_piper.py (this repo)
 # can't run on that hardware. Worth switching to on Pi Zero 2 W / Pi 3
@@ -273,6 +274,21 @@ async def _speak_sentence(text: str) -> None:
     pixel_tts.cleanup_speech(path)
 
 
+async def _speak_once(text: str, pixel_speaking: asyncio.Event) -> None:
+    """Speaks one short, already-complete reply -- used for the
+    router's deterministic fast-path answers, which are a single short
+    sentence with no benefit from _stream_ollama_reply's sentence-by-
+    sentence pipelining (there's nothing to pipeline against, there
+    was no LLM generation to overlap with)."""
+    pixel_speaking.set()
+    face.set_state(STATE_TALKING)
+    try:
+        await _speak_sentence(text)
+    finally:
+        await asyncio.sleep(0.3)
+        pixel_speaking.clear()
+
+
 def _transcribe(wav_bytes: bytes) -> str:
     resp = requests.post(STT_URL, data=wav_bytes,
                           headers={"Content-Type": "audio/wav"}, timeout=30)
@@ -405,24 +421,40 @@ async def _conversation_loop(
             messages[0] = {"role": "system", "content": _build_system_instruction()}
         is_goodbye = pixel_memory.detect_goodbye(user_text)
 
+        # Fast path: time/date and system-status questions are
+        # answered instantly from real Python/OS data, no Ollama call
+        # at all -- see pixel_ollama_router.py for why this is
+        # deliberately scoped down from pibot_local_agent's full
+        # tool-calling router. Still recorded into `messages` so later
+        # turns have the full conversation for context, same as a
+        # normal Ollama-answered turn.
+        fast_reply = pixel_ollama_router.route(user_text)
         messages.append({"role": "user", "content": user_text})
         del messages[1:-_MAX_HISTORY_MESSAGES]  # keep system message + last N turns
 
-        try:
-            # Speaks sentence-by-sentence as Ollama streams them, rather
-            # than waiting for the whole reply -- see _SENTENCE_END.
-            reply = await _stream_ollama_reply(messages, pixel_speaking)
-        except Exception:
-            logger.exception("Ollama request failed")
-            messages.pop()  # don't leave an unanswered turn in history
-            continue
-        if not reply:
-            messages.pop()
-            continue
-        messages.append({"role": "assistant", "content": reply})
+        if fast_reply is not None:
+            reply = fast_reply
+            messages.append({"role": "assistant", "content": reply})
+            print(f"Pixel: {reply}")
+            transcript_log.append(f"Pixel: {reply}")
+            await _speak_once(reply, pixel_speaking)
+        else:
+            try:
+                # Speaks sentence-by-sentence as Ollama streams them,
+                # rather than waiting for the whole reply -- see
+                # _SENTENCE_END.
+                reply = await _stream_ollama_reply(messages, pixel_speaking)
+            except Exception:
+                logger.exception("Ollama request failed")
+                messages.pop()  # don't leave an unanswered turn in history
+                continue
+            if not reply:
+                messages.pop()
+                continue
+            messages.append({"role": "assistant", "content": reply})
 
-        print(f"Pixel: {reply}")
-        transcript_log.append(f"Pixel: {reply}")
+            print(f"Pixel: {reply}")
+            transcript_log.append(f"Pixel: {reply}")
 
         if is_goodbye:
             # Raised only after _stream_ollama_reply above returns,

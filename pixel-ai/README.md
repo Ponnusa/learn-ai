@@ -578,14 +578,26 @@ if `PIXEL_PIPER_VOICE` isn't set) and that the conversation loop
 correctly with it wired in — not yet run with a real Piper voice model
 on real Pi audio hardware.
 
-**Compared against `pibot_local_agent` more broadly**: that project
-also has a keyword-matching + Ollama-tool-calling router that answers
-simple things (time, system status, jokes) with deterministic Python
-instead of an LLM call, with a cloud-model fallback for questions a
-small local model can't handle well. We don't have that yet — every
-message still goes through Ollama uniformly. Worth adding later if the
-small-talk/trivial-question share of conversations turns out to be
-high enough to matter, but out of scope for this round of changes.
+**A scoped-down router now answers some things without any Ollama
+call at all.** `pixel_ollama_router.py` is a new standalone module,
+checked right after transcription and before the message goes into
+`messages`/Ollama — time/date questions and "how are you feeling"
+system-status questions get answered instantly from real Python/OS
+data (`/proc/uptime`, `/proc/meminfo`, `/sys/class/thermal/...`), with
+zero LLM round-trip. Deliberately scoped down from
+`pibot_local_agent`'s router, which also uses Ollama's structured
+tool-calling (plus a keyword fallback) to route weather/news/jokes to
+API-backed tools and hands complex questions to a cloud model — we
+don't have those API keys wired up, and didn't want this mode's "zero
+cost" story to quietly grow a cloud fallback, so this is keyword
+matching only (same pattern-list approach as `pixel_memory.py`'s
+rename/goodbye detection) for the two things that make sense with zero
+API keys. Still recorded into `messages`/`transcript_log` exactly like
+a normal Ollama-answered turn, so later conversation context and
+memory summarization both see it. Verified against the real
+`_conversation_loop`: fast-path questions never reach
+`_ollama_chat_stream_worker()` at all, both get spoken correctly, and
+both land in `messages` and `transcript_log` for later turns.
 
 ### Gemini text mode: same casual chat, no mic required
 
