@@ -494,6 +494,45 @@ triggers the tool. Verified so far: the handler sends the correct
 gracefully (a spoken apology, not a crash) if the LearnX call fails,
 against a mocked websocket — not yet against a real Realtime session.
 
+**Socratic teaching behavior, merged into the persona, implicitly.**
+`_build_persona()` now gauges — per turn, from how the student phrases
+an academic/conceptual question — whether they want a quick answer or
+a real explanation, leaning into one-guided-question-then-wait only
+for the latter. Deliberately **implicit**, not a "want to switch to
+learning mode?" prompt the student has to opt into: LearnX's own
+backend tried an explicit mode flag for this before
+(`prompt_builder.py`'s own comments document it) and dropped it
+because "a whole-conversation or whole-message mode switch didn't fit
+how students actually use the chat" — settling on judging fresh every
+turn instead, same principle applied here. Scoped to academic
+questions only and blended into the existing casual framing, not a
+wholesale persona swap — everyday chat and personal questions stay
+exactly as casual as before.
+
+**Not the same mechanism as `pixel_teaching_prompt.py`'s
+`[[DEPTH:...]]`/`[[WAITING:N]]` markers**, deliberately: those work in
+the text-only scripts because the reply is plain text, stripped of
+markers *before* being handed to TTS. The Realtime API generates
+audio directly — there's no hidden channel in a spoken reply, so an
+appended marker would just get spoken out loud as literal bracket
+tokens. The marker's other job elsewhere (forcing the next turn to
+stay on the same tier across *stateless* per-call completions) also
+doesn't apply here: this is one continuous Realtime session with its
+own server-side conversation history, not repeated fresh calls, so
+the model already has the context to naturally continue a
+guided-question chain on its own.
+
+**Known gap**: no `[[DEPTH]]`-style signal is logged for this tier the
+way `pixel_ollama_router.log_routing()` logs it for the basic tier —
+capturing that here would need a silent tool call (same shape as
+`generate_video`, a structured event rather than spoken audio), not
+built this round. Verified: the persona string builds correctly with
+the Socratic behavior merged in, the original casual framing and
+bail-out phrasing intact, explicit scoping language present, and no
+marker text leaking in. Not yet verified live — whether the Realtime
+model actually honors this gauging in a real conversation needs a
+hands-on test.
+
 ### Ollama voice mode: fully local, no API costs, experimental
 
 `pixel_ollama_voice.py` trades cloud quality for zero running cost and

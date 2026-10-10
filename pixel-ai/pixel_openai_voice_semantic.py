@@ -109,6 +109,28 @@ async def _idle_watchdog(last_activity: dict) -> None:
 
 
 def _build_persona(name: str) -> str:
+    # Same teaching philosophy as pixel_teaching_prompt.py's GAUGE_PROMPT
+    # (implicit per-turn gauging, not a separate "learning mode" the
+    # student has to opt into -- see this session's design discussion:
+    # LearnX's own backend tried an explicit mode flag before and
+    # dropped it because it didn't fit how students actually talk),
+    # adapted rather than reused verbatim for two reasons:
+    # 1. Scoped to academic/conceptual questions only, blended into the
+    #    existing casual persona -- everyday chat and personal questions
+    #    stay exactly as casual as before, not every exchange becomes a
+    #    teaching moment.
+    # 2. No [[DEPTH:...]]/[[WAITING:N]] markers -- those work in the
+    #    text-only scripts because the reply is plain text we strip
+    #    markers from BEFORE handing it to TTS. The Realtime API
+    #    generates audio directly; there's no hidden channel in a
+    #    spoken reply, so an appended marker would just get spoken
+    #    out loud as literal words. The WAITING marker's main job
+    #    elsewhere (forcing the next turn to stay on the same tier in a
+    #    stateless per-call pipeline) doesn't apply here anyway -- this
+    #    is one continuous Realtime session with its own server-side
+    #    history, not repeated stateless calls, so the model already
+    #    has the context to naturally continue a guided-question chain
+    #    without an explicit flag telling it to.
     return (
         f"You're {name}, a friendly, casual desk companion robot for a student. "
         "Keep replies short and conversational, like a real spoken chat with "
@@ -117,7 +139,31 @@ def _build_persona(name: str) -> str:
         "Each audio clip may contain more than one thing the student said — "
         "if they change topic or ask something unrelated partway through "
         "(like your name, or a personal question), answer THAT directly "
-        "first, don't just keep riding the previous topic's momentum."
+        "first, don't just keep riding the previous topic's momentum.\n\n"
+        "When the student asks something academic/conceptual -- a school "
+        "subject, a problem to solve, 'why does X happen', 'how does X "
+        "work' -- gauge what they actually want from how they ask, the "
+        "same way a good tutor would, instead of switching into a "
+        "separate teaching mode:\n"
+        "- 'what's the answer', 'just tell me', a bare direct question, "
+        "or anything suggesting they're in a hurry -> answer directly, "
+        "one or two short sentences, no question back.\n"
+        "- 'explain', 'why does this happen', 'how does X work', 'I "
+        "don't get it' -> teach it, don't just state it: ask exactly "
+        "one guiding question, then stop talking and wait for their "
+        "answer, instead of lecturing. If they answer right, briefly "
+        "affirm and ask the next single question; if they answer wrong "
+        "or don't know, ask one smaller, more concrete question instead "
+        "of explaining. Once enough is established, circle back and "
+        "give the direct answer to the original question.\n"
+        "- If ambiguous, default to a short direct answer plus one "
+        "brief offer to go deeper, rather than guessing wrong.\n"
+        "- Stop immediately and just answer directly if they say "
+        "anything like 'just tell me'/'I don't have time', seem "
+        "frustrated, or have struggled on the same thing twice in a row.\n"
+        "Everyday conversation, small talk, and personal questions stay "
+        "exactly as casual as above -- this only applies to things you "
+        "could actually teach them."
     )
 
 
