@@ -223,6 +223,35 @@ async def _capture_reader(capture_proc: subprocess.Popen, queue: "asyncio.Queue[
         await queue.put(chunk)
 
 
+# Premium tier's only tool: video generation is the sole remaining
+# LearnX call anywhere in this project (everything else talks to
+# OpenAI directly, see pixel_direct_llm.py) -- the Realtime model
+# decides on its own, via this tool, whether a question needs a video
+# rather than a keyword classifier deciding for it. New protocol
+# surface for this project (no tool-calling used here before);
+# verified against a mocked Realtime stream, not yet against a live
+# session that actually triggers the tool.
+_VIDEO_TOOL = {
+    "type": "function",
+    "name": "generate_video",
+    "description": (
+        "Generate a short educational video/animation for the student. "
+        "Use this when the student explicitly asks to see a video, "
+        "animation, or visual of a concept."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "topic": {
+                "type": "string",
+                "description": "What the video should explain, in the student's own words.",
+            },
+        },
+        "required": ["topic"],
+    },
+}
+
+
 def _build_session_dict(
     instructions: str, modalities: tuple[str, ...] = ("audio",),
     max_output_tokens: int | None = 600, use_semantic_vad: bool = True,
@@ -231,6 +260,8 @@ def _build_session_dict(
         "type": "realtime",
         "output_modalities": modalities,
         "instructions": instructions,
+        "tools": [_VIDEO_TOOL],
+        "tool_choice": "auto",
     }
     if max_output_tokens is not None:
         session["max_output_tokens"] = max_output_tokens
@@ -330,6 +361,46 @@ async def _send_loop(
             last_heartbeat = loop.time()
 
 
+def _generate_video(topic: str) -> str:
+    """Blocking: can take up to ~90s (generation + poll). Lazy import --
+    pixel_brain -> config fails fast if LEARNX_API_KEY/LEARNX_USER_ID
+    aren't set, which shouldn't be a hard requirement just to run this
+    script when video specifically isn't configured."""
+    import pixel_brain
+    video_id = pixel_brain.request_video(topic)
+    pixel_brain.poll_video(video_id)
+    return (
+        "The video is ready! I can't play it on my screen just yet, "
+        "but it's waiting for the student in LearnX."
+    )
+
+
+async def _handle_video_tool_call(ws, call_id: str, arguments_json: str) -> None:
+    """Executes the generate_video tool and sends the result back so
+    the model can tell the student about it -- known gap, not yet
+    live-verified: this blocks up to ~90s with nothing said in the
+    meantime, since the model only speaks again once it has the
+    function_call_output back. Worth revisiting once this is actually
+    tested against a live session that triggers the tool."""
+    loop = asyncio.get_event_loop()
+    try:
+        topic = json.loads(arguments_json).get("topic", "")
+        output = await loop.run_in_executor(None, _generate_video, topic)
+    except Exception:
+        logger.exception("generate_video tool call failed")
+        output = "Sorry, I couldn't get that video made right now."
+
+    await ws.send(json.dumps({
+        "type": "conversation.item.create",
+        "item": {
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": output,
+        },
+    }))
+    await ws.send(json.dumps({"type": "response.create"}))
+
+
 async def _receive_loop(
     ws, playback_proc: subprocess.Popen, pixel_speaking: asyncio.Event,
     transcript_log: list[str], recording_state: dict, last_activity: dict,
@@ -371,6 +442,9 @@ async def _receive_loop(
                 None, _decode_and_play, playback_proc, data["delta"])
         elif t == "response.output_audio_transcript.delta":
             transcript += data.get("delta", "")
+        elif t == "response.function_call_arguments.done":
+            if data.get("name") == "generate_video":
+                await _handle_video_tool_call(ws, data["call_id"], data.get("arguments", "{}"))
         elif t == "response.done":
             last_activity["at"] = loop.time()
             is_goodbye = bool(user_transcript) and pixel_memory.detect_goodbye(user_transcript)

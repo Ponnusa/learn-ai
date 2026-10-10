@@ -47,8 +47,11 @@ ARMv6, so it can't run on a Pi 1 B+ at all. Not wired in by default
 for that reason.
 
 Requires a working USB mic (same as the other voice scripts) and
-PIXEL_STT_URL / PIXEL_OLLAMA_URL pointed at the fast machine. LearnX
-and all cloud APIs stay untouched -- this is a fully separate mode.
+PIXEL_STT_URL / PIXEL_OLLAMA_URL pointed at the fast machine. Local
+Ollama stays the primary brain -- pixel_direct_llm.py (direct OpenAI,
+no LearnX round-trip) is only the escalation tier for questions local
+can't handle well, and pixel_brain.py's video functions are the only
+LearnX access left anywhere in this script.
 """
 import asyncio
 import audioop  # stdlib; deprecated (PEP 594) but present on 3.11, see
@@ -66,9 +69,10 @@ import wave
 import requests
 from dotenv import load_dotenv
 
+import pixel_direct_llm
 import pixel_memory
-import pixel_ollama_cloud
 import pixel_ollama_router
+import pixel_teaching_prompt
 # gTTS, not Piper -- Piper's onnxruntime dependency has no prebuilt
 # wheel for ARMv6 (the Pi 1 B+), so pixel_tts_piper.py (this repo)
 # can't run on that hardware. Worth switching to on Pi Zero 2 W / Pi 3
@@ -328,17 +332,26 @@ def _transcribe(wav_bytes: bytes) -> str:
     return resp.json().get("text", "").strip()
 
 
-def _ask_learnx(text: str) -> str:
-    """Lazy import -- pixel_brain imports config, which fails fast
-    (raises RuntimeError) if LEARNX_API_KEY/LEARNX_USER_ID aren't set.
-    That's the right behavior for the LearnX-only scripts, but
-    shouldn't be a hard requirement just to run this mode's
-    local/cloud router when LearnX routing specifically isn't
-    configured -- the caller catches this and falls back to the cloud
-    tier instead."""
+def _request_video(topic: str) -> str:
+    """The only LearnX call left anywhere in this script -- video
+    generation stays on LearnX's backend (it's Claude-powered there,
+    see backend/services/ai_router.py, invisible to Pixel either way).
+    Lazy import: pixel_brain imports config, which fails fast if
+    LEARNX_API_KEY/LEARNX_USER_ID aren't set. That's correct for the
+    LearnX-only scripts, but shouldn't be a hard requirement just to
+    run this mode's router when video specifically isn't configured --
+    the caller catches this and tells the student it's not available.
+
+    No video *playback* on this hardware yet (Phase 1's original,
+    already-documented scope decision) -- this confirms the video was
+    generated rather than actually showing it."""
     import pixel_brain
-    result = pixel_brain.ask(text)
-    return result.get("reply", "")
+    video_id = pixel_brain.request_video(topic)
+    pixel_brain.poll_video(video_id)
+    return (
+        "I've put that video together for you! I can't play it on my "
+        "screen just yet, but it's ready and waiting for you in LearnX."
+    )
 
 
 def _ollama_chat(messages: list[dict]) -> str:
@@ -431,6 +444,12 @@ async def _conversation_loop(
     messages: list[dict], transcript_log: list[str], last_activity: dict,
 ) -> None:
     loop = asyncio.get_event_loop()
+    # True only right after a direct-API reply ended with [[WAITING:1]]
+    # -- the next turn stays on that tier regardless of what it's
+    # classified as, so a short answer ("four", "I don't know") doesn't
+    # lose the guided-question thread. Reset on any turn that isn't a
+    # direct-API continuation (goodbye, video, the local fast path).
+    waiting_on_answer = False
     while True:
         face.set_state(STATE_LISTENING)
         audio_bytes = await _record_utterance(queue, pixel_speaking, last_activity)
@@ -466,59 +485,87 @@ async def _conversation_loop(
             messages[0] = {"role": "system", "content": _build_system_instruction()}
         is_goodbye = pixel_memory.detect_goodbye(user_text)
 
-        # Four tiers, cheapest/fastest first: time/date and
+        # Three tiers, cheapest/fastest first: time/date and
         # system-status questions are answered instantly from real
-        # Python/OS data (zero LLM call at all); curriculum math/
-        # physics/chemistry goes to LearnX; general-knowledge/complex
-        # questions go to a cheap OpenAI call; everything else is the
-        # local Ollama model, same as before. See pixel_ollama_router.py
-        # for why this is deliberately scoped down from
-        # pibot_local_agent's full tool-calling + cloud-handoff router.
-        # Every tier's exchange is still recorded into `messages` and
-        # transcript_log, so later turns and memory summarization see
-        # the full conversation regardless of which brain answered it.
+        # Python/OS data (zero LLM call at all); everything else is
+        # either a video request (the only LearnX call left anywhere
+        # here) or local Ollama, escalating to a direct OpenAI call
+        # (pixel_direct_llm.py, with pixel_teaching_prompt.py's
+        # Socratic-ladder-style prompt) for curriculum/complex
+        # questions. See pixel_ollama_router.py for why this is
+        # deliberately scoped down from pibot_local_agent's full
+        # tool-calling + cloud-handoff router. Every tier's exchange is
+        # still recorded into `messages` and transcript_log, so later
+        # turns and memory summarization see the full conversation
+        # regardless of which brain answered it.
         messages.append({"role": "user", "content": user_text})
         del messages[1:-_MAX_HISTORY_MESSAGES]  # keep system message + last N turns
 
+        depth = None
+        model_used = None
         if is_goodbye:
             # A fixed farewell, not routed through any tier at all --
             # see _GOODBYE_PHRASES' comment.
             tier, reply = "local", random.choice(_GOODBYE_PHRASES)
+            waiting_on_answer = False
+        elif pixel_ollama_router.detect_video_request(user_text):
+            tier = "video"
+            waiting_on_answer = False
+            # Generation + polling can take up to ~90s -- a dedicated
+            # heads-up, not the short _THINKING_FILLERS line, so the
+            # student knows this is a real wait, not a stall.
+            await _speak_once(
+                "Let me put that video together for you -- it might take "
+                "about a minute.", pixel_speaking,
+            )
+            try:
+                reply = await loop.run_in_executor(None, _request_video, user_text)
+            except Exception:
+                logger.exception("Video request failed")
+                reply = "Sorry, I couldn't get that video made right now."
         else:
             fast_reply = pixel_ollama_router.route(user_text)
             if fast_reply is not None:
                 tier, reply = "local", fast_reply
+                waiting_on_answer = False
             else:
-                tier = pixel_ollama_router.classify(user_text)
+                # A chain that's still waiting on the student's answer
+                # (the teaching prompt's [[WAITING:1]] marker) stays on
+                # the direct-API tier for continuity, same reasoning as
+                # chat.py's prev_ladder_depth carry-forward elsewhere in
+                # this project -- otherwise the student's short reply
+                # ("four", "I don't know") would get reclassified by
+                # keyword/length alone and likely land back on "llm",
+                # losing the thread of the guided question.
+                tier = "direct_api" if waiting_on_answer else pixel_ollama_router.classify(user_text)
                 reply = None
-                # One of the three real (slow) tiers is about to be
-                # tried -- mask that wait with a quick filler instead
-                # of dead air, same pattern as pibot_local_agent's
-                # pre-generated filler WAVs.
-                await _speak_once(random.choice(_THINKING_FILLERS), pixel_speaking)
 
-                if tier == "learnx":
+                if tier == "direct_api":
+                    # One of the two real (slow) tiers is about to be
+                    # tried -- mask that wait with a quick filler
+                    # instead of dead air, same pattern as
+                    # pibot_local_agent's pre-generated filler WAVs.
+                    await _speak_once(random.choice(_THINKING_FILLERS), pixel_speaking)
                     try:
-                        reply = await loop.run_in_executor(None, _ask_learnx, user_text)
+                        raw_reply, model_used = await loop.run_in_executor(
+                            None, pixel_direct_llm.ask, messages[1:],
+                            pixel_teaching_prompt.FULL_PROMPT, None,
+                        )
+                        reply, depth, waiting = pixel_teaching_prompt.strip_markers(raw_reply)
+                        waiting_on_answer = bool(waiting)
                     except Exception:
-                        logger.exception("LearnX call failed -- falling back to cloud")
-                        tier = "cloud"
-
-                if tier == "cloud" and reply is None:
-                    try:
-                        reply = await loop.run_in_executor(None, pixel_ollama_cloud.ask, user_text)
-                    except Exception:
-                        logger.exception("Cloud call failed -- falling back to local llm")
+                        logger.exception("Direct API call failed -- falling back to local llm")
                         tier = "llm"
 
                 if tier == "llm" and reply is None:
                     try:
                         # Speaks sentence-by-sentence as Ollama streams
                         # them, rather than waiting for the whole reply --
-                        # see _SENTENCE_END. learnx/cloud replies above are
+                        # see _SENTENCE_END. direct_api replies above are
                         # a single already-complete text, spoken as one
                         # piece below instead.
                         reply = await _stream_ollama_reply(messages, pixel_speaking)
+                        waiting_on_answer = False
                     except Exception:
                         logger.exception("Ollama request failed")
                         messages.pop()  # don't leave an unanswered turn in history
@@ -527,12 +574,8 @@ async def _conversation_loop(
                         messages.pop()
                         continue
 
-        model = {
-            "learnx": "learnx-backend",  # opaque to us -- LearnX doesn't report which model it used internally
-            "cloud": pixel_ollama_cloud.MODEL,
-            "llm": OLLAMA_MODEL,
-        }.get(tier)
-        pixel_ollama_router.log_routing(tier, user_text, reply, model=model)
+        model = model_used if tier == "direct_api" else {"llm": OLLAMA_MODEL}.get(tier)
+        pixel_ollama_router.log_routing(tier, user_text, reply, model=model, depth=depth)
         messages.append({"role": "assistant", "content": reply})
         print(f"Pixel: {reply}")
         transcript_log.append(f"Pixel: {reply}")

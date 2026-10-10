@@ -1,23 +1,24 @@
 """Pixel's ladder mode: short one-to-one guided-discovery conversations.
 
 Standalone and separate from pixel_main.py on purpose — this only imports
-the existing face/tts/listen/brain modules, never edits them, so it can
-be run and tested without touching the already-working keyboard flow.
+the existing face/tts/listen modules plus the direct-API/teaching-prompt
+modules, never edits them, so it can be run and tested without touching
+the already-working keyboard flow.
 
-The "ladder" behavior isn't something Pixel implements itself: the
-backend's system prompt already decides, on every /api/chat/send reply,
-whether to answer directly or ask exactly one guiding question and wait
-(ladder_depth > 0 — see backend/services/prompt_builder.py's
-ADAPTIVE_TEACHING_INSTRUCTIONS). The only thing a client needs to do to
-turn that into a real back-and-forth instead of one-shot Q&A is keep
-reusing the same conversation_id turn after turn. No mode flag, no
-separate endpoint. Chains are open-ended by backend design (no min/max
-enforced); _MAX_TURNS below is purely a defensive cap on this client, not
-a real constraint from the backend.
+Used to route through LearnX's /api/chat/send (ADAPTIVE_TEACHING_
+INSTRUCTIONS there), but that meant Pixel -> LearnX -> OpenAI -> LearnX
+-> Pixel, two network hops for every single turn, when Pixel can just
+call OpenAI directly. Switched to pixel_direct_llm.py +
+pixel_teaching_prompt.py (same guided-discovery behavior, ported as a
+standalone prompt, no LearnX round-trip) — see those files' docstrings.
+Chains are open-ended by the prompt's own design (no min/max enforced);
+_MAX_TURNS below is purely a defensive cap on this client, not a real
+constraint.
 """
 import logging
 
-import pixel_brain
+import pixel_direct_llm
+import pixel_teaching_prompt
 import pixel_tts
 from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_THINKING, STATE_TALKING, STATE_HAPPY
 from pixel_listen import listen
@@ -29,49 +30,44 @@ _MAX_TURNS = 15
 _BAIL_OUT_PHRASES = ("stop", "skip", "just tell me")
 
 
-def _say(reply: str, message_id: str | None) -> None:
+def _say(reply: str) -> None:
     print(f"Pixel: {reply}")
-    try:
-        pixel_tts.speak_reply_audio(pixel_brain.get_message_audio(message_id))
-    except Exception:
-        logger.exception("chat audio fetch failed, falling back to gTTS")
-        pixel_tts.speak(reply)
+    pixel_tts.speak(reply)
 
 
 def run_topic(topic: str) -> None:
     """One short guided-discovery conversation about a single topic."""
-    conversation_id = None
-    message = topic
+    messages = [{"role": "user", "content": topic}]
 
     for _ in range(_MAX_TURNS):
         face.set_state(STATE_THINKING)
         try:
-            result = pixel_brain.ask(message, conversation_id=conversation_id)
+            raw_reply, _model = pixel_direct_llm.ask(messages, pixel_teaching_prompt.FULL_PROMPT)
         except Exception:
-            logger.exception("chat/send failed")
+            logger.exception("direct LLM call failed")
             face.set_state(STATE_IDLE)
-            print("Sorry, I couldn't reach LearnX.")
+            print("Sorry, I couldn't reach the AI right now.")
             return
 
-        conversation_id = result.get("conversation_id")
-        reply = result.get("reply", "")
-        ladder_depth = result.get("ladder_depth") or 0
+        reply, _depth, waiting = pixel_teaching_prompt.strip_markers(raw_reply)
+        messages.append({"role": "assistant", "content": reply})
 
         face.set_state(STATE_TALKING)
-        _say(reply, result.get("message_id"))
+        _say(reply)
 
-        if not ladder_depth:
-            # Backend resolved the chain (or never started one) — this
-            # turn's reply is a direct/final answer, not a question.
+        if not waiting:
+            # The prompt resolved the chain (or never started one) --
+            # this turn's reply is a direct/final answer, not a question.
             face.set_state(STATE_HAPPY)
             return
 
         face.set_state(STATE_LISTENING)
         answer = listen(prompt="You: ")
-        # Mirrors the backend's own documented bail-out phrasing so a
-        # student who wants out gets the same "just tell me" shortcut the
-        # system prompt already honors server-side.
+        # Mirrors the prompt's own documented bail-out phrasing so a
+        # student who wants out gets the same "just tell me" shortcut
+        # the system prompt already honors.
         message = "Just tell me the answer." if answer.lower() in _BAIL_OUT_PHRASES else answer
+        messages.append({"role": "user", "content": message})
 
     face.set_state(STATE_IDLE)
 

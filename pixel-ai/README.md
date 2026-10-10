@@ -104,24 +104,34 @@ size.
 ### Ladder mode: short one-to-one guided-discovery conversations
 
 `pixel_ladder.py` is a separate standalone script — it only imports
-`pixel_face`/`pixel_tts`/`pixel_listen`/`pixel_brain`, never edits them,
-so it can be run independently of `pixel_main.py`:
+`pixel_face`/`pixel_tts`/`pixel_listen` plus `pixel_direct_llm`/
+`pixel_teaching_prompt`, never edits them, so it can be run
+independently of `pixel_main.py`:
 
 ```bash
 python pixel_ladder.py
 ```
 
-Type a topic; Pixel will ask a guiding question and wait for your typed
-answer instead of dumping a full explanation, continuing the exchange for
-as many turns as the backend's own teaching logic decides (2-12 is
-typical, fully open-ended, no cap on the backend side). This isn't new
-backend behavior — `POST /api/chat/send` already decides per-reply
-whether to ask a guiding question (`ladder_depth > 0`) or answer directly,
-the same mechanism behind the web app's ladder-rail widget. The only
-client-side requirement is reusing the same `conversation_id` across
-turns, which `pixel_brain.ask()` already supports. Say "stop", "skip", or
-"just tell me" at any prompt to bail out to a direct answer, mirroring
-the backend's own documented shortcut phrase.
+Type a topic; Pixel will ask a guiding question and wait for your
+typed answer instead of dumping a full explanation, continuing the
+exchange for as many turns as the prompt's own judgment decides
+(open-ended, `_MAX_TURNS` is purely a defensive client-side cap, not a
+real limit). **Used to route through LearnX's `/api/chat/send`**
+(`ADAPTIVE_TEACHING_INSTRUCTIONS` there decided per-reply whether to
+ask a guiding question or answer directly, reusing the same
+`conversation_id` across turns) — switched to `pixel_direct_llm.py` +
+`pixel_teaching_prompt.py` instead, since routing through LearnX meant
+Pixel → LearnX → OpenAI → LearnX → Pixel, two network hops per turn,
+when LearnX's own chat path already just calls OpenAI directly. Same
+guided-discovery behavior, ported prompt, one hop. `messages` (a local
+list, not a `conversation_id`) carries the conversation across turns
+now instead. Say "stop", "skip", or "just tell me" at any prompt to
+bail out to a direct answer, same shortcut phrasing as before.
+
+Verified against the real `run_topic()`: a 2-turn guided-discovery
+chain correctly threads `messages` across turns with markers stripped
+before storing/speaking, and the bail-out phrase substitution still
+works. Not yet verified live against the real OpenAI API.
 
 ### Gemini Live mode: parked, not recommended (see voice mode instead)
 
@@ -457,6 +467,33 @@ semantic VAD interesting in the first place. Whether that's worth it
 over the proven manual version in `pixel_openai_voice.py` is a real
 judgment call, not a clear upgrade.
 
+**Premium tier's one tool: `generate_video`.** This is the "premium"
+side of the basic/premium split documented in the Ollama voice mode
+section below — a premium user talks through this Realtime pipeline
+directly rather than the local-Ollama router, and the *only* LearnX
+access anywhere on this path is video generation, via a single
+OpenAI Realtime function/tool definition (`_VIDEO_TOOL` in
+`_build_session_dict()`). New protocol surface for this project — no
+tool-calling was used in any Realtime script before this. The model
+decides on its own, from the conversation, when a question needs a
+video rather than a keyword classifier deciding for it (simpler than
+an earlier plan that would have had the model decide whether to hand
+off *all* Q&A to LearnX's chat backend — once that chat backend was
+dropped entirely in favor of calling OpenAI directly, the only thing
+left to hand off is video). `_handle_video_tool_call()` executes it
+(lazy-imports `pixel_brain`, same reasoning as the Ollama router's
+video action) and sends `function_call_output` + `response.create` so
+the model can tell the student about it.
+
+**Known gap, not yet live-verified**: generation + polling can take up
+to ~90s, and the model only speaks again once it has the result back
+— there's nothing said in the meantime, a real silent wait worth
+revisiting once this is actually tested against a live session that
+triggers the tool. Verified so far: the handler sends the correct
+`function_call_output`/`response.create` sequence and degrades
+gracefully (a spoken apology, not a crash) if the LearnX call fails,
+against a mocked websocket — not yet against a real Realtime session.
+
 ### Ollama voice mode: fully local, no API costs, experimental
 
 `pixel_ollama_voice.py` trades cloud quality for zero running cost and
@@ -599,73 +636,75 @@ memory summarization both see it. Verified against the real
 `_ollama_chat_stream_worker()` at all, both get spoken correctly, and
 both land in `messages` and `transcript_log` for later turns.
 
-**Full 4-tier routing for a "basic" (free) user**, once that zero-cost
-fast path above has already ruled itself out — cheapest/fastest to
-most expensive, each one falling back to the next if it fails:
+**Full routing for a "basic" (free) user**, once that zero-cost fast
+path above has already ruled itself out — cheapest/fastest to most
+expensive, each one falling back to the next if it fails:
 
 1. **`local`** — the fast path above (time/date, system status). Zero
    LLM call.
-2. **`learnx`** — curriculum math/physics/chemistry questions
-   (`pixel_ollama_router.classify()`'s keyword match), answered by
-   `pixel_brain.ask()` (the same LearnX chat client the keyboard mode
-   uses) instead of a generic model, since that's what LearnX is
-   actually specialized for. Lazily imports `pixel_brain` only when
-   this tier is actually hit — `pixel_brain` → `config` fails fast if
-   `LEARNX_API_KEY`/`LEARNX_USER_ID` aren't set, which is right for
-   the LearnX-only scripts but shouldn't be a hard requirement just to
-   run this mode's router at all. If it's not configured (or the call
-   fails for any reason), falls back to the cloud tier automatically.
-3. **`cloud`** — general-knowledge/complex questions a tiny local
-   model handles poorly (`pixel_ollama_cloud.py`, a new standalone
-   module), via a plain OpenAI chat completion — deliberately *not*
-   the Realtime API, since the audio side is already handled
-   elsewhere here. **Important**: a ChatGPT/Claude/Gemini
-   *subscription* does not cover this — API calls are billed
-   separately per token regardless of any consumer subscription.
-   Reuses the existing `OPENAI_API_KEY` already set for the OpenAI
-   voice scripts; `PIXEL_CLOUD_MODEL` picks a cheap/fast model,
-   **not yet confirmed live** against a real account (same
-   verify-live-don't-guess approach as the Realtime model names
-   elsewhere in this file — check `GET /v1/models` before relying on
-   the default). If this call fails, falls back to the `llm` tier.
+2. **`video`** — detected separately from the Q&A tiers below
+   (`pixel_ollama_router.detect_video_request()`), not part of
+   `classify()`'s output. The *only* LearnX call left anywhere in this
+   script: `pixel_brain.request_video()`/`poll_video()`, lazily
+   imported (same reasoning as below) since generation + polling can
+   take up to ~90s — a dedicated spoken heads-up plays first ("this
+   might take about a minute"), not the short thinking filler. No
+   video *playback* on this hardware yet (Phase 1's original scope
+   decision), so the reply just confirms it was generated.
+3. **`direct_api`** — curriculum math/physics/chemistry questions and
+   general-knowledge/complex ones a tiny local model handles poorly
+   (`pixel_ollama_router.classify()`'s keyword/length match), answered
+   by `pixel_direct_llm.py` with `pixel_teaching_prompt.py`'s
+   Socratic-ladder-style prompt — **not** LearnX's chat backend.
+   Originally this tier called `pixel_brain.ask()` (LearnX's
+   `/api/chat/send`), but that meant Pixel → LearnX → OpenAI → LearnX
+   → Pixel, two network hops for every question, when LearnX's own
+   `chat_response` already just calls OpenAI directly (checked in
+   `backend/services/ai_router.py` — `gpt-4o`). Pixel now makes that
+   same OpenAI call itself, one hop: `gpt-4o-mini` for simple
+   questions, `gpt-4o` for complex ones (`pixel_direct_llm.
+   classify_difficulty()`), matching LearnX's own real model choices
+   rather than inventing different ones. If the reply ends with the
+   prompt's `[[WAITING:1]]` marker (a guided question, waiting on the
+   student), the *next* turn stays on this tier regardless of how it'd
+   otherwise classify — a short answer like "four" would misclassify
+   back to `llm` by keyword/length alone and lose the guided-question
+   thread, so `_conversation_loop` tracks this explicitly across
+   turns, same reasoning as `chat.py`'s `prev_ladder_depth` carry-forward
+   elsewhere in this project. If the call fails, falls back to `llm`.
 4. **`llm`** — the local Ollama model, exactly as before (including
    the sentence-streaming pipeline). The ultimate fallback if every
    tier above either didn't match or failed.
 
 Every question, regardless of which tier answers it, gets logged via
 `pixel_ollama_router.log_routing()` — printed to console
-(`[router] <tier> (<model>) -> '<question>'`) and appended to a
-gitignored `persona/routing_log.jsonl`
-(`{timestamp, tier, model, question, reply}` per line), including
-which *specific* model handled it, not just the tier name: the actual
-`PIXEL_OLLAMA_MODEL` for `llm`, the actual `PIXEL_CLOUD_MODEL` for
-`cloud`, `"learnx-backend"` for `learnx` (LearnX doesn't report which
-underlying model it used, so that's as specific as it gets), and
-`None` for `local` (a plain Python function, no model involved).
-Verified all four tiers log the correct model value against the real
-`_conversation_loop`.
+(`[router] <tier> (<model>) [<depth>] -> '<question>'`) and appended
+to a gitignored `persona/routing_log.jsonl`
+(`{timestamp, tier, model, depth, question, reply}` per line),
+including which *specific* model handled it (the actual
+`PIXEL_OLLAMA_MODEL` for `llm`, the actual `gpt-4o-mini`/`gpt-4o` for
+`direct_api`, `None` for `local`/`video`) and, for `direct_api`,
+whether the student wanted a quick answer or a real explanation
+(`[[DEPTH:quick]]`/`[[DEPTH:explain]]`) — this is what lets student
+behavior be reviewed later from the raw log, not just assumed.
 
 **A "premium" user instead skips this router entirely** and talks
-through the OpenAI Realtime pipeline (`pixel_openai_voice.py` /
-`pixel_openai_voice_semantic.py`) directly — paying for a better model
-buys smarter LearnX-hand-off judgment (via that model's own
-tool-calling deciding when a question needs LearnX, not a keyword
-guess) instead of a cost-minimizing keyword router. **Not built yet**
-— this needs OpenAI Realtime function/tool-calling wired into the
-websocket flow, genuinely new protocol surface for this project (the
-existing Realtime scripts only ever do plain conversational turns, no
-tool calls), so it's a separate, more involved piece of work than the
-basic-tier router above.
+through the OpenAI Realtime pipeline
+(`pixel_openai_voice_semantic.py`) directly — see that section below
+for the one new tool it gained (`generate_video`), the only LearnX
+access on that path too. Everything else premium users ask, the
+Realtime model just answers itself, same as before.
 
-Verified the full fallback chain (`learnx` → `cloud` → `llm`) against
-the real `_conversation_loop` with four scenarios: LearnX succeeding
-(no cloud/llm call at all), LearnX failing and falling back to cloud,
-cloud failing and falling back to llm, and an ordinary casual question
-going straight to `llm` without ever attempting learnx/cloud. Also
-verified the classifier against 19 example questions (7
-curriculum/learnx, 6 complex/cloud, 6 casual/llm) and that
-`log_routing()` writes correctly-structured JSONL. Not yet verified:
-real LearnX/cloud API calls against live credentials, and real-world
+Verified the full fallback chain (`direct_api` → `llm`) and the video
+action against the real `_conversation_loop`: a video request calls
+`_request_video` only (no direct_api/llm call at all) and speaks the
+heads-up then the result in order; a `[[WAITING:1]]` reply correctly
+forces the *next* turn to stay on `direct_api` even for a short,
+keyword-free answer; a `direct_api` failure falls back to `llm`
+correctly. Also verified the classifier/video-detector against
+example questions and that `log_routing()` writes correctly-structured
+JSONL including the new `depth` field. Not yet verified: real OpenAI/
+LearnX API calls against live credentials, and real-world
 classification accuracy on actual spoken questions rather than typed
 examples.
 
@@ -676,15 +715,15 @@ audio files, since this mode's replies are already synthesized live):
   `_speak_sentence()`, before the listening loop even starts — not
   re-spoken on reconnects or on every goodbye-triggered fresh
   conversation, just the one "I just booted" greeting.
-- **Thinking filler**: right after a question is confirmed to need
-  one of the three *real* (slow) tiers — `learnx`/`cloud`/`llm` all
-  involve a genuine network/model call — a random pick from
-  `_THINKING_FILLERS` plays first, masking that wait instead of dead
-  air. The zero-cost `local` fast path (time/status) skips this
-  entirely, since there's no wait to hide there.
+- **Thinking filler**: right after a question is confirmed to need the
+  `direct_api` or `llm` tier — both involve a genuine network/model
+  call — a random pick from `_THINKING_FILLERS` plays first, masking
+  that wait instead of dead air. The zero-cost `local` fast path
+  (time/status) skips this entirely, since there's no wait to hide
+  there; `video` gets its own dedicated longer-wait message instead.
 - **Goodbye**: a goodbye utterance is no longer routed through any
   tier at all — it goes straight to a random pick from
-  `_GOODBYE_PHRASES` instead of whatever the LLM/cloud/LearnX might
+  `_GOODBYE_PHRASES` instead of whatever the LLM/direct-API might
   improvise, both for a consistent farewell and to skip a pointless
   call for a fixed social closing.
 
