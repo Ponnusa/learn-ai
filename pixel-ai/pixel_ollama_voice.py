@@ -39,6 +39,12 @@ object which keeps history server-side -- this script keeps its own
 PIXEL_OLLAMA_MAX_HISTORY entries so a long conversation doesn't make
 every turn slower on what's likely a CPU-bound local model.
 
+Speech comes back via Piper (pixel_tts_piper.py), not gTTS -- fully
+local, no network call per sentence, consistent with this mode's
+"zero API cost" point and one less latency hop on top of the
+sentence-streaming above. See that file's docstring for setup
+(voice model download, ARMv6 caveat).
+
 Requires a working USB mic (same as the other voice scripts) and
 PIXEL_STT_URL / PIXEL_OLLAMA_URL pointed at the fast machine. LearnX
 and all cloud APIs stay untouched -- this is a fully separate mode.
@@ -59,7 +65,13 @@ import requests
 from dotenv import load_dotenv
 
 import pixel_memory
-import pixel_tts
+# Piper instead of gTTS -- gTTS calling Google's cloud TTS over the
+# network for every sentence was adding latency on top of the
+# sentence-streaming pipeline below, and is inconsistent with this
+# mode's whole "fully local, zero API cost" point. Same
+# speak_async()/cleanup_speech() interface, so _speak_sentence() below
+# needed no other changes. See pixel_tts_piper.py's docstring for setup.
+import pixel_tts_piper as pixel_tts
 from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_THINKING, STATE_TALKING
 
 load_dotenv()
