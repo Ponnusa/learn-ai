@@ -669,6 +669,32 @@ real LearnX/cloud API calls against live credentials, and real-world
 classification accuracy on actual spoken questions rather than typed
 examples.
 
+**Three scripted moments, same idea as `pibot_local_agent`'s
+pre-generated filler WAVs** (adapted to gTTS instead of pre-rendering
+audio files, since this mode's replies are already synthesized live):
+- **Startup**: `_STARTUP_MESSAGE` is spoken once, directly via
+  `_speak_sentence()`, before the listening loop even starts — not
+  re-spoken on reconnects or on every goodbye-triggered fresh
+  conversation, just the one "I just booted" greeting.
+- **Thinking filler**: right after a question is confirmed to need
+  one of the three *real* (slow) tiers — `learnx`/`cloud`/`llm` all
+  involve a genuine network/model call — a random pick from
+  `_THINKING_FILLERS` plays first, masking that wait instead of dead
+  air. The zero-cost `local` fast path (time/status) skips this
+  entirely, since there's no wait to hide there.
+- **Goodbye**: a goodbye utterance is no longer routed through any
+  tier at all — it goes straight to a random pick from
+  `_GOODBYE_PHRASES` instead of whatever the LLM/cloud/LearnX might
+  improvise, both for a consistent farewell and to skip a pointless
+  call for a fixed social closing.
+
+Verified against the real `_conversation_loop`: a goodbye speaks
+exactly one scripted farewell with no filler or tier call at all, a
+real-tier question speaks the filler then the actual reply (two
+separate spoken pieces, in that order), the instant local fast path
+speaks no filler, and the startup message is spoken exactly once
+before the listening loop begins.
+
 ### Gemini text mode: same casual chat, no mic required
 
 `pixel_gemini_text.py` is the keyboard fallback for when there's no

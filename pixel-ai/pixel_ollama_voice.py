@@ -58,6 +58,7 @@ import json
 import logging
 import os
 import queue as thread_queue
+import random
 import re
 import subprocess
 import wave
@@ -139,6 +140,36 @@ _SUMMARIZE_PROMPT = (
     "there's nothing worth keeping, reply with exactly: NOTHING\n\n"
     "Transcript:\n{transcript}"
 )
+
+# Spoken once at process start, before the listening loop begins --
+# not re-spoken on every reconnect or every goodbye-triggered fresh
+# conversation, just the one "I just booted up" greeting.
+_STARTUP_MESSAGE = (
+    "Hi, I'm Pixel! Just getting my stuff ready for you... "
+    "Okay, all set! Go ahead and ask me anything."
+)
+
+# Spoken once a question is confirmed to need a real (slow) tier --
+# learnx/cloud/llm all involve a real network/model call, unlike the
+# router's zero-cost local fast path, which needs no filler since
+# there's no wait to hide. Random choice so it doesn't feel like the
+# same canned line every single time.
+_THINKING_FILLERS = [
+    "Good question, let me think about that.",
+    "Hmm, let me think for a moment.",
+    "Okay, give me a second to think about that.",
+    "Let me work that out for you.",
+    "Good one -- thinking...",
+]
+
+# Spoken instead of routing a goodbye through any tier at all -- a
+# social closing doesn't need a "smart" answer, and skipping the
+# learnx/cloud/llm chain entirely for it saves a pointless call.
+_GOODBYE_PHRASES = [
+    "Thanks for chatting with me! Have a great rest of your day.",
+    "It was great talking with you -- have an awesome day!",
+    "Thanks for hanging out with me. See you next time!",
+]
 
 
 class _SessionEnd(Exception):
@@ -449,42 +480,52 @@ async def _conversation_loop(
         messages.append({"role": "user", "content": user_text})
         del messages[1:-_MAX_HISTORY_MESSAGES]  # keep system message + last N turns
 
-        fast_reply = pixel_ollama_router.route(user_text)
-        if fast_reply is not None:
-            tier, reply = "local", fast_reply
+        if is_goodbye:
+            # A fixed farewell, not routed through any tier at all --
+            # see _GOODBYE_PHRASES' comment.
+            tier, reply = "local", random.choice(_GOODBYE_PHRASES)
         else:
-            tier = pixel_ollama_router.classify(user_text)
-            reply = None
+            fast_reply = pixel_ollama_router.route(user_text)
+            if fast_reply is not None:
+                tier, reply = "local", fast_reply
+            else:
+                tier = pixel_ollama_router.classify(user_text)
+                reply = None
+                # One of the three real (slow) tiers is about to be
+                # tried -- mask that wait with a quick filler instead
+                # of dead air, same pattern as pibot_local_agent's
+                # pre-generated filler WAVs.
+                await _speak_once(random.choice(_THINKING_FILLERS), pixel_speaking)
 
-            if tier == "learnx":
-                try:
-                    reply = await loop.run_in_executor(None, _ask_learnx, user_text)
-                except Exception:
-                    logger.exception("LearnX call failed -- falling back to cloud")
-                    tier = "cloud"
+                if tier == "learnx":
+                    try:
+                        reply = await loop.run_in_executor(None, _ask_learnx, user_text)
+                    except Exception:
+                        logger.exception("LearnX call failed -- falling back to cloud")
+                        tier = "cloud"
 
-            if tier == "cloud" and reply is None:
-                try:
-                    reply = await loop.run_in_executor(None, pixel_ollama_cloud.ask, user_text)
-                except Exception:
-                    logger.exception("Cloud call failed -- falling back to local llm")
-                    tier = "llm"
+                if tier == "cloud" and reply is None:
+                    try:
+                        reply = await loop.run_in_executor(None, pixel_ollama_cloud.ask, user_text)
+                    except Exception:
+                        logger.exception("Cloud call failed -- falling back to local llm")
+                        tier = "llm"
 
-            if tier == "llm" and reply is None:
-                try:
-                    # Speaks sentence-by-sentence as Ollama streams
-                    # them, rather than waiting for the whole reply --
-                    # see _SENTENCE_END. learnx/cloud replies above are
-                    # a single already-complete text, spoken as one
-                    # piece below instead.
-                    reply = await _stream_ollama_reply(messages, pixel_speaking)
-                except Exception:
-                    logger.exception("Ollama request failed")
-                    messages.pop()  # don't leave an unanswered turn in history
-                    continue
-                if not reply:
-                    messages.pop()
-                    continue
+                if tier == "llm" and reply is None:
+                    try:
+                        # Speaks sentence-by-sentence as Ollama streams
+                        # them, rather than waiting for the whole reply --
+                        # see _SENTENCE_END. learnx/cloud replies above are
+                        # a single already-complete text, spoken as one
+                        # piece below instead.
+                        reply = await _stream_ollama_reply(messages, pixel_speaking)
+                    except Exception:
+                        logger.exception("Ollama request failed")
+                        messages.pop()  # don't leave an unanswered turn in history
+                        continue
+                    if not reply:
+                        messages.pop()
+                        continue
 
         model = {
             "learnx": "learnx-backend",  # opaque to us -- LearnX doesn't report which model it used internally
@@ -526,6 +567,15 @@ async def run() -> None:
     print(f"{pixel_memory.load_name()} is listening (USB mic, local Ollama "
           f"model={OLLAMA_MODEL}, idle timeout {_IDLE_TIMEOUT_S:.0f}s). "
           f"Say goodbye or Ctrl+C to end a conversation.")
+
+    # Spoken once, before the listening loop below even starts -- no
+    # capture_proc/mic exists yet at this point, so this plays directly
+    # via _speak_sentence rather than _speak_once/_speak_sentence's
+    # usual mute-state dance (there's no mic activity to mute against).
+    face.set_state(STATE_TALKING)
+    await _speak_sentence(_STARTUP_MESSAGE)
+    face.set_state(STATE_IDLE)
+
     transcript_log: list[str] = []
     try:
         while True:
