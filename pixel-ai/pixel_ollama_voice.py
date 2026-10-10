@@ -66,6 +66,7 @@ import requests
 from dotenv import load_dotenv
 
 import pixel_memory
+import pixel_ollama_cloud
 import pixel_ollama_router
 # gTTS, not Piper -- Piper's onnxruntime dependency has no prebuilt
 # wheel for ARMv6 (the Pi 1 B+), so pixel_tts_piper.py (this repo)
@@ -296,6 +297,19 @@ def _transcribe(wav_bytes: bytes) -> str:
     return resp.json().get("text", "").strip()
 
 
+def _ask_learnx(text: str) -> str:
+    """Lazy import -- pixel_brain imports config, which fails fast
+    (raises RuntimeError) if LEARNX_API_KEY/LEARNX_USER_ID aren't set.
+    That's the right behavior for the LearnX-only scripts, but
+    shouldn't be a hard requirement just to run this mode's
+    local/cloud router when LearnX routing specifically isn't
+    configured -- the caller catches this and falls back to the cloud
+    tier instead."""
+    import pixel_brain
+    result = pixel_brain.ask(text)
+    return result.get("reply", "")
+
+
 def _ollama_chat(messages: list[dict]) -> str:
     """Non-streaming, blocking-until-done call -- used only for the
     end-of-session memory summary, which is never spoken, so there's
@@ -421,45 +435,69 @@ async def _conversation_loop(
             messages[0] = {"role": "system", "content": _build_system_instruction()}
         is_goodbye = pixel_memory.detect_goodbye(user_text)
 
-        # Fast path: time/date and system-status questions are
-        # answered instantly from real Python/OS data, no Ollama call
-        # at all -- see pixel_ollama_router.py for why this is
-        # deliberately scoped down from pibot_local_agent's full
-        # tool-calling router. Still recorded into `messages` so later
-        # turns have the full conversation for context, same as a
-        # normal Ollama-answered turn.
-        fast_reply = pixel_ollama_router.route(user_text)
+        # Four tiers, cheapest/fastest first: time/date and
+        # system-status questions are answered instantly from real
+        # Python/OS data (zero LLM call at all); curriculum math/
+        # physics/chemistry goes to LearnX; general-knowledge/complex
+        # questions go to a cheap OpenAI call; everything else is the
+        # local Ollama model, same as before. See pixel_ollama_router.py
+        # for why this is deliberately scoped down from
+        # pibot_local_agent's full tool-calling + cloud-handoff router.
+        # Every tier's exchange is still recorded into `messages` and
+        # transcript_log, so later turns and memory summarization see
+        # the full conversation regardless of which brain answered it.
         messages.append({"role": "user", "content": user_text})
         del messages[1:-_MAX_HISTORY_MESSAGES]  # keep system message + last N turns
 
+        fast_reply = pixel_ollama_router.route(user_text)
         if fast_reply is not None:
-            reply = fast_reply
-            messages.append({"role": "assistant", "content": reply})
-            print(f"Pixel: {reply}")
-            transcript_log.append(f"Pixel: {reply}")
-            await _speak_once(reply, pixel_speaking)
+            tier, reply = "local", fast_reply
         else:
-            try:
-                # Speaks sentence-by-sentence as Ollama streams them,
-                # rather than waiting for the whole reply -- see
-                # _SENTENCE_END.
-                reply = await _stream_ollama_reply(messages, pixel_speaking)
-            except Exception:
-                logger.exception("Ollama request failed")
-                messages.pop()  # don't leave an unanswered turn in history
-                continue
-            if not reply:
-                messages.pop()
-                continue
-            messages.append({"role": "assistant", "content": reply})
+            tier = pixel_ollama_router.classify(user_text)
+            reply = None
 
-            print(f"Pixel: {reply}")
-            transcript_log.append(f"Pixel: {reply}")
+            if tier == "learnx":
+                try:
+                    reply = await loop.run_in_executor(None, _ask_learnx, user_text)
+                except Exception:
+                    logger.exception("LearnX call failed -- falling back to cloud")
+                    tier = "cloud"
+
+            if tier == "cloud" and reply is None:
+                try:
+                    reply = await loop.run_in_executor(None, pixel_ollama_cloud.ask, user_text)
+                except Exception:
+                    logger.exception("Cloud call failed -- falling back to local llm")
+                    tier = "llm"
+
+            if tier == "llm" and reply is None:
+                try:
+                    # Speaks sentence-by-sentence as Ollama streams
+                    # them, rather than waiting for the whole reply --
+                    # see _SENTENCE_END. learnx/cloud replies above are
+                    # a single already-complete text, spoken as one
+                    # piece below instead.
+                    reply = await _stream_ollama_reply(messages, pixel_speaking)
+                except Exception:
+                    logger.exception("Ollama request failed")
+                    messages.pop()  # don't leave an unanswered turn in history
+                    continue
+                if not reply:
+                    messages.pop()
+                    continue
+
+        pixel_ollama_router.log_routing(tier, user_text, reply)
+        messages.append({"role": "assistant", "content": reply})
+        print(f"Pixel: {reply}")
+        transcript_log.append(f"Pixel: {reply}")
+        if tier != "llm":
+            await _speak_once(reply, pixel_speaking)
 
         if is_goodbye:
-            # Raised only after _stream_ollama_reply above returns,
-            # i.e. after the farewell reply has fully played -- same
-            # reasoning as both OpenAI voice scripts' goodbye handling.
+            # Raised only after the farewell reply has fully played,
+            # regardless of which tier answered it (_stream_ollama_reply
+            # or _speak_once above) -- same reasoning as both OpenAI
+            # voice scripts' goodbye handling.
             raise _SessionEnd("goodbye detected")
 
 

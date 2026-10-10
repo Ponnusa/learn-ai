@@ -23,9 +23,35 @@ detect_rename_request()/detect_goodbye(): a pattern list, not real
 language understanding, so some phrasings will still fall through to
 Ollama instead of being caught here -- that's fine, Ollama still
 answers them correctly, just without the latency/cost savings.
+
+Also classifies everything else into one of three tiers for a
+"basic" (free) user, once route() above has already ruled out the
+zero-cost fast path: "learnx" (curriculum math/physics/chemistry --
+LearnX's own specialized explanation logic is the right tool, not a
+generic local/cloud model), "cloud" (general-knowledge/complex
+questions a tiny local model handles poorly), or "llm" (the default --
+casual chat, simple questions, follow-ups). Keyword/length heuristic
+again, same known-limitation caveat -- this is a guess at difficulty,
+not a measurement of it. A "premium" user instead gets routed through
+the OpenAI Realtime pipeline directly, which decides its own LearnX
+hand-off via tool-calling rather than this keyword classifier -- not
+built yet, a separate and more involved piece of work (see README).
+
+Logs which tier actually answered each question -- printed to console
+always, and appended to a gitignored JSONL file for later review.
 """
+import json
+import logging
+import os
 import re
 import time
+from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
+
+_ROUTING_LOG_PATH = os.path.join(
+    os.path.dirname(__file__), "persona", "routing_log.jsonl"
+)
 
 _TIME_PATTERN = re.compile(
     r"\b(what time|what'?s the time|current time|what day is it|"
@@ -101,3 +127,58 @@ def route(text: str) -> str | None:
     if _STATUS_PATTERN.search(text):
         return _get_system_status()
     return None
+
+
+# Curriculum subject terms -- intentionally narrow/concrete (specific
+# topics and operations, not broad words like "energy" or "force" that
+# show up constantly in ordinary conversation and would misroute it).
+_LEARNX_PATTERN = re.compile(
+    r"\b(?:"
+    r"solve|equation|formula|algebra|geometry|calculus|trigonometry|"
+    r"derivative|integral|quadratic|polynomial|fraction|arithmetic|"
+    r"velocity|acceleration|momentum|newton'?s law|physics|"
+    r"chemistry|chemical reaction|molecules?|moles?|periodic table|"
+    r"maths?\b"
+    r")\b",
+    re.IGNORECASE,
+)
+# Signals that a question wants real depth/breadth -- the kind of
+# thing a 1.5-4B local model tends to handle poorly. Conservative on
+# purpose: a false negative just means Ollama answers it (fine, just
+# maybe not great); a false positive spends real cloud-API money on
+# something Ollama could've handled.
+_COMPLEX_PATTERN = re.compile(
+    r"\b(explain in detail|write (?:a|an|me)|essay|analyz[es]|analyse|"
+    r"compare and contrast|history of|summari[sz]e|code for|program that)\b",
+    re.IGNORECASE,
+)
+_COMPLEX_WORD_COUNT = 25
+
+
+def classify(text: str) -> str:
+    """Decides which tier should handle `text`, once route() above has
+    already ruled out the zero-cost fast path. Returns "learnx",
+    "cloud", or "llm" (the default)."""
+    if _LEARNX_PATTERN.search(text):
+        return "learnx"
+    if _COMPLEX_PATTERN.search(text) or len(text.split()) > _COMPLEX_WORD_COUNT:
+        return "cloud"
+    return "llm"
+
+
+def log_routing(tier: str, question: str, reply: str) -> None:
+    """One line per question: which brain actually answered it. Always
+    printed; best-effort appended to a JSONL file -- a logging failure
+    must never block the conversation itself."""
+    print(f"[router] {tier} -> {question!r}")
+    try:
+        os.makedirs(os.path.dirname(_ROUTING_LOG_PATH), exist_ok=True)
+        with open(_ROUTING_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "tier": tier,
+                "question": question,
+                "reply": reply,
+            }) + "\n")
+    except OSError:
+        logger.exception("failed to write routing log")

@@ -599,6 +599,70 @@ memory summarization both see it. Verified against the real
 `_ollama_chat_stream_worker()` at all, both get spoken correctly, and
 both land in `messages` and `transcript_log` for later turns.
 
+**Full 4-tier routing for a "basic" (free) user**, once that zero-cost
+fast path above has already ruled itself out — cheapest/fastest to
+most expensive, each one falling back to the next if it fails:
+
+1. **`local`** — the fast path above (time/date, system status). Zero
+   LLM call.
+2. **`learnx`** — curriculum math/physics/chemistry questions
+   (`pixel_ollama_router.classify()`'s keyword match), answered by
+   `pixel_brain.ask()` (the same LearnX chat client the keyboard mode
+   uses) instead of a generic model, since that's what LearnX is
+   actually specialized for. Lazily imports `pixel_brain` only when
+   this tier is actually hit — `pixel_brain` → `config` fails fast if
+   `LEARNX_API_KEY`/`LEARNX_USER_ID` aren't set, which is right for
+   the LearnX-only scripts but shouldn't be a hard requirement just to
+   run this mode's router at all. If it's not configured (or the call
+   fails for any reason), falls back to the cloud tier automatically.
+3. **`cloud`** — general-knowledge/complex questions a tiny local
+   model handles poorly (`pixel_ollama_cloud.py`, a new standalone
+   module), via a plain OpenAI chat completion — deliberately *not*
+   the Realtime API, since the audio side is already handled
+   elsewhere here. **Important**: a ChatGPT/Claude/Gemini
+   *subscription* does not cover this — API calls are billed
+   separately per token regardless of any consumer subscription.
+   Reuses the existing `OPENAI_API_KEY` already set for the OpenAI
+   voice scripts; `PIXEL_CLOUD_MODEL` picks a cheap/fast model,
+   **not yet confirmed live** against a real account (same
+   verify-live-don't-guess approach as the Realtime model names
+   elsewhere in this file — check `GET /v1/models` before relying on
+   the default). If this call fails, falls back to the `llm` tier.
+4. **`llm`** — the local Ollama model, exactly as before (including
+   the sentence-streaming pipeline). The ultimate fallback if every
+   tier above either didn't match or failed.
+
+Every question, regardless of which tier answers it, gets logged via
+`pixel_ollama_router.log_routing()` — printed to console
+(`[router] <tier> -> '<question>'`) and appended to a gitignored
+`persona/routing_log.jsonl` (`{timestamp, tier, question, reply}` per
+line) for later review of how the router's actually behaving in
+practice.
+
+**A "premium" user instead skips this router entirely** and talks
+through the OpenAI Realtime pipeline (`pixel_openai_voice.py` /
+`pixel_openai_voice_semantic.py`) directly — paying for a better model
+buys smarter LearnX-hand-off judgment (via that model's own
+tool-calling deciding when a question needs LearnX, not a keyword
+guess) instead of a cost-minimizing keyword router. **Not built yet**
+— this needs OpenAI Realtime function/tool-calling wired into the
+websocket flow, genuinely new protocol surface for this project (the
+existing Realtime scripts only ever do plain conversational turns, no
+tool calls), so it's a separate, more involved piece of work than the
+basic-tier router above.
+
+Verified the full fallback chain (`learnx` → `cloud` → `llm`) against
+the real `_conversation_loop` with four scenarios: LearnX succeeding
+(no cloud/llm call at all), LearnX failing and falling back to cloud,
+cloud failing and falling back to llm, and an ordinary casual question
+going straight to `llm` without ever attempting learnx/cloud. Also
+verified the classifier against 19 example questions (7
+curriculum/learnx, 6 complex/cloud, 6 casual/llm) and that
+`log_routing()` writes correctly-structured JSONL. Not yet verified:
+real LearnX/cloud API calls against live credentials, and real-world
+classification accuracy on actual spoken questions rather than typed
+examples.
+
 ### Gemini text mode: same casual chat, no mic required
 
 `pixel_gemini_text.py` is the keyboard fallback for when there's no

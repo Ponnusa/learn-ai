@@ -47,3 +47,5 @@ pixel-ai/audio_log/
 pixel-ai/persona/transcripts/
 # Pixel's current name if renamed locally -- a live customization, not generic shared identity.
 pixel-ai/persona/NAME.txt
+# Per-question routing log (which tier answered each question) -- real conversation content, never committed.
+pixel-ai/persona/routing_log.jsonl
