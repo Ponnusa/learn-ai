@@ -485,16 +485,9 @@ python local_stt_server.py
 ```
 Setup, on the **Pi**:
 ```bash
-pip install piper-tts
-mkdir -p ~/piper_voices
-wget -O ~/piper_voices/voice.onnx \
-  https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx
-wget -O ~/piper_voices/voice.onnx.json \
-  https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
 # in .env: PIXEL_STT_URL / PIXEL_OLLAMA_URL pointed at the fast
 # machine's IP, PIXEL_OLLAMA_MODEL matching whatever you actually
-# pulled (check with `curl http://<fast-machine-ip>:11434/api/tags`),
-# PIXEL_PIPER_VOICE=/home/pi/piper_voices/voice.onnx
+# pulled (check with `curl http://<fast-machine-ip>:11434/api/tags`)
 python pixel_ollama_voice.py
 ```
 
@@ -560,32 +553,30 @@ on the actual Pi mic — the live tests so far used a synthetic tone,
 which correctly round-tripped to empty text but isn't a real accuracy
 test.
 
-**Speech comes back via Piper, not gTTS** — `pixel_tts_piper.py`, a
-new standalone module, same `speak_async()`/`cleanup_speech()`
-interface as `pixel_tts.py` so `_speak_sentence()` needed no other
-changes beyond importing a different module. Prompted by comparing
+**Speech comes back via gTTS** (`pixel_tts.py`, same as every other
+voice script) **by default** — a local Piper TTS alternative exists
+(`pixel_tts_piper.py`, a new standalone module, same
+`speak_async()`/`cleanup_speech()` interface as `pixel_tts.py`, so
+switching `_speak_sentence()` over is a one-line import change) but
+isn't wired in by default, since the current dev hardware is a Pi 1
+B+ and Piper's `onnxruntime` dependency has no prebuilt wheel for
+ARMv6 — it would fail to install there at all. Built after comparing
 this mode against
 [mayukh4/pibot_local_agent](https://github.com/mayukh4/pibot_local_agent),
-a similar Pi voice-assistant project: gTTS calls Google's cloud TTS
-endpoint over the network for *every sentence*, which both adds
-latency on top of the sentence-streaming pipeline above and
-contradicts this mode's whole "fully local, zero API cost" point.
-Piper is a small neural TTS engine built to run fully offline on
-exactly this class of hardware (it's what Home Assistant's own local
-voice pipeline uses on a Pi) — runs directly on the Pi itself, not the
-fast machine, since it's light enough for that by design and that
-avoids yet another network hop on top of the STT/Ollama ones already
-in the pipeline. **Not yet verified on ARMv6** (the original Pi 1 B+):
-`onnxruntime` (Piper's dependency) only ships prebuilt wheels for
-armv7l/aarch64, so installation will likely fail there — fine on Pi
-Zero 2 W / Pi 3 B+ and newer, the documented production target.
+a similar Pi voice-assistant project that uses Piper specifically to
+avoid gTTS's per-sentence network round-trip to Google's cloud TTS
+endpoint, which both adds latency on top of the sentence-streaming
+pipeline above and contradicts this mode's whole "fully local, zero
+API cost" point. **Worth switching to** (`import pixel_tts_piper as
+pixel_tts` in place of `import pixel_tts`) **on Pi Zero 2 W / Pi 3 B+
+or newer** (armv7l/aarch64), the documented production target.
 Verified so far: the module's own synthesize/voice-loading logic
 against a stubbed Piper voice (produces a correctly-formed WAV, caches
 the loaded model instead of reloading per call, raises a clear error
 if `PIXEL_PIPER_VOICE` isn't set) and that the conversation loop
 (rename, goodbye-ends-session, sentence-streamed replies) still works
-correctly with the new TTS module wired in — not yet run with a real
-Piper voice model on real Pi audio hardware.
+correctly with it wired in — not yet run with a real Piper voice model
+on real Pi audio hardware.
 
 **Compared against `pibot_local_agent` more broadly**: that project
 also has a keyword-matching + Ollama-tool-calling router that answers

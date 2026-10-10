@@ -39,11 +39,12 @@ object which keeps history server-side -- this script keeps its own
 PIXEL_OLLAMA_MAX_HISTORY entries so a long conversation doesn't make
 every turn slower on what's likely a CPU-bound local model.
 
-Speech comes back via Piper (pixel_tts_piper.py), not gTTS -- fully
-local, no network call per sentence, consistent with this mode's
-"zero API cost" point and one less latency hop on top of the
-sentence-streaming above. See that file's docstring for setup
-(voice model download, ARMv6 caveat).
+Speech comes back via gTTS (pixel_tts.py, same as the other voice
+scripts) -- Piper (pixel_tts_piper.py, this repo) would drop the TTS
+network call entirely and is worth switching to on Pi Zero 2 W / Pi 3
+B+ or newer, but its onnxruntime dependency has no prebuilt wheel for
+ARMv6, so it can't run on a Pi 1 B+ at all. Not wired in by default
+for that reason.
 
 Requires a working USB mic (same as the other voice scripts) and
 PIXEL_STT_URL / PIXEL_OLLAMA_URL pointed at the fast machine. LearnX
@@ -65,13 +66,11 @@ import requests
 from dotenv import load_dotenv
 
 import pixel_memory
-# Piper instead of gTTS -- gTTS calling Google's cloud TTS over the
-# network for every sentence was adding latency on top of the
-# sentence-streaming pipeline below, and is inconsistent with this
-# mode's whole "fully local, zero API cost" point. Same
-# speak_async()/cleanup_speech() interface, so _speak_sentence() below
-# needed no other changes. See pixel_tts_piper.py's docstring for setup.
-import pixel_tts_piper as pixel_tts
+# gTTS, not Piper -- Piper's onnxruntime dependency has no prebuilt
+# wheel for ARMv6 (the Pi 1 B+), so pixel_tts_piper.py (this repo)
+# can't run on that hardware. Worth switching to on Pi Zero 2 W / Pi 3
+# B+ or newer -- it drops this TTS step's network call entirely.
+import pixel_tts
 from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_THINKING, STATE_TALKING
 
 load_dotenv()
