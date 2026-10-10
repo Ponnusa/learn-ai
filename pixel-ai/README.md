@@ -533,6 +533,42 @@ marker text leaking in. Not yet verified live — whether the Realtime
 model actually honors this gauging in a real conversation needs a
 hands-on test.
 
+### `pixel_direct_claude.py`: a separate Claude option, not wired in by default
+
+A parallel module to `pixel_direct_llm.py`, not a replacement —
+`pixel_direct_llm.py` is untouched. `pixel_direct_llm.py` deliberately
+chose OpenAI to mirror LearnX's own real `chat_response` provider
+choice; that symmetry was a tie-breaker, not the actual goal — Claude's
+Sonnet/Opus tier has generally had a stronger reputation on STEM/math
+reasoning than plain `gpt-4o` (OpenAI's strongest STEM performance
+comes from its dedicated reasoning models, not `gpt-4o`, and those are
+too slow for a voice assistant waiting on a reply), so this exists as
+the option to use instead for curriculum questions specifically, at
+the cost of diverging from LearnX's own choice and adding a second API
+key/provider.
+
+Exact same contract as `pixel_direct_llm.py` —
+`ask(messages, system_prompt, tier=None) -> (reply, model)` — so
+switching which one a caller uses is a one-line import change.
+Reuses `pixel_direct_llm.classify_difficulty()` rather than
+duplicating the same heuristic a second time. `ANTHROPIC_API_KEY`,
+`PIXEL_CLAUDE_SIMPLE_MODEL`/`PIXEL_CLAUDE_COMPLEX_MODEL` default to
+`claude-haiku-4-5-20251001`/`claude-sonnet-5-5` — the current Claude
+lineup, not guessed; note LearnX's own backend is still pinned to the
+older `claude-sonnet-4-6`/`claude-opus-4-7` for its video pipeline,
+unrelated and untouched here.
+
+**Not wired into any router or voice script yet** — nothing imports
+this by default. Verified standalone: reuses the exact same
+`classify_difficulty` function object as `pixel_direct_llm.py` (not a
+duplicate), raises a clear error with no `ANTHROPIC_API_KEY` set, and
+sends the correct Anthropic request shape (`system` as a top-level
+field rather than a message in the list, `x-api-key` header rather
+than `Authorization: Bearer`, correct Haiku/Sonnet tiering) against a
+mocked `requests.post`. Not yet verified against the real Anthropic
+API, and not yet decided whether/where it replaces `pixel_direct_llm`
+in `pixel_ollama_voice.py`'s `direct_api` tier.
+
 ### Ollama voice mode: fully local, no API costs, experimental
 
 `pixel_ollama_voice.py` trades cloud quality for zero running cost and
