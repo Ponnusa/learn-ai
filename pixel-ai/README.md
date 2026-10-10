@@ -634,10 +634,16 @@ most expensive, each one falling back to the next if it fails:
 
 Every question, regardless of which tier answers it, gets logged via
 `pixel_ollama_router.log_routing()` — printed to console
-(`[router] <tier> -> '<question>'`) and appended to a gitignored
-`persona/routing_log.jsonl` (`{timestamp, tier, question, reply}` per
-line) for later review of how the router's actually behaving in
-practice.
+(`[router] <tier> (<model>) -> '<question>'`) and appended to a
+gitignored `persona/routing_log.jsonl`
+(`{timestamp, tier, model, question, reply}` per line), including
+which *specific* model handled it, not just the tier name: the actual
+`PIXEL_OLLAMA_MODEL` for `llm`, the actual `PIXEL_CLOUD_MODEL` for
+`cloud`, `"learnx-backend"` for `learnx` (LearnX doesn't report which
+underlying model it used, so that's as specific as it gets), and
+`None` for `local` (a plain Python function, no model involved).
+Verified all four tiers log the correct model value against the real
+`_conversation_loop`.
 
 **A "premium" user instead skips this router entirely** and talks
 through the OpenAI Realtime pipeline (`pixel_openai_voice.py` /

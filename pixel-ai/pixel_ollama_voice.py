@@ -486,7 +486,12 @@ async def _conversation_loop(
                     messages.pop()
                     continue
 
-        pixel_ollama_router.log_routing(tier, user_text, reply)
+        model = {
+            "learnx": "learnx-backend",  # opaque to us -- LearnX doesn't report which model it used internally
+            "cloud": pixel_ollama_cloud.MODEL,
+            "llm": OLLAMA_MODEL,
+        }.get(tier)
+        pixel_ollama_router.log_routing(tier, user_text, reply, model=model)
         messages.append({"role": "assistant", "content": reply})
         print(f"Pixel: {reply}")
         transcript_log.append(f"Pixel: {reply}")

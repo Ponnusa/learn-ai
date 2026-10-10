@@ -166,17 +166,22 @@ def classify(text: str) -> str:
     return "llm"
 
 
-def log_routing(tier: str, question: str, reply: str) -> None:
-    """One line per question: which brain actually answered it. Always
-    printed; best-effort appended to a JSONL file -- a logging failure
-    must never block the conversation itself."""
-    print(f"[router] {tier} -> {question!r}")
+def log_routing(tier: str, question: str, reply: str, model: str | None = None) -> None:
+    """One line per question: which brain, and which specific model
+    within it, actually answered it ("llm" could be phi3:mini or
+    whatever else is pulled; "cloud" could be whichever PIXEL_CLOUD_MODEL
+    is set; "local"/"learnx" have no meaningful model name, left None).
+    Always printed; best-effort appended to a JSONL file -- a logging
+    failure must never block the conversation itself."""
+    model_suffix = f" ({model})" if model else ""
+    print(f"[router] {tier}{model_suffix} -> {question!r}")
     try:
         os.makedirs(os.path.dirname(_ROUTING_LOG_PATH), exist_ok=True)
         with open(_ROUTING_LOG_PATH, "a", encoding="utf-8") as f:
             f.write(json.dumps({
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "tier": tier,
+                "model": model,
                 "question": question,
                 "reply": reply,
             }) + "\n")
