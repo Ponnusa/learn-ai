@@ -48,10 +48,11 @@ for that reason.
 
 Requires a working USB mic (same as the other voice scripts) and
 PIXEL_STT_URL / PIXEL_OLLAMA_URL pointed at the fast machine. Local
-Ollama stays the primary brain -- pixel_direct_llm.py (direct OpenAI,
-no LearnX round-trip) is only the escalation tier for questions local
-can't handle well, and pixel_brain.py's video functions are the only
-LearnX access left anywhere in this script.
+Ollama stays the primary brain -- the escalation tier for questions
+local can't handle well is a direct API call (no LearnX round-trip),
+PIXEL_DIRECT_PROVIDER picking pixel_direct_llm.py (OpenAI, default) or
+pixel_direct_claude.py (Claude). pixel_brain.py's video functions are
+the only LearnX access left anywhere in this script.
 """
 import asyncio
 import audioop  # stdlib; deprecated (PEP 594) but present on 3.11, see
@@ -69,6 +70,7 @@ import wave
 import requests
 from dotenv import load_dotenv
 
+import pixel_direct_claude
 import pixel_direct_llm
 import pixel_memory
 import pixel_ollama_router
@@ -83,6 +85,17 @@ from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_THINKING, STATE_
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s:%(name)s:%(message)s")
 logger = logging.getLogger(__name__)
+
+# Which module answers the direct_api tier -- pixel_direct_llm.py
+# (OpenAI, matches LearnX's own chat_response choice) or
+# pixel_direct_claude.py (Claude, stronger STEM reasoning reputation
+# than plain gpt-4o). Both modules share the exact same ask(messages,
+# system_prompt, tier=None) -> (reply, model) contract, so this is
+# just picking which one to call, not two different code paths.
+_DIRECT_API_PROVIDER = (
+    pixel_direct_claude if os.environ.get("PIXEL_DIRECT_PROVIDER", "openai") == "claude"
+    else pixel_direct_llm
+)
 
 STT_URL = os.environ["PIXEL_STT_URL"]        # e.g. http://192.168.1.50:5051/transcribe
 OLLAMA_URL = os.environ["PIXEL_OLLAMA_URL"]  # e.g. http://192.168.1.50:11434/api/chat
@@ -548,7 +561,7 @@ async def _conversation_loop(
                     await _speak_once(random.choice(_THINKING_FILLERS), pixel_speaking)
                     try:
                         raw_reply, model_used = await loop.run_in_executor(
-                            None, pixel_direct_llm.ask, messages[1:],
+                            None, _DIRECT_API_PROVIDER.ask, messages[1:],
                             pixel_teaching_prompt.FULL_PROMPT, None,
                         )
                         reply, depth, waiting = pixel_teaching_prompt.strip_markers(raw_reply)

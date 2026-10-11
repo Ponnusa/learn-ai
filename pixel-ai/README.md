@@ -533,7 +533,7 @@ marker text leaking in. Not yet verified live — whether the Realtime
 model actually honors this gauging in a real conversation needs a
 hands-on test.
 
-### `pixel_direct_claude.py`: a separate Claude option, not wired in by default
+### `pixel_direct_claude.py`: a separate Claude option, env-var selectable
 
 A parallel module to `pixel_direct_llm.py`, not a replacement —
 `pixel_direct_llm.py` is untouched. `pixel_direct_llm.py` deliberately
@@ -558,16 +558,25 @@ lineup, not guessed; note LearnX's own backend is still pinned to the
 older `claude-sonnet-4-6`/`claude-opus-4-7` for its video pipeline,
 unrelated and untouched here.
 
-**Not wired into any router or voice script yet** — nothing imports
-this by default. Verified standalone: reuses the exact same
-`classify_difficulty` function object as `pixel_direct_llm.py` (not a
-duplicate), raises a clear error with no `ANTHROPIC_API_KEY` set, and
-sends the correct Anthropic request shape (`system` as a top-level
-field rather than a message in the list, `x-api-key` header rather
-than `Authorization: Bearer`, correct Haiku/Sonnet tiering) against a
-mocked `requests.post`. Not yet verified against the real Anthropic
-API, and not yet decided whether/where it replaces `pixel_direct_llm`
-in `pixel_ollama_voice.py`'s `direct_api` tier.
+**Now wired into `pixel_ollama_voice.py`'s `direct_api` tier, env-var
+selectable** — `PIXEL_DIRECT_PROVIDER=openai` (default) uses
+`pixel_direct_llm`, `PIXEL_DIRECT_PROVIDER=claude` uses
+`pixel_direct_claude` instead. `_DIRECT_API_PROVIDER` is picked once
+at import time (a plain module reference, since both share the exact
+same `ask()` contract) and the single call site in `_conversation_loop`
+calls whichever one it points to — switching providers needs no other
+code change, just the env var. Verified: the provider selection
+correctly resolves to each module for `openai`/`claude`/unset, and
+the full `_conversation_loop` tests (video isolation, `[[WAITING:1]]`
+continuity, `direct_api` → `llm` fallback) still pass unchanged
+through this new indirection. Verified standalone (before wiring):
+reuses the exact same `classify_difficulty` function object as
+`pixel_direct_llm.py` (not a duplicate), raises a clear error with no
+`ANTHROPIC_API_KEY` set, and sends the correct Anthropic request shape
+(`system` as a top-level field rather than a message in the list,
+`x-api-key` header rather than `Authorization: Bearer`, correct
+Haiku/Sonnet tiering) against a mocked `requests.post`. Not yet
+verified against the real Anthropic API.
 
 ### Ollama voice mode: fully local, no API costs, experimental
 
