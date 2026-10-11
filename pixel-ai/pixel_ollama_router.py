@@ -165,7 +165,14 @@ _DIRECT_API_PATTERN = re.compile(
     r"\b(?:"
     r"solve|equation|formula|algebra|geometry|calculus|trigonometry|"
     r"derivative|integral|quadratic|polynomial|fraction|arithmetic|"
-    r"velocity|acceleration|momentum|newton'?s law|physics|"
+    r"velocity|acceleration|momentum|"
+    # Confirmed live this was missing real phrasings in practice:
+    # "newton's law" matched, but "newton's FIRST law" didn't (the
+    # literal phrase broke when a word was inserted), so it fell
+    # through to the llm tier purely because of how the question
+    # happened to be worded. Allows an optional ordinal between
+    # "newton's" and "law(s)".
+    r"newton'?s\s+(?:(?:first|second|third)\s+)?laws?|physics|"
     r"chemistry|chemical reaction|molecules?|moles?|periodic table|maths?|"
     r"explain in detail|write (?:a|an|me)|essay|analyz[es]|analyse|"
     r"compare and contrast|history of|summari[sz]e|code for|program that"
