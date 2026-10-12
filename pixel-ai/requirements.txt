@@ -6,8 +6,10 @@ python-dotenv
 google-genai
 websockets
 # pixel_visual_aid.py's render_formula() only -- matplotlib's mathtext
-# engine, not a full LaTeX install. Mainstream aarch64 wheels exist
-# (unlike onnxruntime's ARMv6 gap), but this feature already targets
-# Pi 4/5 for the second-screen hardware anyway -- still worth one real
-# `pip install` check on actual target hardware before assuming.
+# engine, not a full LaTeX install. The wheel installs fine on aarch64,
+# but confirmed on real Pi hardware: numpy's wheel needs libopenblas.so.0
+# as a SYSTEM shared library, which Raspberry Pi OS doesn't ship by
+# default (ImportError: libopenblas.so.0: cannot open shared object
+# file). Fix on the Pi itself, not via pip:
+#   sudo apt-get update && sudo apt-get install -y libopenblas0
 matplotlib

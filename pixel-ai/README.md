@@ -601,6 +601,13 @@ actually calls these tools appropriately during a live conversation,
 and the real second-screen display mechanism once Pi 4/5 + dual HDMI
 hardware is available.
 
+**Known Pi install gap**: `matplotlib`'s wheel installs fine on
+aarch64, but numpy's wheel under it needs `libopenblas.so.0` as a
+system shared library, which Raspberry Pi OS doesn't ship by default —
+hit as a real `ImportError` on device. Fix with
+`sudo apt-get install -y libopenblas0` (see `requirements.txt`), not
+via pip.
+
 ### `pixel_direct_claude.py`: a separate Claude option, env-var selectable
 
 A parallel module to `pixel_direct_llm.py`, not a replacement —
