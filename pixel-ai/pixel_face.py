@@ -63,6 +63,8 @@ class PixelFace:
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
+        self._visual_surface = None
+        self._visual_until = 0.0
 
     def start(self) -> None:
         if self._running:
@@ -83,6 +85,25 @@ class PixelFace:
     def _get_state(self) -> str:
         with self._lock:
             return self._state
+
+    def show_visual(self, surface: "pygame.Surface", duration: float = 8.0) -> None:
+        """Temporarily shows an arbitrary surface (e.g. a formula or
+        counting visual from pixel_visual_aid.py) instead of the usual
+        face animation, for `duration` seconds, then reverts
+        automatically. Stand-in for a real second screen while none is
+        connected yet -- see pixel_screen2.py, which calls this so the
+        rendered output can actually be seen (not just saved to a PNG)
+        on the one screen that's already proven to work."""
+        with self._lock:
+            self._visual_surface = surface
+            self._visual_until = time.time() + duration
+
+    def _get_visual(self):
+        with self._lock:
+            if self._visual_surface is not None and time.time() < self._visual_until:
+                return self._visual_surface
+            self._visual_surface = None
+            return None
 
     def _create_screen(self):
         os.environ.setdefault("SDL_FBDEV", "/dev/fb0")
@@ -117,9 +138,18 @@ class PixelFace:
                     self._running = False
 
             screen.fill(_BG)
-            state = self._get_state()
             cx, cy = self._width // 2, self._height // 2
 
+            visual = self._get_visual()
+            if visual is not None:
+                rect = visual.get_rect(center=(cx, cy))
+                screen.blit(visual, rect)
+                pygame.display.flip()
+                clock.tick(_FPS)
+                t += 1.0 / _FPS
+                continue
+
+            state = self._get_state()
             if state == STATE_IDLE:
                 self._draw_eyes(screen, cx, cy, _CYAN, 0.75 + 0.25 * math.sin(t * 1.5))
             elif state == STATE_LISTENING:

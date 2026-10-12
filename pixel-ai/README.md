@@ -559,11 +559,15 @@ weak hardware in `pixel_face.py`'s eyes, generic over `object_label`
 so it covers apples, fingers, dots, anything, without needing
 per-object icon artwork.
 
-**Display is intentionally stubbed** — `pixel_screen2.py`'s `show()`
-just saves the rendered image to `persona/screen2_preview.png`
-(gitignored) for now, since there's no second physical screen
-connected yet (that needs Pi 4/5 for real dual-HDMI output, not the
-Pi 1 B+ this project develops on). Real second-screen output is a
+**Display stands in on the existing face screen** — there's no second
+physical screen connected yet (that needs Pi 4/5 for real dual-HDMI
+output, not the Pi 1 B+ this project develops on), so `pixel_screen2.py`'s
+`show()` calls `PixelFace.show_visual()`, which temporarily shows the
+rendered image on the one screen already proven to work (overriding
+the normal face animation for 8 seconds, then reverting automatically)
+so the actual rendering can be seen on real hardware instead of only
+reviewed as a file. It also still saves to `persona/screen2_preview.png`
+(gitignored) for off-device review. Real second-screen output is a
 genuinely open question this doesn't resolve: it needs its own
 SDL-driver-fallback investigation (same kind of real hardware
 debugging `pixel_face.py`'s `_create_screen()` took this session to
@@ -586,7 +590,10 @@ cases and captions them correctly (checked via a stubbed pygame, since
 real pygame doesn't have a prebuilt wheel for this dev sandbox's
 Python version — unrelated to the actual Pi target, which already has
 it working via `pixel_face.py`); `pixel_screen2.show()` saves to the
-expected path; both new tool handlers send the correct
+expected path and hands the surface to `PixelFace.show_visual()`, which
+returns it from `_get_visual()` while active and reverts to the normal
+face animation once the duration expires (checked with a stubbed
+pygame, same reasoning as above); both new tool handlers send the correct
 `function_call_output`/`response.create` sequence and degrade
 gracefully (an apology, not a crash) on a rendering failure, against
 a mocked websocket. Not yet verified: whether the Realtime model

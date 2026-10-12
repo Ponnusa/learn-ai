@@ -1,5 +1,5 @@
 """Display target for pixel_visual_aid.py's rendered surfaces --
-stubbed for now, no second physical screen connected yet.
+no second physical screen connected yet.
 
 Real second-screen output needs its own investigation once that
 hardware exists: a second HDMI display needs the same kind of
@@ -10,14 +10,17 @@ display targets from one process at all, or whether screen 2 needs
 its own separate process entirely. Not solvable without the actual
 second screen in hand, so this isn't guessed at here.
 
-For now: saves the surface to persona/screen2_preview.png (gitignored,
-overwritten each call) so what *would* be shown can be reviewed by
-pulling the file off the Pi -- verifies the rendering pipeline end to
-end without needing the display hardware at all.
+Until then: shown on the existing, already-working face screen as a
+temporary override (see PixelFace.show_visual()), so the rendering can
+actually be seen on real hardware instead of only reviewed as a saved
+PNG. Also still saves to persona/screen2_preview.png (gitignored,
+overwritten each call) for review off-device.
 """
 import os
 
 import pygame
+
+from pixel_face import face
 
 _PREVIEW_PATH = os.path.join(os.path.dirname(__file__), "persona", "screen2_preview.png")
 
@@ -25,3 +28,4 @@ _PREVIEW_PATH = os.path.join(os.path.dirname(__file__), "persona", "screen2_prev
 def show(surface: pygame.Surface) -> None:
     os.makedirs(os.path.dirname(_PREVIEW_PATH), exist_ok=True)
     pygame.image.save(surface, _PREVIEW_PATH)
+    face.show_visual(surface)
