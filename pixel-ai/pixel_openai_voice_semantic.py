@@ -170,7 +170,13 @@ def _build_persona(name: str) -> str:
         "on the student's screen. Use them to SUPPORT what you're "
         "saying, not replace it -- keep narrating normally and call "
         "the tool for the matching visual at roughly the right moment, "
-        "the same way a teacher points at the board while still talking."
+        "the same way a teacher points at the board while still talking.\n"
+        "Call show_formula or show_counting_visual for EVERY math "
+        "answer, even a trivially simple one like '2 plus 2' -- call "
+        "show_formula('2+2=4') right as you say the answer, don't skip "
+        "it just because the arithmetic is easy. Use show_counting_visual "
+        "instead when concrete objects are involved (e.g. '2 apples plus "
+        "2 apples')."
     )
 
 
@@ -532,6 +538,7 @@ async def _handle_formula_tool_call(ws, call_id: str, arguments_json: str) -> No
         surface = await loop.run_in_executor(None, pixel_visual_aid.render_formula, latex)
         await loop.run_in_executor(None, pixel_screen2.show, surface)
         output = "Shown on screen."
+        logger.info("show_formula shown: %r", latex)
     except Exception:
         logger.exception("show_formula tool call failed")
         output = "Couldn't show that on screen, but keep explaining it out loud."
@@ -550,6 +557,10 @@ async def _handle_counting_visual_tool_call(ws, call_id: str, arguments_json: st
         )
         await loop.run_in_executor(None, pixel_screen2.show, surface)
         output = "Shown on screen."
+        logger.info(
+            "show_counting_visual shown: %s %s %s %s",
+            args["count_a"], args["operation"], args["count_b"], args["object_label"],
+        )
     except Exception:
         logger.exception("show_counting_visual tool call failed")
         output = "Couldn't show that on screen, but keep explaining it out loud."
@@ -600,12 +611,15 @@ async def _receive_loop(
         elif t == "response.function_call_arguments.done":
             tool_name = data.get("name")
             tool_args = data.get("arguments", "{}")
+            logger.info("tool call: %s(%s)", tool_name, tool_args)
             if tool_name == "generate_video":
                 await _handle_video_tool_call(ws, data["call_id"], tool_args)
             elif tool_name == "show_formula":
                 await _handle_formula_tool_call(ws, data["call_id"], tool_args)
             elif tool_name == "show_counting_visual":
                 await _handle_counting_visual_tool_call(ws, data["call_id"], tool_args)
+            else:
+                logger.warning("tool call for unknown tool %r ignored", tool_name)
         elif t == "response.done":
             last_activity["at"] = loop.time()
             is_goodbye = bool(user_transcript) and pixel_memory.detect_goodbye(user_transcript)
