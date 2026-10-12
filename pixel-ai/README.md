@@ -533,6 +533,67 @@ marker text leaking in. Not yet verified live — whether the Realtime
 model actually honors this gauging in a real conversation needs a
 hands-on test.
 
+**Two more tools: showing formulas and simple counting visuals on a
+second screen, while talking.** `show_formula(latex)` and
+`show_counting_visual(count_a, count_b, operation, object_label)`,
+same shape as `generate_video` — the model decides on its own when a
+question would benefit from a supporting visual (a formula for
+"2+2=4", a "2 apples + 2 apples = 4 apples" illustration) and calls
+the tool *while continuing to narrate normally*, rather than this
+being a separate mode. Two narrowly-typed tools rather than one
+generic one with a free-text field — explicit parameters (two
+numbers, an operation, a label) are far more reliable for the model
+to fill in correctly than packing the same data into text for us to
+parse back out.
+
+Rendering lives in a new standalone module, `pixel_visual_aid.py`,
+deliberately **not** Manim (LearnX's own video-generation
+technology) — Manim renders offline, taking ~60s per clip, far too
+slow to show *while* Pixel is still talking. `render_formula()` uses
+matplotlib's `mathtext` engine (understands basic LaTeX-like syntax —
+`$...$`, superscripts, fractions — without needing a full TeX
+install, which would be far too heavy for this project's hardware
+targets). `render_counting_visual()` is plain pygame drawing (circles,
+text) — the same cheap primitive-shape technique already proven on
+weak hardware in `pixel_face.py`'s eyes, generic over `object_label`
+so it covers apples, fingers, dots, anything, without needing
+per-object icon artwork.
+
+**Display is intentionally stubbed** — `pixel_screen2.py`'s `show()`
+just saves the rendered image to `persona/screen2_preview.png`
+(gitignored) for now, since there's no second physical screen
+connected yet (that needs Pi 4/5 for real dual-HDMI output, not the
+Pi 1 B+ this project develops on). Real second-screen output is a
+genuinely open question this doesn't resolve: it needs its own
+SDL-driver-fallback investigation (same kind of real hardware
+debugging `pixel_face.py`'s `_create_screen()` took this session to
+get right) *and* a separate unanswered question — whether pygame/SDL
+can drive two independent display targets from one process at all,
+or whether screen 2 needs its own separate process. Not guessed at
+here; needs the actual hardware in hand.
+
+**Explicitly out of scope**: chemical structure (SMILES) rendering —
+would need RDKit, a much heavier and less certain ARM dependency than
+matplotlib — flagged as a real follow-up, not built. Precise
+audio/visual synchronization — the model decides when to call a tool
+during generation, so it'll be roughly aligned with the narration,
+not frame-accurate.
+
+Verified: `render_formula()` produces a real, valid, non-trivial PNG
+via actual matplotlib rendering (not mocked); `render_counting_visual()`
+draws the correct number of circles for both addition and subtraction
+cases and captions them correctly (checked via a stubbed pygame, since
+real pygame doesn't have a prebuilt wheel for this dev sandbox's
+Python version — unrelated to the actual Pi target, which already has
+it working via `pixel_face.py`); `pixel_screen2.show()` saves to the
+expected path; both new tool handlers send the correct
+`function_call_output`/`response.create` sequence and degrade
+gracefully (an apology, not a crash) on a rendering failure, against
+a mocked websocket. Not yet verified: whether the Realtime model
+actually calls these tools appropriately during a live conversation,
+and the real second-screen display mechanism once Pi 4/5 + dual HDMI
+hardware is available.
+
 ### `pixel_direct_claude.py`: a separate Claude option, env-var selectable
 
 A parallel module to `pixel_direct_llm.py`, not a replacement —

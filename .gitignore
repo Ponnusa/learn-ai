@@ -49,3 +49,5 @@ pixel-ai/persona/transcripts/
 pixel-ai/persona/NAME.txt
 # Per-question routing log (which tier answered each question) -- real conversation content, never committed.
 pixel-ai/persona/routing_log.jsonl
+# Second-screen preview image (pixel_screen2.py's stand-in for real display hardware) -- regenerated each call, never committed.
+pixel-ai/persona/screen2_preview.png

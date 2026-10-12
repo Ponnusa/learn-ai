@@ -5,3 +5,9 @@ flask
 python-dotenv
 google-genai
 websockets
+# pixel_visual_aid.py's render_formula() only -- matplotlib's mathtext
+# engine, not a full LaTeX install. Mainstream aarch64 wheels exist
+# (unlike onnxruntime's ARMv6 gap), but this feature already targets
+# Pi 4/5 for the second-screen hardware anyway -- still worth one real
+# `pip install` check on actual target hardware before assuming.
+matplotlib

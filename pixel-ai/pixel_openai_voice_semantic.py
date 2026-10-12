@@ -61,6 +61,8 @@ import websockets
 from dotenv import load_dotenv
 
 import pixel_memory
+import pixel_screen2
+import pixel_visual_aid
 from pixel_face import face, STATE_IDLE, STATE_LISTENING, STATE_THINKING, STATE_TALKING
 
 load_dotenv()
@@ -163,7 +165,12 @@ def _build_persona(name: str) -> str:
         "frustrated, or have struggled on the same thing twice in a row.\n"
         "Everyday conversation, small talk, and personal questions stay "
         "exactly as casual as above -- this only applies to things you "
-        "could actually teach them."
+        "could actually teach them.\n\n"
+        "You have tools to show a formula or a simple counting visual "
+        "on the student's screen. Use them to SUPPORT what you're "
+        "saying, not replace it -- keep narrating normally and call "
+        "the tool for the matching visual at roughly the right moment, "
+        "the same way a teacher points at the board while still talking."
     )
 
 
@@ -297,6 +304,65 @@ _VIDEO_TOOL = {
     },
 }
 
+# Two more tools so the model can show supporting visuals on a second
+# screen WHILE it talks, not instead of talking -- see
+# pixel_visual_aid.py (rendering) and pixel_screen2.py (display,
+# currently stubbed to a saved PNG since no second screen is connected
+# yet). Two separate, narrowly-typed tools rather than one generic one
+# with a free-text content field -- explicit parameters (two numbers,
+# an operation, a label) are much more reliable for the model to fill
+# in correctly than packing the same data into unstructured text for
+# us to parse back out.
+_FORMULA_TOOL = {
+    "type": "function",
+    "name": "show_formula",
+    "description": (
+        "Show a math or chemistry formula on the student's screen while "
+        "you talk about it. Use this to support what you're saying, not "
+        "as a replacement for speaking -- keep narrating normally."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "latex": {
+                "type": "string",
+                "description": (
+                    "The formula, wrapped in $...$ for math rendering, "
+                    "e.g. '$2+2=4$' or '$F=ma$'."
+                ),
+            },
+        },
+        "required": ["latex"],
+    },
+}
+
+_COUNTING_VISUAL_TOOL = {
+    "type": "function",
+    "name": "show_counting_visual",
+    "description": (
+        "Show a simple visual of two groups of objects being combined "
+        "or taken apart -- e.g. '2 apples + 2 apples = 4 apples'. Use "
+        "this for simple arithmetic with young students, alongside "
+        "your normal spoken explanation."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "count_a": {"type": "integer", "description": "First group's count."},
+            "count_b": {"type": "integer", "description": "Second group's count."},
+            "operation": {
+                "type": "string", "enum": ["+", "-"],
+                "description": "Whether the second group is added or taken away.",
+            },
+            "object_label": {
+                "type": "string",
+                "description": "What's being counted, e.g. 'apples' or 'fingers'.",
+            },
+        },
+        "required": ["count_a", "count_b", "operation", "object_label"],
+    },
+}
+
 
 def _build_session_dict(
     instructions: str, modalities: tuple[str, ...] = ("audio",),
@@ -306,7 +372,7 @@ def _build_session_dict(
         "type": "realtime",
         "output_modalities": modalities,
         "instructions": instructions,
-        "tools": [_VIDEO_TOOL],
+        "tools": [_VIDEO_TOOL, _FORMULA_TOOL, _COUNTING_VISUAL_TOOL],
         "tool_choice": "auto",
     }
     if max_output_tokens is not None:
@@ -421,6 +487,21 @@ def _generate_video(topic: str) -> str:
     )
 
 
+async def _send_tool_result(ws, call_id: str, output: str) -> None:
+    """Shared tail for every tool handler below: send the result back
+    and let the model continue -- it narrates/reacts to whatever the
+    tool returned, same for all three tools."""
+    await ws.send(json.dumps({
+        "type": "conversation.item.create",
+        "item": {
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": output,
+        },
+    }))
+    await ws.send(json.dumps({"type": "response.create"}))
+
+
 async def _handle_video_tool_call(ws, call_id: str, arguments_json: str) -> None:
     """Executes the generate_video tool and sends the result back so
     the model can tell the student about it -- known gap, not yet
@@ -435,16 +516,44 @@ async def _handle_video_tool_call(ws, call_id: str, arguments_json: str) -> None
     except Exception:
         logger.exception("generate_video tool call failed")
         output = "Sorry, I couldn't get that video made right now."
+    await _send_tool_result(ws, call_id, output)
 
-    await ws.send(json.dumps({
-        "type": "conversation.item.create",
-        "item": {
-            "type": "function_call_output",
-            "call_id": call_id,
-            "output": output,
-        },
-    }))
-    await ws.send(json.dumps({"type": "response.create"}))
+
+async def _handle_formula_tool_call(ws, call_id: str, arguments_json: str) -> None:
+    """Renders a formula and shows it on screen 2 -- fast (no network
+    call, no LearnX), unlike the video tool. Known gap, not yet
+    live-verified: whether the Realtime model actually calls this
+    appropriately during a real conversation, and the real
+    second-screen display mechanism (pixel_screen2.py is stubbed to a
+    saved PNG for now -- see that file)."""
+    loop = asyncio.get_event_loop()
+    try:
+        latex = json.loads(arguments_json).get("latex", "")
+        surface = await loop.run_in_executor(None, pixel_visual_aid.render_formula, latex)
+        await loop.run_in_executor(None, pixel_screen2.show, surface)
+        output = "Shown on screen."
+    except Exception:
+        logger.exception("show_formula tool call failed")
+        output = "Couldn't show that on screen, but keep explaining it out loud."
+    await _send_tool_result(ws, call_id, output)
+
+
+async def _handle_counting_visual_tool_call(ws, call_id: str, arguments_json: str) -> None:
+    """Same shape as _handle_formula_tool_call -- renders and shows a
+    counting visual instead of a formula."""
+    loop = asyncio.get_event_loop()
+    try:
+        args = json.loads(arguments_json)
+        surface = await loop.run_in_executor(
+            None, pixel_visual_aid.render_counting_visual,
+            args["count_a"], args["count_b"], args["operation"], args["object_label"],
+        )
+        await loop.run_in_executor(None, pixel_screen2.show, surface)
+        output = "Shown on screen."
+    except Exception:
+        logger.exception("show_counting_visual tool call failed")
+        output = "Couldn't show that on screen, but keep explaining it out loud."
+    await _send_tool_result(ws, call_id, output)
 
 
 async def _receive_loop(
@@ -489,8 +598,14 @@ async def _receive_loop(
         elif t == "response.output_audio_transcript.delta":
             transcript += data.get("delta", "")
         elif t == "response.function_call_arguments.done":
-            if data.get("name") == "generate_video":
-                await _handle_video_tool_call(ws, data["call_id"], data.get("arguments", "{}"))
+            tool_name = data.get("name")
+            tool_args = data.get("arguments", "{}")
+            if tool_name == "generate_video":
+                await _handle_video_tool_call(ws, data["call_id"], tool_args)
+            elif tool_name == "show_formula":
+                await _handle_formula_tool_call(ws, data["call_id"], tool_args)
+            elif tool_name == "show_counting_visual":
+                await _handle_counting_visual_tool_call(ws, data["call_id"], tool_args)
         elif t == "response.done":
             last_activity["at"] = loop.time()
             is_goodbye = bool(user_transcript) and pixel_memory.detect_goodbye(user_transcript)
