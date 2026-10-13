@@ -77,8 +77,18 @@ class SpeechRecognitionBackend(ABC):
     """
 
     @abstractmethod
-    async def transcribe(self, audio: bytes) -> str:
-        """Returns the transcribed text for one complete utterance."""
+    async def transcribe(self, audio: bytes, language: str | None = None) -> str:
+        """language: an ISO-639-1 code (e.g. "en") forcing the expected
+        spoken language, or None to auto-detect. Found live: without
+        this, a short or slightly unclear clip -- especially right
+        after a story told in a different language -- can get its
+        language auto-detected wrong entirely, producing fluent-looking
+        gibberish in a completely unrelated script rather than a
+        rough transcription of what was actually said. A backend with
+        no language-forcing capability of its own is free to ignore
+        this and always auto-detect.
+
+        Returns the transcribed text for one complete utterance."""
         raise NotImplementedError
 
 

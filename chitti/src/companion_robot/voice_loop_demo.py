@@ -80,7 +80,15 @@ async def _capture_and_transcribe(stt) -> str:
     await asyncio.get_event_loop().run_in_executor(None, _record_clip, _CAPTURE_PATH)
     with open(_CAPTURE_PATH, "rb") as f:
         audio_bytes = f.read()
-    return await stt.transcribe(audio_bytes)
+    # Forces English rather than letting Whisper auto-detect -- found
+    # live that a short/unclear clip, especially right after a story
+    # told in a different language, can get auto-detected wrong
+    # entirely and come back as fluent-looking gibberish in a totally
+    # unrelated script. Hardcoded for now since English is this
+    # project's dev-first language (decision 0003's sequencing); should
+    # become a per-profile setting once Finnish is actually in play,
+    # not assumed English forever.
+    return await stt.transcribe(audio_bytes, language="en")
 
 
 async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:

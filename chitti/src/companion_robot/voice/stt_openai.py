@@ -18,15 +18,18 @@ class OpenAIWhisperBackend(SpeechRecognitionBackend):
     def __init__(self, model: str = _DEFAULT_MODEL) -> None:
         self._model = model
 
-    async def transcribe(self, audio: bytes) -> str:
+    async def transcribe(self, audio: bytes, language: str | None = None) -> str:
         api_key = require_env("OPENAI_API_KEY")
+        data = {"model": self._model}
+        if language is not None:
+            data["language"] = language
 
         def _do_request():
             return requests.post(
                 _API_URL,
                 headers={"Authorization": f"Bearer {api_key}"},
                 files={"file": ("audio.wav", audio, "audio/wav")},
-                data={"model": self._model},
+                data=data,
                 timeout=30,
             )
 
