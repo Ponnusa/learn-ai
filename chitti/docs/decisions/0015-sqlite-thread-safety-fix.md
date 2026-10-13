@@ -80,7 +80,14 @@ two threads' statements from interleaving mid-execute.
 - Re-ran the real server manually after the fix: 5 concurrent requests
   to `/setup`, all `200`, no errors in the log.
 
-## Not yet done
+## Verified on real hardware (2026-10-13, same day)
 
-- This was found and fixed on the dev sandbox, not yet re-verified on
-  the Pi 1 B+ hardware — that's the next step.
+Re-tested on the Pi 1 B+ (`chitti@LearnXAI`) after pulling this fix:
+- `./scripts/run_tests.sh` → all 81 tests passed.
+- `./scripts/run_parent_controls.sh` run for real, reached from another
+  device on the LAN (not just `curl` from this agent's own dev
+  sandbox, which could not reach the Pi directly — different networks).
+- Full browser walkthrough completed: PIN setup, login, child-profile
+  creation, story creation, and the memory-review page all worked
+  against the real multi-threaded Flask server on real hardware — the
+  exact scenario that exposed the original bug.
