@@ -60,3 +60,7 @@ chitti/.env
 chitti/chitti_env/
 chitti/.pytest_cache/
 chitti/src/*.egg-info/
+# Real local SQLite DB + session secret key for the Parent Controls
+# web UI (scripts/run_parent_controls.sh) -- contains the parent's own
+# PIN hash and real profile/story data, never committed.
+chitti/data/

@@ -209,3 +209,30 @@ def create_app(
         return redirect(url_for("profile_memories", profile_id=profile_id))
 
     return app
+
+
+def main() -> None:
+    """Standalone entry point for manual LAN-reachability testing --
+    real deployment would run this inside app.py's own process
+    lifecycle, not as a separate script. Persists to a real SQLite
+    file (chitti/data/chitti.db), not ":memory:", so profiles/stories/
+    the PIN survive a restart. Binds 0.0.0.0 so it's actually reachable
+    from another device on the LAN, matching the LAN-only design --
+    never bind this to a public interface. debug=False is explicit,
+    not just the default: Werkzeug's debugger allows arbitrary code
+    execution from anyone who can reach it, which is never acceptable
+    here even on a "trusted" home network.
+    """
+    from pathlib import Path
+
+    from companion_robot.storage.sqlite import connect
+
+    data_dir = Path(__file__).resolve().parent.parent.parent.parent / "data"
+    data_dir.mkdir(exist_ok=True)
+    conn = connect(data_dir / "chitti.db")
+    app = create_app(conn, secret_key_path=data_dir / "session_secret.key")
+    app.run(host="0.0.0.0", port=5000, debug=False)
+
+
+if __name__ == "__main__":
+    main()
