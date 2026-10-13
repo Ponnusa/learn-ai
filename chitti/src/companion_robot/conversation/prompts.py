@@ -20,7 +20,7 @@ TEACHABLE_FRIEND_SYSTEM_PROMPT = (
 )
 
 
-def build_story_companion_prompt(story_transcript: str) -> str:
+def build_story_companion_prompt(story_transcript: str, story_title: str | None = None) -> str:
     """Grounds the model's answers in exactly this story's text --
     nothing else. Decision 0003: the transcript comes from a preloaded
     story library or a parent-uploaded story, not from transcribing a
@@ -33,15 +33,20 @@ def build_story_companion_prompt(story_transcript: str) -> str:
     request (retelling its own already-known content introduces no
     new, unverified facts) rather than an actual factual question.
     Explicitly carved out below.
+
+    `story_title` was never passed at all until decision 0022 -- the
+    model only ever saw the story's body text, so it couldn't answer
+    something as simple as "what's this story called?".
     """
+    title_line = f' called "{story_title}"' if story_title else ""
     return (
-        "You are Chitti, a friendly AI companion robot. You have just "
-        "read the following story to a child. Answer the child's "
-        "questions about it using ONLY what's in the story below -- "
-        "never use outside knowledge, and never say anything that "
-        "contradicts the story. If the child asks a factual question "
-        "about the story and the answer isn't actually in it, say "
-        "you're not sure rather than guessing.\n\n"
+        f"You are Chitti, a friendly AI companion robot. You have just "
+        f"read the following story{title_line} to a child. Answer the "
+        "child's questions about it using ONLY what's in the story "
+        "below -- never use outside knowledge, and never say anything "
+        "that contradicts the story. If the child asks a factual "
+        "question about the story and the answer isn't actually in "
+        "it, say you're not sure rather than guessing.\n\n"
         "This caution is only about story FACTS. If the child asks you "
         "to retell, summarize, or translate the story -- in English or "
         "any other language -- go ahead freely; that doesn't involve "

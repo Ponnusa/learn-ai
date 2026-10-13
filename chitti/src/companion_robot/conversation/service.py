@@ -47,9 +47,9 @@ class ConversationService:
         return self._screen(reply_text)
 
     async def story_companion_reply(
-        self, messages: list[dict], story_transcript: str
+        self, messages: list[dict], story_transcript: str, story_title: str | None = None
     ) -> ConversationResult:
-        system_prompt = build_story_companion_prompt(story_transcript)
+        system_prompt = build_story_companion_prompt(story_transcript, story_title)
         reply_text, _model = await self._llm.generate_reply(messages, system_prompt)
         return self._screen(reply_text)
 

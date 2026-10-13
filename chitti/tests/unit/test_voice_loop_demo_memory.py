@@ -152,6 +152,26 @@ async def test_summarize_and_remember_session_survives_other_failures(capsys):
     assert "couldn't save" in capsys.readouterr().out
 
 
+async def test_summarize_and_remember_session_includes_story_title_in_transcript():
+    """Found live (decision 0022): Story Companion's `messages` only
+    ever held the story's body text, never its title, so the
+    summarizer had no way to name which story a discussion was about."""
+    memories = _make_memories()
+    summarizer = _FakeLLM(reply="Discussed the story.")
+    conversation = ConversationService(_FakeLLM(reply="unused"), summarizer_llm=summarizer)
+    messages = [
+        {"role": "assistant", "content": "Once there was a clever fox."},
+        {"role": "user", "content": "What was the fox like?"},
+    ]
+
+    await _summarize_and_remember_session(
+        conversation, memories, "p1", messages, story_title="The Clever Fox"
+    )
+
+    sent_transcript = summarizer.calls[0][0][0]["content"]
+    assert "The Clever Fox" in sent_transcript
+
+
 async def test_maybe_greet_with_recap_speaks_greeting_from_latest_summary():
     memories = _make_memories()
     memories.create(_make_summary_record("s1", "Learned addition.", datetime.now(timezone.utc)))

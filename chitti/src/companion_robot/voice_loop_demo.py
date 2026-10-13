@@ -176,6 +176,7 @@ async def _summarize_and_remember_session(
     memories: MemoryRepository,
     child_profile_id: str,
     messages: list[dict],
+    story_title: str | None = None,
 ) -> None:
     """Session-end summarization (decision 0018), same spirit as
     pixel-ai/pixel_memory.py's summarize_and_remember() -- one cheap
@@ -193,12 +194,19 @@ async def _summarize_and_remember_session(
     interrupt (or any other failure -- a bad API key, a network
     error) ends the session cleanly instead of crashing during what
     should be a graceful shutdown.
+
+    `story_title` (decision 0022): Story Companion's `messages` only
+    ever held the story's body text, never its title, so the
+    summarizer had no way to name which story a discussion was about.
+    Teachable-Friend has no story, so it's left as None there.
     """
     if not messages:
         return
     print("Saving what we talked about, one moment...")
     try:
         transcript_lines = [f"{m['role']}: {m['content']}" for m in messages]
+        if story_title:
+            transcript_lines.insert(0, f"(discussing the story: {story_title})")
         summary = await conversation.summarize_session(transcript_lines)
     except asyncio.CancelledError:
         print("(interrupted before saving finished -- this session's summary wasn't saved)")
@@ -294,12 +302,14 @@ async def _run_story_companion(
                 print("(nothing heard, try again)")
                 continue
             messages.append({"role": "user", "content": text})
-            result = await conversation.story_companion_reply(messages, story.content)
+            result = await conversation.story_companion_reply(messages, story.content, story.title)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
             await _speak(tts, audio, result.text, speed=speed)
     finally:
-        await _summarize_and_remember_session(conversation, memories, child_profile_id, messages)
+        await _summarize_and_remember_session(
+            conversation, memories, child_profile_id, messages, story_title=story.title
+        )
 
 
 async def main() -> None:

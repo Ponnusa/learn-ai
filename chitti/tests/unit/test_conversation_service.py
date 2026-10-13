@@ -65,6 +65,23 @@ async def test_story_companion_reply_includes_transcript_in_system_prompt():
     assert messages == [{"role": "user", "content": "What was the fox like?"}]
 
 
+async def test_story_companion_reply_includes_title_when_given():
+    """Found live (decision 0022): the story's title was never passed
+    at all, so the model couldn't answer something as simple as "what
+    is this story called?"."""
+    llm = FakeLanguageModelBackend(reply="It's called The Clever Fox.")
+    service = ConversationService(llm)
+
+    await service.story_companion_reply(
+        [{"role": "user", "content": "What's this story called?"}],
+        story_transcript="Once there was a clever, quick fox.",
+        story_title="The Clever Fox",
+    )
+
+    _, system_prompt = llm.calls[0]
+    assert "The Clever Fox" in system_prompt
+
+
 async def test_story_companion_reply_blocks_unsafe_model_output():
     llm = FakeLanguageModelBackend(reply="That's a damn good question.")
     service = ConversationService(llm)
