@@ -30,6 +30,19 @@ import subprocess
 import tempfile
 from collections.abc import AsyncIterator
 
+# Import triggers config.loader's load_dotenv() before the env vars
+# below are read -- this file reads them at import time, and without
+# this, importing audio.real before anything else that happens to
+# import config.loader (e.g. being the first import in
+# voice_loop_demo.py) would silently read CHITTI_MIC_DEVICE/
+# CHITTI_SPEAKER_DEVICE as unset, falling back to "default" even with
+# a real value in .env. The exact same class of bug already hit once
+# in pixel-ai (pixel_direct_llm.py missing its own load_dotenv()) --
+# confirmed again here live: a real-hardware test recorded from the
+# wrong device because of this, caught via Whisper transcribing "you"
+# (its classic near-silence hallucination) instead of real speech.
+import companion_robot.config.loader  # noqa: F401
+
 from .interfaces import AudioTransport
 
 CAPTURE_DEVICE = os.environ.get("CHITTI_MIC_DEVICE", "default")

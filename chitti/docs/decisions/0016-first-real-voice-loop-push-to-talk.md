@@ -93,3 +93,43 @@ independent per decision 0001, even though it's the same physical
 device and likely the same value). `voice_loop_demo.py`'s capture
 helper imports the same `CAPTURE_DEVICE` constant rather than
 duplicating the env-var read.
+
+## Addendum 2: the device override didn't actually work on real hardware — same `load_dotenv()` bug class, again
+
+Live on the Pi, with `CHITTI_MIC_DEVICE=plughw:2,0` correctly set in
+`.env`, the real run still transcribed near-silence as "you" (Whisper's
+classic hallucination for near-empty audio). Diagnosed step by step on
+real hardware rather than guessed at: `arecord -D plughw:2,0 -f S16_LE
+-r 16000 -c 1 -d 5 test.wav` manually, played back with `aplay`,
+confirmed real speech was captured correctly and the mic's ALSA
+capture gain was on at 79% — the hardware path itself was fine.
+
+The actual bug: `audio/real.py` reads `CHITTI_MIC_DEVICE`/
+`CHITTI_SPEAKER_DEVICE` from `os.environ` **at module import time**
+(`CAPTURE_DEVICE = os.environ.get(...)`), and `voice_loop_demo.py`
+imports `audio.real` as its *first* import — before anything that
+would otherwise trigger `config/loader.py`'s `load_dotenv()` call.
+`.env` hadn't been loaded yet, so both constants silently fell back to
+ALSA's `"default"` device regardless of what `.env` said. This is the
+exact same bug class already hit once in `pixel-ai`
+(`pixel_direct_llm.py` reading `os.environ` directly before anything
+had loaded `.env`) and explicitly guarded against when
+`config/loader.py` was built for chitti (decision 0008) — but that
+guard only protects callers that actually import `config.loader`
+first; it doesn't protect a new file that reads `os.environ` directly
+without importing it at all.
+
+**Fix**: `audio/real.py` now imports `companion_robot.config.loader`
+(triggering its `load_dotenv()`) before reading either env var, making
+it self-sufficient regardless of import order elsewhere. Confirmed via
+a standalone repro: importing `audio.real` as the very first import in
+a fresh process, with only `.env` (no shell-level env var set), now
+correctly resolves `CHITTI_MIC_DEVICE` instead of silently defaulting.
+
+Checked whether this pattern recurs elsewhere:
+`grep -rn "^[A-Z_]+ = os\.environ\.get"` across `src/` found exactly
+one match — this file. Every other backend
+(`openai_backend.py`/`claude_backend.py`/`stt_openai.py`/
+`tts_openai.py`) reads its env vars lazily inside an async method via
+`require_env()`, not at import time, so none of them were exposed to
+this.
