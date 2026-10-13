@@ -3,6 +3,7 @@ welcome-back-greeting helpers (decision 0018) -- real
 ConversationService + MemoryRepository, fake LLM/tts/audio stand-ins,
 no real API calls or hardware needed.
 """
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 from companion_robot.conversation.service import ConversationService
@@ -27,6 +28,18 @@ class _FakeLLM(LanguageModelBackend):
     async def generate_reply(self, messages, system_prompt):
         self.calls.append((messages, system_prompt))
         return self.reply, "fake-model"
+
+
+class _RaisingLLM(LanguageModelBackend):
+    """Simulates a call that fails -- a second, impatient Ctrl-C
+    cancelling the in-flight Claude call (decision 0021), or any other
+    failure (bad API key, network error)."""
+
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    async def generate_reply(self, messages, system_prompt):
+        raise self.exc
 
 
 class _FakeAudio:
@@ -106,6 +119,37 @@ async def test_summarize_and_remember_session_skips_nothing_worth_keeping():
     )
 
     assert memories.list_for_child("p1", category=MemoryCategory.DAILY_SUMMARY) == []
+
+
+async def test_summarize_and_remember_session_survives_cancellation(capsys):
+    """A second, impatient Ctrl-C during the Claude call (decision
+    0021) must not crash the program or leave the session half-saved
+    -- just a clean message and no record."""
+    memories = _make_memories()
+    summarizer = _RaisingLLM(asyncio.CancelledError())
+    conversation = ConversationService(_FakeLLM(reply="unused"), summarizer_llm=summarizer)
+
+    await _summarize_and_remember_session(
+        conversation, memories, "p1", [{"role": "user", "content": "hi"}]
+    )
+
+    assert memories.list_for_child("p1", category=MemoryCategory.DAILY_SUMMARY) == []
+    assert "interrupted" in capsys.readouterr().out
+
+
+async def test_summarize_and_remember_session_survives_other_failures(capsys):
+    """Any other failure (bad API key, network error) during the save
+    should end the session cleanly too, not crash it."""
+    memories = _make_memories()
+    summarizer = _RaisingLLM(RuntimeError("boom"))
+    conversation = ConversationService(_FakeLLM(reply="unused"), summarizer_llm=summarizer)
+
+    await _summarize_and_remember_session(
+        conversation, memories, "p1", [{"role": "user", "content": "hi"}]
+    )
+
+    assert memories.list_for_child("p1", category=MemoryCategory.DAILY_SUMMARY) == []
+    assert "couldn't save" in capsys.readouterr().out
 
 
 async def test_maybe_greet_with_recap_speaks_greeting_from_latest_summary():

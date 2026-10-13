@@ -180,11 +180,32 @@ async def _summarize_and_remember_session(
     """Session-end summarization (decision 0018), same spirit as
     pixel-ai/pixel_memory.py's summarize_and_remember() -- one cheap
     call when the session ends, not after every turn. Called from a
-    finally block so it still runs on Ctrl-C, not just a clean exit."""
+    finally block so it still runs on Ctrl-C, not just a clean exit.
+
+    Found live (decision 0021): the Claude call takes a few real
+    seconds with no visible feedback, which looks like a second hang
+    right after the first Ctrl-C -- pressing Ctrl-C again cancels this
+    call mid-flight, before the memory record can be written, and the
+    resulting CancelledError propagated all the way up uncaught
+    (`except KeyboardInterrupt` doesn't catch it -- different
+    exception). Fixed with a visible "Saving..." message so there's no
+    reason to interrupt again, plus a catch-all here so a second
+    interrupt (or any other failure -- a bad API key, a network
+    error) ends the session cleanly instead of crashing during what
+    should be a graceful shutdown.
+    """
     if not messages:
         return
-    transcript_lines = [f"{m['role']}: {m['content']}" for m in messages]
-    summary = await conversation.summarize_session(transcript_lines)
+    print("Saving what we talked about, one moment...")
+    try:
+        transcript_lines = [f"{m['role']}: {m['content']}" for m in messages]
+        summary = await conversation.summarize_session(transcript_lines)
+    except asyncio.CancelledError:
+        print("(interrupted before saving finished -- this session's summary wasn't saved)")
+        return
+    except Exception as exc:
+        print(f"(couldn't save a summary of this session: {exc})")
+        return
     if not summary:
         return
     now = datetime.now(timezone.utc)
@@ -201,6 +222,7 @@ async def _summarize_and_remember_session(
             retention_policy="demo",
         )
     )
+    print("Saved.")
 
 
 async def _maybe_greet_with_recap(
@@ -325,7 +347,12 @@ async def main() -> None:
             await _run_teachable_friend(
                 conversation, tts, audio, stt, memories, profile.id, profile.speech_speed
             )
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # CancelledError shouldn't reach here now that
+        # _summarize_and_remember_session() catches it itself
+        # (decision 0021), but kept as defense-in-depth against a
+        # third interrupt or any other spot it could leak from --
+        # better a clean "Bye!" than an unhandled traceback.
         print("\nBye!")
 
 
