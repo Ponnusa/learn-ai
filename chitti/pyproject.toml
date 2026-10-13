@@ -1,0 +1,14 @@
+[project]
+name = "companion-robot"
+version = "0.1.0"
+description = "Chitti: child-safe AI companion robot (Milestone 0 scaffolding, no runtime behavior yet)"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

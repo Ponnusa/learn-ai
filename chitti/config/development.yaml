@@ -1,0 +1,4 @@
+# Local development overrides for config/example.yaml.
+# Same placeholder status — see that file's comment.
+
+schema_version: 1

@@ -1,0 +1,6 @@
+# Chitti configuration — Milestone 0 placeholder.
+# No loader reads this yet beyond a presence check
+# (src/companion_robot/config/). Real fields arrive with Milestone 1+
+# once there's actual behavior to configure.
+
+schema_version: 1
