@@ -78,3 +78,24 @@ request, and the new edit-profile route (including rejecting an
 out-of-range value). `docs/decisions/0003`'s risk #3c is now closer to
 resolved — Story Companion's grounding behavior is confirmed working
 on a real model, with one real gap found and fixed.
+
+## Addendum: real profile selection, not a fixed "demo-child" id
+
+Asked directly: would the demo always use the hardcoded `"demo-child"`
+id, or could a real household pick which child is talking? The fixed
+id was a Milestone-0-era placeholder, never meant to be the real
+answer -- `_select_or_create_profile()` now replaces it: auto-selects
+the existing profile if there's exactly one (the common single-child
+case shouldn't require picking from a list of one), prompts to choose
+among several if there are more, and creates a new one on the spot if
+there are none. `_remember_taught_fact()`/`_remember_story_read()` and
+both mode functions now take the selected profile's real id as an
+explicit parameter instead of reading a module-level constant.
+
+This is still the demo's own simple mechanism, not decision 0003's
+real design for this (a spoken self-ID phrase, "Hey Chitti, it's
+Anna") — that's Milestone 3+ scope, requiring a working conversation
+loop with real speaker identification cues, not a startup menu.
+Verified via a standalone repro covering all three cases (one profile
+auto-selected with no prompt consumed, multiple profiles respecting
+the chosen index, zero profiles creating one from prompted input).

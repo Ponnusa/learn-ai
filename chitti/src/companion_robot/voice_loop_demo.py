@@ -42,7 +42,6 @@ from companion_robot.voice.openai_backend import OpenAILanguageModelBackend
 from companion_robot.voice.stt_openai import OpenAIWhisperBackend
 from companion_robot.voice.tts_openai import OpenAITTSBackend
 
-_CHILD_PROFILE_ID = "demo-child"
 _CAPTURE_PATH = "/tmp/chitti_demo_capture.wav"
 
 
@@ -80,12 +79,53 @@ async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
     await audio.play(reply_audio)
 
 
-def _remember_taught_fact(memories: MemoryRepository, text: str) -> None:
+def _select_or_create_profile(profiles: ChildProfileRepository) -> ChildProfile:
+    """If exactly one child profile exists, use it automatically --
+    the common case for a single-child household shouldn't require
+    picking from a list of one. With multiple profiles, prompt so the
+    right child's memories/speech_speed are actually used, not
+    whichever happened to be created first. With none, create one on
+    the spot rather than silently defaulting to a fixed "demo-child"
+    id the parent never actually set up."""
+    existing = profiles.list_all()
+
+    if len(existing) == 1:
+        profile = existing[0]
+        print(f"Using child profile: {profile.name} (only one set up)")
+        return profile
+
+    if existing:
+        print("Which child is this?")
+        for i, p in enumerate(existing):
+            print(f"{i + 1}) {p.name} (age {p.age})")
+        print(f"{len(existing) + 1}) Set up a new child")
+        choice = input("Pick one: ").strip()
+        try:
+            idx = int(choice) - 1
+        except ValueError:
+            idx = -1
+        if 0 <= idx < len(existing):
+            return existing[idx]
+        # Falls through to "create new" for the "new child" option or
+        # any unrecognized input, rather than erroring out.
+
+    name = input("Child's name: ").strip() or "Demo Child"
+    age_raw = input("Child's age: ").strip()
+    age = int(age_raw) if age_raw.isdigit() else 7
+    now = datetime.now(timezone.utc)
+    profile = ChildProfile(
+        id=secrets.token_hex(8), name=name, age=age, created_at=now, updated_at=now
+    )
+    profiles.create(profile)
+    return profile
+
+
+def _remember_taught_fact(memories: MemoryRepository, child_profile_id: str, text: str) -> None:
     now = datetime.now(timezone.utc)
     memories.create(
         MemoryRecord(
             id=secrets.token_hex(8),
-            child_profile_id=_CHILD_PROFILE_ID,
+            child_profile_id=child_profile_id,
             category=MemoryCategory.LEARNING_STATE,
             content=f"Taught Chitti: {text}",
             created_at=now,
@@ -97,12 +137,12 @@ def _remember_taught_fact(memories: MemoryRepository, text: str) -> None:
     )
 
 
-def _remember_story_read(memories: MemoryRepository, title: str) -> None:
+def _remember_story_read(memories: MemoryRepository, child_profile_id: str, title: str) -> None:
     now = datetime.now(timezone.utc)
     memories.create(
         MemoryRecord(
             id=secrets.token_hex(8),
-            child_profile_id=_CHILD_PROFILE_ID,
+            child_profile_id=child_profile_id,
             category=MemoryCategory.LEARNING_STATE,
             content=f"Read the story: {title}",
             created_at=now,
@@ -114,7 +154,9 @@ def _remember_story_read(memories: MemoryRepository, title: str) -> None:
     )
 
 
-async def _run_teachable_friend(conversation, tts, audio, stt, memories, speed: float) -> None:
+async def _run_teachable_friend(
+    conversation, tts, audio, stt, memories, child_profile_id: str, speed: float
+) -> None:
     messages: list[dict] = []
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
     while True:
@@ -129,11 +171,11 @@ async def _run_teachable_friend(conversation, tts, audio, stt, memories, speed: 
         messages.append({"role": "assistant", "content": result.text})
         await _speak(tts, audio, result.text, speed=speed)
         if not result.blocked:
-            _remember_taught_fact(memories, text)
+            _remember_taught_fact(memories, child_profile_id, text)
 
 
 async def _run_story_companion(
-    conversation, tts, audio, stt, memories, stories, speed: float
+    conversation, tts, audio, stt, memories, stories, child_profile_id: str, speed: float
 ) -> None:
     all_stories = stories.list_all()
     if not all_stories:
@@ -151,7 +193,7 @@ async def _run_story_companion(
     print(f"\n-- Story Companion: {story.title}. Ctrl-C to quit. --")
     print(f"Chitti: {story.content}")
     await _speak(tts, audio, story.content, speed=speed)
-    _remember_story_read(memories, story.title)
+    _remember_story_read(memories, child_profile_id, story.title)
 
     messages: list[dict] = [{"role": "assistant", "content": story.content}]
     while True:
@@ -181,27 +223,13 @@ async def main() -> None:
     stories = StoryRepository(conn)
     profiles = ChildProfileRepository(conn)
 
-    # Without this, memories written under _CHILD_PROFILE_ID have no
-    # corresponding profile row, so the Parent Controls /profiles page
-    # has nothing to link to it -- confirmed live: the data was there
-    # (visible via the direct /profiles/demo-child/memories URL) but
-    # undiscoverable through the UI itself, which isn't realistic for
-    # an actual parent. Ensuring the profile exists here means the
-    # normal "Child profiles" page -> "memories" link just works.
-    if profiles.get(_CHILD_PROFILE_ID) is None:
-        now = datetime.now(timezone.utc)
-        profiles.create(
-            ChildProfile(
-                id=_CHILD_PROFILE_ID,
-                name="Demo Child",
-                age=7,
-                created_at=now,
-                updated_at=now,
-            )
-        )
-    # Re-fetch rather than assume the default -- a parent may have
-    # already tuned speech_speed for this profile via Parent Controls.
-    profile = profiles.get(_CHILD_PROFILE_ID)
+    # Picks the existing profile automatically if there's exactly one
+    # (the common single-child case), prompts if there are several,
+    # creates one on the spot if there are none -- replaces the old
+    # fixed "demo-child" id, which was undiscoverable through the
+    # normal Parent Controls profile list and didn't let a household
+    # with more than one child pick the right one.
+    profile = _select_or_create_profile(profiles)
 
     print("Chitti push-to-talk demo.")
     print("1) Teachable-Friend (you teach Chitti something)")
@@ -211,11 +239,11 @@ async def main() -> None:
     try:
         if choice == "2":
             await _run_story_companion(
-                conversation, tts, audio, stt, memories, stories, profile.speech_speed
+                conversation, tts, audio, stt, memories, stories, profile.id, profile.speech_speed
             )
         else:
             await _run_teachable_friend(
-                conversation, tts, audio, stt, memories, profile.speech_speed
+                conversation, tts, audio, stt, memories, profile.id, profile.speech_speed
             )
     except KeyboardInterrupt:
         print("\nBye!")
