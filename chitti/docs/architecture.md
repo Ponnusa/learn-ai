@@ -2,7 +2,9 @@
 
 Status: proposal, not yet built beyond typed interface stubs. See
 `docs/decisions/0001-milestone-0-scope.md` for what this pass did and did
-not implement.
+not implement, and `docs/decisions/0002-teachable-friend-story-companion-and-parent-ui.md`
+for four later pivots (teachable-friend persona, story companion,
+wake-word shortlist, LAN-only parent UI) that amend sections below.
 
 ## Relationship to `pixel-ai/`
 
@@ -28,7 +30,7 @@ LearnX backend** — different product, different data controller.
 | C. Voice Interaction Engine | `companion_robot/voice/` | 2 |
 | D. Conversation Service | `companion_robot/conversation/` | 3 |
 | E. Memory Service | `companion_robot/memory/` | 3 |
-| F. Education Engine | `companion_robot/education/` | 4 |
+| F. Education Engine → **Teachable-Friend + Story Companion** (see decision 0002) | `companion_robot/education/` | 4 |
 | G. Reminder Service | `companion_robot/reminders/` | 3 |
 | H. Parent Controls | `companion_robot/parent_controls/` | 5 |
 | I. Compliance and Diagnostics | `companion_robot/diagnostics/` | ongoing, this doc set is the start |
@@ -58,6 +60,16 @@ barge-in/turn-state shape, but that file has no backend abstraction at
 all — it calls OpenAI directly. Chitti's interfaces exist so that shape
 can be reimplemented behind a provider-neutral contract, per spec section
 4's explicit requirement ("must not require a specific cloud provider").
+
+### Wake word (decision 0002)
+
+Most efficient on-device wake-word engines (openWakeWord, Porcupine) need
+a trained model per wake word — a child can't just say an arbitrary word
+and have it recognized. The child names Chitti (and sets its wake word)
+by picking from a short vetted list (5-10 names) the chosen engine
+already supports well, not by training a custom model on an arbitrary
+word. The parent approves/can reset the chosen name before it goes live.
+Custom per-word training is a possible later upgrade, not v1 scope.
 
 ### AI backend comparison (not a decision — compiled for review)
 
@@ -96,14 +108,32 @@ independently-testable application code that:
 - Never has a path to GPIO, motor control or emergency-stop — those live
   only in `device/`, which the Conversation Service cannot reach directly.
 
-## Education Engine boundary (spec section 7)
+## Teachable-Friend + Story Companion (supersedes spec section 7's first activity — decision 0002)
 
-`education/` owns answer-checking as deterministic code. The
-`LanguageModelBackend` may be asked to explain *why* an answer is right
-or to phrase a hint, but the activity session's correctness state is
-never written from a model response — this is the opposite of every
-existing pixel-ai teaching path, all of which are fully generative with
-no answer-checking engine at all.
+Spec section 7 originally asked for a deterministic, in-code-validated
+multiplication-practice activity. Per decision 0002, this is replaced for
+the MVP by two conversational capabilities, both owned by
+`conversation/` rather than a graded `education/` engine:
+
+- **Teachable-Friend**: Chitti plays a curious peer the *child* teaches —
+  grounded in the protégé effect (explaining something to a listener
+  improves the explainer's own understanding). No answer key, no grading
+  — there's no "activity session" with a correctness state to validate,
+  so this doesn't need `education/`'s originally-planned interface at
+  all. The Safety layer (see above) still screens anything Chitti echoes
+  back, so an unsafe or false claim the child states isn't uncritically
+  repeated.
+- **Story Companion**: Chitti listens to a story being read aloud (or
+  reads one itself) and answers questions about it grounded *only* in
+  that story's transcript — held as session-only conversation context
+  (spec section 6 category 1), fed back to the `LanguageModelBackend` as
+  grounding so answers can't drift into general world knowledge that
+  might contradict the story. No camera/OCR involved — stays within spec
+  section 2.2's camera exclusion.
+
+`companion_robot/education/` is kept as a package in case a deterministic
+activity (e.g. basic maths) is reintroduced later, but nothing in it is
+being built against the MVP scope today.
 
 ## Memory Service (spec section 6)
 
@@ -115,6 +145,34 @@ no answer-checking engine at all.
 no consent, retention, expiry or deletion support — not reusable as-is,
 though its two-tier "durable fact vs. one-off event" distinction is kept
 as a conceptual design input for `category`.
+
+## Reminder Service: alarms (decision 0002)
+
+Alarms are not a separate service — they're the existing `reminders/`
+service (spec section 8) with an alarm-style alert (louder/sustained
+audio, voice snooze/dismiss) rather than a one-shot spoken notice. Same
+local-scheduler guarantee applies: the LLM is never relied on to trigger
+one at the right time.
+
+## Parent Controls: local web UI, LAN-only (decision 0002)
+
+`parent_controls/` is a local web UI served by the robot itself — not a
+cloud account or companion-app system — reusing the Flask-on-a-
+background-thread pattern already proven in `pixel-ai/photo_receiver.py`.
+
+- **Discovery**: mDNS (Avahi) advertises a `.local` hostname (e.g.
+  `chitti.local`) so the parent doesn't need to know an IP address.
+- **First-boot onboarding**: before the robot joins the home WiFi, it
+  briefly broadcasts its own temporary setup hotspot (same pattern as
+  typical smart-home devices); the parent connects once, enters home
+  WiFi credentials *and* sets the parent PIN, then the hotspot goes away.
+- **Auth**: PIN-gated from the very first boot (closes risk register
+  #8), with rate-limited login attempts.
+- **Explicitly LAN-only**: never port-forwarded or exposed to the public
+  internet. Confirmed with the product owner — no remote/away-from-home
+  access in this version. That would need a cloud relay or companion app,
+  which is a materially bigger, more compliance-heavy build, scoped
+  separately if ever wanted.
 
 ## What's deliberately not here yet
 

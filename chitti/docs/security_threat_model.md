@@ -6,7 +6,7 @@ qualified input; this is not a substitute for that.
 
 | Category | Threat | Mitigation (planned) |
 |---|---|---|
-| Spoofing | Parent-control interface has no defined auth yet — anyone on the local network could reach it once built | Design a local auth mechanism (e.g. PIN/passphrase) as part of Milestone 1/5, not deferred informally; no remote admin exposed by default |
+| Spoofing | Parent-control interface reachable by anyone on the home WiFi | PIN set during first-boot setup-hotspot onboarding, rate-limited login, discovered via mDNS (`chitti.local`), never port-forwarded or exposed beyond the LAN (decision 0002) |
 | Tampering | Model-authored tool-call arguments used without validation | Strict JSON-schema validation per tool, fixed allowlist, enforced in `conversation/` before any handler runs (spec section 9) |
 | Tampering | Model instructed to produce or the app asked to run arbitrary code (e.g. an LLM-generated pygame script) | Never implement a "run this code" tool; every visual/behavior capability is a fixed, pre-written function with typed, validated arguments — same reasoning already given to the user for the earlier pygame-animation question |
 | Repudiation | Logs capturing raw audio or unnecessary personal data by default | Structured logging excludes raw audio and PII by default (spec section 2.1); any opt-in audio logging is explicit and clearly flagged, mirroring `pixel-ai`'s existing `PIXEL_AUDIO_LOG_DIR` opt-in pattern |
