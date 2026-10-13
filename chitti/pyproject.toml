@@ -5,6 +5,8 @@ description = "Chitti: child-safe AI companion robot (Milestone 1: device/audio 
 requires-python = ">=3.11"
 dependencies = [
     "pyyaml",
+    "better-profanity",
+    "jsonschema",
 ]
 
 [project.optional-dependencies]
