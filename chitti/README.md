@@ -1,9 +1,9 @@
 # Chitti — Companion Robot (child-safe AI companion)
 
-Status: **Six real features built and tested (81 unit tests passing),
-all verified end-to-end on real Pi hardware.** See
-`docs/decisions/0015-sqlite-thread-safety-fix.md` for the latest, and
-`docs/decisions/` (15 so far) for the full history.
+Status: **Seven real features built and tested (85 unit tests
+passing), including a first real push-to-talk voice loop.** See
+`docs/decisions/0016-first-real-voice-loop-push-to-talk.md` for the
+latest, and `docs/decisions/` (16 so far) for the full history.
 
 ## What this is
 
@@ -61,13 +61,23 @@ for why nothing is copied directly.
   Parent Controls unit tests (which run synchronously in one thread via
   the test client), caught immediately by actually running it. Fixed in
   `storage/sqlite.py`, benefiting every repository in this codebase.
-- `src/companion_robot/voice/interfaces.py` still has the full-duplex
-  `SpeechToSpeechBackend`/`SpeechRecognitionBackend`/`TextToSpeechBackend`
-  stubs — real ASR/TTS and the actual voice I/O loop are Milestone 2,
-  still waiting on a Pi 5 and the remaining benchmarks below.
+- **First real voice loop** (`voice_loop_demo.py`, decision 0016):
+  push-to-talk (keyboard Enter, not wake-word — see why below), real
+  audio capture/playback (`audio/real.py`, `arecord`/`aplay`), OpenAI
+  Whisper STT + TTS (`voice/stt_openai.py`, `tts_openai.py`), running
+  Teachable-Friend or Story Companion and writing a live memory record
+  the Parent Controls UI shows immediately, since both point at the
+  same `chitti/data/chitti.db`.
+- **Wake-word checked, not assumed**: `onnxruntime`/`tflite-runtime`
+  (openWakeWord's two possible backends) publish no ARMv6 wheel at
+  all, confirmed by reading PyPI's actual file listings — a real
+  constraint on this specific Pi 1 B+, not the Pi 5 target, where
+  `aarch64` wheels make it straightforward. Porcupine's ARMv6 support
+  is genuinely ambiguous from Picovoice's own docs, not yet tested.
 - Not built, and not verifiable without real network/radio hardware:
   mDNS discovery (`chitti.local`) and the first-boot WiFi setup-hotspot
-  onboarding flow.
+  onboarding flow. Not run yet, only compiled/instantiated — the
+  voice loop itself needs the real Pi's mic/speaker to test end to end.
 
 ## Setup
 
@@ -77,6 +87,7 @@ cd chitti
 ./scripts/run_tests.sh          # pytest tests/unit/
 ./scripts/run_local.sh          # starts the app against mocked hardware
 ./scripts/run_parent_controls.sh  # the Parent Controls web UI, reachable on the LAN
+./scripts/run_voice_loop_demo.sh  # push-to-talk demo -- needs real mic/speaker + OPENAI_API_KEY
 ```
 
 For the Finnish benchmark, copy `.env.example` to `.env` and fill in
