@@ -16,6 +16,14 @@ demo-scoped answer to decision 0003's still-open question of whether
 Teachable-Friend content ever becomes durable memory: yes, for this
 demo, so there's something real for a parent to see.
 
+Decision 0018: each session ends by summarizing its transcript (via
+Claude specifically -- ConversationService's summarizer_llm) into a
+DAILY_SUMMARY memory, same spirit as pixel-ai/pixel_memory.py's own
+end-of-session summarization. The next session that starts speaks a
+casual "welcome back" greeting built from the latest one, so Chitti
+can recap what was learned/read last time rather than starting cold
+every time it's woken up.
+
 This is explicitly NOT the real continuous-listening architecture the
 product eventually wants -- a scoped, honest first real-audio test on
 real hardware, not Milestone 2's final design.
@@ -38,6 +46,7 @@ from companion_robot.memory.schema import (
 from companion_robot.parent_controls.profiles import ChildProfile, ChildProfileRepository
 from companion_robot.parent_controls.stories import StoryRepository
 from companion_robot.storage.sqlite import connect
+from companion_robot.voice.claude_backend import ClaudeLanguageModelBackend
 from companion_robot.voice.openai_backend import OpenAILanguageModelBackend
 from companion_robot.voice.stt_openai import OpenAIWhisperBackend
 from companion_robot.voice.tts_openai import OpenAITTSBackend
@@ -154,24 +163,75 @@ def _remember_story_read(memories: MemoryRepository, child_profile_id: str, titl
     )
 
 
+async def _summarize_and_remember_session(
+    conversation: ConversationService,
+    memories: MemoryRepository,
+    child_profile_id: str,
+    messages: list[dict],
+) -> None:
+    """Session-end summarization (decision 0018), same spirit as
+    pixel-ai/pixel_memory.py's summarize_and_remember() -- one cheap
+    call when the session ends, not after every turn. Called from a
+    finally block so it still runs on Ctrl-C, not just a clean exit."""
+    if not messages:
+        return
+    transcript_lines = [f"{m['role']}: {m['content']}" for m in messages]
+    summary = await conversation.summarize_session(transcript_lines)
+    if not summary:
+        return
+    now = datetime.now(timezone.utc)
+    memories.create(
+        MemoryRecord(
+            id=secrets.token_hex(8),
+            child_profile_id=child_profile_id,
+            category=MemoryCategory.DAILY_SUMMARY,
+            content=summary,
+            created_at=now,
+            updated_at=now,
+            source=MemorySource.SYSTEM_INFERRED,
+            consent_or_authorization_status=ConsentStatus.GRANTED,
+            retention_policy="demo",
+        )
+    )
+
+
+async def _maybe_greet_with_recap(
+    conversation: ConversationService, tts, audio, memories: MemoryRepository, profile, speed: float
+) -> None:
+    """Speaks a "welcome back" greeting built from the most recent
+    DAILY_SUMMARY memory for this child, the way a friend would recap
+    after being away -- decision 0018. Silently does nothing on the
+    very first-ever session, when no prior summary exists yet."""
+    summaries = memories.list_for_child(profile.id, category=MemoryCategory.DAILY_SUMMARY)
+    if not summaries:
+        return
+    latest = max(summaries, key=lambda r: r.created_at)
+    result = await conversation.welcome_back_greeting(profile.name, latest.content)
+    print(f"Chitti: {result.text}")
+    await _speak(tts, audio, result.text, speed=speed)
+
+
 async def _run_teachable_friend(
     conversation, tts, audio, stt, memories, child_profile_id: str, speed: float
 ) -> None:
     messages: list[dict] = []
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
-    while True:
-        text = await _capture_and_transcribe(stt)
-        print(f"You said: {text}")
-        if not text.strip():
-            print("(nothing heard, try again)")
-            continue
-        messages.append({"role": "user", "content": text})
-        result = await conversation.teachable_friend_reply(messages)
-        print(f"Chitti: {result.text}")
-        messages.append({"role": "assistant", "content": result.text})
-        await _speak(tts, audio, result.text, speed=speed)
-        if not result.blocked:
-            _remember_taught_fact(memories, child_profile_id, text)
+    try:
+        while True:
+            text = await _capture_and_transcribe(stt)
+            print(f"You said: {text}")
+            if not text.strip():
+                print("(nothing heard, try again)")
+                continue
+            messages.append({"role": "user", "content": text})
+            result = await conversation.teachable_friend_reply(messages)
+            print(f"Chitti: {result.text}")
+            messages.append({"role": "assistant", "content": result.text})
+            await _speak(tts, audio, result.text, speed=speed)
+            if not result.blocked:
+                _remember_taught_fact(memories, child_profile_id, text)
+    finally:
+        await _summarize_and_remember_session(conversation, memories, child_profile_id, messages)
 
 
 async def _run_story_companion(
@@ -196,17 +256,20 @@ async def _run_story_companion(
     _remember_story_read(memories, child_profile_id, story.title)
 
     messages: list[dict] = [{"role": "assistant", "content": story.content}]
-    while True:
-        text = await _capture_and_transcribe(stt)
-        print(f"You said: {text}")
-        if not text.strip():
-            print("(nothing heard, try again)")
-            continue
-        messages.append({"role": "user", "content": text})
-        result = await conversation.story_companion_reply(messages, story.content)
-        print(f"Chitti: {result.text}")
-        messages.append({"role": "assistant", "content": result.text})
-        await _speak(tts, audio, result.text, speed=speed)
+    try:
+        while True:
+            text = await _capture_and_transcribe(stt)
+            print(f"You said: {text}")
+            if not text.strip():
+                print("(nothing heard, try again)")
+                continue
+            messages.append({"role": "user", "content": text})
+            result = await conversation.story_companion_reply(messages, story.content)
+            print(f"Chitti: {result.text}")
+            messages.append({"role": "assistant", "content": result.text})
+            await _speak(tts, audio, result.text, speed=speed)
+    finally:
+        await _summarize_and_remember_session(conversation, memories, child_profile_id, messages)
 
 
 async def main() -> None:
@@ -215,7 +278,11 @@ async def main() -> None:
     conn = connect(data_dir / "chitti.db")  # same db file parent_controls/app.py uses
 
     llm = OpenAILanguageModelBackend()
-    conversation = ConversationService(llm)
+    # Session summarization/welcome-back greeting specifically use
+    # Claude (decision 0018), independent of whichever backend handles
+    # live conversation turns -- needs ANTHROPIC_API_KEY in .env too.
+    summarizer_llm = ClaudeLanguageModelBackend()
+    conversation = ConversationService(llm, summarizer_llm=summarizer_llm)
     stt = OpenAIWhisperBackend()
     tts = OpenAITTSBackend()
     audio = RealAudioTransport()
@@ -230,6 +297,11 @@ async def main() -> None:
     # normal Parent Controls profile list and didn't let a household
     # with more than one child pick the right one.
     profile = _select_or_create_profile(profiles)
+
+    # "Hello {name}!" with a casual recap of last time, built from the
+    # most recent DAILY_SUMMARY -- decision 0018. Silently skipped on
+    # the very first session, before any summary exists yet.
+    await _maybe_greet_with_recap(conversation, tts, audio, memories, profile, profile.speech_speed)
 
     print("Chitti push-to-talk demo.")
     print("1) Teachable-Friend (you teach Chitti something)")

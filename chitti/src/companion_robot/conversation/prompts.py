@@ -48,3 +48,29 @@ def build_story_companion_prompt(story_transcript: str) -> str:
         "any information beyond what you already told them.\n\n"
         f"STORY:\n{story_transcript}"
     )
+
+
+# Decision 0018: one cheap call at session end, not after every turn --
+# same reasoning as pixel-ai/pixel_memory.py's own summarize_and_remember(),
+# keeps cost down and avoids cluttering memory with trivial exchanges.
+SESSION_SUMMARY_SYSTEM_PROMPT = (
+    "You summarize a child's conversation with their companion robot, "
+    "Chitti, so Chitti can remember it next time they talk. Pull out "
+    "at most 3 short, durable things worth remembering -- topics "
+    "taught, stories read, anything the child seemed excited about. "
+    "Plain text, one item per line, no numbering or markdown. If "
+    "there's nothing worth keeping, reply with exactly: NOTHING"
+)
+
+
+def build_welcome_back_prompt(child_name: str, summary: str) -> str:
+    """Generates the greeting Chitti speaks when a session starts and
+    a prior session's summary exists -- casual recap, not a report."""
+    return (
+        f"You are Chitti, greeting {child_name} after being away for a "
+        "while (the device was off or asleep). Say hello warmly, using "
+        "their name, and casually bring up what you remember from last "
+        "time -- the way a friend would when you see them again, not a "
+        "formal report. Keep it short, two or three sentences.\n\n"
+        f"What you remember from last time:\n{summary}"
+    )

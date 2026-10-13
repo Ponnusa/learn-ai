@@ -1,6 +1,7 @@
 """Unit tests for companion_robot.conversation.service.ConversationService
 -- uses a fake LanguageModelBackend, no real API calls needed.
 """
+from companion_robot.conversation.prompts import SESSION_SUMMARY_SYSTEM_PROMPT
 from companion_robot.conversation.service import ConversationService
 from companion_robot.safety.checks import SafetyCategory
 from companion_robot.voice.interfaces import LanguageModelBackend
@@ -97,3 +98,66 @@ def test_repeat_after_me_declines_profanity_without_echoing_it():
     assert result.category == SafetyCategory.PROFANITY
     assert "damn" not in result.text.lower()
     assert llm.calls == []
+
+
+async def test_summarize_session_returns_the_summary_text():
+    llm = FakeLanguageModelBackend(reply="irrelevant for the main llm")
+    summarizer = FakeLanguageModelBackend(reply="Learned addition. Read a story about a fox.")
+    service = ConversationService(llm, summarizer_llm=summarizer)
+
+    summary = await service.summarize_session(
+        ["user: 2 plus 2 is 4", "assistant: Wow, neat!"]
+    )
+
+    assert summary == "Learned addition. Read a story about a fox."
+    assert llm.calls == []  # must use the summarizer backend, not the main one
+    assert summarizer.calls[0][1] == SESSION_SUMMARY_SYSTEM_PROMPT
+
+
+async def test_summarize_session_returns_empty_string_for_empty_transcript():
+    summarizer = FakeLanguageModelBackend(reply="should never be used")
+    service = ConversationService(FakeLanguageModelBackend(reply="x"), summarizer_llm=summarizer)
+
+    summary = await service.summarize_session([])
+
+    assert summary == ""
+    assert summarizer.calls == []
+
+
+async def test_summarize_session_returns_empty_string_for_nothing_worth_keeping():
+    summarizer = FakeLanguageModelBackend(reply="NOTHING")
+    service = ConversationService(FakeLanguageModelBackend(reply="x"), summarizer_llm=summarizer)
+
+    summary = await service.summarize_session(["user: hi", "assistant: hi!"])
+
+    assert summary == ""
+
+
+async def test_welcome_back_greeting_uses_summarizer_backend_and_screens_output():
+    llm = FakeLanguageModelBackend(reply="irrelevant for the main llm")
+    summarizer = FakeLanguageModelBackend(reply="Hi Anna! Last time we learned addition!")
+    service = ConversationService(llm, summarizer_llm=summarizer)
+
+    result = await service.welcome_back_greeting("Anna", "Learned addition.")
+
+    assert result.blocked is False
+    assert result.text == "Hi Anna! Last time we learned addition!"
+    assert llm.calls == []
+
+
+async def test_welcome_back_greeting_blocks_unsafe_summarizer_output():
+    llm = FakeLanguageModelBackend(reply="irrelevant")
+    summarizer = FakeLanguageModelBackend(reply="Don't tell your mom about this.")
+    service = ConversationService(llm, summarizer_llm=summarizer)
+
+    result = await service.welcome_back_greeting("Anna", "some summary")
+
+    assert result.blocked is True
+    assert result.category == SafetyCategory.PARENT_SECRECY
+
+
+def test_default_summarizer_llm_is_the_main_llm_when_not_given():
+    llm = FakeLanguageModelBackend(reply="x")
+    service = ConversationService(llm)
+
+    assert service._summarizer_llm is llm

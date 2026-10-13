@@ -14,7 +14,12 @@ from dataclasses import dataclass
 from companion_robot.safety.checks import SafetyCategory, check_speech, decline_message
 from companion_robot.voice.interfaces import LanguageModelBackend
 
-from .prompts import TEACHABLE_FRIEND_SYSTEM_PROMPT, build_story_companion_prompt
+from .prompts import (
+    SESSION_SUMMARY_SYSTEM_PROMPT,
+    TEACHABLE_FRIEND_SYSTEM_PROMPT,
+    build_story_companion_prompt,
+    build_welcome_back_prompt,
+)
 
 
 @dataclass
@@ -25,8 +30,15 @@ class ConversationResult:
 
 
 class ConversationService:
-    def __init__(self, llm: LanguageModelBackend) -> None:
+    def __init__(
+        self, llm: LanguageModelBackend, summarizer_llm: LanguageModelBackend | None = None
+    ) -> None:
         self._llm = llm
+        # Decision 0018: lets session summarization/welcome-back use a
+        # different backend than live conversation (the product owner
+        # specifically wants Claude for this), without forcing every
+        # caller to use two backends if they don't need to.
+        self._summarizer_llm = summarizer_llm or llm
 
     async def teachable_friend_reply(self, messages: list[dict]) -> ConversationResult:
         reply_text, _model = await self._llm.generate_reply(
@@ -46,6 +58,32 @@ class ConversationService:
         echoed back verbatim or declined. Decision 0003: never a literal
         unfiltered echo."""
         return self._screen(text)
+
+    async def summarize_session(self, transcript_lines: list[str]) -> str:
+        """One cheap call at session end (decision 0018) -- not
+        screened through check_speech(), since this is never spoken
+        directly; only welcome_back_greeting()'s output (built from
+        this) is. Returns "" for an empty transcript or when the
+        summarizer finds nothing worth keeping."""
+        if not transcript_lines:
+            return ""
+        reply_text, _model = await self._summarizer_llm.generate_reply(
+            [{"role": "user", "content": "\n".join(transcript_lines)}],
+            SESSION_SUMMARY_SYSTEM_PROMPT,
+        )
+        summary = reply_text.strip()
+        return "" if summary.upper() == "NOTHING" else summary
+
+    async def welcome_back_greeting(self, child_name: str, summary: str) -> ConversationResult:
+        """The greeting spoken when a session starts and a prior
+        session's summary exists. Screened like any other Chitti
+        speech -- a summary echoing something unsafe the child said
+        last time must not make it into this greeting unfiltered."""
+        prompt = build_welcome_back_prompt(child_name, summary)
+        reply_text, _model = await self._summarizer_llm.generate_reply(
+            [{"role": "user", "content": "Say hello."}], prompt
+        )
+        return self._screen(reply_text)
 
     def _screen(self, text: str) -> ConversationResult:
         verdict = check_speech(text)
