@@ -1,8 +1,9 @@
 # Chitti — Companion Robot (child-safe AI companion)
 
 Status: **Milestone 0 — assessment and scaffolding only.** No functional
-code exists yet. See `docs/decisions/0001-milestone-0-scope.md` for
-exactly what this pass delivered and what's deliberately not here.
+code exists yet. See `docs/decisions/0001-milestone-0-scope.md` and
+`docs/decisions/0002-teachable-friend-story-companion-and-parent-ui.md`
+for exactly what's decided so far and what's deliberately not built.
 
 ## What this is
 
@@ -33,6 +34,12 @@ for why nothing is copied directly.
   `education/`, `reminders/`, `parent_controls/`, `storage/`,
   `diagnostics/`) exists as an empty package with a docstring stating
   which milestone will fill it in.
+- **Design pivot (decision 0002)**: there's no graded Education Engine
+  for the MVP — `conversation/` instead owns a Teachable-Friend persona
+  (the child teaches Chitti) and a Story Companion (answers grounded in
+  a story's own transcript). Parent controls are a local, PIN-gated,
+  LAN-only web UI, not a cloud account. Wake word is picked by the child
+  from a vetted shortlist, not custom-trained.
 
 ## Documentation
 

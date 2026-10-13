@@ -19,7 +19,10 @@ candidates evaluated for Milestone 1+. Not yet a full SBOM (spec section
 | `piper-tts` | MIT | Local TTS | Already evaluated in `pixel-ai/pixel_tts_piper.py` — runs fully offline, no cloud dependency. Default recommendation over `gTTS` (see below) |
 | `faster-whisper` (+ CTranslate2) | MIT | Local ASR candidate | Already in production use in `pixel-ai/local_stt_server.py`, including a documented PyAV version-compatibility workaround worth reusing as a lesson, not code |
 | `webrtcvad` | BSD-3-Clause | VAD candidate | Not yet benchmarked for chitti |
-| `openwakeword` | Apache-2.0 | Wake-word candidate | Not yet benchmarked for chitti |
+| `openwakeword` | Apache-2.0 | Wake-word candidate (decision 0002's shortlist approach) | Fully open, no per-use licensing cost — preferred over Porcupine for that reason; not yet benchmarked for chitti |
+| Picovoice Porcupine | Commercial (free tier + paid tiers) | Wake-word alternative, not currently planned | Requires an account/API key and has usage limits on its free tier — a real cost/licensing consideration if ever chosen instead of openWakeWord; noted here so it isn't picked without that being seen |
+| Flask | BSD-3-Clause | Parent-controls local web UI (decision 0002) | Same library already used in `pixel-ai/photo_receiver.py` — same Flask-on-a-background-thread pattern, not yet added to chitti's own dependencies |
+| `zeroconf` (or system Avahi) | LGPL-2.1 (`zeroconf` package) / GPL (Avahi itself, used via its daemon, not linked) | mDNS advertisement for `chitti.local` discovery (decision 0002) | Not yet benchmarked for chitti; Avahi is typically already present on Raspberry Pi OS as a system service, not a Python dependency to vet the same way |
 | `pydantic` | MIT | Config validation | Not yet added |
 | OpenAI Python SDK | Apache-2.0 | `SpeechToSpeechBackend`/`LanguageModelBackend` candidate | SDK licence only — **OpenAI's commercial API usage terms for a child-directed product have not been checked** (risk register #11) |
 | Anthropic Python SDK | MIT | `LanguageModelBackend` candidate | SDK licence only — **Anthropic's usage policies for a child-directed product have not been checked** (risk register #11) |

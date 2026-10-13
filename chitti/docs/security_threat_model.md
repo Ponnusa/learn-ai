@@ -21,6 +21,14 @@ qualified input; this is not a substitute for that.
 - No penetration testing, no vulnerability scanning tooling wired up yet.
 - No signed-update mechanism designed yet (needed before any commercial
   deployment, spec section 9).
+- Parent web UI (decision 0002) has a PIN-auth *plan* but no session/
+  CSRF design yet, and no TLS plan for the LAN connection -- a real
+  certificate for a `.local` hostname isn't straightforward (self-signed
+  would warn in every browser). For now this would run as plain HTTP on
+  a trusted home LAN, same posture `pixel-ai/local_stt_server.py`
+  already takes for a lower-stakes endpoint -- worth deciding explicitly
+  once this is actually built, not inheriting that posture by default
+  given parent-control data is more sensitive.
 - Network allowlisting for service-to-service calls not yet designed —
   there's only one service today (the Pi itself); revisit once any
   separate "fast machine" or cloud component is introduced (echoes
