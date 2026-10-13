@@ -26,6 +26,22 @@ byte count plus a short grace period for ALSA's own internal buffer
 pixel-ai/pixel_gemini.py's documented "give any already-queued tail a
 moment to actually finish" wait.
 
+A first version slept for the *full* computed duration after the write
+call returned, on top of whatever the write call itself already
+blocked for. That double-counts: the OS pipe (commonly ~64KB, under
+2 seconds of this audio format) fills up during the write for any clip
+longer than that, so `stdin.write()` already blocks close to real-time
+once aplay can only drain it as fast as actual playback consumes it.
+Found live: a multi-sentence story took roughly double its real length
+to finish playing, long enough that the next steps (writing the
+Story-Companion memory record, prompting for the next turn) looked
+like the program had hung -- it just hadn't gotten there yet. Fixed by
+timing the write itself and only sleeping for whatever's left of the
+expected duration, so a short clip (write returns almost instantly,
+fits inside the pipe buffer) still waits close to its full duration,
+and a long clip (write already blocked near real-time) doesn't wait
+again for the same time twice.
+
 CAPTURE_DEVICE/PLAYBACK_DEVICE: pixel-ai's own README documents real
 hardware experience that ALSA's "default" device often does NOT route
 to the actual USB mic/speaker on this hardware -- every one of its
@@ -49,6 +65,7 @@ method.
 import asyncio
 import os
 import subprocess
+import time
 from collections.abc import AsyncIterator
 
 # Import triggers config.loader's load_dotenv() before the env vars
@@ -102,9 +119,12 @@ class RealAudioTransport(AudioTransport):
 
     async def play(self, audio: bytes) -> None:
         proc = self._ensure_playback_proc()
+        expected_duration = len(audio) / (PLAYBACK_SAMPLE_RATE * _BYTES_PER_SAMPLE)
+        write_started_at = time.monotonic()
         await asyncio.get_event_loop().run_in_executor(None, self._write, proc, audio)
-        duration_seconds = len(audio) / (PLAYBACK_SAMPLE_RATE * _BYTES_PER_SAMPLE)
-        await asyncio.sleep(duration_seconds + _BUFFER_DRAIN_GRACE_SECONDS)
+        write_elapsed = time.monotonic() - write_started_at
+        remaining = max(0.0, expected_duration - write_elapsed) + _BUFFER_DRAIN_GRACE_SECONDS
+        await asyncio.sleep(remaining)
 
     def _write(self, proc: subprocess.Popen, audio: bytes) -> None:
         proc.stdin.write(audio)
