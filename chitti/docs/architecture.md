@@ -168,12 +168,16 @@ memory, preferences, and story/learning history. `memory/schema.py`'s
 `MemoryRecord` now carries `child_profile_id` so every record is scoped
 to one child and never returned or editable across profiles.
 
-**Open, not yet decided**: spec section 2.2 explicitly excludes
-voice-based identity recognition of children from the MVP — so Chitti
-cannot automatically tell which sibling is speaking to pick their
-profile. Some explicit, non-biometric switching mechanism is needed
-(a self-identifying phrase, a physical control, a web-UI step before a
-session, etc.) — not yet chosen.
+**Switching mechanism (decision 0003)**: spec section 2.2 excludes
+voice-based identity recognition of children from the MVP, so Chitti
+cannot automatically tell which sibling is speaking. Resolved via an
+explicit **self-ID phrase** ("Hey Chitti, it's Anna"), detected from the
+transcribed speech using the same pattern-list phrase-detection technique
+already proven in `pixel-ai/pixel_memory.py`'s `detect_rename_request()`
+(reused as a technique, not copied as code). Chitti should audibly
+confirm the switch ("Hi, Anna!") so a sibling saying the wrong name gets
+caught and corrected immediately rather than silently loading the wrong
+profile for a whole session — a design recommendation, not yet built.
 
 ## Memory Service (spec section 6)
 

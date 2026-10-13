@@ -27,18 +27,24 @@ specific child, not just one global child. Added `child_profile_id`
 field now (typed only, no storage logic yet, consistent with Milestone
 0's scope).
 
-**Open sub-item, not resolved by this decision**: spec section 2.2
-explicitly excludes "voice-based identity recognition of children" from
-the MVP. That means Chitti **cannot** automatically tell Anna's voice
-apart from Timmy's to silently pick the right profile — the spec forbids
-exactly the mechanism that would make profile-switching invisible.
-Some explicit, non-biometric switching mechanism is needed instead
-(e.g. the child says a self-identifying phrase like "Hey Chitti, it's
-Anna"; a physical button/press-and-hold per child; a parent-set default
-per time-of-day; or a companion step in the local web UI before a
-session). This is asked back to the user separately — see the
-conversation immediately following this record — because it's a genuine
-architectural fork, not something to guess at.
+**Resolved in a follow-up question**: spec section 2.2 explicitly
+excludes "voice-based identity recognition of children" from the MVP —
+Chitti cannot automatically tell Anna's voice apart from Timmy's to
+silently pick the right profile, since that's exactly the mechanism the
+spec forbids. The product owner chose an explicit **self-ID phrase**
+("Hey Chitti, it's Anna") over a physical per-child control, a web-UI
+session-handoff step, or a time-of-day default. Mechanism: detected from
+the transcribed speech after/around the wake word, same pattern-list
+phrase-detection technique already proven in
+`pixel-ai/pixel_memory.py`'s `detect_rename_request()` (a regex over
+known phrasings, not NLU) — reused as a technique, not copied as code,
+consistent with decision 0001's reuse approach.
+
+To guard against a sibling saying the wrong name by accident (or on
+purpose), Chitti should audibly confirm the switch ("Hi, Anna!") so a
+wrong match gets caught and corrected immediately, rather than silently
+loading the wrong child's profile/memories for a whole session. This
+confirmation step is a design recommendation, not yet built.
 
 ### 3. Finnish is a committed requirement, sequenced after English
 
@@ -111,7 +117,6 @@ support. Not designed now; flagged so it isn't forgotten, not decided.
 
 ## Still open after this decision
 
-- **Profile-switching mechanism** (see item 2) — asked back to the user.
 - Parent PIN recovery (item 6) — explicitly deferred, not decided.
 - Carried over from 0001: final AI backend, `companion_robot` package
   name confirmation, who performs the legal/compliance review.
