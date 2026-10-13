@@ -2,9 +2,12 @@
 
 Status: proposal, not yet built beyond typed interface stubs. See
 `docs/decisions/0001-milestone-0-scope.md` for what this pass did and did
-not implement, and `docs/decisions/0002-teachable-friend-story-companion-and-parent-ui.md`
+not implement, `docs/decisions/0002-teachable-friend-story-companion-and-parent-ui.md`
 for four later pivots (teachable-friend persona, story companion,
-wake-word shortlist, LAN-only parent UI) that amend sections below.
+wake-word shortlist, LAN-only parent UI), and
+`docs/decisions/0003-age-config-multi-child-finnish-sequencing-teach-scope-story-source.md`
+for multi-child profiles, Finnish sequencing, teach scope, and story
+source — all amend sections below.
 
 ## Relationship to `pixel-ai/`
 
@@ -91,6 +94,12 @@ Finnish-language quality and both vendors' child-directed-use policies are
 hard blockers to verify before any real pilot, regardless of which backend
 is eventually chosen.
 
+**Language sequencing (decision 0003):** Finnish is a committed
+requirement for launch, not optional — but not required for the first
+working prototype. English ships first for development velocity; Finnish
+is verified and added before anything resembling a pilot, given the
+target market (spec: Finland first, then EU).
+
 ## Safety boundary (spec sections 5 and 9)
 
 Unlike `pixel-ai/pixel_teaching_prompt.py` (safety-adjacent behavior lives
@@ -108,7 +117,7 @@ independently-testable application code that:
 - Never has a path to GPIO, motor control or emergency-stop — those live
   only in `device/`, which the Conversation Service cannot reach directly.
 
-## Teachable-Friend + Story Companion (supersedes spec section 7's first activity — decision 0002)
+## Teachable-Friend + Story Companion (supersedes spec section 7's first activity — decision 0002, refined in 0003)
 
 Spec section 7 originally asked for a deterministic, in-code-validated
 multiplication-practice activity. Per decision 0002, this is replaced for
@@ -122,25 +131,58 @@ the MVP by two conversational capabilities, both owned by
   so this doesn't need `education/`'s originally-planned interface at
   all. The Safety layer (see above) still screens anything Chitti echoes
   back, so an unsafe or false claim the child states isn't uncritically
-  repeated.
-- **Story Companion**: Chitti listens to a story being read aloud (or
-  reads one itself) and answers questions about it grounded *only* in
-  that story's transcript — held as session-only conversation context
-  (spec section 6 category 1), fed back to the `LanguageModelBackend` as
+  repeated. Per decision 0003: the child can teach Chitti about *any*
+  topic, not just STEM-adjacent ones — the Safety layer's age-
+  appropriateness and profanity/bad-language filtering has to cover
+  arbitrary subject matter, not a narrow curated set.
+  - **Repeat-after-me (decision 0003)**: a mode where Chitti repeats back
+    what the child just said — likely a toddler-friendly language-play
+    game. This is **not** a literal unfiltered echo: it passes through
+    the same Safety-layer filtering as any other Chitti speech. A request
+    to repeat profanity or unsafe content is gently declined (e.g. "I
+    don't say that word, let's try a different one!"), never carved out
+    as an exception to the safety boundary.
+- **Story Companion**: Chitti narrates a story it already has a certain
+  transcript for, then answers questions about it grounded *only* in
+  that transcript — held as session-only conversation context (spec
+  section 6 category 1), fed back to the `LanguageModelBackend` as
   grounding so answers can't drift into general world knowledge that
-  might contradict the story. No camera/OCR involved — stays within spec
-  section 2.2's camera exclusion.
+  might contradict the story. Per decision 0003, the transcript comes
+  from either a **preloaded story library** or a **parent-uploaded
+  story** (via the Parent Controls web UI, below) — not from ASR-
+  transcribing a child's own out-loud reading, which would carry real
+  transcription-accuracy risk. Parent-uploaded content is trusted as-is
+  (format/size validated, not content-moderated) since the parent is the
+  authorizing adult. No camera/OCR involved — stays within spec section
+  2.2's camera exclusion.
 
 `companion_robot/education/` is kept as a package in case a deterministic
 activity (e.g. basic maths) is reintroduced later, but nothing in it is
 being built against the MVP scope today.
 
+## Child profiles (decision 0003)
+
+Multiple children can share one physical Chitti, each with their own
+profile: age/age-band (parent-configured, drives persona complexity),
+memory, preferences, and story/learning history. `memory/schema.py`'s
+`MemoryRecord` now carries `child_profile_id` so every record is scoped
+to one child and never returned or editable across profiles.
+
+**Open, not yet decided**: spec section 2.2 explicitly excludes
+voice-based identity recognition of children from the MVP — so Chitti
+cannot automatically tell which sibling is speaking to pick their
+profile. Some explicit, non-biometric switching mechanism is needed
+(a self-identifying phrase, a physical control, a web-UI step before a
+session, etc.) — not yet chosen.
+
 ## Memory Service (spec section 6)
 
 `memory/` defines a versioned record type now (`MemoryRecord` dataclass:
-`id`, `category`, `content`, `created_at`, `updated_at`, `expires_at`,
-`source`, `consent_or_authorization_status`, `retention_policy`,
-`schema_version`) with no storage logic yet. This supersedes
+`id`, `child_profile_id`, `category`, `content`, `created_at`,
+`updated_at`, `expires_at`, `source`, `consent_or_authorization_status`,
+`retention_policy`, `schema_version` — `child_profile_id` added per
+decision 0003 for multi-child support) with no storage logic yet. This
+supersedes
 `pixel-ai/pixel_memory.py`'s flat Markdown upsert/append file, which has
 no consent, retention, expiry or deletion support — not reusable as-is,
 though its two-tier "durable fact vs. one-off event" distinction is kept
@@ -173,6 +215,10 @@ background-thread pattern already proven in `pixel-ai/photo_receiver.py`.
   access in this version. That would need a cloud relay or companion app,
   which is a materially bigger, more compliance-heavy build, scoped
   separately if ever wanted.
+- **Child profile management (decision 0003)**: create/edit each child's
+  profile (name, age/age-band, feature toggles) from this UI.
+- **Story management (decision 0003)**: upload, list, and remove stories
+  for the Story Companion to narrate from.
 
 ## What's deliberately not here yet
 

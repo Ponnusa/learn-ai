@@ -51,9 +51,15 @@ class MemoryRecord:
     schema_version lets a future migration distinguish old-shaped rows
     from new ones -- start at 1 and bump on any field change once a
     real repository exists.
+
+    child_profile_id scopes every record to one child -- decision 0003
+    confirmed multiple children can share one physical device, each
+    with their own profile (age, preferences, learning/story history).
+    A record must never be returned or editable across profiles.
     """
 
     id: str
+    child_profile_id: str
     category: MemoryCategory
     content: str
     created_at: datetime
