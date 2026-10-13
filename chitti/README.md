@@ -1,9 +1,10 @@
 # Chitti — Companion Robot (child-safe AI companion)
 
-Status: **Milestone 0 — assessment and scaffolding only.** No functional
-code exists yet. See `docs/decisions/0001-milestone-0-scope.md` and
-`docs/decisions/0002-teachable-friend-story-companion-and-parent-ui.md`
-for exactly what's decided so far and what's deliberately not built.
+Status: **Milestone 1 — device/audio foundation, built against mocked
+hardware.** No Raspberry Pi 5 in hand yet. See
+`docs/decisions/0005-milestone-1-device-audio-foundation.md` for what's
+built, what's verified, and a consolidated list of everything still
+undecided.
 
 ## What this is
 
@@ -23,35 +24,58 @@ for why nothing is copied directly.
 
 ## Current state
 
-- No hardware in hand yet (Raspberry Pi 5) — everything here is designed
-  to be developed and tested without it, with hardware interfaces that
-  can be mocked.
-- `src/companion_robot/` has typed interface stubs for the voice
-  architecture (`SpeechToSpeechBackend`, `SpeechRecognitionBackend`,
-  `LanguageModelBackend`, `TextToSpeechBackend`, `AudioTransport`) and a
-  typed `MemoryRecord` schema — no implementations, no running app yet.
-- Every other service package (`device/`, `conversation/`, `safety/`,
-  `education/`, `reminders/`, `parent_controls/`, `storage/`,
-  `diagnostics/`) exists as an empty package with a docstring stating
-  which milestone will fill it in.
-- **Design pivot (decision 0002)**: there's no graded Education Engine
-  for the MVP — `conversation/` instead owns a Teachable-Friend persona
-  (the child teaches Chitti) and a Story Companion (answers grounded in
-  a story's own transcript). Parent controls are a local, PIN-gated,
-  LAN-only web UI, not a cloud account. Wake word is picked by the child
-  from a vetted shortlist, not custom-trained.
+- No hardware in hand yet (Raspberry Pi 5) — `device/` and `audio/` have
+  mocked implementations (`MockDeviceController`, `MockAudioTransport`)
+  so everything below is developed and tested without it.
+- `app.py` starts and shuts down cleanly (Milestone 1's own acceptance
+  criterion) — mocked device comes online, status LED reflects state
+  (including mute), shutdown stops playback and powers the mock device
+  down. Run it: `scripts/run_local.sh`.
+- `config/loader.py` validates YAML config files (fails fast on a
+  missing `schema_version`) and env secrets (fails fast on a missing
+  required variable) — same fail-fast philosophy as `pixel-ai/config.py`.
+- 17 unit tests passing (`scripts/run_tests.sh`) covering config
+  validation, device lifecycle, audio mute/capture/playback, and app
+  start/shutdown. **Not run — no hardware**: anything involving a real
+  mic, speaker, LED, or mute switch.
+- `src/companion_robot/voice/` still has typed interface stubs only
+  (`SpeechToSpeechBackend`, `SpeechRecognitionBackend`,
+  `LanguageModelBackend`, `TextToSpeechBackend`) — Milestone 2, gated on
+  the AI-backend benchmarking in
+  `docs/decisions/0004-modular-pipeline-over-realtime.md`.
+- `conversation/`, `safety/`, `education/`, `reminders/`,
+  `parent_controls/`, `storage/` remain empty packages with docstrings
+  stating which milestone fills them in.
+- **Design pivot (decision 0002, refined in 0003)**: there's no graded
+  Education Engine for the MVP — `conversation/` instead owns a
+  Teachable-Friend persona (the child teaches Chitti, any topic,
+  age/profanity-filtered, plus a safety-filtered repeat-after-me mode)
+  and a Story Companion (narrates from a preloaded or parent-uploaded
+  story, answers grounded in that transcript). Parent controls are a
+  local, PIN-gated, LAN-only web UI with child-profile and story
+  management. Wake word is picked by the child from a vetted shortlist.
+  Multiple children can share one device, switched via a self-ID phrase.
+
+## Setup
+
+```bash
+cd chitti
+./scripts/setup_dev.sh   # pip install -e .[dev]
+./scripts/run_tests.sh   # pytest tests/unit/
+./scripts/run_local.sh   # starts the app against mocked hardware
+```
 
 ## Documentation
 
-Start with `docs/architecture.md` (module map + AI backend comparison),
-then `docs/risk_register.md` and `docs/decisions/` for why things are
-built the way they are. `docs/compliance_plan.md` and
+Start with `docs/architecture.md` (module map + AI backend decision),
+then `docs/risk_register.md` and `docs/decisions/` (five so far) for why
+things are built the way they are. `docs/compliance_plan.md` and
 `docs/privacy_data_map.md` track what's explicitly **not yet assessed** —
 don't treat their presence as a compliance claim.
 
 ## Next step
 
-Milestone 1 (local device foundation — spec section 12) needs a separate,
-explicit approval before implementation starts, per the spec's own
-instructions. See the open items in
-`docs/decisions/0001-milestone-0-scope.md`.
+Milestone 2 (voice conversation) needs the AI-backend benchmarking listed
+in `docs/decisions/0005-milestone-1-device-audio-foundation.md`'s
+deferred-decisions section — Finnish quality and real-hardware ASR
+latency, neither measurable without a Pi 5 in hand.

@@ -5,5 +5,8 @@ shutdown, watchdog/health monitoring, local emergency-stop, and hardware
 mute-state enforcement. Must never be reachable from companion_robot.
 conversation -- the Conversation Service has no path to motor control,
 GPIO, or emergency-stop (spec core principle 6; docs/architecture.md's
-"Safety boundary" section). Nothing implemented yet.
+"Safety boundary" section).
+
+interfaces.py defines DeviceController + DeviceState; mock.py has the
+first real implementation (software-only, no hardware yet).
 """

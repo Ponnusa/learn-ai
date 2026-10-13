@@ -1,14 +1,21 @@
 [project]
 name = "companion-robot"
 version = "0.1.0"
-description = "Chitti: child-safe AI companion robot (Milestone 0 scaffolding, no runtime behavior yet)"
+description = "Chitti: child-safe AI companion robot (Milestone 1: device/audio foundation with mocked hardware)"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "pyyaml",
+]
 
 [project.optional-dependencies]
 dev = [
     "pytest",
+    "pytest-asyncio",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
 
 [tool.setuptools.packages.find]
 where = ["src"]

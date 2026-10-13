@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Milestone 0 placeholder -- no real setup steps exist yet (no chosen
-# AI backend, no hardware). Fill in once Milestone 1 introduces real
-# dependencies (see ../pyproject.toml).
+# Installs chitti in editable mode with dev dependencies (pytest,
+# pytest-asyncio, pyyaml). No hardware-specific setup yet -- Milestone 1
+# runs entirely against mocked device/audio interfaces
+# (docs/decisions/0001-milestone-0-scope.md).
 set -euo pipefail
-echo "chitti: no setup steps defined yet (Milestone 0 scaffolding only)."
+cd "$(dirname "$0")/.."
+python -m pip install -e ".[dev]"

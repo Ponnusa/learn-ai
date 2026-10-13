@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Milestone 0 placeholder -- tests/ has no real tests yet (see each
-# tests/*/README.md). Once pytest is added as a dev dependency
-# (pyproject.toml) and real tests exist, this becomes: pytest tests/
+# Runs the unit test suite (tests/unit/ only -- integration/safety/
+# hardware suites have no tests yet, see each tests/*/README.md).
 set -euo pipefail
-echo "chitti: no tests exist yet (Milestone 0 scaffolding only)."
+cd "$(dirname "$0")/.."
+python -m pytest tests/unit/ -v
