@@ -133,3 +133,28 @@ one match — this file. Every other backend
 `tts_openai.py`) reads its env vars lazily inside an async method via
 `require_env()`, not at import time, so none of them were exposed to
 this.
+
+## Addendum 3: first full real-hardware success, and a discoverability gap
+
+With both fixes above applied, the product owner ran a real
+Teachable-Friend session end to end on the Pi: real speech → Whisper
+→ `ConversationService` → spoken reply → a `LEARNING_STATE` memory
+record per exchange. The persona held up well against a real model —
+asked genuine follow-up questions, stayed in the curious-peer role for
+most of the conversation (with one natural but notable exception: it
+briefly posed its own addition question and graded the child's answer
+to it, a minor persona drift worth knowing about, not a safety issue).
+
+The memory records were confirmed present via `curl`/browser at
+`/profiles/demo-child/memories` directly, but **absent from the normal
+`/profiles` page** — nothing had ever created a `ChildProfile` row for
+`demo-child`, so Parent Controls had no profile row to link to, even
+though the data was really there. A parent using the UI as designed
+(click through from the profile list) would never have found it.
+
+**Fix**: `voice_loop_demo.py`'s `main()` now ensures a `ChildProfile`
+row exists for `demo-child` (name "Demo Child", age 7) before the
+conversation loop starts, via the same `ChildProfileRepository`
+`parent_controls/app.py` uses. Idempotent — checked via a standalone
+repro running the ensure-logic twice against one connection, confirming
+no duplicate profile is created on a second run of the demo.

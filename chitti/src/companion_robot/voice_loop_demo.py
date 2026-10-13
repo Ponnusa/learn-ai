@@ -35,6 +35,7 @@ from companion_robot.memory.schema import (
     MemoryRecord,
     MemorySource,
 )
+from companion_robot.parent_controls.profiles import ChildProfile, ChildProfileRepository
 from companion_robot.parent_controls.stories import StoryRepository
 from companion_robot.storage.sqlite import connect
 from companion_robot.voice.openai_backend import OpenAILanguageModelBackend
@@ -176,6 +177,26 @@ async def main() -> None:
     audio = RealAudioTransport()
     memories = MemoryRepository(conn)
     stories = StoryRepository(conn)
+    profiles = ChildProfileRepository(conn)
+
+    # Without this, memories written under _CHILD_PROFILE_ID have no
+    # corresponding profile row, so the Parent Controls /profiles page
+    # has nothing to link to it -- confirmed live: the data was there
+    # (visible via the direct /profiles/demo-child/memories URL) but
+    # undiscoverable through the UI itself, which isn't realistic for
+    # an actual parent. Ensuring the profile exists here means the
+    # normal "Child profiles" page -> "memories" link just works.
+    if profiles.get(_CHILD_PROFILE_ID) is None:
+        now = datetime.now(timezone.utc)
+        profiles.create(
+            ChildProfile(
+                id=_CHILD_PROFILE_ID,
+                name="Demo Child",
+                age=7,
+                created_at=now,
+                updated_at=now,
+            )
+        )
 
     print("Chitti push-to-talk demo.")
     print("1) Teachable-Friend (you teach Chitti something)")
