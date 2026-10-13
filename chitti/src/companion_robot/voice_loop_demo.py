@@ -75,8 +75,8 @@ async def _capture_and_transcribe(stt) -> str:
     return await stt.transcribe(audio_bytes)
 
 
-async def _speak(tts, audio, text: str) -> None:
-    reply_audio = await tts.synthesize(text)
+async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
+    reply_audio = await tts.synthesize(text, speed=speed)
     await audio.play(reply_audio)
 
 
@@ -114,7 +114,7 @@ def _remember_story_read(memories: MemoryRepository, title: str) -> None:
     )
 
 
-async def _run_teachable_friend(conversation, tts, audio, stt, memories) -> None:
+async def _run_teachable_friend(conversation, tts, audio, stt, memories, speed: float) -> None:
     messages: list[dict] = []
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
     while True:
@@ -127,12 +127,14 @@ async def _run_teachable_friend(conversation, tts, audio, stt, memories) -> None
         result = await conversation.teachable_friend_reply(messages)
         print(f"Chitti: {result.text}")
         messages.append({"role": "assistant", "content": result.text})
-        await _speak(tts, audio, result.text)
+        await _speak(tts, audio, result.text, speed=speed)
         if not result.blocked:
             _remember_taught_fact(memories, text)
 
 
-async def _run_story_companion(conversation, tts, audio, stt, memories, stories) -> None:
+async def _run_story_companion(
+    conversation, tts, audio, stt, memories, stories, speed: float
+) -> None:
     all_stories = stories.list_all()
     if not all_stories:
         print("No stories yet -- add one via the Parent Controls web UI first.")
@@ -148,7 +150,7 @@ async def _run_story_companion(conversation, tts, audio, stt, memories, stories)
 
     print(f"\n-- Story Companion: {story.title}. Ctrl-C to quit. --")
     print(f"Chitti: {story.content}")
-    await _speak(tts, audio, story.content)
+    await _speak(tts, audio, story.content, speed=speed)
     _remember_story_read(memories, story.title)
 
     messages: list[dict] = [{"role": "assistant", "content": story.content}]
@@ -162,7 +164,7 @@ async def _run_story_companion(conversation, tts, audio, stt, memories, stories)
         result = await conversation.story_companion_reply(messages, story.content)
         print(f"Chitti: {result.text}")
         messages.append({"role": "assistant", "content": result.text})
-        await _speak(tts, audio, result.text)
+        await _speak(tts, audio, result.text, speed=speed)
 
 
 async def main() -> None:
@@ -197,6 +199,9 @@ async def main() -> None:
                 updated_at=now,
             )
         )
+    # Re-fetch rather than assume the default -- a parent may have
+    # already tuned speech_speed for this profile via Parent Controls.
+    profile = profiles.get(_CHILD_PROFILE_ID)
 
     print("Chitti push-to-talk demo.")
     print("1) Teachable-Friend (you teach Chitti something)")
@@ -205,9 +210,13 @@ async def main() -> None:
 
     try:
         if choice == "2":
-            await _run_story_companion(conversation, tts, audio, stt, memories, stories)
+            await _run_story_companion(
+                conversation, tts, audio, stt, memories, stories, profile.speech_speed
+            )
         else:
-            await _run_teachable_friend(conversation, tts, audio, stt, memories)
+            await _run_teachable_friend(
+                conversation, tts, audio, stt, memories, profile.speech_speed
+            )
     except KeyboardInterrupt:
         print("\nBye!")
 

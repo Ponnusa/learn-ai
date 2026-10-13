@@ -5,7 +5,8 @@
 <ul>
 {% for p in profiles %}
   <li>
-    {{ p.name }} (age {{ p.age }})
+    {{ p.name }} (age {{ p.age }}, speech speed {{ p.speech_speed }}x)
+    <a href="{{ url_for('edit_profile', profile_id=p.id) }}">edit</a>
     <a href="{{ url_for('profile_memories', profile_id=p.id) }}">memories</a>
     <form method="post" action="{{ url_for('delete_profile', profile_id=p.id) }}" style="display:inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

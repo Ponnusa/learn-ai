@@ -114,7 +114,13 @@ class TextToSpeechBackend(ABC):
     """
 
     @abstractmethod
-    async def synthesize(self, text: str) -> bytes:
-        """Returns synthesized audio bytes (format defined by the
+    async def synthesize(self, text: str, speed: float = 1.0) -> bytes:
+        """speed: 1.0 is normal pace. Parent-controlled per child
+        profile (ChildProfile.speech_speed), not a child voice command
+        -- found live that the default pace read too fast for a child
+        to follow comfortably. A backend that can't vary speed is free
+        to ignore this and always speak at its own fixed pace.
+
+        Returns synthesized audio bytes (format defined by the
         concrete implementation)."""
         raise NotImplementedError

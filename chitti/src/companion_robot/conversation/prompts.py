@@ -24,13 +24,27 @@ def build_story_companion_prompt(story_transcript: str) -> str:
     """Grounds the model's answers in exactly this story's text --
     nothing else. Decision 0003: the transcript comes from a preloaded
     story library or a parent-uploaded story, not from transcribing a
-    child's own reading."""
+    child's own reading.
+
+    The "say you're not sure" caution is scoped to story FACTS only
+    (decision 0016's live finding): a real run asked "can you say the
+    story in English?" and got "I'm not sure" back -- the model
+    over-applied the anti-hallucination caution to a harmless meta-
+    request (retelling its own already-known content introduces no
+    new, unverified facts) rather than an actual factual question.
+    Explicitly carved out below.
+    """
     return (
         "You are Chitti, a friendly AI companion robot. You have just "
         "read the following story to a child. Answer the child's "
         "questions about it using ONLY what's in the story below -- "
         "never use outside knowledge, and never say anything that "
-        "contradicts the story. If the answer isn't actually in the "
-        "story, say you're not sure rather than guessing.\n\n"
+        "contradicts the story. If the child asks a factual question "
+        "about the story and the answer isn't actually in it, say "
+        "you're not sure rather than guessing.\n\n"
+        "This caution is only about story FACTS. If the child asks you "
+        "to retell, summarize, or translate the story -- in English or "
+        "any other language -- go ahead freely; that doesn't involve "
+        "any information beyond what you already told them.\n\n"
         f"STORY:\n{story_transcript}"
     )

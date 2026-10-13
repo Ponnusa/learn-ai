@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Edit {{ profile.name }}</h1>
+{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Name: <input name="name" value="{{ profile.name }}"></label><br>
+  <label>Age: <input name="age" value="{{ profile.age }}"></label><br>
+  <label>
+    Speech speed:
+    <input type="number" name="speech_speed" value="{{ profile.speech_speed }}"
+           min="0.25" max="4.0" step="0.05">
+  </label>
+  <small>(0.25 = very slow, 1.0 = normal, 4.0 = very fast -- try 0.8 or 0.85 if replies sound too fast for a child to follow)</small>
+  <br>
+  <button type="submit">Save</button>
+</form>
+<p><a href="{{ url_for('profiles_view') }}">Back</a></p>
+{% endblock %}

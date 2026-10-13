@@ -1,7 +1,12 @@
 """Minimal schema migration runner: memory_records, reminders,
-parent_pin, child_profiles, stories. Each statement is idempotent
-(CREATE TABLE/INDEX IF NOT EXISTS) so re-running against an
-already-migrated database is always safe.
+parent_pin, child_profiles, stories. Each CREATE statement is
+idempotent (CREATE TABLE/INDEX IF NOT EXISTS) so re-running against an
+already-migrated database is always safe -- but that alone only
+covers whole new tables. Adding a column to a table that already
+exists (e.g. child_profiles, already live on the Pi before
+speech_speed existed) is a no-op under CREATE TABLE IF NOT EXISTS,
+since the table already exists -- it needs an explicit, checked
+ALTER TABLE instead. See _ensure_column().
 """
 import sqlite3
 
@@ -68,7 +73,8 @@ CREATE TABLE IF NOT EXISTS child_profiles (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     teachable_friend_enabled INTEGER NOT NULL,
-    story_companion_enabled INTEGER NOT NULL
+    story_companion_enabled INTEGER NOT NULL,
+    speech_speed REAL NOT NULL DEFAULT 1.0
 )
 """
 
@@ -82,6 +88,17 @@ CREATE TABLE IF NOT EXISTS stories (
 """
 
 
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, add_column_ddl: str) -> None:
+    """Idempotently adds a column to a table that may already exist
+    without it. CREATE TABLE IF NOT EXISTS alone only defines new
+    columns for a brand-new database -- it's a no-op for a table that
+    already exists, so a schema change like adding speech_speed to
+    child_profiles needs this instead."""
+    existing_columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in existing_columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {add_column_ddl}")
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(_MEMORY_RECORDS_TABLE)
     conn.execute(_MEMORY_RECORDS_CHILD_INDEX)
@@ -91,4 +108,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(_PARENT_PIN_TABLE)
     conn.execute(_CHILD_PROFILES_TABLE)
     conn.execute(_STORIES_TABLE)
+    _ensure_column(
+        conn, "child_profiles", "speech_speed", "speech_speed REAL NOT NULL DEFAULT 1.0"
+    )
     conn.commit()

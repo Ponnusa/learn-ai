@@ -26,6 +26,23 @@ async def test_synthesize_sends_correct_request_shape(monkeypatch):
     assert kwargs["json"]["voice"] == "alloy"
     assert kwargs["json"]["input"] == "Hello there!"
     assert kwargs["json"]["response_format"] == "pcm"
+    assert kwargs["json"]["speed"] == 1.0
+
+
+async def test_synthesize_passes_through_a_custom_speed(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
+    mock_response = MagicMock()
+    mock_response.content = b"fake raw pcm audio bytes"
+    mock_response.raise_for_status.return_value = None
+
+    with patch(
+        "companion_robot.voice.tts_openai.requests.post", return_value=mock_response
+    ) as mock_post:
+        backend = OpenAITTSBackend()
+        await backend.synthesize("Slow down please", speed=0.8)
+
+    _, kwargs = mock_post.call_args
+    assert kwargs["json"]["speed"] == 0.8
 
 
 async def test_synthesize_raises_without_api_key(monkeypatch):

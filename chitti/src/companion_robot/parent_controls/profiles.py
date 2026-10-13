@@ -20,6 +20,12 @@ class ChildProfile:
     updated_at: datetime
     teachable_friend_enabled: bool = True
     story_companion_enabled: bool = True
+    # Passed straight through to OpenAITTSBackend's speed parameter
+    # (0.25-4.0, default 1.0). Parent-controlled rather than a child
+    # voice command -- keeps control with the parent, consistent with
+    # age/feature toggles already living here, rather than adding an
+    # unvalidated "talk slower" voice command surface for the child.
+    speech_speed: float = 1.0
 
 
 class ChildProfileRepository:
@@ -32,8 +38,8 @@ class ChildProfileRepository:
             """
             INSERT INTO child_profiles (
                 id, name, age, created_at, updated_at,
-                teachable_friend_enabled, story_companion_enabled
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                teachable_friend_enabled, story_companion_enabled, speech_speed
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 profile.id,
@@ -43,6 +49,7 @@ class ChildProfileRepository:
                 profile.updated_at.isoformat(),
                 int(profile.teachable_friend_enabled),
                 int(profile.story_companion_enabled),
+                profile.speech_speed,
             ),
         )
         self._conn.commit()
@@ -64,6 +71,7 @@ class ChildProfileRepository:
         age: int | None = None,
         teachable_friend_enabled: bool | None = None,
         story_companion_enabled: bool | None = None,
+        speech_speed: float | None = None,
     ) -> bool:
         existing = self.get(profile_id)
         if existing is None:
@@ -80,15 +88,18 @@ class ChildProfileRepository:
             if story_companion_enabled is None
             else story_companion_enabled
         )
+        speech_speed = existing.speech_speed if speech_speed is None else speech_speed
         self._conn.execute(
             "UPDATE child_profiles SET name = ?, age = ?, updated_at = ?, "
-            "teachable_friend_enabled = ?, story_companion_enabled = ? WHERE id = ?",
+            "teachable_friend_enabled = ?, story_companion_enabled = ?, "
+            "speech_speed = ? WHERE id = ?",
             (
                 name,
                 age,
                 datetime.now(timezone.utc).isoformat(),
                 int(teachable_friend_enabled),
                 int(story_companion_enabled),
+                speech_speed,
                 profile_id,
             ),
         )
@@ -110,4 +121,5 @@ def _row_to_profile(row: sqlite3.Row) -> ChildProfile:
         updated_at=datetime.fromisoformat(row["updated_at"]),
         teachable_friend_enabled=bool(row["teachable_friend_enabled"]),
         story_companion_enabled=bool(row["story_companion_enabled"]),
+        speech_speed=row["speech_speed"],
     )

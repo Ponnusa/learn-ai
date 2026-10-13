@@ -157,6 +157,39 @@ def create_app(
         profiles.delete(profile_id)
         return redirect(url_for("profiles_view"))
 
+    @app.route("/profiles/<profile_id>/edit", methods=["GET", "POST"])
+    @requires_auth
+    def edit_profile(profile_id):
+        profile = profiles.get(profile_id)
+        if profile is None:
+            return redirect(url_for("profiles_view"))
+        if request.method == "POST":
+            if not _csrf_valid():
+                return "Invalid request.", 400
+            name = request.form.get("name", "").strip()
+            age = request.form.get("age", "").strip()
+            speed_raw = request.form.get("speech_speed", "").strip()
+            try:
+                speed = float(speed_raw)
+            except ValueError:
+                speed = None
+            # OpenAI's TTS API accepts 0.25-4.0 (voice/tts_openai.py) --
+            # validated here too so a bad value gets a clear in-page
+            # error now, not a confusing API failure during a live
+            # conversation later.
+            if not name or not age.isdigit() or speed is None or not (0.25 <= speed <= 4.0):
+                return (
+                    render_template(
+                        "edit_profile.html",
+                        profile=profile,
+                        error="Name, a numeric age, and a speech speed between 0.25 and 4.0 are required.",
+                    ),
+                    400,
+                )
+            profiles.update(profile_id, name=name, age=int(age), speech_speed=speed)
+            return redirect(url_for("profiles_view"))
+        return render_template("edit_profile.html", profile=profile, error=None)
+
     @app.route("/stories", methods=["GET", "POST"])
     @requires_auth
     def stories_view():

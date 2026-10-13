@@ -27,13 +27,17 @@ class OpenAITTSBackend(TextToSpeechBackend):
         self._model = model
         self._voice = voice
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str, speed: float = 1.0) -> bytes:
         api_key = require_env("OPENAI_API_KEY")
+        # OpenAI's API accepts 0.25-4.0; out-of-range values are left
+        # to surface as a clear API error rather than silently clamped
+        # -- the Parent Controls UI constrains the input range instead.
         payload = {
             "model": self._model,
             "voice": self._voice,
             "input": text,
             "response_format": "pcm",
+            "speed": speed,
         }
         response = await asyncio.to_thread(
             requests.post,
