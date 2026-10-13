@@ -158,3 +158,41 @@ conversation loop starts, via the same `ChildProfileRepository`
 `parent_controls/app.py` uses. Idempotent — checked via a standalone
 repro running the ensure-logic twice against one connection, confirming
 no duplicate profile is created on a second run of the demo.
+
+## Addendum 4: audio playback was swallowing the start of short replies
+
+Reported live: "Goodbye! Have a great day!" played back as just "day."
+"Mitä oli siilin nimi?" → "Siilin nimi oli Piki." played back missing
+its first few words too. Root cause: `RealAudioTransport.play()`
+spawned a *brand new* `aplay` process — and therefore a fresh ALSA
+device open — for every single reply. Cheap USB audio hardware needs a
+moment to "wake up" each time its device is freshly opened; that
+warmup window was silently swallowing the start of whatever played
+during it, proportionally worse for short replies.
+
+Checked whether `pixel-ai` had already solved this (it had):
+`pixel_openai_voice_semantic.py`, `pixel_gemini.py`, and
+`pixel_ollama_voice.py` all open **one `playback_proc` per session**,
+before the conversation loop even starts, and write to its `stdin`
+pipe repeatedly for every reply — never respawned between utterances.
+`pixel_gemini.py`'s own comment confirms this was a deliberate fix for
+this exact hardware, not an accident.
+
+**Fix**: `RealAudioTransport` now lazily starts one persistent
+`aplay -t raw -B 500000 -` process (recreated only if it's died) and
+writes each reply's audio straight to its `stdin`, instead of spawning
+fresh per call. `OpenAITTSBackend` now requests
+`response_format: "pcm"` (raw 16-bit LE mono at 24kHz) instead of
+`"wav"`, so there's no header to strip before streaming into the
+persistent process — matching pixel-ai's own `aplay -t raw` convention
+exactly. Since a stdin-piped `aplay` gives no direct "finished
+playing" signal, `play()` now waits by computing the clip's duration
+from its byte count plus a short grace period for ALSA's own buffer to
+drain, rather than blocking on process exit as the old per-call
+`Popen().wait()` did.
+
+4 new unit tests (89 total passing) with `subprocess.Popen` and
+`asyncio.sleep` mocked — proving the process is spawned once and
+reused across multiple `play()` calls (the actual property under test,
+not just "it runs without crashing"), and that a dead process gets
+correctly respawned.

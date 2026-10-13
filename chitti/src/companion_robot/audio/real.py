@@ -1,7 +1,30 @@
-"""Real AudioTransport using arecord/aplay subprocesses -- same
-subprocess pattern pixel-ai/pixel_tts.py already proved working on
-this exact hardware (stdin=DEVNULL, start_new_session=True so playback
-can't grab the controlling terminal).
+"""Real AudioTransport using a single persistent aplay subprocess for
+playback, kept open across the whole session rather than reopened for
+every reply.
+
+Fixes a real bug found live on the Pi: a cheap USB audio device needs
+a moment to "wake up" each time its ALSA device is freshly opened --
+the first version here spawned a brand new `aplay` (and device open)
+for every single reply, which silently swallowed the start of short
+clips ("Goodbye! Have a great day!" came out as just "day"). Every
+mature pixel-ai voice script (pixel_openai_voice_semantic.py,
+pixel_gemini.py, pixel_ollama_voice.py) already settled on exactly
+this fix for this same class of hardware: one `playback_proc` per
+session, written to repeatedly via its stdin pipe, never respawned
+between utterances.
+
+Expects raw PCM audio with no WAV header, 16-bit signed LE mono at
+PLAYBACK_SAMPLE_RATE -- matching OpenAITTSBackend's
+response_format="pcm" request exactly, the same raw-stream convention
+pixel-ai's own `aplay -t raw` calls use.
+
+play() blocks until the written audio has actually finished playing.
+There's no WAV header to read a duration from and no direct "done
+playing" signal from a stdin-piped aplay, so this is computed from the
+byte count plus a short grace period for ALSA's own internal buffer
+(-B 500000 = 500ms) to drain -- same reasoning as
+pixel-ai/pixel_gemini.py's documented "give any already-queued tail a
+moment to actually finish" wait.
 
 CAPTURE_DEVICE/PLAYBACK_DEVICE: pixel-ai's own README documents real
 hardware experience that ALSA's "default" device often does NOT route
@@ -10,10 +33,10 @@ voice scripts sets PIXEL_MIC_DEVICE/PIXEL_SPEAKER_DEVICE explicitly
 (e.g. "plughw:1,0", found via `arecord -l`/`aplay -l`) rather than
 relying on "default". Same real constraint applies here, so the same
 override is exposed -- under chitti's own env var names, not pixel-ai's,
-since the two projects' configs are otherwise fully independent (decision
-0001), even though it's the same physical device and likely the same
-value. voice_loop_demo.py's capture helper imports CAPTURE_DEVICE from
-here rather than duplicating this env-var read.
+since the two projects' configs are otherwise fully independent
+(decision 0001), even though it's the same physical device and likely
+the same value. voice_loop_demo.py's capture helper imports
+CAPTURE_DEVICE from here rather than duplicating this env-var read.
 
 capture_chunks() is NOT implemented as true continuous streaming here.
 That's real Milestone 2 scope once wake-word/VAD exists -- this device
@@ -21,13 +44,11 @@ has neither yet (openWakeWord needs an ARMv6 wheel that doesn't exist;
 see docs/decisions/0016). This transport is built for the push-to-talk
 demo in voice_loop_demo.py, which records a bounded clip between two
 keypresses via its own helper, not through this interface's streaming
-method. play()/stop_playback()/is_muted() map directly to the real
-interface and are implemented for real.
+method.
 """
 import asyncio
 import os
 import subprocess
-import tempfile
 from collections.abc import AsyncIterator
 
 # Import triggers config.loader's load_dotenv() before the env vars
@@ -47,15 +68,29 @@ from .interfaces import AudioTransport
 
 CAPTURE_DEVICE = os.environ.get("CHITTI_MIC_DEVICE", "default")
 PLAYBACK_DEVICE = os.environ.get("CHITTI_SPEAKER_DEVICE", "default")
-
-
-def _popen_kwargs() -> dict:
-    return dict(stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+PLAYBACK_SAMPLE_RATE = 24000  # must match OpenAITTSBackend's PCM output rate
+_BYTES_PER_SAMPLE = 2  # 16-bit signed LE, mono
+_BUFFER_DRAIN_GRACE_SECONDS = 0.6  # a bit more than -B 500000's 500ms
 
 
 class RealAudioTransport(AudioTransport):
     def __init__(self) -> None:
-        self._proc: subprocess.Popen | None = None
+        self._playback_proc: subprocess.Popen | None = None
+
+    def _ensure_playback_proc(self) -> subprocess.Popen:
+        if self._playback_proc is not None and self._playback_proc.poll() is None:
+            return self._playback_proc
+        self._playback_proc = subprocess.Popen(
+            [
+                "aplay", "-D", PLAYBACK_DEVICE,
+                "-f", "S16_LE", "-r", str(PLAYBACK_SAMPLE_RATE), "-c", "1",
+                "-t", "raw", "-B", "500000", "-q", "-",
+            ],
+            stdin=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return self._playback_proc
 
     async def capture_chunks(self) -> AsyncIterator[bytes]:
         raise NotImplementedError(
@@ -66,30 +101,30 @@ class RealAudioTransport(AudioTransport):
         yield b""  # pragma: no cover -- unreachable, keeps this an async generator
 
     async def play(self, audio: bytes) -> None:
-        fd, path = tempfile.mkstemp(suffix=".wav")
-        os.close(fd)
-        try:
-            with open(path, "wb") as f:
-                f.write(audio)
-            self._proc = subprocess.Popen(
-                ["aplay", "-D", PLAYBACK_DEVICE, "-q", path], **_popen_kwargs()
-            )
-            await asyncio.get_event_loop().run_in_executor(None, self._proc.wait)
-        finally:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-            self._proc = None
+        proc = self._ensure_playback_proc()
+        await asyncio.get_event_loop().run_in_executor(None, self._write, proc, audio)
+        duration_seconds = len(audio) / (PLAYBACK_SAMPLE_RATE * _BYTES_PER_SAMPLE)
+        await asyncio.sleep(duration_seconds + _BUFFER_DRAIN_GRACE_SECONDS)
+
+    def _write(self, proc: subprocess.Popen, audio: bytes) -> None:
+        proc.stdin.write(audio)
+        proc.stdin.flush()
 
     async def stop_playback(self) -> None:
-        if self._proc is None or self._proc.poll() is not None:
+        # Barge-in: kills the persistent process outright so any
+        # queued/buffered audio stops immediately. Not currently called
+        # anywhere in voice_loop_demo.py's turn-based flow (no barge-in
+        # built for this demo), but note for whoever adds it later: the
+        # next play() call after this will pay the device-warmup cost
+        # again, since _ensure_playback_proc() has to spawn a fresh one.
+        if self._playback_proc is None or self._playback_proc.poll() is not None:
             return
-        self._proc.terminate()
+        self._playback_proc.terminate()
         try:
-            self._proc.wait(timeout=1)
+            self._playback_proc.wait(timeout=1)
         except subprocess.TimeoutExpired:
-            self._proc.kill()
+            self._playback_proc.kill()
+        self._playback_proc = None
 
     def is_muted(self) -> bool:
         return False  # no physical mute switch on this device yet

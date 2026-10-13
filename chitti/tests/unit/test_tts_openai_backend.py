@@ -10,7 +10,7 @@ from companion_robot.voice.tts_openai import OpenAITTSBackend
 async def test_synthesize_sends_correct_request_shape(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
     mock_response = MagicMock()
-    mock_response.content = b"fake wav audio bytes"
+    mock_response.content = b"fake raw pcm audio bytes"
     mock_response.raise_for_status.return_value = None
 
     with patch(
@@ -19,13 +19,13 @@ async def test_synthesize_sends_correct_request_shape(monkeypatch):
         backend = OpenAITTSBackend()
         audio = await backend.synthesize("Hello there!")
 
-    assert audio == b"fake wav audio bytes"
+    assert audio == b"fake raw pcm audio bytes"
     _, kwargs = mock_post.call_args
     assert kwargs["headers"]["Authorization"] == "Bearer test-key-123"
     assert kwargs["json"]["model"] == "tts-1"
     assert kwargs["json"]["voice"] == "alloy"
     assert kwargs["json"]["input"] == "Hello there!"
-    assert kwargs["json"]["response_format"] == "wav"
+    assert kwargs["json"]["response_format"] == "pcm"
 
 
 async def test_synthesize_raises_without_api_key(monkeypatch):

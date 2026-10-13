@@ -1,6 +1,13 @@
 """OpenAI TextToSpeechBackend implementation. Requests response_format
-"wav" directly, so playback (audio/real.py's RealAudioTransport) can
-use aplay without needing an mp3 decoder like pixel-ai's mpg123.
+"pcm" -- raw 16-bit signed LE mono samples at 24kHz, no header -- so
+playback (audio/real.py's RealAudioTransport) can stream it directly
+into a persistent `aplay -t raw` process's stdin. Decision 0016's
+addendum: a first version requested "wav" and reopened a fresh aplay
+process per reply, which worked for the test client but on real
+hardware silently lost the start of short replies to USB-device
+warmup; raw PCM into one persistent process is what fixed it.
+PLAYBACK_SAMPLE_RATE in audio/real.py must match the 24kHz this
+returns.
 """
 import asyncio
 
@@ -26,7 +33,7 @@ class OpenAITTSBackend(TextToSpeechBackend):
             "model": self._model,
             "voice": self._voice,
             "input": text,
-            "response_format": "wav",
+            "response_format": "pcm",
         }
         response = await asyncio.to_thread(
             requests.post,
