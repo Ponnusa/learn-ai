@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Stories</h1>
+{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+<ul>
+{% for s in stories %}
+  <li>
+    {{ s.title }}
+    <form method="post" action="{{ url_for('delete_story', story_id=s.id) }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit">Delete</button>
+    </form>
+  </li>
+{% endfor %}
+</ul>
+<h2>Add a story</h2>
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Title: <input name="title"></label><br>
+  <label>Content:<br><textarea name="content" rows="10" cols="60"></textarea></label><br>
+  <button type="submit">Add</button>
+</form>
+<p><a href="{{ url_for('dashboard') }}">Back</a></p>
+{% endblock %}

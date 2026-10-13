@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Child profiles</h1>
+{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
+<ul>
+{% for p in profiles %}
+  <li>
+    {{ p.name }} (age {{ p.age }})
+    <a href="{{ url_for('profile_memories', profile_id=p.id) }}">memories</a>
+    <form method="post" action="{{ url_for('delete_profile', profile_id=p.id) }}" style="display:inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit">Delete</button>
+    </form>
+  </li>
+{% endfor %}
+</ul>
+<h2>Add a child</h2>
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Name: <input name="name"></label>
+  <label>Age: <input name="age"></label>
+  <button type="submit">Add</button>
+</form>
+<p><a href="{{ url_for('dashboard') }}">Back</a></p>
+{% endblock %}

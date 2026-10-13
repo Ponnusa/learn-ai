@@ -10,6 +10,7 @@ dependencies = [
     "requests",
     "python-dotenv",
     "tzdata",
+    "flask",
 ]
 
 [project.optional-dependencies]

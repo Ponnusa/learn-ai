@@ -21,14 +21,22 @@ qualified input; this is not a substitute for that.
 - No penetration testing, no vulnerability scanning tooling wired up yet.
 - No signed-update mechanism designed yet (needed before any commercial
   deployment, spec section 9).
-- Parent web UI (decision 0002) has a PIN-auth *plan* but no session/
-  CSRF design yet, and no TLS plan for the LAN connection -- a real
+- Parent web UI (decisions 0002, 0014): PIN auth, server-side rate
+  limiting, and hand-rolled CSRF protection (a per-session token
+  checked on every POST, verified by
+  `test_post_rejected_without_valid_csrf_token`) are now built and
+  tested. **Still open**: no TLS plan for the LAN connection -- a real
   certificate for a `.local` hostname isn't straightforward (self-signed
-  would warn in every browser). For now this would run as plain HTTP on
-  a trusted home LAN, same posture `pixel-ai/local_stt_server.py`
-  already takes for a lower-stakes endpoint -- worth deciding explicitly
-  once this is actually built, not inheriting that posture by default
-  given parent-control data is more sensitive.
+  would warn in every browser). For now this runs as plain HTTP on a
+  trusted home LAN, same posture `pixel-ai/local_stt_server.py` already
+  takes for a lower-stakes endpoint -- worth deciding explicitly before
+  any real deployment, not inheriting that posture by default given
+  parent-control data is more sensitive. Also open: the Flask session-
+  signing secret key is generated and persisted to a local file
+  (`auth.load_or_create_secret_key()`) -- file permissions on that key
+  haven't been hardened (e.g. restricting to the service's own user),
+  which matters once this runs as a real system service, not just in
+  tests.
 - Network allowlisting for service-to-service calls not yet designed —
   there's only one service today (the Pi itself); revisit once any
   separate "fast machine" or cloud component is introduced (echoes
