@@ -7,7 +7,8 @@ for four later pivots (teachable-friend persona, story companion,
 wake-word shortlist, LAN-only parent UI), and
 `docs/decisions/0003-age-config-multi-child-finnish-sequencing-teach-scope-story-source.md`
 for multi-child profiles, Finnish sequencing, teach scope, and story
-source — all amend sections below.
+source, and `docs/decisions/0004-modular-pipeline-over-realtime.md` for
+the AI backend decision below — all amend sections below.
 
 ## Relationship to `pixel-ai/`
 
@@ -74,25 +75,41 @@ already supports well, not by training a custom model on an arbitrary
 word. The parent approves/can reset the chosen name before it goes live.
 Custom per-word training is a possible later upgrade, not v1 scope.
 
-### AI backend comparison (not a decision — compiled for review)
+### AI backend comparison
 
-| | OpenAI Realtime | Claude pipeline (ASR+LLM+TTS) | Local/Moshi-style |
+| | OpenAI Realtime | Modular pipeline (ASR+LLM+TTS) | Local/Moshi-style |
 |---|---|---|---|
-| Latency | Lowest — proven single-hop in `pixel_openai_voice_semantic.py` | Higher — 3 separate hops | Unproven on Pi 5 alone |
-| Provider lock-in | High (no neutral realtime speech API elsewhere today) | Low per-hop (ASR/TTS swappable) | None — fully offline |
-| Data residency | Leaves device to OpenAI (US) — EU residency/zero-retention terms unverified | Leaves device per-hop, terms vary by provider | Stays on-device — best fit for GDPR by construction |
-| Finnish support | Claimed multilingual, quality/latency **unverified** | Depends on ASR/TTS choice, unverified | Weakest — most local real-time speech models are English-first |
-| Commercial/child-use policy | OpenAI's child-directed-app policy not yet checked | Anthropic's not yet checked | N/A (no vendor policy; model licence still needs checking) |
-| Engineering cost | Lowest — reuses proven plumbing shape | Medium — new pipeline, simpler pieces | Highest — most unknowns |
+| Latency | Lowest — proven single-hop in `pixel_openai_voice_semantic.py` | Higher — 3 separate hops, not yet measured | Unproven on Pi 5 alone |
+| Safety checkpoint before speech | Weak — audio streams out as it's generated, no reliable text-first gate | Strong — model's text is validated before TTS ever runs (spec section 5's actual requirement) | Strong, same reason, plus nothing leaves the device |
+| Provider lock-in | High (no neutral realtime speech API elsewhere today) | Low per-hop (ASR/LLM/TTS each independently swappable) | None — fully offline |
+| Data residency | Leaves device to OpenAI (US) — EU residency/zero-retention terms unverified | Leaves device per-hop, terms vary by whichever LLM is chosen | Stays on-device — best fit for GDPR by construction |
+| Finnish support | Claimed multilingual, quality/latency **unverified** | Depends on which LLM is chosen — **must be benchmarked, not assumed** (decision 0003 made Finnish a committed launch requirement) | Weakest — most local real-time speech models are English-first |
+| Commercial/child-use policy | OpenAI's child-directed-app policy not yet checked | Whichever LLM vendor is chosen still needs this checked — doesn't go away by going modular | N/A (no vendor policy; model licence still needs checking) |
+| Engineering cost | Lowest — reuses proven plumbing shape | Medium — new pipeline, but each piece (`faster-whisper`, Piper) is already evaluated in `pixel-ai/` | Highest — most unknowns |
 
-**Recommendation (not a decision):** build `SpeechToSpeechBackend`
-provider-neutral from day one; prototype behind it with OpenAI Realtime
-first for engineering velocity. Treat the spec's "offline/degraded mode"
-(section 9) as a separate, much simpler fallback — canned local responses
-with safety/mute/emergency-stop still live — not a full local-LLM swap-in.
-Finnish-language quality and both vendors' child-directed-use policies are
-hard blockers to verify before any real pilot, regardless of which backend
-is eventually chosen.
+**Decision (0004): build the MVP on the modular pipeline, not Realtime.**
+The deciding factor is the safety checkpoint, not latency — spec section
+5 requires safety enforcement "after every model response, before it's
+spoken," which a text-first pipeline gives cleanly and Realtime's
+audio-native streaming does not, without added moderation-buffering
+complexity. Concretely: Piper for TTS (already evaluated, avoids the
+`gTTS` problem regardless of LLM choice), `faster-whisper` for ASR
+(already proven in `pixel-ai/local_stt_server.py`, though that evidence
+is also why Pi-5-alone-sufficiency must be benchmarked, not assumed —
+that server runs on a separate machine today), and a genuinely
+provider-neutral `LanguageModelBackend` benchmarked on Finnish quality
+across OpenAI and Claude before either is committed to.
+
+This does **not** cost barge-in/interrupt latency (spec's <200ms
+target) — that's primarily a local playback-cancellation property (same
+mechanism as `pixel-ai/pixel_tts.py`'s `stop()`), not a function of the
+speech backend. It **does** likely cost first-response latency (spec's
+"~1 second" target) compared to Realtime's single streaming hop — must
+be measured on real hardware, not assumed; if unacceptably slow,
+Realtime with an added moderation-buffer mitigation becomes the fallback
+to revisit, not the default to start from. Finnish-language quality and
+child-directed-use policy checks remain hard blockers before any real
+pilot regardless of backend shape.
 
 **Language sequencing (decision 0003):** Finnish is a committed
 requirement for launch, not optional — but not required for the first
