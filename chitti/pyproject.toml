@@ -7,6 +7,8 @@ dependencies = [
     "pyyaml",
     "better-profanity",
     "jsonschema",
+    "requests",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]
