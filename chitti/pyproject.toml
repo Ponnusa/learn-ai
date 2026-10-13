@@ -9,6 +9,7 @@ dependencies = [
     "jsonschema",
     "requests",
     "python-dotenv",
+    "tzdata",
 ]
 
 [project.optional-dependencies]

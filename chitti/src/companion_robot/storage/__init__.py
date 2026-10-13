@@ -6,5 +6,6 @@ service of its own.
 sqlite.py: connect() -- a thin SQLite connection helper (row factory,
 foreign keys on). migrations.py: run_migrations() -- idempotent
 CREATE TABLE/INDEX statements, safe to re-run. companion_robot.memory.
-repository is the first real consumer.
+repository and companion_robot.reminders.repository are the real
+consumers.
 """
