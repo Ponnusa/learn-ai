@@ -77,3 +77,19 @@ That's the next step, on the Pi.
   for the next Enter press, not watching for interrupt input mid-reply).
 - `is_muted()` always returns `False` — no physical mute switch exists
   on this device.
+
+## Addendum: device override, caught by the product owner's own question
+
+The first version hardcoded ALSA's `"default"` device for both
+`arecord` and `aplay`, with no override. The product owner pointed out
+`pixel-ai` already defines `PIXEL_MIC_DEVICE`/`PIXEL_SPEAKER_DEVICE`
+for exactly this — its own README documents real-hardware experience
+that `"default"` often doesn't route to the actual USB mic/speaker on
+this chip, and every one of its voice scripts passes the device
+explicitly via `-D`. Same constraint applies here, so `audio/real.py`
+now exposes `CHITTI_MIC_DEVICE`/`CHITTI_SPEAKER_DEVICE` (chitti's own
+env var names, not pixel-ai's — the two projects' configs stay
+independent per decision 0001, even though it's the same physical
+device and likely the same value). `voice_loop_demo.py`'s capture
+helper imports the same `CAPTURE_DEVICE` constant rather than
+duplicating the env-var read.

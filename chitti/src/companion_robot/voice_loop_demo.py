@@ -26,7 +26,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from companion_robot.audio.real import RealAudioTransport
+from companion_robot.audio.real import CAPTURE_DEVICE, RealAudioTransport
 from companion_robot.conversation.service import ConversationService
 from companion_robot.memory.repository import MemoryRepository
 from companion_robot.memory.schema import (
@@ -50,9 +50,12 @@ def _record_clip(path: str) -> None:
     stop. 16kHz mono 16-bit PCM WAV -- a safe, standard format Whisper
     accepts well. SIGTERM (via terminate()) lets arecord finish
     writing the WAV header cleanly rather than leaving a corrupt file.
+    Uses the same CAPTURE_DEVICE override as audio/real.py -- ALSA's
+    "default" often doesn't route to the actual USB mic, per pixel-ai's
+    own real-hardware experience.
     """
     proc = subprocess.Popen(
-        ["arecord", "-f", "S16_LE", "-r", "16000", "-c", "1", path],
+        ["arecord", "-D", CAPTURE_DEVICE, "-f", "S16_LE", "-r", "16000", "-c", "1", path],
         stdin=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
