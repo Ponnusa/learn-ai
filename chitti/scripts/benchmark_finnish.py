@@ -13,6 +13,7 @@ Requires OPENAI_API_KEY and/or ANTHROPIC_API_KEY in chitti/.env --
 missing either one just skips that backend's half of the run.
 """
 import asyncio
+import sys
 import time
 
 from companion_robot.voice.claude_backend import ClaudeLanguageModelBackend
@@ -47,6 +48,12 @@ async def _run_backend(name: str, backend) -> None:
 
 
 async def main() -> None:
+    # Windows' console defaults to cp1252, which can't encode Finnish
+    # diacritics reliably or any emoji a reply might contain -- crashes
+    # with UnicodeEncodeError rather than just mis-rendering. Force
+    # UTF-8 stdout so the actual replies print correctly regardless of
+    # host console codepage.
+    sys.stdout.reconfigure(encoding="utf-8")
     await _run_backend("OpenAI", OpenAILanguageModelBackend())
     await _run_backend("Claude", ClaudeLanguageModelBackend())
     print(
