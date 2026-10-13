@@ -1,10 +1,9 @@
 # Chitti — Companion Robot (child-safe AI companion)
 
-Status: **Milestone 1 — device/audio foundation, built against mocked
-hardware.** No Raspberry Pi 5 in hand yet. See
-`docs/decisions/0005-milestone-1-device-audio-foundation.md` for what's
-built, what's verified, and a consolidated list of everything still
-undecided.
+Status: **Five real features built and tested (63 unit tests passing),
+plus a first real-hardware run.** See
+`docs/decisions/0013-first-real-hardware-test.md` for the latest, and
+`docs/decisions/` (13 so far) for the full history.
 
 ## What this is
 
@@ -24,37 +23,40 @@ for why nothing is copied directly.
 
 ## Current state
 
-- No hardware in hand yet (Raspberry Pi 5) — `device/` and `audio/` have
-  mocked implementations (`MockDeviceController`, `MockAudioTransport`)
-  so everything below is developed and tested without it.
-- `app.py` starts and shuts down cleanly (Milestone 1's own acceptance
-  criterion) — mocked device comes online, status LED reflects state
-  (including mute), shutdown stops playback and powers the mock device
-  down. Run it: `scripts/run_local.sh`.
-- `config/loader.py` validates YAML config files (fails fast on a
-  missing `schema_version`) and env secrets (fails fast on a missing
-  required variable) — same fail-fast philosophy as `pixel-ai/config.py`.
-- 17 unit tests passing (`scripts/run_tests.sh`) covering config
-  validation, device lifecycle, audio mute/capture/playback, and app
-  start/shutdown. **Not run — no hardware**: anything involving a real
-  mic, speaker, LED, or mute switch.
-- `src/companion_robot/voice/` still has typed interface stubs only
-  (`SpeechToSpeechBackend`, `SpeechRecognitionBackend`,
-  `LanguageModelBackend`, `TextToSpeechBackend`) — Milestone 2, gated on
-  the AI-backend benchmarking in
-  `docs/decisions/0004-modular-pipeline-over-realtime.md`.
-- `conversation/`, `safety/`, `education/`, `reminders/`,
-  `parent_controls/`, `storage/` remain empty packages with docstrings
-  stating which milestone fills them in.
-- **Design pivot (decision 0002, refined in 0003)**: there's no graded
-  Education Engine for the MVP — `conversation/` instead owns a
-  Teachable-Friend persona (the child teaches Chitti, any topic,
-  age/profanity-filtered, plus a safety-filtered repeat-after-me mode)
-  and a Story Companion (narrates from a preloaded or parent-uploaded
-  story, answers grounded in that transcript). Parent controls are a
-  local, PIN-gated, LAN-only web UI with child-profile and story
-  management. Wake word is picked by the child from a vetted shortlist.
-  Multiple children can share one device, switched via a self-ID phrase.
+- **Safety layer** (`safety/checks.py`, `tool_validation.py`): deterministic,
+  offline screening (profanity, unsafe content, human impersonation,
+  parent-secrecy, engagement manipulation) that runs on anything Chitti
+  is about to say, plus tool-call allowlist + schema validation.
+- **Memory Service** (`memory/repository.py`): SQLite-backed, scoped per
+  `child_profile_id`, refuses to persist conversation context, expired
+  records excluded from reads without an explicit purge.
+- **LanguageModelBackend implementations** (`voice/openai_backend.py`,
+  `claude_backend.py`): both working against real APIs. A Finnish
+  benchmark (`scripts/benchmark_finnish.py`) ran live against both —
+  see `docs/decisions/0012-finnish-benchmark-both-backends-complete.md`
+  for the result (a first data point, not a final backend decision).
+- **ConversationService** (`conversation/service.py`): Teachable-Friend
+  and Story Companion, both screened through the Safety layer before
+  anything is returned; repeat-after-me needs no LLM call at all.
+- **Reminder Service** (`reminders/repository.py`): SQLite-backed,
+  `due_reminders()`/`mark_fired()` for a future scheduler loop, correct
+  DST handling for recurring reminders (verified against a real
+  Europe/Helsinki transition).
+- **`app.py`** starts and shuts down cleanly against mocked device/audio
+  hardware — now confirmed on **real Linux/ARM hardware**, not just this
+  agent's dev sandbox (decision 0013): Ctrl-C produces a correct clean
+  shutdown, something Windows couldn't exercise at all.
+- **63 unit tests passing** (`scripts/run_tests.sh`), confirmed on both
+  the dev sandbox and a real Raspberry Pi. That Pi is the existing Pi 1
+  B+ used for `pixel-ai/`, **not** a Pi 5 — useful for "does this run on
+  real ARM/Linux at all," not for Pi 5 performance numbers.
+- `src/companion_robot/voice/interfaces.py` still has the full-duplex
+  `SpeechToSpeechBackend`/`SpeechRecognitionBackend`/`TextToSpeechBackend`
+  stubs — real ASR/TTS and the actual voice I/O loop are Milestone 2,
+  still waiting on a Pi 5 and the remaining benchmarks below.
+- `education/`, `parent_controls/`, `storage/`'s cross-cutting role
+  stay as described in `docs/architecture.md`; `parent_controls/` (the
+  local, PIN-gated, LAN-only web UI) is the next planned feature.
 
 ## Setup
 
@@ -65,17 +67,23 @@ cd chitti
 ./scripts/run_local.sh   # starts the app against mocked hardware
 ```
 
+For the Finnish benchmark, copy `.env.example` to `.env` and fill in
+`OPENAI_API_KEY`/`ANTHROPIC_API_KEY` **locally, never pasted into
+chat** (see risk register #17 for why this is called out explicitly),
+then `python scripts/benchmark_finnish.py`.
+
 ## Documentation
 
 Start with `docs/architecture.md` (module map + AI backend decision),
-then `docs/risk_register.md` and `docs/decisions/` (five so far) for why
-things are built the way they are. `docs/compliance_plan.md` and
+then `docs/risk_register.md` and `docs/decisions/` for why things are
+built the way they are. `docs/compliance_plan.md` and
 `docs/privacy_data_map.md` track what's explicitly **not yet assessed** —
 don't treat their presence as a compliance claim.
 
 ## Next step
 
-Milestone 2 (voice conversation) needs the AI-backend benchmarking listed
-in `docs/decisions/0005-milestone-1-device-audio-foundation.md`'s
-deferred-decisions section — Finnish quality and real-hardware ASR
-latency, neither measurable without a Pi 5 in hand.
+Real ASR/TTS and the actual voice I/O loop (Milestone 2) still need: a
+real Pi 5 (not the Pi 1 B+ used above), native-speaker review of the
+Finnish benchmark result, and the vendor child-directed-use policy check
+(risk register #11). Buildable in the meantime, hardware-independent:
+the Parent Controls web UI (decision 0002).
