@@ -36,6 +36,7 @@ from pathlib import Path
 
 from companion_robot.audio.real import CAPTURE_DEVICE, RealAudioTransport
 from companion_robot.conversation.service import ConversationService
+from companion_robot.education.math_check import extract_addition_claim
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.engagement.schema import EngagementMode, EngagementSession
 from companion_robot.memory.repository import MemoryRepository
@@ -289,7 +290,8 @@ async def _run_teachable_friend(
                 print("(nothing heard, try again)")
                 continue
             messages.append({"role": "user", "content": text})
-            result = await conversation.teachable_friend_reply(messages)
+            math_check = extract_addition_claim(text)
+            result = await conversation.teachable_friend_reply(messages, math_check=math_check)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
             await _speak(tts, audio, result.text, speed=speed)

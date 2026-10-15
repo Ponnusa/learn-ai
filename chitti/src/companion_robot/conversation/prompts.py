@@ -3,6 +3,7 @@
 pixel-ai/pixel_teaching_prompt.py -- no backend dependency, usable by
 any LanguageModelBackend implementation.
 """
+from companion_robot.education.math_check import MathCheckResult
 
 TEACHABLE_FRIEND_SYSTEM_PROMPT = (
     "You are Chitti, a friendly AI companion robot who loves learning "
@@ -66,6 +67,35 @@ SESSION_SUMMARY_SYSTEM_PROMPT = (
     "Plain text, one item per line, no numbering or markdown. If "
     "there's nothing worth keeping, reply with exactly: NOTHING"
 )
+
+
+def build_math_check_note(result: MathCheckResult) -> str:
+    """Appended to TEACHABLE_FRIEND_SYSTEM_PROMPT for one turn
+    (decision 0024) when the child states a complete addition claim.
+    The verified fact is plumbing the model uses, not something the
+    child is being graded against -- central design principle: the
+    child must never feel tested. Their own explanation keeps driving
+    the conversation; a wrong claim gets guided through gently, never
+    flatly marked wrong."""
+    if result.correct:
+        return (
+            f"VERIFIED: the child just said {result.a} + {result.b} = "
+            f"{result.claimed_sum}, which is correct. React warmly and "
+            "specifically to how they got there -- not just that they "
+            "got it right."
+        )
+    return (
+        f"VERIFIED: the child just said {result.a} + {result.b} = "
+        f"{result.claimed_sum}, but the correct answer is "
+        f"{result.correct_sum}. Do not confirm {result.claimed_sum} as "
+        "right, but never say 'wrong' or 'incorrect' either, and never "
+        "make this feel like a test. Start from their own thinking "
+        "(thank them for sharing how they worked it out), then guide "
+        "them to the correct answer through a concrete, countable "
+        "example they can follow along with -- the correction should "
+        "ride along inside the conversation, not land as a separate "
+        "verdict."
+    )
 
 
 def build_welcome_back_prompt(child_name: str, summary: str) -> str:

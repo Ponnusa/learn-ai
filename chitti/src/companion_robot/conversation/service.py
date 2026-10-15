@@ -11,12 +11,14 @@ other path too).
 """
 from dataclasses import dataclass
 
+from companion_robot.education.math_check import MathCheckResult
 from companion_robot.safety.checks import SafetyCategory, check_speech, decline_message
 from companion_robot.voice.interfaces import LanguageModelBackend
 
 from .prompts import (
     SESSION_SUMMARY_SYSTEM_PROMPT,
     TEACHABLE_FRIEND_SYSTEM_PROMPT,
+    build_math_check_note,
     build_story_companion_prompt,
     build_welcome_back_prompt,
 )
@@ -40,10 +42,13 @@ class ConversationService:
         # caller to use two backends if they don't need to.
         self._summarizer_llm = summarizer_llm or llm
 
-    async def teachable_friend_reply(self, messages: list[dict]) -> ConversationResult:
-        reply_text, _model = await self._llm.generate_reply(
-            messages, TEACHABLE_FRIEND_SYSTEM_PROMPT
-        )
+    async def teachable_friend_reply(
+        self, messages: list[dict], math_check: MathCheckResult | None = None
+    ) -> ConversationResult:
+        system_prompt = TEACHABLE_FRIEND_SYSTEM_PROMPT
+        if math_check is not None:
+            system_prompt += "\n\n" + build_math_check_note(math_check)
+        reply_text, _model = await self._llm.generate_reply(messages, system_prompt)
         return self._screen(reply_text)
 
     async def story_companion_reply(

@@ -1,10 +1,14 @@
-"""Education Engine (spec section 3.2.F, 7) -- NOT being built for the MVP.
+"""Education Engine (spec section 3.2.F, 7) -- mostly NOT built for the
+MVP. Superseded by decision 0002
+(docs/decisions/0002-teachable-friend-story-companion-and-parent-ui.md):
+the deterministic, graded activity this package was meant to own is
+replaced by Teachable-Friend and Story Companion, owned by
+companion_robot.conversation instead.
 
-Superseded by decision 0002 (docs/decisions/0002-teachable-friend-story-
-companion-and-parent-ui.md): the deterministic, graded activity this
-package was meant to own is replaced by Teachable-Friend and Story
-Companion, both owned by companion_robot.conversation instead -- neither
-has a correctness state to validate, so there's nothing for this package
-to do. Kept as an empty package in case a graded activity is
-reintroduced later; nothing is planned against it today.
+math_check.py (decision 0024) is the one deliberate exception: simple
+addition has a real, cheap-to-verify answer, unlike grammar or
+pronunciation, so it's worth a small deterministic checker even though
+no broader graded engine exists. Everything else spec section 7
+describes (a full curriculum, proficiency tracking across subjects)
+remains explicitly not built.
 """

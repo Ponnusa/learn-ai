@@ -3,6 +3,7 @@
 """
 from companion_robot.conversation.prompts import SESSION_SUMMARY_SYSTEM_PROMPT
 from companion_robot.conversation.service import ConversationService
+from companion_robot.education.math_check import extract_addition_claim
 from companion_robot.safety.checks import SafetyCategory
 from companion_robot.voice.interfaces import LanguageModelBackend
 
@@ -33,6 +34,44 @@ async def test_teachable_friend_reply_passes_through_clean_text():
     assert result.blocked is False
     assert result.text == "That's so cool, tell me more!"
     assert len(llm.calls) == 1
+
+
+async def test_teachable_friend_reply_includes_verified_note_when_math_check_correct():
+    llm = FakeLanguageModelBackend(reply="You counted forward -- nice!")
+    service = ConversationService(llm)
+    math_check = extract_addition_claim("one plus one is two")
+
+    await service.teachable_friend_reply(
+        [{"role": "user", "content": "one plus one is two"}], math_check=math_check
+    )
+
+    _, system_prompt = llm.calls[0]
+    assert "VERIFIED" in system_prompt
+    assert "1 + 1 = 2, which is correct" in system_prompt
+
+
+async def test_teachable_friend_reply_includes_verified_note_when_math_check_incorrect():
+    llm = FakeLanguageModelBackend(reply="Let's count together...")
+    service = ConversationService(llm)
+    math_check = extract_addition_claim("two plus two is three")
+
+    await service.teachable_friend_reply(
+        [{"role": "user", "content": "two plus two is three"}], math_check=math_check
+    )
+
+    _, system_prompt = llm.calls[0]
+    assert "but the correct answer is 4" in system_prompt
+    assert "never make this feel like a test" in system_prompt
+
+
+async def test_teachable_friend_reply_omits_note_when_no_math_check_given():
+    llm = FakeLanguageModelBackend(reply="Tell me more!")
+    service = ConversationService(llm)
+
+    await service.teachable_friend_reply([{"role": "user", "content": "Dogs are cool"}])
+
+    _, system_prompt = llm.calls[0]
+    assert "VERIFIED" not in system_prompt
 
 
 async def test_teachable_friend_reply_blocks_unsafe_model_output():
