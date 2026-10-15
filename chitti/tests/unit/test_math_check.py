@@ -1,7 +1,11 @@
-"""Unit tests for companion_robot.education.math_check.extract_addition_claim
--- pure function, no I/O, no real LLM needed.
+"""Unit tests for companion_robot.education.math_check -- pure
+functions, no I/O, no real LLM needed.
 """
-from companion_robot.education.math_check import extract_addition_claim
+from companion_robot.education.math_check import (
+    extract_addition_claim,
+    extract_bare_number,
+    extract_posed_challenge,
+)
 
 
 def test_extracts_a_correct_claim_in_digits():
@@ -57,3 +61,44 @@ def test_returns_none_for_multi_word_numbers():
 
 def test_returns_none_when_a_token_in_the_pattern_is_not_a_number():
     assert extract_addition_claim("my friend plus my dog is happy") is None
+
+
+def test_extract_posed_challenge_recognizes_the_plus_shape():
+    assert extract_posed_challenge("2 treats plus 3 berries makes...") == (2, 3)
+
+
+def test_extract_posed_challenge_recognizes_the_more_shape():
+    assert extract_posed_challenge(
+        "If you have 2 chocolates and you get 3 more, how many would you have?"
+    ) == (2, 3)
+
+
+def test_extract_posed_challenge_ignores_an_earlier_unrelated_number():
+    """Found live: a correction reply can mention the correct sum
+    before restating the original problem ("...you would actually
+    have 5 chocolates! So what if we counted them together: 2, then 3
+    more.") -- the real operands (2, 3) must win, not a stray 5."""
+    text = (
+        "That's a good try, but remember that if you start with 2 "
+        "chocolates and add 3 more, you would actually have 5 "
+        "chocolates! So what if we counted them together: 2, then 3 "
+        "more. Can you count them out loud for me?"
+    )
+    assert extract_posed_challenge(text) == (2, 3)
+
+
+def test_extract_posed_challenge_returns_none_for_ordinary_conversation():
+    assert extract_posed_challenge("Milk chocolate is so yummy and creamy!") is None
+
+
+def test_extract_bare_number_reads_a_single_number():
+    assert extract_bare_number("4. Chocolates") == 4
+    assert extract_bare_number("I think it's 5.") == 5
+
+
+def test_extract_bare_number_takes_the_last_number_when_counting_aloud():
+    assert extract_bare_number("1, 2, 3, 4, 5.") == 5
+
+
+def test_extract_bare_number_returns_none_when_no_number_present():
+    assert extract_bare_number("Dogs are cool") is None

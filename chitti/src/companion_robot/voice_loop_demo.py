@@ -36,7 +36,13 @@ from pathlib import Path
 
 from companion_robot.audio.real import CAPTURE_DEVICE, RealAudioTransport
 from companion_robot.conversation.service import ConversationService
-from companion_robot.education.math_check import extract_addition_claim
+from companion_robot.education.math_check import (
+    MathCheckResult,
+    build_result,
+    extract_addition_claim,
+    extract_bare_number,
+    extract_posed_challenge,
+)
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.engagement.schema import EngagementMode, EngagementSession
 from companion_robot.memory.repository import MemoryRepository
@@ -277,10 +283,34 @@ async def _maybe_greet_with_recap(
     await _speak(tts, audio, result.text, speed=speed)
 
 
+def _resolve_math_check(
+    text: str, pending_challenge: tuple[int, int] | None
+) -> MathCheckResult | None:
+    """A full self-stated equation ("one plus one is two") always
+    wins. Otherwise, if Chitti posed a challenge last turn, a bare
+    numeric reply ("4.") is checked against it (decision 0025) -- the
+    case decision 0024 didn't cover, since the child never restates
+    the operands themselves."""
+    math_check = extract_addition_claim(text)
+    if math_check is not None or pending_challenge is None:
+        return math_check
+    claimed_sum = extract_bare_number(text)
+    if claimed_sum is None:
+        return None
+    return build_result(*pending_challenge, claimed_sum)
+
+
 async def _run_teachable_friend(
     conversation, tts, audio, stt, memories, engagement, child_profile_id: str, speed: float
 ) -> None:
     messages: list[dict] = []
+    # Tracks an addition challenge Chitti itself posed last turn
+    # (decision 0025), so a bare numeric reply next turn ("4.") can
+    # still be verified deterministically -- not just a self-stated
+    # equation (decision 0024's narrower original case). Cleared every
+    # turn, resolved or not, so it never lingers into an unrelated
+    # later exchange.
+    pending_challenge: tuple[int, int] | None = None
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
     try:
         while True:
@@ -290,13 +320,17 @@ async def _run_teachable_friend(
                 print("(nothing heard, try again)")
                 continue
             messages.append({"role": "user", "content": text})
-            math_check = extract_addition_claim(text)
+
+            math_check = _resolve_math_check(text, pending_challenge)
+            pending_challenge = None
+
             result = await conversation.teachable_friend_reply(messages, math_check=math_check)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
             await _speak(tts, audio, result.text, speed=speed)
             if not result.blocked:
                 _remember_taught_fact(memories, child_profile_id, text)
+            pending_challenge = extract_posed_challenge(result.text)
     finally:
         await _summarize_and_remember_session(conversation, memories, child_profile_id, messages)
         _record_engagement_session(

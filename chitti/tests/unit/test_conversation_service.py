@@ -62,6 +62,8 @@ async def test_teachable_friend_reply_includes_verified_note_when_math_check_inc
     _, system_prompt = llm.calls[0]
     assert "but the correct answer is 4" in system_prompt
     assert "never make this feel like a test" in system_prompt
+    # decision 0025: ask how they got there before giving the answer
+    assert "ask them to walk you through how they got that number" in system_prompt
 
 
 async def test_teachable_friend_reply_omits_note_when_no_math_check_given():
