@@ -19,6 +19,18 @@ retroactively recognizes the posed challenge from Chitti's own text
 remembers it for exactly one turn so the child's bare-number reply can
 still be verified deterministically.
 
+Found live (decision 0026): a reply that recaps an already-resolved
+problem before (or instead of) posing a new one could get its old
+numbers misread as a fresh challenge, since the original version
+searched the whole reply and took the first match. A posed challenge
+is almost always the actual question being asked right now, so
+extract_posed_challenge() now searches only the reply's last
+question (plus the sentence just before it, for context lost by
+anchoring to the question alone) -- falling back to the whole text
+when no sentence ends in "?" at all, so free-form narrative with no
+question in it (e.g. "2 treats plus 3 berries makes...") still works
+exactly as before.
+
 Multi-word numbers ("twenty two") aren't recognized by any of these.
 All of this returns None on anything unrecognized rather than
 guessing -- accepted gaps, not silent wrong guesses.
@@ -61,6 +73,8 @@ _MORE_CHALLENGE_PATTERN = re.compile(
 )
 
 _BARE_NUMBER_PATTERN = re.compile(rf"\b{_NUMBER_TOKEN}\b", re.IGNORECASE)
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
 @dataclass
@@ -106,16 +120,35 @@ def extract_addition_claim(text: str) -> MathCheckResult | None:
     return build_result(a, b, claimed_sum)
 
 
+def _last_question_window(text: str) -> str:
+    """The reply's last sentence ending in "?", plus the one just
+    before it for context -- or the whole text if nothing in it ends
+    in "?". A posed challenge is almost always the question being
+    asked right now; a recap of already-resolved numbers earlier in
+    a longer reply shouldn't be mistaken for a new one."""
+    sentences = [s for s in _SENTENCE_SPLIT.split(text) if s.strip()]
+    last_question_index = None
+    for i, sentence in enumerate(sentences):
+        if sentence.rstrip().endswith("?"):
+            last_question_index = i
+    if last_question_index is None:
+        return text
+    start = max(0, last_question_index - 1)
+    return " ".join(sentences[start : last_question_index + 1])
+
+
 def extract_posed_challenge(text: str) -> tuple[int, int] | None:
     """Recognizes Chitti's own reply posing an addition challenge
     ("2 chocolates and 3 more", "2 treats plus 3 berries makes...").
     Tries the "plus"/"+" shape first, then the "N more" shape, each
-    confined to one sentence (never crosses a '.'). Returns the two
-    operands, or None if nothing recognizable is found -- the caller
-    then just has no pending challenge to check next turn, same as
-    today's behavior."""
+    confined to one sentence (never crosses a '.'), searched within
+    the reply's last question (see _last_question_window()). Returns
+    the two operands, or None if nothing recognizable is found -- the
+    caller then just has no pending challenge to check next turn,
+    same as today's behavior."""
+    window = _last_question_window(text)
     for pattern in (_PLUS_CHALLENGE_PATTERN, _MORE_CHALLENGE_PATTERN):
-        match = pattern.search(text)
+        match = pattern.search(window)
         if not match:
             continue
         a, b = _to_int(match["a"]), _to_int(match["b"])

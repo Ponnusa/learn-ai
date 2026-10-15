@@ -290,10 +290,20 @@ def _resolve_math_check(
     wins. Otherwise, if Chitti posed a challenge last turn, a bare
     numeric reply ("4.") is checked against it (decision 0025) -- the
     case decision 0024 didn't cover, since the child never restates
-    the operands themselves."""
+    the operands themselves.
+
+    Found live (decision 0026): a reply that ends in "?" is the child
+    asking something back, not answering -- a trailing number in a
+    question like "...count two more numbers, what comes next?" isn't
+    a claimed sum. Skip the bare-number check in that case (a
+    self-stated equation still counts even inside a question, e.g.
+    "is 2 plus 2 four?" -- only the pending-challenge path is
+    skipped)."""
     math_check = extract_addition_claim(text)
     if math_check is not None or pending_challenge is None:
         return math_check
+    if text.rstrip().endswith("?"):
+        return None
     claimed_sum = extract_bare_number(text)
     if claimed_sum is None:
         return None

@@ -91,6 +91,32 @@ def test_extract_posed_challenge_returns_none_for_ordinary_conversation():
     assert extract_posed_challenge("Milk chocolate is so yummy and creamy!") is None
 
 
+def test_extract_posed_challenge_ignores_a_pure_recap_with_no_new_question():
+    """Found live (decision 0026): a reply that recaps an already-
+    resolved problem ("add one... one more...") with no new numeric
+    question anywhere should not be mistaken for posing a fresh one."""
+    text = (
+        "Exactly! So when you count three, then add one for the first "
+        "car and one more for the second car, you get to five! So you "
+        "have five toy cars now! Isn't that cool? What do you like to "
+        "do with your toy cars?"
+    )
+    assert extract_posed_challenge(text) is None
+
+
+def test_extract_posed_challenge_prefers_the_new_question_over_an_earlier_recap():
+    """Found live (decision 0026): a reply that recaps the old problem
+    (3+2) before posing a genuinely new one (5+2) must resolve to the
+    new one, not the first number pair it happens to find."""
+    text = (
+        "That makes perfect sense! So you start with three and then "
+        "you count just two more: four and five! Thank you for "
+        "teaching me that! If someone had a different starting "
+        "number, like five, how would you help them count two more?"
+    )
+    assert extract_posed_challenge(text) == (5, 2)
+
+
 def test_extract_bare_number_reads_a_single_number():
     assert extract_bare_number("4. Chocolates") == 4
     assert extract_bare_number("I think it's 5.") == 5
