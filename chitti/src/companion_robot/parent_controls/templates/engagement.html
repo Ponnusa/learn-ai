@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Engagement</h1>
+<p>How much the child has spoken each session -- not a grade or a score.</p>
+<table>
+  <tr><th>When</th><th>Mode</th><th>Turns</th><th>Words</th></tr>
+{% for s in sessions|reverse %}
+  <tr>
+    <td>{{ s.created_at }}</td>
+    <td>{{ s.mode.value }}</td>
+    <td>{{ s.turn_count }}</td>
+    <td>{{ s.word_count }}</td>
+  </tr>
+{% endfor %}
+</table>
+<p><a href="{{ url_for('profiles_view') }}">Back</a></p>
+{% endblock %}

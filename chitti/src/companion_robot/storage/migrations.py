@@ -87,6 +87,22 @@ CREATE TABLE IF NOT EXISTS stories (
 )
 """
 
+_ENGAGEMENT_SESSIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS engagement_sessions (
+    id TEXT PRIMARY KEY,
+    child_profile_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    turn_count INTEGER NOT NULL,
+    word_count INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+)
+"""
+
+_ENGAGEMENT_SESSIONS_CHILD_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_engagement_sessions_child_profile
+ON engagement_sessions (child_profile_id)
+"""
+
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, add_column_ddl: str) -> None:
     """Idempotently adds a column to a table that may already exist
@@ -108,6 +124,8 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(_PARENT_PIN_TABLE)
     conn.execute(_CHILD_PROFILES_TABLE)
     conn.execute(_STORIES_TABLE)
+    conn.execute(_ENGAGEMENT_SESSIONS_TABLE)
+    conn.execute(_ENGAGEMENT_SESSIONS_CHILD_INDEX)
     _ensure_column(
         conn, "child_profiles", "speech_speed", "speech_speed REAL NOT NULL DEFAULT 1.0"
     )

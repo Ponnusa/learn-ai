@@ -304,6 +304,46 @@ def test_memory_review_page_renders_for_a_profile_with_no_memories():
     assert response.status_code == 200
 
 
+def test_engagement_page_lists_sessions_scoped_to_profile():
+    from datetime import datetime, timezone
+
+    from companion_robot.engagement.repository import EngagementRepository
+    from companion_robot.engagement.schema import EngagementMode, EngagementSession
+
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+
+    # Same shared-connection requirement as the memories test above --
+    # a second connect(":memory:") would be an entirely separate database.
+    engagement = EngagementRepository(conn)
+    now = datetime.now(timezone.utc)
+    engagement.create(
+        EngagementSession(
+            id="eng-1",
+            child_profile_id="anna",
+            mode=EngagementMode.TEACHABLE_FRIEND,
+            turn_count=4,
+            word_count=30,
+            created_at=now,
+        )
+    )
+
+    response = client.get("/profiles/anna/engagement")
+
+    assert response.status_code == 200
+    assert b"teachable_friend" in response.data
+    assert b"30" in response.data
+
+
+def test_engagement_page_renders_for_a_profile_with_no_sessions():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+
+    response = client.get("/profiles/anna/engagement")
+
+    assert response.status_code == 200
+
+
 def test_edit_profile_page_shows_current_speech_speed():
     app, conn = _make_app()
     client = _authenticated_client(app)

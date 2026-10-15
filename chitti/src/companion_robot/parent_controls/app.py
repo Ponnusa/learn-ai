@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 from flask import Flask, redirect, render_template, request, session, url_for
 
+from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.memory.repository import MemoryRepository
 
 from .auth import PinRepository, RateLimiter, load_or_create_secret_key
@@ -38,6 +39,7 @@ def create_app(
     profiles = ChildProfileRepository(conn)
     stories = StoryRepository(conn)
     memories = MemoryRepository(conn)
+    engagement = EngagementRepository(conn)
     limiter = rate_limiter or RateLimiter()
 
     def _csrf_token() -> str:
@@ -240,6 +242,15 @@ def create_app(
             return "Invalid request.", 400
         memories.delete(memory_id, profile_id)
         return redirect(url_for("profile_memories", profile_id=profile_id))
+
+    @app.get("/profiles/<profile_id>/engagement")
+    @requires_auth
+    def profile_engagement(profile_id):
+        return render_template(
+            "engagement.html",
+            profile_id=profile_id,
+            sessions=engagement.list_for_child(profile_id),
+        )
 
     return app
 

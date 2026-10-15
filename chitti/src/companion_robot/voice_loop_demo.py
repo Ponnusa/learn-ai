@@ -36,6 +36,8 @@ from pathlib import Path
 
 from companion_robot.audio.real import CAPTURE_DEVICE, RealAudioTransport
 from companion_robot.conversation.service import ConversationService
+from companion_robot.engagement.repository import EngagementRepository
+from companion_robot.engagement.schema import EngagementMode, EngagementSession
 from companion_robot.memory.repository import MemoryRepository
 from companion_robot.memory.schema import (
     ConsentStatus,
@@ -233,6 +235,31 @@ async def _summarize_and_remember_session(
     print("Saved.")
 
 
+def _record_engagement_session(
+    engagement: EngagementRepository,
+    child_profile_id: str,
+    mode: EngagementMode,
+    messages: list[dict],
+) -> None:
+    """Behavioral telemetry only (decision 0023): how much the child
+    spoke this session, not whether what they said was right. No LLM
+    involved -- plain counting -- and nothing here is ever spoken back
+    to the child as a score."""
+    child_turns = [m["content"] for m in messages if m["role"] == "user"]
+    if not child_turns:
+        return
+    engagement.create(
+        EngagementSession(
+            id=secrets.token_hex(8),
+            child_profile_id=child_profile_id,
+            mode=mode,
+            turn_count=len(child_turns),
+            word_count=sum(len(t.split()) for t in child_turns),
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+
+
 async def _maybe_greet_with_recap(
     conversation: ConversationService, tts, audio, memories: MemoryRepository, profile, speed: float
 ) -> None:
@@ -250,7 +277,7 @@ async def _maybe_greet_with_recap(
 
 
 async def _run_teachable_friend(
-    conversation, tts, audio, stt, memories, child_profile_id: str, speed: float
+    conversation, tts, audio, stt, memories, engagement, child_profile_id: str, speed: float
 ) -> None:
     messages: list[dict] = []
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
@@ -270,10 +297,13 @@ async def _run_teachable_friend(
                 _remember_taught_fact(memories, child_profile_id, text)
     finally:
         await _summarize_and_remember_session(conversation, memories, child_profile_id, messages)
+        _record_engagement_session(
+            engagement, child_profile_id, EngagementMode.TEACHABLE_FRIEND, messages
+        )
 
 
 async def _run_story_companion(
-    conversation, tts, audio, stt, memories, stories, child_profile_id: str, speed: float
+    conversation, tts, audio, stt, memories, stories, engagement, child_profile_id: str, speed: float
 ) -> None:
     all_stories = stories.list_all()
     if not all_stories:
@@ -310,6 +340,9 @@ async def _run_story_companion(
         await _summarize_and_remember_session(
             conversation, memories, child_profile_id, messages, story_title=story.title
         )
+        _record_engagement_session(
+            engagement, child_profile_id, EngagementMode.STORY_COMPANION, messages
+        )
 
 
 async def main() -> None:
@@ -329,6 +362,7 @@ async def main() -> None:
     memories = MemoryRepository(conn)
     stories = StoryRepository(conn)
     profiles = ChildProfileRepository(conn)
+    engagement = EngagementRepository(conn)
 
     # Picks the existing profile automatically if there's exactly one
     # (the common single-child case), prompts if there are several,
@@ -351,11 +385,19 @@ async def main() -> None:
     try:
         if choice == "2":
             await _run_story_companion(
-                conversation, tts, audio, stt, memories, stories, profile.id, profile.speech_speed
+                conversation,
+                tts,
+                audio,
+                stt,
+                memories,
+                stories,
+                engagement,
+                profile.id,
+                profile.speech_speed,
             )
         else:
             await _run_teachable_friend(
-                conversation, tts, audio, stt, memories, profile.id, profile.speech_speed
+                conversation, tts, audio, stt, memories, engagement, profile.id, profile.speech_speed
             )
     except (KeyboardInterrupt, asyncio.CancelledError):
         # CancelledError shouldn't reach here now that
