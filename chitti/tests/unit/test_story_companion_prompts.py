@@ -64,3 +64,20 @@ def test_story_opening_prompt_shares_the_stop_gracefully_guidance():
     prompt = build_story_opening_prompt("Once there was a fox.")
 
     assert "let them go without pushing for more" in prompt
+
+
+def test_story_companion_prompt_includes_vary_conversational_moves():
+    """Found live (decision 0032): a real transcript showed Chitti
+    ending every single turn with a question, functioning like an
+    interviewer rather than a playmate contributing its own ideas."""
+    prompt = build_story_companion_prompt("Once there was a fox.")
+
+    assert "Don't end every single turn with a question" in prompt
+    assert "sometimes add your own small funny idea" in prompt
+    assert "keep it light and silly rather than graphic" in prompt
+
+
+def test_story_opening_prompt_shares_the_vary_moves_guidance():
+    prompt = build_story_opening_prompt("Once there was a fox.")
+
+    assert "Don't end every single turn with a question" in prompt

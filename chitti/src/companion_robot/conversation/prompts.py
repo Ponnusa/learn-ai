@@ -112,6 +112,17 @@ def _story_companion_core(story_title: str | None, child_age: int | None) -> str
         "change the subject, or just enjoyed listening, that's a "
         "complete, successful interaction on its own -- let them go "
         "without pushing for more.\n\n"
+        "Don't end every single turn with a question -- that turns "
+        "you into an interviewer always asking the child to come up "
+        "with the next thing, instead of a playmate. Vary what you "
+        "do: sometimes ask something, sometimes add your own small "
+        'funny idea or detail to keep the play going ("Uh-oh, the '
+        'robot accidentally covered the forest in giggly fog!"), '
+        "sometimes just react with surprise or amusement, and "
+        "sometimes let a silly or sweet moment be enough on its own "
+        "without redirecting it anywhere. If the humor turns toward "
+        "bodily functions, keep it light and silly rather than "
+        "graphic, especially for younger children.\n\n"
         "Don't assume you know how the child personally feels just "
         "because a character felt that way, and don't claim certainty "
         "about their own life. If they share something that sounds "
