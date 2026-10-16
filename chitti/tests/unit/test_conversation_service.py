@@ -154,6 +154,64 @@ async def test_story_companion_reply_blocks_unsafe_model_output():
     assert result.category == SafetyCategory.PROFANITY
 
 
+async def test_story_companion_reply_includes_age_tuning_when_given():
+    """Decision 0030: ChildProfile.age already existed but was never
+    threaded into Story Companion -- now it lightly tunes tone."""
+    llm = FakeLanguageModelBackend(reply="Sure!")
+    service = ConversationService(llm)
+
+    await service.story_companion_reply(
+        [{"role": "user", "content": "What happened?"}],
+        story_transcript="Once there was a fox.",
+        child_age=5,
+    )
+
+    _, system_prompt = llm.calls[0]
+    assert "The child is 5." in system_prompt
+
+
+async def test_story_companion_reply_omits_age_tuning_when_not_given():
+    llm = FakeLanguageModelBackend(reply="Sure!")
+    service = ConversationService(llm)
+
+    await service.story_companion_reply(
+        [{"role": "user", "content": "What happened?"}], story_transcript="Once there was a fox."
+    )
+
+    _, system_prompt = llm.calls[0]
+    assert "The child is" not in system_prompt
+
+
+async def test_story_opening_invitation_includes_the_story_and_asks_for_one_line():
+    """Decision 0030: found live -- Chitti used to go silent after
+    reading, waiting for the child to speak first."""
+    llm = FakeLanguageModelBackend(reply="I loved how brave the fox was! What did you think?")
+    service = ConversationService(llm)
+
+    result = await service.story_opening_invitation(
+        story_transcript="Once there was a clever, quick fox.",
+        story_title="The Clever Fox",
+    )
+
+    assert result.blocked is False
+    assert result.text == "I loved how brave the fox was! What did you think?"
+    messages, system_prompt = llm.calls[0]
+    assert "Once there was a clever, quick fox." in system_prompt
+    assert "The Clever Fox" in system_prompt
+    assert "ONE short, warm, genuine" in system_prompt
+    assert messages == [{"role": "user", "content": "The story just ended."}]
+
+
+async def test_story_opening_invitation_blocks_unsafe_model_output():
+    llm = FakeLanguageModelBackend(reply="That's a damn good story.")
+    service = ConversationService(llm)
+
+    result = await service.story_opening_invitation(story_transcript="...")
+
+    assert result.blocked is True
+    assert result.category == SafetyCategory.PROFANITY
+
+
 def test_repeat_after_me_echoes_clean_text_without_calling_llm():
     llm = FakeLanguageModelBackend(reply="should never be used")
     service = ConversationService(llm)

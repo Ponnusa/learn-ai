@@ -425,7 +425,16 @@ async def _run_teachable_friend(
 
 
 async def _run_story_companion(
-    conversation, tts, audio, stt, memories, stories, engagement, child_profile_id: str, speed: float
+    conversation,
+    tts,
+    audio,
+    stt,
+    memories,
+    stories,
+    engagement,
+    child_profile_id: str,
+    speed: float,
+    child_age: int | None = None,
 ) -> None:
     all_stories = stories.list_all()
     if not all_stories:
@@ -446,6 +455,17 @@ async def _run_story_companion(
     _remember_story_read(memories, child_profile_id, story.title)
 
     messages: list[dict] = [{"role": "assistant", "content": story.content}]
+
+    # Decision 0030: found live -- Chitti used to go completely silent
+    # here, waiting for the child to speak first. One generated
+    # opening observation/question instead, so the conversation
+    # actually starts.
+    opening = await conversation.story_opening_invitation(story.content, story.title, child_age)
+    if not opening.blocked:
+        print(f"Chitti: {opening.text}")
+        messages.append({"role": "assistant", "content": opening.text})
+        await _speak(tts, audio, opening.text, speed=speed)
+
     try:
         while True:
             text = await _capture_and_transcribe(stt)
@@ -454,7 +474,9 @@ async def _run_story_companion(
                 print("(nothing heard, try again)")
                 continue
             messages.append({"role": "user", "content": text})
-            result = await conversation.story_companion_reply(messages, story.content, story.title)
+            result = await conversation.story_companion_reply(
+                messages, story.content, story.title, child_age
+            )
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
             await _speak(tts, audio, result.text, speed=speed)
@@ -516,6 +538,7 @@ async def main() -> None:
                 engagement,
                 profile.id,
                 profile.speech_speed,
+                child_age=profile.age,
             )
         else:
             await _run_teachable_friend(

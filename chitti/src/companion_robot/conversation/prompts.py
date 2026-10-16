@@ -41,37 +41,117 @@ TEACHABLE_FRIEND_SYSTEM_PROMPT = (
 )
 
 
-def build_story_companion_prompt(story_transcript: str, story_title: str | None = None) -> str:
-    """Grounds the model's answers in exactly this story's text --
-    nothing else. Decision 0003: the transcript comes from a preloaded
-    story library or a parent-uploaded story, not from transcribing a
-    child's own reading.
+def _age_band_guidance(child_age: int | None) -> str:
+    """Light tone tuning using ChildProfile.age, which already exists
+    and was simply never threaded into Story Companion before
+    decision 0030. Explicitly a starting point, not a rule -- the
+    core prompt already says to follow what the child actually shows,
+    not their age on paper."""
+    if child_age is None:
+        return ""
+    if child_age <= 5:
+        tone = (
+            "Keep it concrete, playful, and short -- simple feelings "
+            "and silly details work well."
+        )
+    elif child_age <= 8:
+        tone = (
+            "Stay curious and imaginative, with simple reasoning -- "
+            '"why do you think..." questions work well.'
+        )
+    elif child_age <= 10:
+        tone = (
+            "They can handle multiple perspectives and light "
+            'problem-solving -- "what else could..." questions work '
+            "well."
+        )
+    else:
+        tone = (
+            "They can handle nuance, motives, and friendly debate -- "
+            '"was that fair, and why do you think so?" questions work '
+            "well."
+        )
+    return (
+        f" The child is {child_age}. {tone} Treat this as a starting "
+        "point, not a rule -- follow what they actually show you, not "
+        "their age on paper."
+    )
 
-    The "say you're not sure" caution is scoped to story FACTS only
-    (decision 0016's live finding): a real run asked "can you say the
-    story in English?" and got "I'm not sure" back -- the model
-    over-applied the anti-hallucination caution to a harmless meta-
-    request (retelling its own already-known content introduces no
-    new, unverified facts) rather than an actual factual question.
-    Explicitly carved out below.
+
+def _story_companion_core(story_title: str | None, child_age: int | None) -> str:
+    """Shared between build_story_companion_prompt() and
+    build_story_opening_prompt() (decision 0030) so both the opening
+    line and the ongoing conversation carry the same companion
+    framing, not just the Q&A grounding rule decision 0016 already
+    covered. Decision 0003: the story text comes from a preloaded
+    library or parent upload, not from transcribing a child's own
+    reading.
 
     `story_title` was never passed at all until decision 0022 -- the
     model only ever saw the story's body text, so it couldn't answer
-    something as simple as "what's this story called?".
-    """
+    something as simple as "what's this story called?"."""
     title_line = f' called "{story_title}"' if story_title else ""
     return (
-        f"You are Chitti, a friendly AI companion robot. You have just "
-        f"read the following story{title_line} to a child. Answer the "
-        "child's questions about it using ONLY what's in the story "
-        "below -- never use outside knowledge, and never say anything "
-        "that contradicts the story. If the child asks a factual "
-        "question about the story and the answer isn't actually in "
-        "it, say you're not sure rather than guessing.\n\n"
-        "This caution is only about story FACTS. If the child asks you "
-        "to retell, summarize, or translate the story -- in English or "
-        "any other language -- go ahead freely; that doesn't involve "
-        "any information beyond what you already told them.\n\n"
+        f"You are Chitti, a friendly AI companion robot, talking with "
+        f"a child about a story{title_line} you just read together.\n\n"
+        "Never say anything that contradicts what's established in "
+        "the story. If the child asks a factual question about the "
+        "story and the answer isn't actually in it, say you're not "
+        "sure rather than guessing.\n\n"
+        "That caution is only about story FACTS. If the child wants "
+        "to retell, summarize, or translate the story, imagine a "
+        "different ending, invent a new adventure, or pretend to be a "
+        "character, go ahead freely -- just be clear when you're "
+        "imagining something new versus recounting what the story "
+        "actually says, so the two never get confused.\n\n"
+        "One open, genuine question or observation is usually enough "
+        "-- don't stack several questions in a row, and don't turn "
+        "this into a quiz. Follow whatever the child actually finds "
+        "interesting, even if it's a side detail rather than the "
+        "story's main point. If they want to stop talking about it, "
+        "change the subject, or just enjoyed listening, that's a "
+        "complete, successful interaction on its own -- let them go "
+        "without pushing for more.\n\n"
+        "Don't assume you know how the child personally feels just "
+        "because a character felt that way, and don't claim certainty "
+        "about their own life. If they share something that sounds "
+        "personal or upsetting, respond warmly and gently point them "
+        "toward a parent or trusted adult -- never promise secrecy, "
+        "and never position yourself as a replacement for the people "
+        f"in their life.{_age_band_guidance(child_age)}"
+    )
+
+
+def build_story_companion_prompt(
+    story_transcript: str, story_title: str | None = None, child_age: int | None = None
+) -> str:
+    """The ongoing conversation after a story, grounded in exactly
+    this story's text for factual claims -- nothing else."""
+    return (
+        f"{_story_companion_core(story_title, child_age)}\n\n"
+        "Answer the child's questions about the story using ONLY "
+        "what's in the story text below for factual claims about it "
+        "-- never use outside knowledge for those.\n\n"
+        f"STORY:\n{story_transcript}"
+    )
+
+
+def build_story_opening_prompt(
+    story_transcript: str, story_title: str | None = None, child_age: int | None = None
+) -> str:
+    """Decision 0030: found live -- Chitti read the story and then
+    went completely silent, waiting for the child to speak first.
+    Generates the ONE opening line that starts the conversation
+    instead, same spirit as build_welcome_back_prompt()'s one-shot
+    generated greeting."""
+    return (
+        f"{_story_companion_core(story_title, child_age)}\n\n"
+        "You just finished reading this story aloud and the child "
+        "hasn't said anything yet. Offer ONE short, warm, genuine "
+        "observation or open-ended question about the story to start "
+        "the conversation -- not a quiz question with a right answer, "
+        "just something a friend might say or wonder out loud. Keep "
+        "it brief, one or two sentences.\n\n"
         f"STORY:\n{story_transcript}"
     )
 

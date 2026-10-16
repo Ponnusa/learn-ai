@@ -20,6 +20,7 @@ from .prompts import (
     TEACHABLE_FRIEND_SYSTEM_PROMPT,
     build_math_check_note,
     build_story_companion_prompt,
+    build_story_opening_prompt,
     build_welcome_back_prompt,
 )
 
@@ -55,10 +56,31 @@ class ConversationService:
         return self._screen(reply_text)
 
     async def story_companion_reply(
-        self, messages: list[dict], story_transcript: str, story_title: str | None = None
+        self,
+        messages: list[dict],
+        story_transcript: str,
+        story_title: str | None = None,
+        child_age: int | None = None,
     ) -> ConversationResult:
-        system_prompt = build_story_companion_prompt(story_transcript, story_title)
+        system_prompt = build_story_companion_prompt(story_transcript, story_title, child_age)
         reply_text, _model = await self._llm.generate_reply(messages, system_prompt)
+        return self._screen(reply_text)
+
+    async def story_opening_invitation(
+        self,
+        story_transcript: str,
+        story_title: str | None = None,
+        child_age: int | None = None,
+    ) -> ConversationResult:
+        """Decision 0030: found live -- Chitti read the story and then
+        went silent, waiting for the child to speak first. One
+        generated opening line instead, same one-shot pattern as
+        welcome_back_greeting() (a synthetic trigger message, since
+        generate_reply() needs at least one)."""
+        prompt = build_story_opening_prompt(story_transcript, story_title, child_age)
+        reply_text, _model = await self._llm.generate_reply(
+            [{"role": "user", "content": "The story just ended."}], prompt
+        )
         return self._screen(reply_text)
 
     def repeat_after_me(self, text: str) -> ConversationResult:
