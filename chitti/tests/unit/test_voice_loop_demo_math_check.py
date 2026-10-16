@@ -89,6 +89,24 @@ def test_correct_result_clears_the_pending_challenge_and_streak():
     assert streak == 0
 
 
+def test_stops_rearming_past_the_incorrect_streak_cap():
+    """Found live (decision 0028): past a couple of tries at the same
+    problem, the child tends to shift from answering the sum to
+    explaining their own counting method -- continuing to re-arm just
+    produces increasingly irrelevant "still wrong" notes about numbers
+    that don't actually mean a claimed total. This turn's own
+    math_check/note still applies as normal (already_tried should
+    still be True); only the *next* round is skipped."""
+    incorrect = build_result(5, 2, claimed_sum=8)
+
+    # third consecutive incorrect result for the same problem
+    pending_challenge, streak = _update_challenge_state(incorrect, incorrect_streak=2)
+
+    assert pending_challenge is None  # stop re-arming for next turn
+    assert streak == 3
+    assert streak > 1  # this turn's own note should still escalate
+
+
 def test_no_check_at_all_clears_the_pending_challenge_and_streak():
     pending_challenge, streak = _update_challenge_state(None, incorrect_streak=1)
 

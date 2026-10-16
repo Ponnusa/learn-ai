@@ -310,6 +310,9 @@ def _resolve_math_check(
     return build_result(*pending_challenge, claimed_sum)
 
 
+_MAX_INCORRECT_STREAK = 2  # see _update_challenge_state() below
+
+
 def _update_challenge_state(
     math_check: MathCheckResult | None, incorrect_streak: int
 ) -> tuple[tuple[int, int] | None, int]:
@@ -320,10 +323,23 @@ def _update_challenge_state(
     `incorrect_streak` so the prompt note can escalate to the concrete
     walkthrough on a repeat rather than asking to explain again
     indefinitely. Anything else (correct, or no check at all) resets
-    both."""
-    if math_check is not None and not math_check.correct:
-        return (math_check.a, math_check.b), incorrect_streak + 1
-    return None, 0
+    both.
+
+    Found live (decision 0028): past `_MAX_INCORRECT_STREAK` tries at
+    the same problem, the child tends to have moved on from answering
+    the sum to explaining their own counting method instead -- at
+    that point the bare-number check starts grabbing numbers that
+    mean something else entirely (a step count, not a claimed total),
+    producing increasingly irrelevant "still wrong" notes. Past the
+    cap, stop re-arming (this turn's own math_check/note is still
+    returned and used as normal -- only the *next* round is skipped),
+    letting the conversation move on instead of manufacturing more
+    confrontational turns."""
+    if math_check is None or math_check.correct:
+        return None, 0
+    new_streak = incorrect_streak + 1
+    pending_challenge = (math_check.a, math_check.b) if new_streak <= _MAX_INCORRECT_STREAK else None
+    return pending_challenge, new_streak
 
 
 async def _run_teachable_friend(
