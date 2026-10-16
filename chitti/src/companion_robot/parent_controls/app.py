@@ -21,6 +21,7 @@ from flask import Flask, redirect, render_template, request, session, url_for
 
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.memory.repository import MemoryRepository
+from companion_robot.transcripts.repository import TranscriptRepository
 
 from .auth import PinRepository, RateLimiter, load_or_create_secret_key
 from .profiles import ChildProfile, ChildProfileRepository
@@ -40,6 +41,7 @@ def create_app(
     stories = StoryRepository(conn)
     memories = MemoryRepository(conn)
     engagement = EngagementRepository(conn)
+    transcripts = TranscriptRepository(conn)
     limiter = rate_limiter or RateLimiter()
 
     def _csrf_token() -> str:
@@ -251,6 +253,23 @@ def create_app(
             profile_id=profile_id,
             sessions=engagement.list_for_child(profile_id),
         )
+
+    @app.get("/profiles/<profile_id>/transcripts")
+    @requires_auth
+    def profile_transcripts(profile_id):
+        return render_template(
+            "transcripts.html",
+            profile_id=profile_id,
+            records=transcripts.list_for_child(profile_id),
+        )
+
+    @app.post("/profiles/<profile_id>/transcripts/<transcript_id>/delete")
+    @requires_auth
+    def delete_transcript(profile_id, transcript_id):
+        if not _csrf_valid():
+            return "Invalid request.", 400
+        transcripts.delete(transcript_id, profile_id)
+        return redirect(url_for("profile_transcripts", profile_id=profile_id))
 
     return app
 

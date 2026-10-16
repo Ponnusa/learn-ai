@@ -31,7 +31,7 @@ real hardware, not Milestone 2's final design.
 import asyncio
 import secrets
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from companion_robot.audio.real import CAPTURE_DEVICE, RealAudioTransport
@@ -56,6 +56,8 @@ from companion_robot.memory.schema import (
 from companion_robot.parent_controls.profiles import ChildProfile, ChildProfileRepository
 from companion_robot.parent_controls.stories import StoryRepository
 from companion_robot.storage.sqlite import connect
+from companion_robot.transcripts.repository import TranscriptRepository
+from companion_robot.transcripts.schema import TranscriptRecord
 from companion_robot.voice.claude_backend import ClaudeLanguageModelBackend
 from companion_robot.voice.openai_backend import OpenAILanguageModelBackend
 from companion_robot.voice.stt_openai import OpenAIWhisperBackend
@@ -268,6 +270,42 @@ def _record_engagement_session(
     )
 
 
+# Decision 0038: how long a transcript stays before it's eligible for
+# purge_expired() to remove it -- nothing schedules that purge yet
+# (same honest gap MemoryRepository.purge_expired() already has), so
+# this is a label on the record today, not an enforced guarantee.
+_TRANSCRIPT_RETENTION_DAYS = 90
+
+
+def _save_transcript(
+    transcripts: TranscriptRepository,
+    child_profile_id: str,
+    mode: EngagementMode,
+    messages: list[dict],
+) -> None:
+    """The full session, for parent transparency (decision 0038) --
+    deliberately separate from memory/ (see transcripts/__init__.py
+    for why). Reuses the exact same "role: content" line format
+    _summarize_and_remember_session() already builds for its own
+    summarizer call, rather than inventing a second format."""
+    if not messages:
+        return
+    now = datetime.now(timezone.utc)
+    content = "\n".join(f"{m['role']}: {m['content']}" for m in messages)
+    transcripts.create(
+        TranscriptRecord(
+            id=secrets.token_hex(8),
+            child_profile_id=child_profile_id,
+            mode=mode,
+            content=content,
+            created_at=now,
+            consent_or_authorization_status=ConsentStatus.GRANTED,
+            retention_policy="demo",
+            expires_at=now + timedelta(days=_TRANSCRIPT_RETENTION_DAYS),
+        )
+    )
+
+
 async def _maybe_greet_with_recap(
     conversation: ConversationService, tts, audio, memories: MemoryRepository, profile, speed: float
 ) -> None:
@@ -373,7 +411,15 @@ def _patch_if_still_unresolved(
 
 
 async def _run_teachable_friend(
-    conversation, tts, audio, stt, memories, engagement, child_profile_id: str, speed: float
+    conversation,
+    tts,
+    audio,
+    stt,
+    memories,
+    engagement,
+    transcripts,
+    child_profile_id: str,
+    speed: float,
 ) -> None:
     messages: list[dict] = []
     # Tracks an addition challenge Chitti itself posed last turn
@@ -422,6 +468,7 @@ async def _run_teachable_friend(
         _record_engagement_session(
             engagement, child_profile_id, EngagementMode.TEACHABLE_FRIEND, messages
         )
+        _save_transcript(transcripts, child_profile_id, EngagementMode.TEACHABLE_FRIEND, messages)
 
 
 async def _run_everyday_companion(
@@ -431,6 +478,7 @@ async def _run_everyday_companion(
     stt,
     memories,
     engagement,
+    transcripts,
     child_profile_id: str,
     speed: float,
     child_age: int | None = None,
@@ -476,6 +524,7 @@ async def _run_everyday_companion(
         _record_engagement_session(
             engagement, child_profile_id, EngagementMode.EVERYDAY_COMPANION, messages
         )
+        _save_transcript(transcripts, child_profile_id, EngagementMode.EVERYDAY_COMPANION, messages)
 
 
 async def _run_story_companion(
@@ -486,6 +535,7 @@ async def _run_story_companion(
     memories,
     stories,
     engagement,
+    transcripts,
     child_profile_id: str,
     speed: float,
     child_age: int | None = None,
@@ -541,6 +591,7 @@ async def _run_story_companion(
         _record_engagement_session(
             engagement, child_profile_id, EngagementMode.STORY_COMPANION, messages
         )
+        _save_transcript(transcripts, child_profile_id, EngagementMode.STORY_COMPANION, messages)
 
 
 async def main() -> None:
@@ -561,6 +612,7 @@ async def main() -> None:
     stories = StoryRepository(conn)
     profiles = ChildProfileRepository(conn)
     engagement = EngagementRepository(conn)
+    transcripts = TranscriptRepository(conn)
 
     # Picks the existing profile automatically if there's exactly one
     # (the common single-child case), prompts if there are several,
@@ -591,6 +643,7 @@ async def main() -> None:
                 memories,
                 stories,
                 engagement,
+                transcripts,
                 profile.id,
                 profile.speech_speed,
                 child_age=profile.age,
@@ -603,13 +656,22 @@ async def main() -> None:
                 stt,
                 memories,
                 engagement,
+                transcripts,
                 profile.id,
                 profile.speech_speed,
                 child_age=profile.age,
             )
         else:
             await _run_teachable_friend(
-                conversation, tts, audio, stt, memories, engagement, profile.id, profile.speech_speed
+                conversation,
+                tts,
+                audio,
+                stt,
+                memories,
+                engagement,
+                transcripts,
+                profile.id,
+                profile.speech_speed,
             )
     except (KeyboardInterrupt, asyncio.CancelledError):
         # CancelledError shouldn't reach here now that

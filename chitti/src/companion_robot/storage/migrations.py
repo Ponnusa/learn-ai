@@ -103,6 +103,24 @@ CREATE INDEX IF NOT EXISTS idx_engagement_sessions_child_profile
 ON engagement_sessions (child_profile_id)
 """
 
+_TRANSCRIPTS_TABLE = """
+CREATE TABLE IF NOT EXISTS transcripts (
+    id TEXT PRIMARY KEY,
+    child_profile_id TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    consent_or_authorization_status TEXT NOT NULL,
+    retention_policy TEXT NOT NULL,
+    expires_at TEXT
+)
+"""
+
+_TRANSCRIPTS_CHILD_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_transcripts_child_profile
+ON transcripts (child_profile_id)
+"""
+
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, add_column_ddl: str) -> None:
     """Idempotently adds a column to a table that may already exist
@@ -126,6 +144,8 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(_STORIES_TABLE)
     conn.execute(_ENGAGEMENT_SESSIONS_TABLE)
     conn.execute(_ENGAGEMENT_SESSIONS_CHILD_INDEX)
+    conn.execute(_TRANSCRIPTS_TABLE)
+    conn.execute(_TRANSCRIPTS_CHILD_INDEX)
     _ensure_column(
         conn, "child_profiles", "speech_speed", "speech_speed REAL NOT NULL DEFAULT 1.0"
     )

@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>Chitti Parent Controls</h1>
-<p><a href="{{ url_for('profiles_view') }}">Child profiles</a> ({{ profiles|length }})</p>
-<p><a href="{{ url_for('stories_view') }}">Stories</a> ({{ stories|length }})</p>
-<p><a href="{{ url_for('logout') }}">Log out</a></p>
+<ul class="card-list">
+  <li class="card"><a class="action-link" href="{{ url_for('profiles_view') }}">Child profiles</a> ({{ profiles|length }})</li>
+  <li class="card"><a class="action-link" href="{{ url_for('stories_view') }}">Stories</a> ({{ stories|length }})</li>
+</ul>
 {% endblock %}

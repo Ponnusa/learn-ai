@@ -11,7 +11,14 @@ Five categories, none stored by default without explicit, per-category
 handling:
 
 1. **Conversation context** — temporary, in-memory only for the duration
-   of a session. Never persisted as a durable memory record.
+   of a session with respect to `MemoryRecord`/`MemoryCategory.CONVERSATION_CONTEXT`,
+   which remains walled off from `MemoryRepository` exactly as stated here
+   (decision 0007). **Decision 0038 narrows this for one explicit purpose**:
+   full session transcripts are now persisted separately (`transcripts/`,
+   not `MemoryRecord`) for parent transparency, with their own consent/
+   retention/expiry fields and a parent-facing delete control — see that
+   decision for the full reasoning, including what's still open (no DPIA
+   has been performed).
 2. **Personal preferences** — optional, explicitly created (e.g. "favourite
    topic: dinosaurs"). Durable, reviewable, deletable.
 3. **Reminders** — explicit tasks with date/time/expiry. Durable until

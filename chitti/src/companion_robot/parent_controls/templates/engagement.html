@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>Engagement</h1>
-<p>How much the child has spoken each session -- not a grade or a score.</p>
-<table>
+<p class="hint">How much the child has spoken each session -- not a grade or a score.</p>
+{% if sessions %}
+<table class="data-table">
   <tr><th>When</th><th>Mode</th><th>Turns</th><th>Words</th></tr>
 {% for s in sessions|reverse %}
   <tr>
@@ -13,5 +14,8 @@
   </tr>
 {% endfor %}
 </table>
-<p><a href="{{ url_for('profiles_view') }}">Back</a></p>
+{% else %}
+<p class="empty-state">No sessions recorded yet for this child.</p>
+{% endif %}
+<p><a class="action-link" href="{{ url_for('profiles_view') }}">Back</a></p>
 {% endblock %}

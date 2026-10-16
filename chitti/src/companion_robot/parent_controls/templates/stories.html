@@ -1,24 +1,29 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>Stories</h1>
-{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
-<ul>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if stories %}
+<ul class="card-list">
 {% for s in stories %}
-  <li>
-    {{ s.title }}
-    <form method="post" action="{{ url_for('delete_story', story_id=s.id) }}" style="display:inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit">Delete</button>
-    </form>
+  <li class="card">
+    <div class="card-actions">
+      <div class="card-title" style="flex:1">{{ s.title }}</div>
+      <form method="post" action="{{ url_for('delete_story', story_id=s.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="danger">Delete</button>
+      </form>
+    </div>
   </li>
 {% endfor %}
 </ul>
+{% else %}
+<p class="empty-state">No stories yet -- add one below.</p>
+{% endif %}
 <h2>Add a story</h2>
-<form method="post">
+<form method="post" class="panel">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>Title: <input name="title"></label><br>
-  <label>Content:<br><textarea name="content" rows="10" cols="60"></textarea></label><br>
+  <label>Title <input name="title"></label>
+  <label>Content <textarea name="content" rows="10" cols="60"></textarea></label>
   <button type="submit">Add</button>
 </form>
-<p><a href="{{ url_for('dashboard') }}">Back</a></p>
 {% endblock %}

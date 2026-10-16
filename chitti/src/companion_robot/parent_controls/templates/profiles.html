@@ -1,27 +1,34 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>Child profiles</h1>
-{% if error %}<p style="color:red">{{ error }}</p>{% endif %}
-<ul>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if profiles %}
+<ul class="card-list">
 {% for p in profiles %}
-  <li>
-    {{ p.name }} (age {{ p.age }}, speech speed {{ p.speech_speed }}x)
-    <a href="{{ url_for('edit_profile', profile_id=p.id) }}">edit</a>
-    <a href="{{ url_for('profile_memories', profile_id=p.id) }}">memories</a>
-    <a href="{{ url_for('profile_engagement', profile_id=p.id) }}">engagement</a>
-    <form method="post" action="{{ url_for('delete_profile', profile_id=p.id) }}" style="display:inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit">Delete</button>
-    </form>
+  <li class="card">
+    <div class="card-title">{{ p.name }}</div>
+    <div class="card-meta">age {{ p.age }} &middot; speech speed {{ p.speech_speed }}x</div>
+    <div class="card-actions">
+      <a class="action-link" href="{{ url_for('edit_profile', profile_id=p.id) }}">Edit</a>
+      <a class="action-link" href="{{ url_for('profile_memories', profile_id=p.id) }}">Memories</a>
+      <a class="action-link" href="{{ url_for('profile_engagement', profile_id=p.id) }}">Engagement</a>
+      <a class="action-link" href="{{ url_for('profile_transcripts', profile_id=p.id) }}">Transcripts</a>
+      <form method="post" action="{{ url_for('delete_profile', profile_id=p.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="danger">Delete</button>
+      </form>
+    </div>
   </li>
 {% endfor %}
 </ul>
+{% else %}
+<p class="empty-state">No child profiles yet -- add one below.</p>
+{% endif %}
 <h2>Add a child</h2>
-<form method="post">
+<form method="post" class="panel">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>Name: <input name="name"></label>
-  <label>Age: <input name="age"></label>
+  <label>Name <input name="name"></label>
+  <label>Age <input name="age"></label>
   <button type="submit">Add</button>
 </form>
-<p><a href="{{ url_for('dashboard') }}">Back</a></p>
 {% endblock %}

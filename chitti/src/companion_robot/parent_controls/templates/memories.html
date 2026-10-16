@@ -1,16 +1,23 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>Memories</h1>
-<ul>
+{% if records %}
+<ul class="card-list">
 {% for r in records %}
-  <li>
-    [{{ r.category.value }}] {{ r.content }}
-    <form method="post" action="{{ url_for('delete_memory', profile_id=profile_id, memory_id=r.id) }}" style="display:inline">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button type="submit">Delete</button>
-    </form>
+  <li class="card">
+    <div class="card-meta">{{ r.category.value }}</div>
+    <div class="card-content">{{ r.content }}</div>
+    <div class="card-actions">
+      <form method="post" action="{{ url_for('delete_memory', profile_id=profile_id, memory_id=r.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="danger">Delete</button>
+      </form>
+    </div>
   </li>
 {% endfor %}
 </ul>
-<p><a href="{{ url_for('profiles_view') }}">Back</a></p>
+{% else %}
+<p class="empty-state">No memories yet for this child.</p>
+{% endif %}
+<p><a class="action-link" href="{{ url_for('profiles_view') }}">Back</a></p>
 {% endblock %}

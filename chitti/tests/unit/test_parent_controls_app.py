@@ -344,6 +344,53 @@ def test_engagement_page_renders_for_a_profile_with_no_sessions():
     assert response.status_code == 200
 
 
+def test_transcripts_page_lists_and_deletes_records_scoped_to_profile():
+    from datetime import datetime, timezone
+
+    from companion_robot.engagement.schema import EngagementMode
+    from companion_robot.memory.schema import ConsentStatus
+    from companion_robot.transcripts.repository import TranscriptRepository
+    from companion_robot.transcripts.schema import TranscriptRecord
+
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+
+    transcripts = TranscriptRepository(conn)
+    now = datetime.now(timezone.utc)
+    transcripts.create(
+        TranscriptRecord(
+            id="tr-1",
+            child_profile_id="anna",
+            mode=EngagementMode.EVERYDAY_COMPANION,
+            content="user: I am bored\nassistant: Let's play a game!",
+            created_at=now,
+            consent_or_authorization_status=ConsentStatus.GRANTED,
+            retention_policy="demo",
+        )
+    )
+
+    response = client.get("/profiles/anna/transcripts")
+    assert response.status_code == 200
+    assert b"I am bored" in response.data
+    assert b"speaker-user" in response.data
+
+    token = _get_csrf_token(client)
+    client.post("/profiles/anna/transcripts/tr-1/delete", data={"csrf_token": token})
+
+    response = client.get("/profiles/anna/transcripts")
+    assert b"I am bored" not in response.data
+    assert transcripts.list_for_child("anna") == []
+
+
+def test_transcripts_page_renders_for_a_profile_with_no_records():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+
+    response = client.get("/profiles/anna/transcripts")
+
+    assert response.status_code == 200
+
+
 def test_edit_profile_page_shows_current_speech_speed():
     app, conn = _make_app()
     client = _authenticated_client(app)

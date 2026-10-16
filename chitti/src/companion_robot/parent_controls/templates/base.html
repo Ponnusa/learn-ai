@@ -2,9 +2,25 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Chitti Parent Controls</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
+{% if session.get('authenticated') %}
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="{{ url_for('dashboard') }}">Chitti Parent Controls</a>
+    <nav>
+      <a href="{{ url_for('profiles_view') }}">Profiles</a>
+      <a href="{{ url_for('stories_view') }}">Stories</a>
+      <a href="{{ url_for('logout') }}">Log out</a>
+    </nav>
+  </div>
+</header>
+{% endif %}
+<div class="page">
 {% block body %}{% endblock %}
+</div>
 </body>
 </html>
