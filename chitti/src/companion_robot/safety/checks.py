@@ -27,7 +27,21 @@ from enum import Enum
 
 from better_profanity import profanity
 
-profanity.load_censor_words()
+# Decision 0031: found live -- "farts sound" was blocked but "You are
+# a pooping robot" and "poop on the alien" weren't, two turns later,
+# in the same conversation. Checked the actual default wordlist: only
+# the bare singular forms ("fart", "poop", "pee") are in it at all --
+# plurals/gerunds/past-tense aren't, so the inconsistency was never
+# "some forms are more offensive," just an arbitrary gap in a generic
+# internet-moderation wordlist applied to a product where ordinary
+# bathroom humor is normal, age-typical content for 4-12 year-olds.
+# Whitelisting the narrow, confirmed set below (not the inflected
+# forms, which were already passing) makes it consistent rather than
+# leaving a gap. Every other category check (UNSAFE_CONTENT, etc.) is
+# untouched -- this only affects the profanity wordlist.
+_BATHROOM_HUMOR_WHITELIST = ["fart", "poop", "pee"]
+
+profanity.load_censor_words(whitelist_words=_BATHROOM_HUMOR_WHITELIST)
 
 
 class SafetyCategory(str, Enum):

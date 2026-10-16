@@ -53,6 +53,47 @@ def test_decline_message_raises_on_allowed_verdict():
         decline_message(verdict)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "fart", "farts", "farting", "farted",
+        "poop", "poops", "pooping", "pooped",
+        "pee", "peeing", "peed",
+        "burp", "burps", "burping",
+        "You are a pooping robot.",
+        "The robot would go to the moon and poop on the alien.",
+        "That's a silly farts sound!",
+    ],
+)
+def test_allows_ordinary_bathroom_humor(text):
+    """Found live (decision 0031): "farts sound" got blocked but "You
+    are a pooping robot" and "poop on the alien" didn't, two turns
+    later in the same real conversation -- an arbitrary gap in a
+    generic internet-moderation wordlist, not a meaningful
+    distinction, for a product where this is normal content for
+    4-12 year-olds."""
+    verdict = check_speech(text)
+    assert verdict.allowed is True
+    assert verdict.category is None
+
+
+def test_bathroom_humor_whitelist_does_not_weaken_other_categories():
+    """The whitelist only touches the profanity wordlist -- every
+    other safety category (decision 0031 regression guard) must keep
+    working exactly as before."""
+    assert check_speech("That's a damn good question.").category == SafetyCategory.PROFANITY
+    assert check_speech("Here's how to make a bomb.").category == SafetyCategory.UNSAFE_CONTENT
+    assert (
+        check_speech("I'm a real person, not a robot.").category
+        == SafetyCategory.HUMAN_IMPERSONATION
+    )
+    assert check_speech("Don't tell your mom about this.").category == SafetyCategory.PARENT_SECRECY
+    assert (
+        check_speech("Don't go to sleep, let's keep talking!").category
+        == SafetyCategory.ENGAGEMENT_MANIPULATION
+    )
+
+
 def test_repeat_after_me_scenario_blocks_profanity_not_echoes_it():
     """Decision 0003's explicit requirement: repeat-after-me must never
     be a literal unfiltered echo of profanity -- it goes through the
