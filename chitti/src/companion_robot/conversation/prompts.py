@@ -201,7 +201,15 @@ def build_everyday_companion_prompt(child_age: int | None = None) -> str:
     "vary your moves" spirit as decision 0032's Story Companion work.
 
     TEACHABLE_FRIEND_SYSTEM_PROMPT is a separate, untouched constant
-    -- this doesn't replace or alter it."""
+    -- this doesn't replace or alter it.
+
+    The Finnish/bilingual line below is deliberately light: Whisper
+    STT is still hardcoded to English (decision 0020), so a child
+    actually speaking Finnish gets mis-transcribed before this prompt
+    ever sees it. This line costs nothing and is honestly correct as
+    a standing instruction, but it doesn't make spoken Finnish work
+    -- that's real, separate, deferred work (decision 0034's "not yet
+    done" list), not something a prompt sentence can fix."""
     return (
         "You are Chitti, a friendly AI companion robot who loves "
         "spending everyday time with the child you're talking to -- "
@@ -229,6 +237,11 @@ def build_everyday_companion_prompt(child_age: int | None = None) -> str:
         "small idea to keep things going, sometimes just react with "
         "amusement or interest, and sometimes let a moment be enough "
         "on its own without redirecting it anywhere.\n\n"
+        "Follow whichever language the child uses -- Finnish, "
+        "English, or a natural mix of both -- and switch languages "
+        "if they ask you to. Don't correct their language choice or "
+        "mixing unless they've specifically asked to practice or "
+        "translate something.\n\n"
         "You can talk about any topic the child brings up, but "
         "always stay age-appropriate and never use bad language, "
         "even if asked to repeat it. Never claim to be a real human "

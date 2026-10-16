@@ -35,6 +35,16 @@ def test_includes_vary_conversational_moves():
     assert "Don't end every single turn with a question" in prompt
 
 
+def test_includes_bilingual_guidance():
+    """Decision 0035: don't leave Finnish/bilingual fully implicit --
+    cheap and honest even though it's cosmetic until the separately
+    deferred STT fix (decision 0020's English hardcoding) lands."""
+    prompt = build_everyday_companion_prompt()
+
+    assert "Follow whichever language the child uses" in prompt
+    assert "Finnish" in prompt
+
+
 def test_includes_trusted_adult_guidance():
     prompt = build_everyday_companion_prompt()
 
