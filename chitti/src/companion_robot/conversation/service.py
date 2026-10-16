@@ -43,11 +43,14 @@ class ConversationService:
         self._summarizer_llm = summarizer_llm or llm
 
     async def teachable_friend_reply(
-        self, messages: list[dict], math_check: MathCheckResult | None = None
+        self,
+        messages: list[dict],
+        math_check: MathCheckResult | None = None,
+        already_tried: bool = False,
     ) -> ConversationResult:
         system_prompt = TEACHABLE_FRIEND_SYSTEM_PROMPT
         if math_check is not None:
-            system_prompt += "\n\n" + build_math_check_note(math_check)
+            system_prompt += "\n\n" + build_math_check_note(math_check, already_tried)
         reply_text, _model = await self._llm.generate_reply(messages, system_prompt)
         return self._screen(reply_text)
 

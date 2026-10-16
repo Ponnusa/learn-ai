@@ -89,20 +89,43 @@ SESSION_SUMMARY_SYSTEM_PROMPT = (
 )
 
 
-def build_math_check_note(result: MathCheckResult) -> str:
+def build_math_check_note(result: MathCheckResult, already_tried: bool = False) -> str:
     """Appended to TEACHABLE_FRIEND_SYSTEM_PROMPT for one turn
     (decision 0024) when the child states a complete addition claim.
     The verified fact is plumbing the model uses, not something the
     child is being graded against -- central design principle: the
     child must never feel tested. Their own explanation keeps driving
     the conversation; a wrong claim gets guided through gently, never
-    flatly marked wrong."""
+    flatly marked wrong.
+
+    `already_tried` (decision 0027): found live -- after an incorrect
+    claim, the child's follow-up "explanation" turn can itself be a
+    flawed recount that still doesn't add up, and without this, the
+    model would get the SAME gentle "ask them to explain" instruction
+    again and could end up agreeing with the still-wrong number just
+    because it was explained confidently. voice_loop_demo.py re-checks
+    the same problem across that follow-up turn and sets this True on
+    a second (or later) consecutive incorrect result for it, so the
+    note escalates straight to the concrete walkthrough instead of
+    asking to explain again."""
     if result.correct:
         return (
             f"VERIFIED: the child just said {result.a} + {result.b} = "
             f"{result.claimed_sum}, which is correct. React warmly and "
             "specifically to how they got there -- not just that they "
             "got it right."
+        )
+    if already_tried:
+        return (
+            f"VERIFIED: the child just said {result.a} + {result.b} = "
+            f"{result.claimed_sum} again, but the correct answer is "
+            f"still {result.correct_sum}, even after their "
+            "explanation -- their explanation doesn't actually add up "
+            f"to {result.claimed_sum} being right. Don't ask them to "
+            "explain again or agree that it's correct. Gently but "
+            "clearly show the correct count now, with a concrete, "
+            "countable example they can follow along with, so they "
+            f"can see why it comes to {result.correct_sum}."
         )
     return (
         f"VERIFIED: the child just said {result.a} + {result.b} = "

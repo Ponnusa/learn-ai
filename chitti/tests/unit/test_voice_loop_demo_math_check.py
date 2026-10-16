@@ -1,7 +1,9 @@
 """Unit tests for voice_loop_demo.py's _resolve_math_check() (decision
-0025) -- pure function, no I/O, no real LLM needed.
+0025) and _update_challenge_state() (decision 0027) -- pure
+functions, no I/O, no real LLM needed.
 """
-from companion_robot.voice_loop_demo import _resolve_math_check
+from companion_robot.education.math_check import build_result
+from companion_robot.voice_loop_demo import _resolve_math_check, _update_challenge_state
 
 
 def test_a_self_stated_equation_always_wins_even_with_a_pending_challenge():
@@ -58,3 +60,37 @@ def test_a_self_stated_equation_inside_a_question_still_counts():
 
     assert result is not None
     assert (result.a, result.b, result.claimed_sum) == (2, 2, 4)
+
+
+def test_incorrect_result_rearms_the_same_problem_and_bumps_the_streak():
+    """Found live (decision 0027): the child's follow-up "explain how
+    you got that" turn can itself be a flawed recount -- re-arming
+    with the SAME problem (not clearing it) lets that follow-up still
+    be checked, instead of Chitti judging it unverified."""
+    incorrect = build_result(4, 2, claimed_sum=7)
+
+    pending_challenge, streak = _update_challenge_state(incorrect, incorrect_streak=0)
+
+    assert pending_challenge == (4, 2)
+    assert streak == 1
+
+    # a second consecutive incorrect result for the same problem
+    pending_challenge, streak = _update_challenge_state(incorrect, incorrect_streak=streak)
+    assert pending_challenge == (4, 2)
+    assert streak == 2
+
+
+def test_correct_result_clears_the_pending_challenge_and_streak():
+    correct = build_result(4, 2, claimed_sum=6)
+
+    pending_challenge, streak = _update_challenge_state(correct, incorrect_streak=2)
+
+    assert pending_challenge is None
+    assert streak == 0
+
+
+def test_no_check_at_all_clears_the_pending_challenge_and_streak():
+    pending_challenge, streak = _update_challenge_state(None, incorrect_streak=1)
+
+    assert pending_challenge is None
+    assert streak == 0

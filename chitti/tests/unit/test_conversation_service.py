@@ -66,6 +66,25 @@ async def test_teachable_friend_reply_includes_verified_note_when_math_check_inc
     assert "ask them to walk you through how they got that number" in system_prompt
 
 
+async def test_teachable_friend_reply_escalates_on_a_repeat_incorrect_result():
+    """Found live (decision 0027): a flawed follow-up explanation can
+    still be wrong -- on a repeat, the note must stop asking the child
+    to explain again and go straight to the concrete walkthrough."""
+    llm = FakeLanguageModelBackend(reply="Let me show you...")
+    service = ConversationService(llm)
+    math_check = extract_addition_claim("two plus two is three")
+
+    await service.teachable_friend_reply(
+        [{"role": "user", "content": "two plus two is three"}],
+        math_check=math_check,
+        already_tried=True,
+    )
+
+    _, system_prompt = llm.calls[0]
+    assert "but the correct answer is still 4" in system_prompt
+    assert "Don't ask them to explain again" in system_prompt
+
+
 async def test_teachable_friend_reply_omits_note_when_no_math_check_given():
     llm = FakeLanguageModelBackend(reply="Tell me more!")
     service = ConversationService(llm)

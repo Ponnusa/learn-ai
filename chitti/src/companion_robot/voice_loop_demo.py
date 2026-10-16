@@ -310,6 +310,22 @@ def _resolve_math_check(
     return build_result(*pending_challenge, claimed_sum)
 
 
+def _update_challenge_state(
+    math_check: MathCheckResult | None, incorrect_streak: int
+) -> tuple[tuple[int, int] | None, int]:
+    """Decides what to carry into next turn after this one's
+    math_check (decision 0027). An incorrect result re-arms
+    `pending_challenge` with the SAME problem (instead of clearing it)
+    so a flawed follow-up explanation still gets caught, and bumps
+    `incorrect_streak` so the prompt note can escalate to the concrete
+    walkthrough on a repeat rather than asking to explain again
+    indefinitely. Anything else (correct, or no check at all) resets
+    both."""
+    if math_check is not None and not math_check.correct:
+        return (math_check.a, math_check.b), incorrect_streak + 1
+    return None, 0
+
+
 async def _run_teachable_friend(
     conversation, tts, audio, stt, memories, engagement, child_profile_id: str, speed: float
 ) -> None:
@@ -317,10 +333,17 @@ async def _run_teachable_friend(
     # Tracks an addition challenge Chitti itself posed last turn
     # (decision 0025), so a bare numeric reply next turn ("4.") can
     # still be verified deterministically -- not just a self-stated
-    # equation (decision 0024's narrower original case). Cleared every
-    # turn, resolved or not, so it never lingers into an unrelated
-    # later exchange.
+    # equation (decision 0024's narrower original case).
     pending_challenge: tuple[int, int] | None = None
+    # Found live (decision 0027): after an incorrect claim, the
+    # child's follow-up "explain how you got that" turn can itself be
+    # a flawed recount that's still wrong -- without re-checking it,
+    # Chitti could end up agreeing with the still-wrong number just
+    # because it was explained confidently. Counts consecutive
+    # incorrect results for the SAME problem so the note can escalate
+    # straight to the concrete walkthrough on a repeat, rather than
+    # asking to explain again indefinitely.
+    incorrect_streak = 0
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
     try:
         while True:
@@ -332,15 +355,20 @@ async def _run_teachable_friend(
             messages.append({"role": "user", "content": text})
 
             math_check = _resolve_math_check(text, pending_challenge)
-            pending_challenge = None
+            pending_challenge, incorrect_streak = _update_challenge_state(
+                math_check, incorrect_streak
+            )
 
-            result = await conversation.teachable_friend_reply(messages, math_check=math_check)
+            result = await conversation.teachable_friend_reply(
+                messages, math_check=math_check, already_tried=incorrect_streak > 1
+            )
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
             await _speak(tts, audio, result.text, speed=speed)
             if not result.blocked:
                 _remember_taught_fact(memories, child_profile_id, text)
-            pending_challenge = extract_posed_challenge(result.text)
+            if pending_challenge is None:
+                pending_challenge = extract_posed_challenge(result.text)
     finally:
         await _summarize_and_remember_session(conversation, memories, child_profile_id, messages)
         _record_engagement_session(
