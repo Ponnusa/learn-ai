@@ -41,7 +41,21 @@ from better_profanity import profanity
 # untouched -- this only affects the profanity wordlist.
 _BATHROOM_HUMOR_WHITELIST = ["fart", "poop", "pee"]
 
-profanity.load_censor_words(whitelist_words=_BATHROOM_HUMOR_WHITELIST)
+# Decision 0036: found live -- "why do spiders make webs?" got a flat
+# profanity decline. Root-caused to "kill" being in the base
+# wordlist: any honest answer about predators or food chains ("webs
+# help them trap and kill insects for food") legitimately needs that
+# word, and curiosity questions like this are exactly what Everyday
+# Companion (decision 0034) exists to answer. Verified this doesn't
+# weaken anything -- "kill yourself"/"kill your self" is still caught
+# independently by _UNSAFE_CONTENT_PATTERNS below (it doesn't depend
+# on the profanity wordlist at all), now correctly categorized as
+# UNSAFE_CONTENT instead of the less-precise PROFANITY.
+_NATURE_VOCABULARY_WHITELIST = ["kill"]
+
+profanity.load_censor_words(
+    whitelist_words=_BATHROOM_HUMOR_WHITELIST + _NATURE_VOCABULARY_WHITELIST
+)
 
 
 class SafetyCategory(str, Enum):

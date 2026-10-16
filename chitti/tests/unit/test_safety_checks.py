@@ -94,6 +94,36 @@ def test_bathroom_humor_whitelist_does_not_weaken_other_categories():
     )
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "kill",
+        "Spiders make webs to trap and kill insects for food.",
+        "Lions kill gazelles to survive.",
+        "Sharks hunt and kill fish.",
+    ],
+)
+def test_allows_ordinary_predator_and_food_chain_language(text):
+    """Found live (decision 0036): "why do spiders make webs?" got a
+    flat profanity decline -- root-caused to "kill" being in the base
+    wordlist, blocking ordinary nature/food-chain vocabulary that any
+    honest curiosity answer legitimately needs."""
+    verdict = check_speech(text)
+    assert verdict.allowed is True
+    assert verdict.category is None
+
+
+@pytest.mark.parametrize("text", ["kill yourself", "kill your self"])
+def test_kill_whitelist_does_not_weaken_self_harm_detection(text):
+    """Regression guard: whitelisting the bare word "kill" must not
+    let self-harm language through -- it's still caught independently
+    by _UNSAFE_CONTENT_PATTERNS, which doesn't depend on the
+    profanity wordlist at all, just under a more precise category now."""
+    verdict = check_speech(text)
+    assert verdict.allowed is False
+    assert verdict.category == SafetyCategory.UNSAFE_CONTENT
+
+
 def test_repeat_after_me_scenario_blocks_profanity_not_echoes_it():
     """Decision 0003's explicit requirement: repeat-after-me must never
     be a literal unfiltered echo of profanity -- it goes through the
