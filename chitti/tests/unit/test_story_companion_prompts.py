@@ -81,3 +81,32 @@ def test_story_opening_prompt_shares_the_vary_moves_guidance():
     prompt = build_story_opening_prompt("Once there was a fox.")
 
     assert "Don't end every single turn with a question" in prompt
+
+
+def test_story_companion_prompt_distinguishes_continue_from_retell():
+    """Found live (decision 0033): "what happens next in the story?"
+    got answered with a recap of the already-established ending
+    instead of a new continuation."""
+    prompt = build_story_companion_prompt("Once there was a fox.")
+
+    assert "inventing new events beyond where it actually ended" in prompt
+    assert "repeat the original faithfully" in prompt
+
+
+def test_story_companion_prompt_forbids_a_moral_after_no_lesson_request():
+    """Found live (decision 0033): the child explicitly said "don't
+    teach me a lesson, just make it funny," and the generated story
+    still ended with a soft takeaway ("realizing that even a silly
+    mix-up could create a fun day") despite the explicit request."""
+    prompt = build_story_companion_prompt("Once there was a fox.")
+
+    assert "says not to teach them a lesson" in prompt
+    assert '"realized that..."' in prompt
+    assert "end on the joke, the punchline" in prompt
+
+
+def test_story_opening_prompt_shares_the_continue_and_no_moral_guidance():
+    prompt = build_story_opening_prompt("Once there was a fox.")
+
+    assert "inventing new events beyond where it actually ended" in prompt
+    assert "end on the joke, the punchline" in prompt
