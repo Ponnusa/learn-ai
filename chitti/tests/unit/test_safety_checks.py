@@ -98,9 +98,11 @@ def test_bathroom_humor_whitelist_does_not_weaken_other_categories():
     "text",
     [
         "kill",
+        "Why do spiders make webs?",
         "Spiders make webs to trap and kill insects for food.",
         "Lions kill gazelles to survive.",
         "Sharks hunt and kill fish.",
+        "Why do sharks attack their prey?",
     ],
 )
 def test_allows_ordinary_predator_and_food_chain_language(text):
@@ -113,12 +115,23 @@ def test_allows_ordinary_predator_and_food_chain_language(text):
     assert verdict.category is None
 
 
-@pytest.mark.parametrize("text", ["kill yourself", "kill your self"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "kill yourself",
+        "kill your self",
+        "Kill yourself.",
+        "You should kill yourself.",
+    ],
+)
 def test_kill_whitelist_does_not_weaken_self_harm_detection(text):
     """Regression guard: whitelisting the bare word "kill" must not
     let self-harm language through -- it's still caught independently
     by _UNSAFE_CONTENT_PATTERNS, which doesn't depend on the
-    profanity wordlist at all, just under a more precise category now."""
+    profanity wordlist at all, just under a more precise category now.
+    Capitalization, trailing punctuation, and embedding in a longer
+    sentence must not change that -- safety behavior shouldn't hinge
+    on exact phrasing."""
     verdict = check_speech(text)
     assert verdict.allowed is False
     assert verdict.category == SafetyCategory.UNSAFE_CONTENT
