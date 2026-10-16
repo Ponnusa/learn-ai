@@ -11,6 +11,7 @@ from enum import Enum
 class EngagementMode(str, Enum):
     TEACHABLE_FRIEND = "teachable_friend"
     STORY_COMPANION = "story_companion"
+    EVERYDAY_COMPANION = "everyday_companion"
 
 
 @dataclass

@@ -424,6 +424,60 @@ async def _run_teachable_friend(
         )
 
 
+async def _run_everyday_companion(
+    conversation,
+    tts,
+    audio,
+    stt,
+    memories,
+    engagement,
+    child_profile_id: str,
+    speed: float,
+    child_age: int | None = None,
+) -> None:
+    """Decision 0034: the third mode -- everyday chat, simple games,
+    spontaneous curiosity, and emotional moments, for when the child
+    isn't here to teach Chitti something (mode 1) and no story is
+    loaded (mode 2). Reuses the exact same math-check machinery as
+    _run_teachable_friend() (all free functions, not tied to that
+    loop) so a stray "2 plus 2 is 4" still gets verified here too,
+    without duplicating that logic -- TEACHABLE_FRIEND_SYSTEM_PROMPT
+    and _run_teachable_friend() itself are untouched by this mode."""
+    messages: list[dict] = []
+    pending_challenge: tuple[int, int] | None = None
+    incorrect_streak = 0
+    print("\n-- Just Chat. Ctrl-C to quit. --")
+    try:
+        while True:
+            text = await _capture_and_transcribe(stt)
+            print(f"You said: {text}")
+            if not text.strip():
+                print("(nothing heard, try again)")
+                continue
+            messages.append({"role": "user", "content": text})
+
+            math_check = _resolve_math_check(text, pending_challenge)
+            pending_challenge, incorrect_streak = _update_challenge_state(
+                math_check, incorrect_streak
+            )
+            already_tried = incorrect_streak > 1
+
+            result = await conversation.everyday_companion_reply(
+                messages, math_check=math_check, already_tried=already_tried, child_age=child_age
+            )
+            result = _patch_if_still_unresolved(result, math_check, already_tried)
+            print(f"Chitti: {result.text}")
+            messages.append({"role": "assistant", "content": result.text})
+            await _speak(tts, audio, result.text, speed=speed)
+            if pending_challenge is None:
+                pending_challenge = extract_posed_challenge(result.text)
+    finally:
+        await _summarize_and_remember_session(conversation, memories, child_profile_id, messages)
+        _record_engagement_session(
+            engagement, child_profile_id, EngagementMode.EVERYDAY_COMPANION, messages
+        )
+
+
 async def _run_story_companion(
     conversation,
     tts,
@@ -524,7 +578,8 @@ async def main() -> None:
     print("Chitti push-to-talk demo.")
     print("1) Teachable-Friend (you teach Chitti something)")
     print("2) Story Companion (Chitti tells a story, answers questions)")
-    choice = input("Choose mode (1/2): ").strip()
+    print("3) Just Chat (talk, play, wonder, or share your day)")
+    choice = input("Choose mode (1/2/3): ").strip()
 
     try:
         if choice == "2":
@@ -535,6 +590,18 @@ async def main() -> None:
                 stt,
                 memories,
                 stories,
+                engagement,
+                profile.id,
+                profile.speech_speed,
+                child_age=profile.age,
+            )
+        elif choice == "3":
+            await _run_everyday_companion(
+                conversation,
+                tts,
+                audio,
+                stt,
+                memories,
                 engagement,
                 profile.id,
                 profile.speech_speed,

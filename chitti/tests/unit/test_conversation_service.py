@@ -110,6 +110,50 @@ async def test_teachable_friend_reply_blocks_unsafe_model_output():
     assert "mom" not in result.text.lower()
 
 
+async def test_everyday_companion_reply_passes_through_clean_text():
+    llm = FakeLanguageModelBackend(reply="Ooh, tell me about your day!")
+    service = ConversationService(llm)
+
+    result = await service.everyday_companion_reply([{"role": "user", "content": "I'm bored"}])
+
+    assert result.blocked is False
+    assert result.text == "Ooh, tell me about your day!"
+
+
+async def test_everyday_companion_reply_includes_verified_note_when_math_check_given():
+    """Decision 0034: the same math_check reuse as teachable_friend_reply()."""
+    llm = FakeLanguageModelBackend(reply="Nice counting!")
+    service = ConversationService(llm)
+    math_check = extract_addition_claim("one plus one is two")
+
+    await service.everyday_companion_reply(
+        [{"role": "user", "content": "one plus one is two"}], math_check=math_check
+    )
+
+    _, system_prompt = llm.calls[0]
+    assert "VERIFIED" in system_prompt
+
+
+async def test_everyday_companion_reply_omits_note_when_no_math_check_given():
+    llm = FakeLanguageModelBackend(reply="Tell me more!")
+    service = ConversationService(llm)
+
+    await service.everyday_companion_reply([{"role": "user", "content": "Dogs are cool"}])
+
+    _, system_prompt = llm.calls[0]
+    assert "VERIFIED" not in system_prompt
+
+
+async def test_everyday_companion_reply_blocks_unsafe_model_output():
+    llm = FakeLanguageModelBackend(reply="That's a damn good question.")
+    service = ConversationService(llm)
+
+    result = await service.everyday_companion_reply([{"role": "user", "content": "Why is the sky blue?"}])
+
+    assert result.blocked is True
+    assert result.category == SafetyCategory.PROFANITY
+
+
 async def test_story_companion_reply_includes_transcript_in_system_prompt():
     llm = FakeLanguageModelBackend(reply="The fox was clever and quick.")
     service = ConversationService(llm)

@@ -18,6 +18,7 @@ from companion_robot.voice.interfaces import LanguageModelBackend
 from .prompts import (
     SESSION_SUMMARY_SYSTEM_PROMPT,
     TEACHABLE_FRIEND_SYSTEM_PROMPT,
+    build_everyday_companion_prompt,
     build_math_check_note,
     build_story_companion_prompt,
     build_story_opening_prompt,
@@ -50,6 +51,23 @@ class ConversationService:
         already_tried: bool = False,
     ) -> ConversationResult:
         system_prompt = TEACHABLE_FRIEND_SYSTEM_PROMPT
+        if math_check is not None:
+            system_prompt += "\n\n" + build_math_check_note(math_check, already_tried)
+        reply_text, _model = await self._llm.generate_reply(messages, system_prompt)
+        return self._screen(reply_text)
+
+    async def everyday_companion_reply(
+        self,
+        messages: list[dict],
+        math_check: MathCheckResult | None = None,
+        already_tried: bool = False,
+        child_age: int | None = None,
+    ) -> ConversationResult:
+        """Decision 0034: the third mode for everyday chat, play, and
+        curiosity -- same math_check reuse as teachable_friend_reply()
+        so a stray "2 plus 2 is 4" during casual chat still gets
+        verified, without duplicating that logic."""
+        system_prompt = build_everyday_companion_prompt(child_age)
         if math_check is not None:
             system_prompt += "\n\n" + build_math_check_note(math_check, already_tried)
         reply_text, _model = await self._llm.generate_reply(messages, system_prompt)

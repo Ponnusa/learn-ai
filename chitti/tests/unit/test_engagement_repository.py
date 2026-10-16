@@ -68,3 +68,13 @@ def test_latest_for_child_returns_none_when_no_sessions_exist():
     repo = _make_repo()
 
     assert repo.latest_for_child("anna") is None
+
+
+def test_everyday_companion_mode_roundtrips():
+    """Decision 0034: the third mode, same storage as the other two."""
+    repo = _make_repo()
+    repo.create(_make_session(mode=EngagementMode.EVERYDAY_COMPANION))
+
+    sessions = repo.list_for_child("anna")
+
+    assert sessions[0].mode == EngagementMode.EVERYDAY_COMPANION
