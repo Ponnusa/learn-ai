@@ -35,13 +35,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from companion_robot.audio.real import CAPTURE_DEVICE, RealAudioTransport
-from companion_robot.conversation.service import ConversationService
+from companion_robot.conversation.service import ConversationResult, ConversationService
 from companion_robot.education.math_check import (
     MathCheckResult,
     build_result,
     extract_addition_claim,
     extract_bare_number,
     extract_posed_challenge,
+    mentions_number,
 )
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.engagement.schema import EngagementMode, EngagementSession
@@ -342,6 +343,35 @@ def _update_challenge_state(
     return pending_challenge, new_streak
 
 
+def _patch_if_still_unresolved(
+    result: ConversationResult, math_check: MathCheckResult | None, already_tried: bool
+) -> ConversationResult:
+    """Decision 0029: a prompt instruction can be ignored by the
+    model; this can't. Found live -- on an escalated correction,
+    Chitti sometimes hedges without ever actually stating the right
+    number ("I can see why you'd say it's 8 that way!"), which isn't
+    a clean restated wrong equation extract_addition_claim() would
+    catch -- it's just vague agreement. Rather than trying to detect
+    every way of hedging (a losing game, and the "universal sentence
+    validator" this is deliberately NOT), this only checks the one
+    thing that actually matters: does the reply affirm the wrong
+    number, or fail to state the right one at all? If so, append a
+    short, deterministic correction -- no new LLM call, no retry
+    loop, only ever triggered on an already-escalated incorrect
+    result."""
+    if result.blocked or math_check is None or math_check.correct or not already_tried:
+        return result
+    restated = extract_addition_claim(result.text)
+    says_wrong = restated is not None and restated.claimed_sum == math_check.claimed_sum
+    says_correct = mentions_number(result.text, math_check.correct_sum)
+    if says_wrong or not says_correct:
+        result.text = (
+            f"{result.text.rstrip()} Let's count it together -- "
+            f"the answer is {math_check.correct_sum}."
+        )
+    return result
+
+
 async def _run_teachable_friend(
     conversation, tts, audio, stt, memories, engagement, child_profile_id: str, speed: float
 ) -> None:
@@ -374,10 +404,12 @@ async def _run_teachable_friend(
             pending_challenge, incorrect_streak = _update_challenge_state(
                 math_check, incorrect_streak
             )
+            already_tried = incorrect_streak > 1
 
             result = await conversation.teachable_friend_reply(
-                messages, math_check=math_check, already_tried=incorrect_streak > 1
+                messages, math_check=math_check, already_tried=already_tried
             )
+            result = _patch_if_still_unresolved(result, math_check, already_tried)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
             await _speak(tts, audio, result.text, speed=speed)

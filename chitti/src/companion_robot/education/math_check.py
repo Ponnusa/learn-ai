@@ -165,3 +165,12 @@ def extract_bare_number(text: str) -> int | None:
     if not matches:
         return None
     return _to_int(matches[-1])
+
+
+def mentions_number(text: str, number: int) -> bool:
+    """Whether `number` appears anywhere in text as a standalone
+    number token (digit or word). Decision 0029: used to
+    deterministically check that Chitti's own reply actually states
+    the correct answer when it's supposed to, with no new LLM call --
+    a prompt instruction can be ignored, this check can't."""
+    return any(_to_int(token) == number for token in _BARE_NUMBER_PATTERN.findall(text))
