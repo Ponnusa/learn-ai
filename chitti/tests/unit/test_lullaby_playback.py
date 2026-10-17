@@ -25,11 +25,25 @@ async def test_builds_expected_mpg123_argv_with_hardware_fixes():
     with (
         patch("companion_robot.voice_loop_demo.subprocess.Popen", return_value=proc) as mock_popen,
         patch("companion_robot.voice_loop_demo.asyncio.sleep", new_callable=AsyncMock),
+        patch("companion_robot.voice_loop_demo.PLAYBACK_DEVICE", "plughw:1,0"),
     ):
         await _play_lullaby_file("/data/lullabies/abc123.mp3")
 
     args, kwargs = mock_popen.call_args
-    assert args[0] == ["mpg123", "-q", "-b", "2048", "/data/lullabies/abc123.mp3"]
+    # Decision 0041 addendum: must force the ALSA module and the same
+    # explicit device audio/real.py's aplay calls use -- mpg123's
+    # default ALSA device produced no sound at all on real hardware.
+    assert args[0] == [
+        "mpg123",
+        "-q",
+        "-b",
+        "2048",
+        "-o",
+        "alsa",
+        "-a",
+        "plughw:1,0",
+        "/data/lullabies/abc123.mp3",
+    ]
     assert kwargs["start_new_session"] is True
 
 

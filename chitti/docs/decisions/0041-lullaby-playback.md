@@ -77,6 +77,23 @@ mpg123/audio hardware. `test_parent_controls_app.py` gained upload/
 reject/delete tests using Flask's test client with an in-memory
 multipart file, asserting both the DB row and the file on disk.
 
+## Addendum (2026-10-17): no sound on real hardware
+
+Found live: an uploaded lullaby produced no sound at all on the Pi,
+even though TTS replies played fine through the same speaker. Root
+cause was the exact device-routing bug class decision 0016 already
+fixed for `aplay`/`arecord` (`audio/real.py`'s `CAPTURE_DEVICE`/
+`PLAYBACK_DEVICE` docstring: ALSA's `"default"` device doesn't route
+to the actual speaker on this hardware). The first version of
+`_play_lullaby_file()` didn't pass a device at all -- unlike
+`RealAudioTransport`, which always passes `aplay -D PLAYBACK_DEVICE`
+explicitly -- so mpg123 silently played into the wrong (disconnected)
+ALSA sink. Fixed by forcing mpg123's ALSA output module and reusing
+the exact same `PLAYBACK_DEVICE` `audio/real.py` already resolves from
+`CHITTI_SPEAKER_DEVICE` (`-o alsa -a <device>`), rather than
+introducing a second, independent device setting. Test updated to
+assert the full argv including the device flags.
+
 ## Not yet done
 
 Playlist/shuffle behavior, volume control, fade-out, an auto-stop

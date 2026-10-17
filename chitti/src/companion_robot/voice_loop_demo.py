@@ -34,7 +34,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from companion_robot.audio.real import CAPTURE_DEVICE, RealAudioTransport
+from companion_robot.audio.real import CAPTURE_DEVICE, PLAYBACK_DEVICE, RealAudioTransport
 from companion_robot.conversation.service import ConversationResult, ConversationService
 from companion_robot.device.interfaces import DeviceState
 from companion_robot.device.screen_face import ScreenFaceDeviceController
@@ -122,6 +122,21 @@ async def _play_lullaby_file(path) -> None:
     here specifically because nothing else in this project relies on
     keyboard input the way this one does.
 
+    Decision 0041 addendum: found live -- a real uploaded lullaby
+    produced no sound at all on the Pi, even though TTS replies played
+    fine. Root cause was the exact same device-routing bug class
+    decision 0016 already fixed for aplay/arecord (audio/real.py's
+    CAPTURE_DEVICE/PLAYBACK_DEVICE docstring): ALSA's "default" device
+    doesn't route to the actual speaker on this hardware. The first
+    version of this function didn't pass a device at all, so mpg123
+    silently played into the wrong (disconnected) ALSA sink while
+    RealAudioTransport's aplay calls, which always pass "-D
+    PLAYBACK_DEVICE" explicitly, kept working. Fixed by forcing
+    mpg123's ALSA output module and reusing the exact same
+    PLAYBACK_DEVICE audio/real.py already resolves from
+    CHITTI_SPEAKER_DEVICE, rather than introducing a second,
+    independent device setting.
+
     Polls rather than blocking on proc.wait() so Ctrl-C during
     playback (KeyboardInterrupt at the await) reaches the finally
     below and terminates the still-running child -- otherwise, being
@@ -129,7 +144,7 @@ async def _play_lullaby_file(path) -> None:
     it.
     """
     proc = subprocess.Popen(
-        ["mpg123", "-q", "-b", "2048", str(path)],
+        ["mpg123", "-q", "-b", "2048", "-o", "alsa", "-a", PLAYBACK_DEVICE, str(path)],
         stdin=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
