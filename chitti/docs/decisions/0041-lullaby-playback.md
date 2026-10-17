@@ -77,22 +77,34 @@ mpg123/audio hardware. `test_parent_controls_app.py` gained upload/
 reject/delete tests using Flask's test client with an in-memory
 multipart file, asserting both the DB row and the file on disk.
 
-## Addendum (2026-10-17): no sound on real hardware
+## Addendum (2026-10-17): no sound on real hardware, then wrong fix, then the real fix
 
 Found live: an uploaded lullaby produced no sound at all on the Pi,
-even though TTS replies played fine through the same speaker. Root
-cause was the exact device-routing bug class decision 0016 already
-fixed for `aplay`/`arecord` (`audio/real.py`'s `CAPTURE_DEVICE`/
-`PLAYBACK_DEVICE` docstring: ALSA's `"default"` device doesn't route
-to the actual speaker on this hardware). The first version of
-`_play_lullaby_file()` didn't pass a device at all -- unlike
-`RealAudioTransport`, which always passes `aplay -D PLAYBACK_DEVICE`
-explicitly -- so mpg123 silently played into the wrong (disconnected)
-ALSA sink. Fixed by forcing mpg123's ALSA output module and reusing
-the exact same `PLAYBACK_DEVICE` `audio/real.py` already resolves from
-`CHITTI_SPEAKER_DEVICE` (`-o alsa -a <device>`), rather than
-introducing a second, independent device setting. Test updated to
-assert the full argv including the device flags.
+even though TTS replies played fine through the same speaker.
+
+**First attempt (wrong diagnosis)**: assumed the same device-routing
+bug class decision 0016 fixed for `aplay`/`arecord` -- that ALSA's
+`"default"` device doesn't route to the actual speaker on this
+hardware -- and forced mpg123's ALSA module plus the exact
+`PLAYBACK_DEVICE` `audio/real.py` resolves for `aplay -D` (`-o alsa -a
+<device>`). This made things *worse*: a single audio "thud" and an
+immediate exit, no song at all.
+
+**Verified live instead of guessing further**: ran
+`mpg123 -v data/lullabies/*.mp3` directly on the Pi with no device
+flags at all. It played the file correctly. The forced `-o alsa -a
+PLAYBACK_DEVICE` flags were the actual bug -- `PLAYBACK_DEVICE`'s
+value, resolved specifically for `aplay`'s `-D` syntax, isn't valid
+for mpg123's own `-a` flag on this build/hardware. mpg123's own
+default device selection was correct all along, matching
+`pixel-ai/pixel_tts.py`'s original (unmodified) pattern -- the
+assumption that it needed the same override `aplay` does was wrong for
+this binary specifically. Reverted to no device flags; the real
+(still-open) question of what originally produced "no sound at all" on
+the very first try was likely something else entirely (a bad/empty
+upload, or an environment difference) and self-resolved or wasn't
+reproduced once the file/environment were confirmed working via this
+same live test. Test updated to assert the no-device argv.
 
 ## Not yet done
 
