@@ -68,7 +68,7 @@ async def test_detect_switch_intent_strict_phrase_match_skips_the_llm():
     llm = _FakeLLM(reply="unused")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent("can you tell me a story", conversation)
+    mode = await _detect_switch_intent("can you tell me a story", conversation, current_mode="1")
 
     assert mode == "2"
     assert llm.calls == []  # strict phrase match never reaches classify_intent()
@@ -80,7 +80,7 @@ async def test_detect_switch_intent_no_activity_keyword_skips_the_llm():
     llm = _FakeLLM(reply="STORY")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent("the cat has four legs", conversation)
+    mode = await _detect_switch_intent("the cat has four legs", conversation, current_mode="1")
 
     assert mode is None
     assert llm.calls == []
@@ -90,7 +90,9 @@ async def test_detect_switch_intent_ambiguous_phrasing_falls_back_to_the_llm():
     llm = _FakeLLM(reply="SONG")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent("I don't want a story, let's do something else musical", conversation)
+    mode = await _detect_switch_intent(
+        "I don't want a story, let's do something else musical", conversation, current_mode="1"
+    )
 
     assert mode == "4"
     assert len(llm.calls) == 1
@@ -100,9 +102,46 @@ async def test_detect_switch_intent_llm_none_keeps_current_mode():
     llm = _FakeLLM(reply="NONE")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent("can we sing something later maybe", conversation)
+    mode = await _detect_switch_intent("can we sing something later maybe", conversation, current_mode="1")
 
     assert mode is None
+
+
+async def test_detect_switch_intent_matching_current_mode_is_a_no_op():
+    """The actual bug fix: found live -- "I want to teach you
+    mathematics" said *while already in Teachable-Friend mode*
+    matched the TEACH intent (correctly) but, with no check against
+    the mode already running, was treated as a "switch" to the mode
+    already active, restarting it on every single teaching statement
+    instead of ever continuing the conversation. Detecting the mode
+    you're already in must be a no-op."""
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+
+    mode = await _detect_switch_intent(
+        "I want to teach you mathematics, I want to be the teacher",
+        conversation,
+        current_mode="1",  # already in Teachable-Friend -- the strict phrase matches TEACH -> "1"
+    )
+
+    assert mode is None
+    assert llm.calls == []  # the strict phrase still matched; only the mode-equality check changed
+
+
+async def test_detect_switch_intent_llm_fallback_matching_current_mode_is_also_a_no_op():
+    """Same suppression, but via the LLM-fallback tier instead of the
+    strict phrase tier -- a phrasing that doesn't match the strict
+    TEACH regex but still mentions "teach" while already in
+    Teachable-Friend mode must not restart it either."""
+    llm = _FakeLLM(reply="TEACH")
+    conversation = ConversationService(llm)
+
+    mode = await _detect_switch_intent(
+        "can we keep going with the teaching", conversation, current_mode="1"
+    )
+
+    assert mode is None
+    assert len(llm.calls) == 1  # the LLM fallback was still called -- just suppressed after
 
 
 # -- _resolve_spoken_choice -----------------------------------------------

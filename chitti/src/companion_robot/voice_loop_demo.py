@@ -120,7 +120,9 @@ async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
 _INTENT_TO_MODE_CHOICE = {"STORY": "2", "SONG": "4", "CHAT": "3", "TEACH": "1"}
 
 
-async def _detect_switch_intent(text: str, conversation: ConversationService) -> str | None:
+async def _detect_switch_intent(
+    text: str, conversation: ConversationService, current_mode: str
+) -> str | None:
     """Hybrid mode-switch detection (decision 0042). Three tiers, in
     order, each cheaper than the next:
     1. A strict deterministic phrase match (intent/router.py) resolves
@@ -136,14 +138,26 @@ async def _detect_switch_intent(text: str, conversation: ConversationService) ->
     3. Only a turn that mentions an activity keyword but didn't match
        a strict phrase reaches ConversationService.classify_intent()
        (one cheap classification call, not a conversational reply).
+
+    Found live (decision 0042 addendum): "I want to teach you
+    mathematics" said *while already in Teachable-Friend mode*
+    matched the TEACH intent -- correctly -- but with no check against
+    the mode already running, that was treated as a "switch" to the
+    mode already active, restarting it (re-printing the mode banner,
+    discarding the in-progress turn) on every single teaching
+    statement, since teaching Chitti something naturally involves
+    saying "teach". `current_mode` is the caller's own mode code;
+    detecting the mode you're already in is a no-op, not a switch.
     """
     phrase_match = detect_intent_phrase(text)
     if phrase_match is not None:
-        return _INTENT_TO_MODE_CHOICE.get(phrase_match)
-    if not mentions_activity_keyword(text):
+        mode_code = _INTENT_TO_MODE_CHOICE.get(phrase_match)
+    elif mentions_activity_keyword(text):
+        label = await conversation.classify_intent(text)
+        mode_code = _INTENT_TO_MODE_CHOICE.get(label) if label else None
+    else:
         return None
-    label = await conversation.classify_intent(text)
-    return _INTENT_TO_MODE_CHOICE.get(label) if label else None
+    return mode_code if mode_code is not None and mode_code != current_mode else None
 
 
 _ORDINAL_WORDS = {
@@ -593,7 +607,7 @@ async def _run_teachable_friend(
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
-            next_mode = await _detect_switch_intent(text, conversation)
+            next_mode = await _detect_switch_intent(text, conversation, "1")
             if next_mode is not None:
                 break
             messages.append({"role": "user", "content": text})
@@ -660,7 +674,7 @@ async def _run_everyday_companion(
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
-            next_mode = await _detect_switch_intent(text, conversation)
+            next_mode = await _detect_switch_intent(text, conversation, "3")
             if next_mode is not None:
                 break
             messages.append({"role": "user", "content": text})
@@ -740,7 +754,7 @@ async def _run_story_companion(
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
-            next_mode = await _detect_switch_intent(text, conversation)
+            next_mode = await _detect_switch_intent(text, conversation, "2")
             if next_mode is not None:
                 break
             messages.append({"role": "user", "content": text})

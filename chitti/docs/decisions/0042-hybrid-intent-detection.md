@@ -101,6 +101,32 @@ end-to-end test driving `_run_teachable_friend` through an ordinary
 turn followed by a switch-triggering one, asserting the returned mode
 code and that the `finally` cleanup still recorded the ordinary turn).
 
+## Addendum (2026-10-17): stuck restarting the mode it was already in
+
+Found live via `intent_demo.py`: saying "I want to teach you
+mathematics, I want to be the teacher" *while already in
+Teachable-Friend mode* correctly matched the TEACH intent -- but
+`_detect_switch_intent` had no check against the mode already
+running, so this was treated as a "switch" to the mode already
+active. Every single teaching statement restarted Teachable-Friend
+from scratch (re-printing its banner, discarding the in-progress turn)
+instead of ever reaching `teachable_friend_reply()` -- an infinite
+non-progress loop, since teaching Chitti something naturally involves
+saying "teach".
+
+Fixed by giving `_detect_switch_intent` a `current_mode` parameter
+(each caller passes its own fixed mode code -- `"1"` from
+`_run_teachable_friend`, `"3"` from `_run_everyday_companion`, `"2"`
+from `_run_story_companion`) and suppressing a match equal to it,
+regardless of which tier produced it. Applied uniformly to all three
+modes, not just Teachable-Friend, since the same class of bug would
+otherwise resurface anywhere (e.g. "let's just chat" said while
+already in Just Chat would otherwise also restart it, discarding
+history for no reason). 2 new regression tests cover both tiers: the
+strict-phrase case and the LLM-fallback case each being suppressed
+when they resolve to the mode already running (279 total passing, 1
+skipped).
+
 ## Not yet done
 
 No mid-lullaby interruption (lullaby playback has no listening turn to
