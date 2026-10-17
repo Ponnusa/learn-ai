@@ -52,6 +52,19 @@ async def test_set_status_led_updates_state():
         await face.shutdown()
 
 
+async def test_set_expression_mode_updates_mode_while_render_thread_is_live():
+    """Decision 0044: the render thread reads _get_mode() each frame
+    alongside _get_state() -- this proves the live thread doesn't
+    interfere with the lock-protected value changing underneath it."""
+    face = ScreenFaceDeviceController()
+    await face.start()
+    try:
+        face.set_expression_mode("story")
+        assert face._get_mode() == "story"
+    finally:
+        await face.shutdown()
+
+
 async def test_shutdown_stops_the_thread_and_sets_offline():
     face = ScreenFaceDeviceController()
     await face.start()

@@ -52,9 +52,13 @@ class _FakeTTS:
 class _FakeFace:
     def __init__(self) -> None:
         self.states: list[DeviceState] = []
+        self.modes: list[str | None] = []
 
     def set_status_led(self, state: DeviceState) -> None:
         self.states.append(state)
+
+    def set_expression_mode(self, mode: str | None) -> None:
+        self.modes.append(mode)
 
 
 class _Item:

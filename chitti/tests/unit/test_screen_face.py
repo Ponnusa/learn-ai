@@ -4,10 +4,21 @@ installed -- the graceful-degradation path. The real render-thread
 lifecycle (which needs pygame importable) is in
 test_screen_face_rendering.py instead, so an environment without
 pygame still runs these.
+
+Also covers decision 0044's dot-matrix expression system: _resolve_
+expression() and _DiscreteTimer are pure (no pygame/rendering
+involved), so they belong here too, not in the pygame-gated file.
 """
 from companion_robot.device import screen_face
 from companion_robot.device.interfaces import DeviceState
-from companion_robot.device.screen_face import ScreenFaceDeviceController
+from companion_robot.device.screen_face import (
+    _BASE_EXPRESSIONS,
+    _EYE_CLOSED,
+    _MOUTH_OPEN_CIRCLE,
+    _DiscreteTimer,
+    _resolve_expression,
+    ScreenFaceDeviceController,
+)
 
 
 async def test_start_without_pygame_logs_warning_and_stays_offline(monkeypatch):
@@ -47,3 +58,62 @@ def test_emergency_stop_is_synchronous_and_sets_offline():
 
     assert face._running is False
     assert face._get_state() == DeviceState.OFFLINE
+
+
+def test_set_expression_mode_before_start_does_not_raise():
+    face = ScreenFaceDeviceController()
+    face.set_expression_mode("story")  # just shouldn't raise
+
+
+def test_set_expression_mode_updates_stored_mode():
+    face = ScreenFaceDeviceController()
+    face.set_expression_mode("music")
+    assert face._get_mode() == "music"
+
+
+# -- _resolve_expression() (decision 0044) ---------------------------------
+
+
+def test_resolve_expression_falls_back_to_base_when_no_mode_given():
+    assert _resolve_expression(DeviceState.LISTENING, None) == _BASE_EXPRESSIONS[
+        DeviceState.LISTENING
+    ]
+
+
+def test_resolve_expression_mode_override_takes_priority():
+    """music overrides SPEAKING's mouth to the open-circle shape --
+    the actual point of having a mode dimension at all."""
+    eyes, mouth = _resolve_expression(DeviceState.SPEAKING, "music")
+    assert mouth == _MOUTH_OPEN_CIRCLE
+
+
+def test_resolve_expression_unmapped_mode_falls_back_to_base():
+    """"story" intentionally has no PROCESSING override -- spec wants
+    story to stay close to the warm default rather than a bespoke
+    expression for every single (mode, state) pair."""
+    assert _resolve_expression(DeviceState.PROCESSING, "story") == _BASE_EXPRESSIONS[
+        DeviceState.PROCESSING
+    ]
+
+
+def test_resolve_expression_unknown_state_has_a_calm_default():
+    assert _resolve_expression(DeviceState.OFFLINE, None) is not None
+
+
+# -- _DiscreteTimer (decision 0044) -----------------------------------------
+
+
+def test_discrete_timer_inactive_before_its_scheduled_time():
+    timer = _DiscreteTimer(min_interval=5.0, max_interval=5.0, duration=0.2)
+    assert timer.tick(0.0) is False
+    assert timer.tick(4.9) is False
+
+
+def test_discrete_timer_active_for_exactly_its_duration_then_resets():
+    timer = _DiscreteTimer(min_interval=5.0, max_interval=5.0, duration=0.2)
+    assert timer.tick(5.0) is True  # just reached -- becomes active
+    assert timer.tick(5.1) is True  # still within duration
+    assert timer.tick(5.2) is False  # duration elapsed -- back to inactive
+    # rescheduled ~5s after the tick that ended it (5.2), not from 0
+    assert timer.tick(9.0) is False
+    assert timer.tick(10.2) is True

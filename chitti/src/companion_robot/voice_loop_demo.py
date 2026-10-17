@@ -605,6 +605,7 @@ async def _run_teachable_friend(
     # utterance that caused the switch never got a reply at all.
     next_mode: str | None = None
     switch_trigger_text: str | None = None
+    face.set_expression_mode("learning")  # decision 0044
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
     pending_text = initial_text
     try:
@@ -680,6 +681,7 @@ async def _run_everyday_companion(
     incorrect_streak = 0
     next_mode: str | None = None  # decision 0042, see _run_teachable_friend's comment
     switch_trigger_text: str | None = None
+    face.set_expression_mode("chat")  # decision 0044
     print("\n-- Just Chat. Ctrl-C to quit. --")
     pending_text = initial_text
     try:
@@ -754,6 +756,7 @@ async def _run_story_companion(
         return None, None
     story = await _pick_item_by_voice(all_stories, "stories", tts, stt, audio, face, speed)
 
+    face.set_expression_mode("story")  # decision 0044
     print(f"\n-- Story Companion: {story.title}. Ctrl-C to quit. --")
     print(f"Chitti: {story.content}")
     face.set_status_led(DeviceState.SPEAKING)
@@ -820,6 +823,7 @@ async def _run_lullaby_time(lullabies, face, data_dir: Path, audio, tts, stt, sp
         return
     lullaby = await _pick_item_by_voice(all_lullabies, "lullabies", tts, stt, audio, face, speed)
 
+    face.set_expression_mode("music")  # decision 0044
     print(f"\n-- Lullaby time: {lullaby.title}. Ctrl-C to stop. --")
     face.set_status_led(DeviceState.SPEAKING)
     try:
