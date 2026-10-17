@@ -21,17 +21,15 @@ Two genuinely new capabilities this needed:
    plays raw PCM (TTS output); MP3 needs a decoder.
 
 **Adapted, not copied, from a proven reference**: `pixel-ai/pixel_tts.py`
-already has a real-hardware-tested `mpg123` subprocess pattern, same
-reuse-a-proven-pattern approach decision 0040 used for
-`pixel_face.py`. Two hard-won fixes carried forward:
-1. `-b 2048` raises mpg123's output buffer -- the Pi 1's weak audio
-   path underruns with the default tiny buffer.
-2. `start_new_session=True` -- mpg123's interactive keyboard controls
-   (pause/seek/quit) open `/dev/tty` directly to grab the controlling
-   terminal, bypassing its own stdin entirely even with stdin
-   redirected. That matters specifically for this project: push-to-
-   talk depends on keyboard `input()`, which mpg123 could otherwise
-   steal.
+has a real-hardware-tested `mpg123` subprocess pattern, same reuse-a-
+proven-pattern approach decision 0040 used for `pixel_face.py`. Its
+`start_new_session=True` fix (mpg123's interactive keyboard controls
+open `/dev/tty` directly, bypassing stdin redirection -- a problem
+here specifically because push-to-talk depends on keyboard `input()`)
+is carried forward as cheap insurance even in the decode-only mode
+this decision ended up shipping -- see the addendum below for why
+`pixel_tts.py`'s pattern of letting mpg123 own real-time ALSA playback
+directly turned out *not* to transfer to this project as-is.
 
 ## What shipped
 
@@ -55,29 +53,28 @@ authorizing-adult trust model as risk register #14 (no story content
 moderation either), now noted there as covering audio too. New
 `templates/lullabies.html` (multipart form), linked from `dashboard.html`.
 
-`voice_loop_demo.py`: new `_play_lullaby_file()` -- the mpg123
-pattern above, as an async function that polls `proc.poll()` via
-`asyncio.sleep()` rather than blocking on `proc.wait()`, specifically
-so Ctrl-C during playback reaches a `finally: proc.terminate()` and
-kills the still-running child. This matters because
-`start_new_session=True` deliberately isolates mpg123 from the
-terminal -- nothing else would stop it. New `_run_lullaby_time()`:
-lists lullabies, lets the parent/child pick one (same picker pattern
-as Story Companion's story list), sets
-`face.set_status_led(DeviceState.SPEAKING)` for the duration. New menu
-option 4 ("Lullaby time") in `main()`.
+`voice_loop_demo.py`: new `_decode_mp3_to_pcm()` (mpg123 as a pure
+decoder -- see the addendum for why) and `_play_lullaby_file()`, which
+hands the decoded PCM to `audio.play()`, the same already-open
+`RealAudioTransport` pipeline every TTS reply uses. New
+`_run_lullaby_time()`: lists lullabies, lets the parent/child pick one
+(same picker pattern as Story Companion's story list), sets
+`face.set_status_led(DeviceState.SPEAKING)` for the duration, and calls
+`audio.stop_playback()` if Ctrl-C/cancellation arrives mid-song. New
+menu option 4 ("Lullaby time") in `main()`.
 
 ## Consequences
 
-6 new unit tests (255 total passing, 1 skipped where noted in decision
-0040). `test_lullaby_playback.py` mocks `subprocess.Popen` and
-`asyncio.sleep` to prove the exact argv (including both hardware
-fixes) and the terminate-on-interrupt behavior, without needing real
-mpg123/audio hardware. `test_parent_controls_app.py` gained upload/
-reject/delete tests using Flask's test client with an in-memory
-multipart file, asserting both the DB row and the file on disk.
+5 new unit tests (254 total passing, 1 skipped where noted in decision
+0040). `test_lullaby_playback.py` mocks `subprocess.run` to prove
+`_decode_mp3_to_pcm`'s argv, and uses a fake `audio.play()` to prove
+`_play_lullaby_file` hands off the decoded PCM through it rather than
+ever letting mpg123 open an ALSA device itself. `test_parent_controls_app.py`
+gained upload/reject/delete tests using Flask's test client with an
+in-memory multipart file, asserting both the DB row and the file on
+disk.
 
-## Addendum (2026-10-17): no sound on real hardware, then wrong fix, then the real fix
+## Addendum (2026-10-17): no sound on real hardware -- three attempts
 
 Found live: an uploaded lullaby produced no sound at all on the Pi,
 even though TTS replies played fine through the same speaker.
@@ -90,21 +87,52 @@ hardware -- and forced mpg123's ALSA module plus the exact
 <device>`). This made things *worse*: a single audio "thud" and an
 immediate exit, no song at all.
 
-**Verified live instead of guessing further**: ran
+**Second attempt (right test, incomplete conclusion)**: ran
 `mpg123 -v data/lullabies/*.mp3` directly on the Pi with no device
-flags at all. It played the file correctly. The forced `-o alsa -a
-PLAYBACK_DEVICE` flags were the actual bug -- `PLAYBACK_DEVICE`'s
-value, resolved specifically for `aplay`'s `-D` syntax, isn't valid
-for mpg123's own `-a` flag on this build/hardware. mpg123's own
-default device selection was correct all along, matching
-`pixel-ai/pixel_tts.py`'s original (unmodified) pattern -- the
-assumption that it needed the same override `aplay` does was wrong for
-this binary specifically. Reverted to no device flags; the real
-(still-open) question of what originally produced "no sound at all" on
-the very first try was likely something else entirely (a bad/empty
-upload, or an environment difference) and self-resolved or wasn't
-reproduced once the file/environment were confirmed working via this
-same live test. Test updated to assert the no-device argv.
+flags at all -- it played correctly, so reverted to mpg123's own
+default device (matching `pixel-ai/pixel_tts.py`'s original pattern).
+Still silent inside the actual demo, even though the identical
+command, and even `setsid mpg123 ... </dev/null 2>/dev/null` (matching
+every flag `_play_lullaby_file` actually used, including
+`start_new_session=True`), played fine standalone every time.
+
+**Root cause, found by checking what else was running**: `ps aux`
+during a real demo session, at the mode-selection prompt (before even
+choosing the lullaby), showed `audio/real.py`'s persistent `aplay -D
+plughw:2,0 ...` process already alive -- spawned by the very first TTS
+reply (e.g. the session's "welcome back" greeting) and deliberately
+kept open for the rest of the session (decision 0016 addendum 4, to
+avoid the device's "wake up" latency on every reply). ALSA hardware
+devices (`plughw:X,Y`) only allow one exclusive owner. mpg123 trying
+to open that *same* device for real-time playback while `aplay`
+already held it failed -- silently, since nothing was listening for an
+error: the demo suppresses mpg123's stderr, and the standalone manual
+tests never hit this because nothing else was holding the device open
+at the time.
+
+**Actual fix**: stop letting mpg123 touch the audio device at all.
+`_decode_mp3_to_pcm()` now runs it in decode-only mode (`-s`, write raw
+PCM to stdout) -- no ALSA device opened by mpg123 whatsoever.
+`_play_lullaby_file()` then hands the decoded PCM to the *same*
+`audio.play()` every TTS reply already uses, i.e. the one already-open
+`RealAudioTransport` pipeline. One ALSA client for the entire session,
+never two fighting over the same hardware device. `--mono -r
+PLAYBACK_SAMPLE_RATE` on the decode matches the fixed 16-bit-mono
+format `RealAudioTransport.play()` assumes; mpg123 resamples/downmixes
+as needed regardless of the uploaded file's real format.
+`_run_lullaby_time()` also now calls `audio.stop_playback()` on
+Ctrl-C/cancellation, since the "Ctrl-C to stop" promise needs an
+explicit stop now that playback is a single long buffer already handed
+to the persistent `aplay` process, not a process `_play_lullaby_file`
+owns directly. Tests rewritten to match: `_decode_mp3_to_pcm`'s argv
+and `_play_lullaby_file`'s hand-off into a fake `audio.play()`.
+
+**Lesson for next time**: a command that works standalone doesn't
+prove the subprocess wrapper is fine -- it proves the *device* is
+available at that moment. Any new ALSA-touching subprocess at this
+project needs to be checked against whatever else might already be
+holding the hardware device for the session, not just tested in
+isolation.
 
 ## Not yet done
 

@@ -34,7 +34,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from companion_robot.audio.real import CAPTURE_DEVICE, RealAudioTransport
+from companion_robot.audio.real import CAPTURE_DEVICE, PLAYBACK_SAMPLE_RATE, RealAudioTransport
 from companion_robot.conversation.service import ConversationResult, ConversationService
 from companion_robot.device.interfaces import DeviceState
 from companion_robot.device.screen_face import ScreenFaceDeviceController
@@ -111,50 +111,48 @@ async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
     await audio.play(reply_audio)
 
 
-async def _play_lullaby_file(path) -> None:
-    """mpg123 pattern adapted from pixel-ai/pixel_tts.py (decision
-    0041, same reuse-a-proven-pattern approach decision 0040 used for
-    pixel_face.py). Two hard-won fixes carried forward: -b 2048 raises
-    mpg123's output buffer, avoiding audio underruns on the Pi 1's weak
-    audio path; start_new_session=True puts mpg123 in its own session
-    so its keyboard controls can't open /dev/tty and steal keystrokes
-    from push-to-talk's own input()-based start/stop -- that matters
-    here specifically because nothing else in this project relies on
-    keyboard input the way this one does.
+def _decode_mp3_to_pcm(path) -> bytes:
+    """Decode-only: mpg123 writes raw PCM to its own stdout instead of
+    ever opening an ALSA device itself.
 
-    Decision 0041 addendum (2026-10-17, superseded below): a real
-    uploaded lullaby first produced no sound at all -- suspected the
-    same ALSA "default"-device bug decision 0016 hit for aplay/arecord,
-    so a first fix forced "-o alsa -a PLAYBACK_DEVICE". Verified live
-    on the Pi that this was the wrong diagnosis: plain
-    `mpg123 -v data/lullabies/*.mp3` (mpg123's own default device, no
-    flags at all) played the file correctly, while adding the forced
-    "-o alsa -a PLAYBACK_DEVICE" flags was what broke it (quick exit,
-    one audio "thud", no song) -- PLAYBACK_DEVICE's value, resolved for
-    aplay's "-D" syntax, isn't valid for mpg123's own "-a" flag on this
-    build. Reverted to mpg123's own default device, matching
-    pixel-ai/pixel_tts.py's original (unmodified) pattern -- confirmed
-    actually correct for this hardware, unlike the assumption that it
-    needed the same override aplay does.
+    Decision 0041 addendum, found live on the Pi: two earlier versions
+    of this function let mpg123 play the file directly through ALSA
+    (first via its own default device, then via a forced "-o alsa -a
+    PLAYBACK_DEVICE") -- both produced no sound at all, or one audio
+    "thud" and silence. Root cause, confirmed via `ps aux` on the Pi:
+    RealAudioTransport (audio/real.py) keeps a persistent aplay process
+    open on PLAYBACK_DEVICE for the whole session once any TTS reply
+    has played -- ALSA hardware devices (plughw) are exclusive, so a
+    second process (mpg123) trying to open that same device for
+    real-time playback fails, silently, every time. Fix: never let
+    mpg123 touch the audio device. It only decodes to a pipe here;
+    actual playback goes through the exact same already-open
+    RealAudioTransport pipeline every TTS reply already uses (see
+    _play_lullaby_file below) -- one ALSA client for the whole
+    session, no contention.
 
-    Polls rather than blocking on proc.wait() so Ctrl-C during
-    playback (KeyboardInterrupt at the await) reaches the finally
-    below and terminates the still-running child -- otherwise, being
-    deliberately isolated from the terminal, nothing else would stop
-    it.
+    --mono -r PLAYBACK_SAMPLE_RATE matches the fixed format
+    RealAudioTransport.play() assumes (16-bit mono PCM at that rate);
+    mpg123 resamples/downmixes as needed, so the original file's real
+    sample rate/channel count doesn't matter. start_new_session=True
+    kept from the original pixel-ai/pixel_tts.py pattern as cheap
+    insurance against mpg123 grabbing /dev/tty even in this decode-only
+    mode.
     """
-    proc = subprocess.Popen(
-        ["mpg123", "-q", "-b", "2048", str(path)],
+    result = subprocess.run(
+        ["mpg123", "-q", "-s", "--mono", "-r", str(PLAYBACK_SAMPLE_RATE), str(path)],
         stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
+        check=True,
     )
-    try:
-        while proc.poll() is None:
-            await asyncio.sleep(0.2)
-    finally:
-        if proc.poll() is None:
-            proc.terminate()
+    return result.stdout
+
+
+async def _play_lullaby_file(path, audio) -> None:
+    pcm = await asyncio.get_event_loop().run_in_executor(None, _decode_mp3_to_pcm, path)
+    await audio.play(pcm)
 
 
 def _select_or_create_profile(profiles: ChildProfileRepository) -> ChildProfile:
@@ -658,7 +656,7 @@ async def _run_story_companion(
         _save_transcript(transcripts, child_profile_id, EngagementMode.STORY_COMPANION, messages)
 
 
-async def _run_lullaby_time(lullabies, face, data_dir: Path) -> None:
+async def _run_lullaby_time(lullabies, face, data_dir: Path, audio) -> None:
     """Simple playback, not a conversation (decision 0041): no LLM, no
     STT, no transcript/engagement recording -- those all assume
     conversational turns, and there are none here."""
@@ -678,7 +676,16 @@ async def _run_lullaby_time(lullabies, face, data_dir: Path) -> None:
     print(f"\n-- Lullaby time: {lullaby.title}. Ctrl-C to stop. --")
     face.set_status_led(DeviceState.SPEAKING)
     try:
-        await _play_lullaby_file(data_dir / "lullabies" / f"{lullaby.id}.mp3")
+        await _play_lullaby_file(data_dir / "lullabies" / f"{lullaby.id}.mp3", audio)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # Unlike the conversation modes, this one promises "Ctrl-C to
+        # stop" for a single long-running clip rather than a turn
+        # boundary -- audio.play() has already handed the full buffer
+        # to the persistent aplay process by the time an interrupt
+        # lands here, so stopping playback for real needs an explicit
+        # stop_playback() call, not just letting the interrupt propagate.
+        await audio.stop_playback()
+        raise
     finally:
         face.set_status_led(DeviceState.IDLE)
 
@@ -762,7 +769,7 @@ async def main() -> None:
                 child_age=profile.age,
             )
         elif choice == "4":
-            await _run_lullaby_time(lullabies, face, data_dir)
+            await _run_lullaby_time(lullabies, face, data_dir, audio)
         else:
             await _run_teachable_friend(
                 conversation,

@@ -1,70 +1,66 @@
-"""Unit tests for voice_loop_demo._play_lullaby_file (decision 0041) --
-mocked subprocess and asyncio.sleep, no real mpg123/audio hardware
-needed.
+"""Unit tests for voice_loop_demo._decode_mp3_to_pcm/_play_lullaby_file
+(decision 0041 addendum) -- mocked subprocess, no real mpg123/audio
+hardware needed.
+
+These intentionally do NOT let mpg123 touch an ALSA device at all --
+see the addendum in docs/decisions/0041-lullaby-playback.md for why: a
+version that did conflicted with RealAudioTransport's own persistent
+aplay process (ALSA hardware devices are exclusive), producing total
+silence on the real Pi. mpg123 is decode-only here; playback goes
+through the same audio.play() pipeline TTS replies already use.
 """
-import itertools
-from unittest.mock import AsyncMock, MagicMock, patch
+import subprocess
+from unittest.mock import MagicMock, patch
 
-from companion_robot.voice_loop_demo import _play_lullaby_file
-
-
-def _mock_proc(alive_for: int = 0) -> MagicMock:
-    """poll() returns None (still running) for the first alive_for
-    calls, then an exit code for every call after -- simulates a
-    process that finishes on its own after a few poll iterations. The
-    finally block polls once more after the loop exits, so this must
-    keep returning the exit code indefinitely, not just once."""
-    proc = MagicMock()
-    proc.poll.side_effect = itertools.chain([None] * alive_for, itertools.repeat(0))
-    return proc
+from companion_robot.voice_loop_demo import _decode_mp3_to_pcm, _play_lullaby_file
 
 
-async def test_builds_expected_mpg123_argv_with_hardware_fixes():
-    proc = _mock_proc(alive_for=0)
+class _FakeAudio:
+    def __init__(self) -> None:
+        self.played: list[bytes] = []
 
-    with (
-        patch("companion_robot.voice_loop_demo.subprocess.Popen", return_value=proc) as mock_popen,
-        patch("companion_robot.voice_loop_demo.asyncio.sleep", new_callable=AsyncMock),
-    ):
-        await _play_lullaby_file("/data/lullabies/abc123.mp3")
+    async def play(self, audio_bytes: bytes) -> None:
+        self.played.append(audio_bytes)
 
-    args, kwargs = mock_popen.call_args
-    # Verified live on real hardware (decision 0041 addendum): mpg123's
-    # own default device plays correctly on this Pi -- forcing
-    # "-o alsa -a <device>" (aplay's own override) was tried and broke
-    # it instead, so this deliberately does NOT pass a device.
-    assert args[0] == ["mpg123", "-q", "-b", "2048", "/data/lullabies/abc123.mp3"]
+
+def test_decode_builds_expected_mpg123_argv_and_returns_stdout():
+    result = MagicMock(stdout=b"\x00\x01" * 100)
+
+    with patch(
+        "companion_robot.voice_loop_demo.subprocess.run", return_value=result
+    ) as mock_run:
+        pcm = _decode_mp3_to_pcm("/data/lullabies/abc123.mp3")
+
+    args, kwargs = mock_run.call_args
+    # -s/--stdout decodes to a pipe instead of opening ALSA directly --
+    # the actual fix under test. --mono -r <rate> matches the fixed
+    # format RealAudioTransport.play() assumes.
+    assert args[0] == [
+        "mpg123",
+        "-q",
+        "-s",
+        "--mono",
+        "-r",
+        "24000",
+        "/data/lullabies/abc123.mp3",
+    ]
+    assert kwargs["stdout"] == subprocess.PIPE
+    assert kwargs["stdin"] == subprocess.DEVNULL
+    assert kwargs["check"] is True
     assert kwargs["start_new_session"] is True
+    assert pcm == result.stdout
 
 
-async def test_polls_until_the_process_exits_on_its_own():
-    proc = _mock_proc(alive_for=3)
+async def test_play_lullaby_file_decodes_then_plays_through_the_shared_pipeline():
+    """The actual bug fix: playback must go through audio.play() (the
+    same persistent pipeline TTS already uses), never through a second
+    mpg123-owned ALSA connection."""
+    audio = _FakeAudio()
+    decoded_pcm = b"\x00\x01" * 1000
 
-    with (
-        patch("companion_robot.voice_loop_demo.subprocess.Popen", return_value=proc),
-        patch("companion_robot.voice_loop_demo.asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+    with patch(
+        "companion_robot.voice_loop_demo._decode_mp3_to_pcm", return_value=decoded_pcm
     ):
-        await _play_lullaby_file("/data/lullabies/abc123.mp3")
+        await _play_lullaby_file("/data/lullabies/abc123.mp3", audio)
 
-    assert mock_sleep.call_count == 3
-    proc.terminate.assert_not_called()
-
-
-async def test_terminates_the_still_running_process_on_interrupt():
-    proc = MagicMock()
-    proc.poll.return_value = None  # never exits on its own
-
-    with (
-        patch("companion_robot.voice_loop_demo.subprocess.Popen", return_value=proc),
-        patch(
-            "companion_robot.voice_loop_demo.asyncio.sleep",
-            new_callable=AsyncMock,
-            side_effect=KeyboardInterrupt,
-        ),
-    ):
-        try:
-            await _play_lullaby_file("/data/lullabies/abc123.mp3")
-        except KeyboardInterrupt:
-            pass
-
-    proc.terminate.assert_called_once()
+    assert audio.played == [decoded_pcm]
