@@ -127,6 +127,41 @@ strict-phrase case and the LLM-fallback case each being suppressed
 when they resolve to the mode already running (279 total passing, 1
 skipped).
 
+## Addendum (2026-10-17): switching ate the utterance that triggered it
+
+Found live via `intent_demo.py`: saying "Let me teach you something"
+switched into Teachable-Friend correctly, but then went silent,
+waiting for a fresh capture -- the child had to say the exact same
+thing a second time before Chitti ever replied to it. Same for
+switching back out: "...that's why I am sad" switched into Just Chat
+silently, requiring a repeat before getting a response. The triggering
+utterance itself was being thrown away at the moment of switching,
+since the mode loops only ever broke with `next_mode`, never carrying
+the text that caused the break anywhere.
+
+Fixed by having `_run_teachable_friend`/`_run_everyday_companion`/
+`_run_story_companion` return `(next_mode, switch_trigger_text)`
+instead of just `next_mode`, and giving each an `initial_text`
+parameter: when set, the function skips its first capture and
+processes that text as a genuine first turn instead. `_run_story_
+companion` accepts the parameter for calling-convention uniformity but
+doesn't use it (it always starts with a fixed pick-story/read-story/
+generate-opening sequence, not a reply to an arbitrary line).
+`run_mode_dispatch_loop()` threads `carried_text` between mode calls,
+clearing it whenever lullaby time (no listening turn to carry into)
+is dispatched. `DemoContext`/`setup_demo()` from decision 0043 were
+unaffected. 2 new/updated tests, including one proving the carried-
+over turn reaches the mode's own reply-generation call without ever
+invoking `_capture_and_transcribe()` again (280 total passing, 1
+skipped).
+
+This directly produces the "warm, continuous-feeling" transition the
+product owner asked for, for free: the mode's own real system prompt
+replies to the actual triggering sentence (e.g. Teachable-Friend's
+"Oh, I love learning new things! What do you want to teach me?"),
+rather than needing a separate canned acknowledgment message bolted on
+at switch time.
+
 ## Not yet done
 
 No mid-lullaby interruption (lullaby playback has no listening turn to

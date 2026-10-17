@@ -17,6 +17,7 @@ from companion_robot.voice_loop_demo import (
     _detect_switch_intent,
     _pick_item_by_voice,
     _resolve_spoken_choice,
+    _run_everyday_companion,
     _run_teachable_friend,
 )
 
@@ -221,12 +222,60 @@ async def test_run_teachable_friend_switches_mode_on_detected_intent():
         new_callable=AsyncMock,
         side_effect=["dogs are my favorite animal", "tell me a story please"],
     ):
-        next_mode = await _run_teachable_friend(
+        next_mode, carried_text = await _run_teachable_friend(
             conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
             memories, engagement, transcripts, face, "child-1", 1.0,
         )
 
     assert next_mode == "2"
+    # Decision 0042 addendum: the triggering utterance is carried
+    # forward instead of being silently discarded, so the next mode
+    # can reply to it as a real turn rather than making the child
+    # repeat themselves.
+    assert carried_text == "tell me a story please"
     assert len(llm.calls) == 1  # only the first, ordinary turn reached teachable_friend_reply()
     assert len(engagement.list_for_child("child-1")) == 1  # finally cleanup still ran
     assert len(transcripts.list_for_child("child-1")) == 1
+
+
+async def test_carried_over_text_gets_a_real_reply_without_another_capture():
+    """The actual bug fix: the mode being switched into must reply to
+    the triggering utterance as a genuine first turn, not silently
+    wait for a fresh capture -- found live, the child had to repeat
+    themselves every time a switch happened."""
+    conn = connect(":memory:")
+    memories = MemoryRepository(conn)
+    engagement = EngagementRepository(conn)
+    transcripts = TranscriptRepository(conn)
+    llm = _FakeLLM(reply="Sure, let's just chat! What's on your mind?")
+    summarizer = _FakeLLM(reply="NOTHING")
+    conversation = ConversationService(llm, summarizer_llm=summarizer)
+    face = _FakeFace()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=AssertionError("must not capture fresh input for the carried-over turn"),
+    ):
+        # Ctrl-C after the first (carried-over) turn is processed --
+        # proves that turn used initial_text, since _capture_and_transcribe
+        # would raise immediately if it were ever called.
+        with patch(
+            "companion_robot.voice_loop_demo._speak",
+            new_callable=AsyncMock,
+            side_effect=KeyboardInterrupt,
+        ):
+            try:
+                await _run_everyday_companion(
+                    conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
+                    memories, engagement, transcripts, face, "child-1", 1.0,
+                    initial_text="let's just chat",
+                )
+            except KeyboardInterrupt:
+                pass
+
+    assert len(llm.calls) == 1
+    # The fake stores a reference to the function's own `messages` list,
+    # which gets the assistant reply appended after the call -- check
+    # the first entry (the carried-over turn) rather than the whole list.
+    assert llm.calls[0][0][0] == {"role": "user", "content": "let's just chat"}

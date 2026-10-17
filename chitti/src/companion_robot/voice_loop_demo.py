@@ -577,7 +577,8 @@ async def _run_teachable_friend(
     face,
     child_profile_id: str,
     speed: float,
-) -> str | None:
+    initial_text: str | None = None,
+) -> tuple[str | None, str | None]:
     messages: list[dict] = []
     # Tracks an addition challenge Chitti itself posed last turn
     # (decision 0025), so a bare numeric reply next turn ("4.") can
@@ -595,21 +596,33 @@ async def _run_teachable_friend(
     incorrect_streak = 0
     # Decision 0042: set when a turn is detected as a request to
     # switch modes -- the loop breaks (still running the finally
-    # cleanup below) instead of continuing, and this is returned so
-    # main()'s dispatch loop can switch straight into it.
+    # cleanup below) instead of continuing. Decision 0042 addendum:
+    # also carries forward the triggering utterance itself (returned
+    # alongside next_mode) so the mode being switched into can reply
+    # to it as a real first turn, rather than silently discarding it
+    # and making the child repeat themselves -- found live: switching
+    # used to go completely silent until the *next* capture, and the
+    # utterance that caused the switch never got a reply at all.
     next_mode: str | None = None
+    switch_trigger_text: str | None = None
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
+    pending_text = initial_text
     try:
         while True:
-            face.set_status_led(DeviceState.LISTENING)
-            text = await _capture_and_transcribe(stt)
-            print(f"You said: {text}")
-            if not text.strip():
-                print("(nothing heard, try again)")
-                continue
-            next_mode = await _detect_switch_intent(text, conversation, "1")
-            if next_mode is not None:
-                break
+            if pending_text is not None:
+                text = pending_text
+                pending_text = None
+            else:
+                face.set_status_led(DeviceState.LISTENING)
+                text = await _capture_and_transcribe(stt)
+                print(f"You said: {text}")
+                if not text.strip():
+                    print("(nothing heard, try again)")
+                    continue
+                next_mode = await _detect_switch_intent(text, conversation, "1")
+                if next_mode is not None:
+                    switch_trigger_text = text
+                    break
             messages.append({"role": "user", "content": text})
             face.set_status_led(DeviceState.PROCESSING)
 
@@ -637,7 +650,7 @@ async def _run_teachable_friend(
             engagement, child_profile_id, EngagementMode.TEACHABLE_FRIEND, messages
         )
         _save_transcript(transcripts, child_profile_id, EngagementMode.TEACHABLE_FRIEND, messages)
-    return next_mode
+    return next_mode, switch_trigger_text
 
 
 async def _run_everyday_companion(
@@ -652,7 +665,8 @@ async def _run_everyday_companion(
     child_profile_id: str,
     speed: float,
     child_age: int | None = None,
-) -> str | None:
+    initial_text: str | None = None,
+) -> tuple[str | None, str | None]:
     """Decision 0034: the third mode -- everyday chat, simple games,
     spontaneous curiosity, and emotional moments, for when the child
     isn't here to teach Chitti something (mode 1) and no story is
@@ -665,18 +679,25 @@ async def _run_everyday_companion(
     pending_challenge: tuple[int, int] | None = None
     incorrect_streak = 0
     next_mode: str | None = None  # decision 0042, see _run_teachable_friend's comment
+    switch_trigger_text: str | None = None
     print("\n-- Just Chat. Ctrl-C to quit. --")
+    pending_text = initial_text
     try:
         while True:
-            face.set_status_led(DeviceState.LISTENING)
-            text = await _capture_and_transcribe(stt)
-            print(f"You said: {text}")
-            if not text.strip():
-                print("(nothing heard, try again)")
-                continue
-            next_mode = await _detect_switch_intent(text, conversation, "3")
-            if next_mode is not None:
-                break
+            if pending_text is not None:
+                text = pending_text
+                pending_text = None
+            else:
+                face.set_status_led(DeviceState.LISTENING)
+                text = await _capture_and_transcribe(stt)
+                print(f"You said: {text}")
+                if not text.strip():
+                    print("(nothing heard, try again)")
+                    continue
+                next_mode = await _detect_switch_intent(text, conversation, "3")
+                if next_mode is not None:
+                    switch_trigger_text = text
+                    break
             messages.append({"role": "user", "content": text})
             face.set_status_led(DeviceState.PROCESSING)
 
@@ -702,7 +723,7 @@ async def _run_everyday_companion(
             engagement, child_profile_id, EngagementMode.EVERYDAY_COMPANION, messages
         )
         _save_transcript(transcripts, child_profile_id, EngagementMode.EVERYDAY_COMPANION, messages)
-    return next_mode
+    return next_mode, switch_trigger_text
 
 
 async def _run_story_companion(
@@ -718,11 +739,19 @@ async def _run_story_companion(
     child_profile_id: str,
     speed: float,
     child_age: int | None = None,
-) -> str | None:
+    initial_text: str | None = None,
+) -> tuple[str | None, str | None]:
+    # initial_text (decision 0042 addendum) is deliberately unused here:
+    # unlike Teachable-Friend/Just Chat, Story Companion always starts
+    # with a fixed sequence (pick a story, read it, generate its own
+    # opening invitation) rather than replying to an arbitrary line, so
+    # there's no natural turn to feed a carried-over switch trigger
+    # into. Accepted anyway so run_mode_dispatch_loop() can call all
+    # three conversational modes the same way.
     all_stories = stories.list_all()
     if not all_stories:
         print("No stories yet -- add one via the Parent Controls web UI first.")
-        return None
+        return None, None
     story = await _pick_item_by_voice(all_stories, "stories", tts, stt, audio, face, speed)
 
     print(f"\n-- Story Companion: {story.title}. Ctrl-C to quit. --")
@@ -746,6 +775,7 @@ async def _run_story_companion(
         await _speak(tts, audio, opening.text, speed=speed)
 
     next_mode: str | None = None  # decision 0042, see _run_teachable_friend's comment
+    switch_trigger_text: str | None = None
     try:
         while True:
             face.set_status_led(DeviceState.LISTENING)
@@ -756,6 +786,7 @@ async def _run_story_companion(
                 continue
             next_mode = await _detect_switch_intent(text, conversation, "2")
             if next_mode is not None:
+                switch_trigger_text = text
                 break
             messages.append({"role": "user", "content": text})
             face.set_status_led(DeviceState.PROCESSING)
@@ -774,7 +805,7 @@ async def _run_story_companion(
             engagement, child_profile_id, EngagementMode.STORY_COMPANION, messages
         )
         _save_transcript(transcripts, child_profile_id, EngagementMode.STORY_COMPANION, messages)
-    return next_mode
+    return next_mode, switch_trigger_text
 
 
 async def _run_lullaby_time(lullabies, face, data_dir: Path, audio, tts, stt, speed: float) -> None:
@@ -895,11 +926,19 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
     yet"). Ctrl-C is unaffected -- it's an exception, not a return
     value, so it still propagates straight through to the except
     below. Shared by main() and intent_demo.py (decision 0043); only
-    how `next_mode` is first obtained differs between them."""
+    how `next_mode` is first obtained differs between them.
+
+    Decision 0042 addendum: `carried_text` is the utterance that
+    triggered the switch (if any), passed into whichever mode comes
+    next as `initial_text` so it gets a real reply instead of being
+    silently discarded -- found live that discarding it forced the
+    child to repeat themselves every single time a switch happened.
+    """
+    carried_text: str | None = None
     try:
         while next_mode is not None:
             if next_mode == "2":
-                next_mode = await _run_story_companion(
+                next_mode, carried_text = await _run_story_companion(
                     ctx.conversation,
                     ctx.tts,
                     ctx.audio,
@@ -912,9 +951,10 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.profile.id,
                     ctx.profile.speech_speed,
                     child_age=ctx.profile.age,
+                    initial_text=carried_text,
                 )
             elif next_mode == "3":
-                next_mode = await _run_everyday_companion(
+                next_mode, carried_text = await _run_everyday_companion(
                     ctx.conversation,
                     ctx.tts,
                     ctx.audio,
@@ -926,19 +966,24 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.profile.id,
                     ctx.profile.speech_speed,
                     child_age=ctx.profile.age,
+                    initial_text=carried_text,
                 )
             elif next_mode == "4":
+                # Lullaby time has no listening turn at all, so there's
+                # nothing to carry a trigger utterance into -- discard
+                # it rather than letting it leak into whatever mode
+                # comes after.
                 await _run_lullaby_time(
                     ctx.lullabies, ctx.face, ctx.data_dir, ctx.audio, ctx.tts, ctx.stt,
                     ctx.profile.speech_speed,
                 )
-                next_mode = None
+                next_mode, carried_text = None, None
             else:
                 # Matches the original dispatch exactly: anything that
                 # isn't "2"/"3"/"4" (including the typed menu's own
                 # invalid input, same as before decision 0042) defaults
                 # to Teachable-Friend -- never an error message.
-                next_mode = await _run_teachable_friend(
+                next_mode, carried_text = await _run_teachable_friend(
                     ctx.conversation,
                     ctx.tts,
                     ctx.audio,
@@ -949,6 +994,7 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.face,
                     ctx.profile.id,
                     ctx.profile.speech_speed,
+                    initial_text=carried_text,
                 )
     except (KeyboardInterrupt, asyncio.CancelledError):
         # CancelledError shouldn't reach here now that
