@@ -32,6 +32,7 @@ import asyncio
 import difflib
 import secrets
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -791,7 +792,30 @@ async def _run_lullaby_time(lullabies, face, data_dir: Path, audio, tts, stt, sp
         face.set_status_led(DeviceState.IDLE)
 
 
-async def main() -> None:
+@dataclass
+class DemoContext:
+    """Everything a mode-dispatch loop needs, built once by
+    setup_demo(). Decision 0043: extracted so both main() (typed
+    starting menu) and intent_demo.py (no menu, starts in Just Chat
+    and relies on decision 0042's detection for everything after) can
+    share the exact same setup and dispatch logic instead of
+    duplicating it."""
+
+    conversation: ConversationService
+    tts: object
+    audio: object
+    stt: object
+    memories: MemoryRepository
+    stories: StoryRepository
+    engagement: EngagementRepository
+    transcripts: TranscriptRepository
+    lullabies: LullabyRepository
+    face: ScreenFaceDeviceController
+    data_dir: Path
+    profile: ChildProfile
+
+
+async def setup_demo() -> DemoContext:
     data_dir = Path(__file__).resolve().parent.parent.parent / "data"
     data_dir.mkdir(exist_ok=True)
     conn = connect(data_dir / "chitti.db")  # same db file parent_controls/app.py uses
@@ -832,71 +856,85 @@ async def main() -> None:
     # the very first session, before any summary exists yet.
     await _maybe_greet_with_recap(conversation, tts, audio, memories, profile, profile.speech_speed)
 
-    print("Chitti push-to-talk demo.")
-    print("1) Teachable-Friend (you teach Chitti something)")
-    print("2) Story Companion (Chitti tells a story, answers questions)")
-    print("3) Just Chat (talk, play, wonder, or share your day)")
-    print("4) Lullaby time (play a song)")
-    next_mode = input("Choose mode (1/2/3/4): ").strip()
+    return DemoContext(
+        conversation=conversation,
+        tts=tts,
+        audio=audio,
+        stt=stt,
+        memories=memories,
+        stories=stories,
+        engagement=engagement,
+        transcripts=transcripts,
+        lullabies=lullabies,
+        face=face,
+        data_dir=data_dir,
+        profile=profile,
+    )
 
-    # Decision 0042: a mode can now detect a child asking to switch
-    # ("tell me a story" mid-conversation) and return the next mode to
-    # dispatch instead of just ending -- this loop keeps going for as
-    # long as that keeps happening, falling through once a mode
-    # returns None (natural completion, e.g. the lullaby finished, or
-    # "no items yet") exactly like a single dispatch did before. Ctrl-C
-    # is unaffected -- it's an exception, not a return value, so it
-    # still propagates straight through to the except below.
+
+async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> None:
+    """Decision 0042: a mode can detect a child asking to switch
+    ("tell me a story" mid-conversation) and return the next mode to
+    dispatch instead of just ending -- this loop keeps going for as
+    long as that keeps happening, falling through once a mode returns
+    None (natural completion, e.g. the lullaby finished, or "no items
+    yet"). Ctrl-C is unaffected -- it's an exception, not a return
+    value, so it still propagates straight through to the except
+    below. Shared by main() and intent_demo.py (decision 0043); only
+    how `next_mode` is first obtained differs between them."""
     try:
         while next_mode is not None:
             if next_mode == "2":
                 next_mode = await _run_story_companion(
-                    conversation,
-                    tts,
-                    audio,
-                    stt,
-                    memories,
-                    stories,
-                    engagement,
-                    transcripts,
-                    face,
-                    profile.id,
-                    profile.speech_speed,
-                    child_age=profile.age,
+                    ctx.conversation,
+                    ctx.tts,
+                    ctx.audio,
+                    ctx.stt,
+                    ctx.memories,
+                    ctx.stories,
+                    ctx.engagement,
+                    ctx.transcripts,
+                    ctx.face,
+                    ctx.profile.id,
+                    ctx.profile.speech_speed,
+                    child_age=ctx.profile.age,
                 )
             elif next_mode == "3":
                 next_mode = await _run_everyday_companion(
-                    conversation,
-                    tts,
-                    audio,
-                    stt,
-                    memories,
-                    engagement,
-                    transcripts,
-                    face,
-                    profile.id,
-                    profile.speech_speed,
-                    child_age=profile.age,
+                    ctx.conversation,
+                    ctx.tts,
+                    ctx.audio,
+                    ctx.stt,
+                    ctx.memories,
+                    ctx.engagement,
+                    ctx.transcripts,
+                    ctx.face,
+                    ctx.profile.id,
+                    ctx.profile.speech_speed,
+                    child_age=ctx.profile.age,
                 )
             elif next_mode == "4":
-                await _run_lullaby_time(lullabies, face, data_dir, audio, tts, stt, profile.speech_speed)
+                await _run_lullaby_time(
+                    ctx.lullabies, ctx.face, ctx.data_dir, ctx.audio, ctx.tts, ctx.stt,
+                    ctx.profile.speech_speed,
+                )
                 next_mode = None
             else:
                 # Matches the original dispatch exactly: anything that
                 # isn't "2"/"3"/"4" (including the typed menu's own
-                # invalid input, same as before this decision) defaults
+                # invalid input, same as before decision 0042) defaults
                 # to Teachable-Friend -- never an error message.
                 next_mode = await _run_teachable_friend(
-                    conversation,
-                    tts,
-                    audio,
-                    stt,
-                    memories,
-                    engagement,
-                    transcripts,
-                    face,
-                    profile.id,
-                    profile.speech_speed,
+                    ctx.conversation,
+                    ctx.tts,
+                    ctx.audio,
+                    ctx.stt,
+                    ctx.memories,
+                    ctx.engagement,
+                    ctx.transcripts,
+                    ctx.face,
+                    ctx.profile.id,
+                    ctx.profile.speech_speed,
                 )
     except (KeyboardInterrupt, asyncio.CancelledError):
         # CancelledError shouldn't reach here now that
@@ -906,7 +944,20 @@ async def main() -> None:
         # better a clean "Bye!" than an unhandled traceback.
         print("\nBye!")
     finally:
-        await face.shutdown()
+        await ctx.face.shutdown()
+
+
+async def main() -> None:
+    ctx = await setup_demo()
+
+    print("Chitti push-to-talk demo.")
+    print("1) Teachable-Friend (you teach Chitti something)")
+    print("2) Story Companion (Chitti tells a story, answers questions)")
+    print("3) Just Chat (talk, play, wonder, or share your day)")
+    print("4) Lullaby time (play a song)")
+    next_mode = input("Choose mode (1/2/3/4): ").strip()
+
+    await run_mode_dispatch_loop(next_mode, ctx)
 
 
 if __name__ == "__main__":
