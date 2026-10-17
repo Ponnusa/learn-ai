@@ -36,6 +36,8 @@ from pathlib import Path
 
 from companion_robot.audio.real import CAPTURE_DEVICE, RealAudioTransport
 from companion_robot.conversation.service import ConversationResult, ConversationService
+from companion_robot.device.interfaces import DeviceState
+from companion_robot.device.screen_face import ScreenFaceDeviceController
 from companion_robot.education.math_check import (
     MathCheckResult,
     build_result,
@@ -418,6 +420,7 @@ async def _run_teachable_friend(
     memories,
     engagement,
     transcripts,
+    face,
     child_profile_id: str,
     speed: float,
 ) -> None:
@@ -439,12 +442,14 @@ async def _run_teachable_friend(
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
     try:
         while True:
+            face.set_status_led(DeviceState.LISTENING)
             text = await _capture_and_transcribe(stt)
             print(f"You said: {text}")
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
             messages.append({"role": "user", "content": text})
+            face.set_status_led(DeviceState.PROCESSING)
 
             math_check = _resolve_math_check(text, pending_challenge)
             pending_challenge, incorrect_streak = _update_challenge_state(
@@ -458,6 +463,7 @@ async def _run_teachable_friend(
             result = _patch_if_still_unresolved(result, math_check, already_tried)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
+            face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, result.text, speed=speed)
             if not result.blocked:
                 _remember_taught_fact(memories, child_profile_id, text)
@@ -479,6 +485,7 @@ async def _run_everyday_companion(
     memories,
     engagement,
     transcripts,
+    face,
     child_profile_id: str,
     speed: float,
     child_age: int | None = None,
@@ -497,12 +504,14 @@ async def _run_everyday_companion(
     print("\n-- Just Chat. Ctrl-C to quit. --")
     try:
         while True:
+            face.set_status_led(DeviceState.LISTENING)
             text = await _capture_and_transcribe(stt)
             print(f"You said: {text}")
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
             messages.append({"role": "user", "content": text})
+            face.set_status_led(DeviceState.PROCESSING)
 
             math_check = _resolve_math_check(text, pending_challenge)
             pending_challenge, incorrect_streak = _update_challenge_state(
@@ -516,6 +525,7 @@ async def _run_everyday_companion(
             result = _patch_if_still_unresolved(result, math_check, already_tried)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
+            face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, result.text, speed=speed)
             if pending_challenge is None:
                 pending_challenge = extract_posed_challenge(result.text)
@@ -536,6 +546,7 @@ async def _run_story_companion(
     stories,
     engagement,
     transcripts,
+    face,
     child_profile_id: str,
     speed: float,
     child_age: int | None = None,
@@ -555,6 +566,7 @@ async def _run_story_companion(
 
     print(f"\n-- Story Companion: {story.title}. Ctrl-C to quit. --")
     print(f"Chitti: {story.content}")
+    face.set_status_led(DeviceState.SPEAKING)
     await _speak(tts, audio, story.content, speed=speed)
     _remember_story_read(memories, child_profile_id, story.title)
 
@@ -564,25 +576,30 @@ async def _run_story_companion(
     # here, waiting for the child to speak first. One generated
     # opening observation/question instead, so the conversation
     # actually starts.
+    face.set_status_led(DeviceState.PROCESSING)
     opening = await conversation.story_opening_invitation(story.content, story.title, child_age)
     if not opening.blocked:
         print(f"Chitti: {opening.text}")
         messages.append({"role": "assistant", "content": opening.text})
+        face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, opening.text, speed=speed)
 
     try:
         while True:
+            face.set_status_led(DeviceState.LISTENING)
             text = await _capture_and_transcribe(stt)
             print(f"You said: {text}")
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
             messages.append({"role": "user", "content": text})
+            face.set_status_led(DeviceState.PROCESSING)
             result = await conversation.story_companion_reply(
                 messages, story.content, story.title, child_age
             )
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
+            face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, result.text, speed=speed)
     finally:
         await _summarize_and_remember_session(
@@ -614,6 +631,13 @@ async def main() -> None:
     engagement = EngagementRepository(conn)
     transcripts = TranscriptRepository(conn)
 
+    # Decision 0040: renders listening/thinking/speaking/idle on the
+    # HDMI screen. Degrades to "no visible face" on its own (logged,
+    # not raised) if pygame isn't installed or no SDL driver works --
+    # never allowed to take down a real conversation session.
+    face = ScreenFaceDeviceController()
+    await face.start()
+
     # Picks the existing profile automatically if there's exactly one
     # (the common single-child case), prompts if there are several,
     # creates one on the spot if there are none -- replaces the old
@@ -644,6 +668,7 @@ async def main() -> None:
                 stories,
                 engagement,
                 transcripts,
+                face,
                 profile.id,
                 profile.speech_speed,
                 child_age=profile.age,
@@ -657,6 +682,7 @@ async def main() -> None:
                 memories,
                 engagement,
                 transcripts,
+                face,
                 profile.id,
                 profile.speech_speed,
                 child_age=profile.age,
@@ -670,6 +696,7 @@ async def main() -> None:
                 memories,
                 engagement,
                 transcripts,
+                face,
                 profile.id,
                 profile.speech_speed,
             )
@@ -680,6 +707,8 @@ async def main() -> None:
         # third interrupt or any other spot it could leak from --
         # better a clean "Bye!" than an unhandled traceback.
         print("\nBye!")
+    finally:
+        await face.shutdown()
 
 
 if __name__ == "__main__":
