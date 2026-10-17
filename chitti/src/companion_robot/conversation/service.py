@@ -16,6 +16,7 @@ from companion_robot.safety.checks import SafetyCategory, check_speech, decline_
 from companion_robot.voice.interfaces import LanguageModelBackend
 
 from .prompts import (
+    INTENT_CLASSIFIER_SYSTEM_PROMPT,
     SESSION_SUMMARY_SYSTEM_PROMPT,
     TEACHABLE_FRIEND_SYSTEM_PROMPT,
     build_everyday_companion_prompt,
@@ -24,6 +25,8 @@ from .prompts import (
     build_story_opening_prompt,
     build_welcome_back_prompt,
 )
+
+_KNOWN_INTENT_LABELS = {"STORY", "SONG", "CHAT", "TEACH"}
 
 
 @dataclass
@@ -100,6 +103,21 @@ class ConversationService:
             [{"role": "user", "content": "The story just ended."}], prompt
         )
         return self._screen(reply_text)
+
+    async def classify_intent(self, text: str) -> str | None:
+        """Decision 0042's LLM fallback for mode-switch detection --
+        only called (from voice_loop_demo.py) when intent/router.py's
+        deterministic phrases don't match a known switch request but
+        the turn at least mentions an activity keyword. One cheap
+        classification call, not a conversational reply, so its output
+        is never spoken and deliberately not screened through
+        check_speech() -- same reasoning summarize_session() already
+        uses for its own non-spoken LLM call."""
+        reply_text, _model = await self._llm.generate_reply(
+            [{"role": "user", "content": text}], INTENT_CLASSIFIER_SYSTEM_PROMPT
+        )
+        label = reply_text.strip().upper().split()[0] if reply_text.strip() else ""
+        return label if label in _KNOWN_INTENT_LABELS else None
 
     def repeat_after_me(self, text: str) -> ConversationResult:
         """No LLM call -- the child's own words are screened and either

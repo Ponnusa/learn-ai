@@ -302,6 +302,27 @@ SESSION_SUMMARY_SYSTEM_PROMPT = (
 )
 
 
+# Decision 0042: the LLM fallback in the hybrid intent-detection
+# design -- only called when intent/router.py's deterministic phrases
+# miss but the turn at least mentions an activity keyword. One cheap
+# classification call, not a conversational reply; its output is never
+# spoken (see ConversationService.classify_intent()'s docstring), only
+# used for routing, so it's deliberately not screened through
+# check_speech() either.
+INTENT_CLASSIFIER_SYSTEM_PROMPT = (
+    "A child is talking to their companion robot, Chitti. Decide "
+    "whether the child's message is asking to switch to one of these "
+    "activities, or is just a normal continuation of whatever they're "
+    "already doing.\n\n"
+    "Reply with exactly one word, nothing else:\n"
+    "STORY - they want to hear or read a story\n"
+    "SONG - they want to hear a song or lullaby played\n"
+    "CHAT - they want to just talk, play, or chat casually\n"
+    "TEACH - they want to teach Chitti something\n"
+    "NONE - none of the above; this is a normal continuation"
+)
+
+
 def build_math_check_note(result: MathCheckResult, already_tried: bool = False) -> str:
     """Appended to TEACHABLE_FRIEND_SYSTEM_PROMPT for one turn
     (decision 0024) when the child states a complete addition claim.

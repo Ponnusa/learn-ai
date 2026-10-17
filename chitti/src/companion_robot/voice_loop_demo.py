@@ -29,6 +29,7 @@ product eventually wants -- a scoped, honest first real-audio test on
 real hardware, not Milestone 2's final design.
 """
 import asyncio
+import difflib
 import secrets
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -48,6 +49,7 @@ from companion_robot.education.math_check import (
 )
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.engagement.schema import EngagementMode, EngagementSession
+from companion_robot.intent.router import detect_intent_phrase, mentions_activity_keyword
 from companion_robot.lullabies.repository import LullabyRepository
 from companion_robot.memory.repository import MemoryRepository
 from companion_robot.memory.schema import (
@@ -109,6 +111,98 @@ async def _capture_and_transcribe(stt) -> str:
 async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
     reply_audio = await tts.synthesize(text, speed=speed)
     await audio.play(reply_audio)
+
+
+# Decision 0042: reuses the exact menu-choice strings main() already
+# dispatches on (see its mode-selection prompt), rather than a parallel
+# enum that would just need mapping back to these anyway.
+_INTENT_TO_MODE_CHOICE = {"STORY": "2", "SONG": "4", "CHAT": "3", "TEACH": "1"}
+
+
+async def _detect_switch_intent(text: str, conversation: ConversationService) -> str | None:
+    """Hybrid mode-switch detection (decision 0042). Three tiers, in
+    order, each cheaper than the next:
+    1. A strict deterministic phrase match (intent/router.py) resolves
+       immediately -- free, no LLM call.
+    2. If the turn doesn't even mention an activity keyword, it's
+       definitely not a switch request -- also free, skips the LLM
+       entirely. Without this gate, a literal "phrase match, else
+       always ask the LLM" design would call the classifier on nearly
+       every ordinary conversational turn (anything that isn't an
+       exact phrase match), roughly doubling cost/latency for normal
+       conversation instead of only paying for genuinely ambiguous
+       switch-like phrasing.
+    3. Only a turn that mentions an activity keyword but didn't match
+       a strict phrase reaches ConversationService.classify_intent()
+       (one cheap classification call, not a conversational reply).
+    """
+    phrase_match = detect_intent_phrase(text)
+    if phrase_match is not None:
+        return _INTENT_TO_MODE_CHOICE.get(phrase_match)
+    if not mentions_activity_keyword(text):
+        return None
+    label = await conversation.classify_intent(text)
+    return _INTENT_TO_MODE_CHOICE.get(label) if label else None
+
+
+_ORDINAL_WORDS = {
+    "first": 0, "1st": 0, "one": 0,
+    "second": 1, "2nd": 1, "two": 1,
+    "third": 2, "3rd": 2, "three": 2,
+}
+
+
+def _resolve_spoken_choice(spoken: str, items: list) -> object:
+    """Resolves a spoken answer to one of `items` (each with a
+    `.title`) -- exact title substring match first (the common case:
+    the child repeats part of the title), then an ordinal word
+    ("first"/"1st"/"one" -> index 0), then a fuzzy title match, then
+    defaults to the first item rather than failing outright. Same
+    "deterministic, returns a sane default rather than guessing
+    wildly" spirit as education/math_check.py."""
+    lowered = spoken.lower()
+    titles = [item.title for item in items]
+    for i, title in enumerate(titles):
+        if title.lower() in lowered:
+            return items[i]
+    for word in lowered.split():
+        if word in _ORDINAL_WORDS and _ORDINAL_WORDS[word] < len(items):
+            return items[_ORDINAL_WORDS[word]]
+    close = difflib.get_close_matches(lowered, [t.lower() for t in titles], n=1, cutoff=0.4)
+    if close:
+        return items[[t.lower() for t in titles].index(close[0])]
+    return items[0]
+
+
+async def _pick_item_by_voice(
+    items: list, label: str, tts, stt, audio, face, speed: float
+) -> object:
+    """Decision 0042: replaces the old typed numeric picker. If
+    there's only one item, returns it with no question asked (today's
+    "none yet" early-return in callers is untouched). Otherwise speaks
+    the available titles, listens for a spoken answer, and resolves it
+    via _resolve_spoken_choice(), with one spoken retry before
+    defaulting -- fully voice-driven, consistent with this being a
+    push-to-talk voice product rather than a typed-menu one."""
+    if len(items) == 1:
+        return items[0]
+    titles = [item.title for item in items]
+    prompt_text = (
+        f"I have {len(items)} {label}: {', '.join(titles)}. Which one would you like?"
+    )
+    print(f"Chitti: {prompt_text}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, prompt_text, speed=speed)
+    face.set_status_led(DeviceState.LISTENING)
+    text = await _capture_and_transcribe(stt)
+    print(f"You said: {text}")
+    if text.strip():
+        return _resolve_spoken_choice(text, items)
+    retry_text = "Sorry, I didn't catch that -- let's go with the first one."
+    print(f"Chitti: {retry_text}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, retry_text, speed=speed)
+    return items[0]
 
 
 def _decode_mp3_to_pcm(path) -> bytes:
@@ -468,7 +562,7 @@ async def _run_teachable_friend(
     face,
     child_profile_id: str,
     speed: float,
-) -> None:
+) -> str | None:
     messages: list[dict] = []
     # Tracks an addition challenge Chitti itself posed last turn
     # (decision 0025), so a bare numeric reply next turn ("4.") can
@@ -484,6 +578,11 @@ async def _run_teachable_friend(
     # straight to the concrete walkthrough on a repeat, rather than
     # asking to explain again indefinitely.
     incorrect_streak = 0
+    # Decision 0042: set when a turn is detected as a request to
+    # switch modes -- the loop breaks (still running the finally
+    # cleanup below) instead of continuing, and this is returned so
+    # main()'s dispatch loop can switch straight into it.
+    next_mode: str | None = None
     print("\n-- Teachable-Friend mode. Ctrl-C to quit. --")
     try:
         while True:
@@ -493,6 +592,9 @@ async def _run_teachable_friend(
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
+            next_mode = await _detect_switch_intent(text, conversation)
+            if next_mode is not None:
+                break
             messages.append({"role": "user", "content": text})
             face.set_status_led(DeviceState.PROCESSING)
 
@@ -520,6 +622,7 @@ async def _run_teachable_friend(
             engagement, child_profile_id, EngagementMode.TEACHABLE_FRIEND, messages
         )
         _save_transcript(transcripts, child_profile_id, EngagementMode.TEACHABLE_FRIEND, messages)
+    return next_mode
 
 
 async def _run_everyday_companion(
@@ -534,7 +637,7 @@ async def _run_everyday_companion(
     child_profile_id: str,
     speed: float,
     child_age: int | None = None,
-) -> None:
+) -> str | None:
     """Decision 0034: the third mode -- everyday chat, simple games,
     spontaneous curiosity, and emotional moments, for when the child
     isn't here to teach Chitti something (mode 1) and no story is
@@ -546,6 +649,7 @@ async def _run_everyday_companion(
     messages: list[dict] = []
     pending_challenge: tuple[int, int] | None = None
     incorrect_streak = 0
+    next_mode: str | None = None  # decision 0042, see _run_teachable_friend's comment
     print("\n-- Just Chat. Ctrl-C to quit. --")
     try:
         while True:
@@ -555,6 +659,9 @@ async def _run_everyday_companion(
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
+            next_mode = await _detect_switch_intent(text, conversation)
+            if next_mode is not None:
+                break
             messages.append({"role": "user", "content": text})
             face.set_status_led(DeviceState.PROCESSING)
 
@@ -580,6 +687,7 @@ async def _run_everyday_companion(
             engagement, child_profile_id, EngagementMode.EVERYDAY_COMPANION, messages
         )
         _save_transcript(transcripts, child_profile_id, EngagementMode.EVERYDAY_COMPANION, messages)
+    return next_mode
 
 
 async def _run_story_companion(
@@ -595,19 +703,12 @@ async def _run_story_companion(
     child_profile_id: str,
     speed: float,
     child_age: int | None = None,
-) -> None:
+) -> str | None:
     all_stories = stories.list_all()
     if not all_stories:
         print("No stories yet -- add one via the Parent Controls web UI first.")
-        return
-    for i, s in enumerate(all_stories):
-        print(f"{i + 1}) {s.title}")
-    choice = input("Pick a story: ").strip()
-    try:
-        story = all_stories[int(choice) - 1]
-    except (ValueError, IndexError):
-        print("Not a valid choice.")
-        return
+        return None
+    story = await _pick_item_by_voice(all_stories, "stories", tts, stt, audio, face, speed)
 
     print(f"\n-- Story Companion: {story.title}. Ctrl-C to quit. --")
     print(f"Chitti: {story.content}")
@@ -629,6 +730,7 @@ async def _run_story_companion(
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, opening.text, speed=speed)
 
+    next_mode: str | None = None  # decision 0042, see _run_teachable_friend's comment
     try:
         while True:
             face.set_status_led(DeviceState.LISTENING)
@@ -637,6 +739,9 @@ async def _run_story_companion(
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
+            next_mode = await _detect_switch_intent(text, conversation)
+            if next_mode is not None:
+                break
             messages.append({"role": "user", "content": text})
             face.set_status_led(DeviceState.PROCESSING)
             result = await conversation.story_companion_reply(
@@ -654,24 +759,20 @@ async def _run_story_companion(
             engagement, child_profile_id, EngagementMode.STORY_COMPANION, messages
         )
         _save_transcript(transcripts, child_profile_id, EngagementMode.STORY_COMPANION, messages)
+    return next_mode
 
 
-async def _run_lullaby_time(lullabies, face, data_dir: Path, audio) -> None:
+async def _run_lullaby_time(lullabies, face, data_dir: Path, audio, tts, stt, speed: float) -> None:
     """Simple playback, not a conversation (decision 0041): no LLM, no
-    STT, no transcript/engagement recording -- those all assume
-    conversational turns, and there are none here."""
+    transcript/engagement recording -- those all assume conversational
+    turns, and there are none here. tts/stt (decision 0042) are only
+    used for the voice picker below when there's more than one
+    lullaby, not for any conversation."""
     all_lullabies = lullabies.list_all()
     if not all_lullabies:
         print("No lullabies yet -- add one via the Parent Controls web UI first.")
         return
-    for i, lullaby in enumerate(all_lullabies):
-        print(f"{i + 1}) {lullaby.title}")
-    choice = input("Pick a lullaby: ").strip()
-    try:
-        lullaby = all_lullabies[int(choice) - 1]
-    except (ValueError, IndexError):
-        print("Not a valid choice.")
-        return
+    lullaby = await _pick_item_by_voice(all_lullabies, "lullabies", tts, stt, audio, face, speed)
 
     print(f"\n-- Lullaby time: {lullaby.title}. Ctrl-C to stop. --")
     face.set_status_led(DeviceState.SPEAKING)
@@ -736,53 +837,67 @@ async def main() -> None:
     print("2) Story Companion (Chitti tells a story, answers questions)")
     print("3) Just Chat (talk, play, wonder, or share your day)")
     print("4) Lullaby time (play a song)")
-    choice = input("Choose mode (1/2/3/4): ").strip()
+    next_mode = input("Choose mode (1/2/3/4): ").strip()
 
+    # Decision 0042: a mode can now detect a child asking to switch
+    # ("tell me a story" mid-conversation) and return the next mode to
+    # dispatch instead of just ending -- this loop keeps going for as
+    # long as that keeps happening, falling through once a mode
+    # returns None (natural completion, e.g. the lullaby finished, or
+    # "no items yet") exactly like a single dispatch did before. Ctrl-C
+    # is unaffected -- it's an exception, not a return value, so it
+    # still propagates straight through to the except below.
     try:
-        if choice == "2":
-            await _run_story_companion(
-                conversation,
-                tts,
-                audio,
-                stt,
-                memories,
-                stories,
-                engagement,
-                transcripts,
-                face,
-                profile.id,
-                profile.speech_speed,
-                child_age=profile.age,
-            )
-        elif choice == "3":
-            await _run_everyday_companion(
-                conversation,
-                tts,
-                audio,
-                stt,
-                memories,
-                engagement,
-                transcripts,
-                face,
-                profile.id,
-                profile.speech_speed,
-                child_age=profile.age,
-            )
-        elif choice == "4":
-            await _run_lullaby_time(lullabies, face, data_dir, audio)
-        else:
-            await _run_teachable_friend(
-                conversation,
-                tts,
-                audio,
-                stt,
-                memories,
-                engagement,
-                transcripts,
-                face,
-                profile.id,
-                profile.speech_speed,
-            )
+        while next_mode is not None:
+            if next_mode == "2":
+                next_mode = await _run_story_companion(
+                    conversation,
+                    tts,
+                    audio,
+                    stt,
+                    memories,
+                    stories,
+                    engagement,
+                    transcripts,
+                    face,
+                    profile.id,
+                    profile.speech_speed,
+                    child_age=profile.age,
+                )
+            elif next_mode == "3":
+                next_mode = await _run_everyday_companion(
+                    conversation,
+                    tts,
+                    audio,
+                    stt,
+                    memories,
+                    engagement,
+                    transcripts,
+                    face,
+                    profile.id,
+                    profile.speech_speed,
+                    child_age=profile.age,
+                )
+            elif next_mode == "4":
+                await _run_lullaby_time(lullabies, face, data_dir, audio, tts, stt, profile.speech_speed)
+                next_mode = None
+            else:
+                # Matches the original dispatch exactly: anything that
+                # isn't "2"/"3"/"4" (including the typed menu's own
+                # invalid input, same as before this decision) defaults
+                # to Teachable-Friend -- never an error message.
+                next_mode = await _run_teachable_friend(
+                    conversation,
+                    tts,
+                    audio,
+                    stt,
+                    memories,
+                    engagement,
+                    transcripts,
+                    face,
+                    profile.id,
+                    profile.speech_speed,
+                )
     except (KeyboardInterrupt, asyncio.CancelledError):
         # CancelledError shouldn't reach here now that
         # _summarize_and_remember_session() catches it itself

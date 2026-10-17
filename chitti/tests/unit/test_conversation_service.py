@@ -1,7 +1,10 @@
 """Unit tests for companion_robot.conversation.service.ConversationService
 -- uses a fake LanguageModelBackend, no real API calls needed.
 """
-from companion_robot.conversation.prompts import SESSION_SUMMARY_SYSTEM_PROMPT
+from companion_robot.conversation.prompts import (
+    INTENT_CLASSIFIER_SYSTEM_PROMPT,
+    SESSION_SUMMARY_SYSTEM_PROMPT,
+)
 from companion_robot.conversation.service import ConversationService
 from companion_robot.education.math_check import extract_addition_claim
 from companion_robot.safety.checks import SafetyCategory
@@ -340,3 +343,47 @@ def test_default_summarizer_llm_is_the_main_llm_when_not_given():
     service = ConversationService(llm)
 
     assert service._summarizer_llm is llm
+
+
+async def test_classify_intent_returns_a_known_label():
+    llm = FakeLanguageModelBackend(reply="STORY")
+    service = ConversationService(llm)
+
+    label = await service.classify_intent("can you tell me something fun")
+
+    assert label == "STORY"
+    assert llm.calls[0][1] == INTENT_CLASSIFIER_SYSTEM_PROMPT
+
+
+async def test_classify_intent_strips_and_uppercases_the_reply():
+    llm = FakeLanguageModelBackend(reply="  song \n")
+    service = ConversationService(llm)
+
+    assert await service.classify_intent("sing something nice") == "SONG"
+
+
+async def test_classify_intent_returns_none_for_unrecognized_reply():
+    llm = FakeLanguageModelBackend(reply="NONE")
+    service = ConversationService(llm)
+
+    assert await service.classify_intent("just chatting") is None
+
+
+async def test_classify_intent_returns_none_for_garbage_reply():
+    llm = FakeLanguageModelBackend(reply="I'm not sure what you mean")
+    service = ConversationService(llm)
+
+    assert await service.classify_intent("hmm") is None
+
+
+async def test_classify_intent_output_is_not_screened_through_check_speech():
+    """Its output is never spoken, only used for routing -- unlike
+    every other ConversationService method, it must not go through
+    _screen()/check_speech() at all, even if the (never-spoken) label
+    text were somehow unsafe."""
+    llm = FakeLanguageModelBackend(reply="story")
+    service = ConversationService(llm)
+
+    label = await service.classify_intent("tell me a story")
+
+    assert label == "STORY"  # plain string, not a ConversationResult
