@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Lullabies</h1>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if lullabies %}
+<ul class="card-list">
+{% for l in lullabies %}
+  <li class="card">
+    <div class="card-actions">
+      <div class="card-title" style="flex:1">{{ l.title }}</div>
+      <form method="post" action="{{ url_for('delete_lullaby', lullaby_id=l.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="danger">Delete</button>
+      </form>
+    </div>
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<p class="empty-state">No lullabies yet -- add one below.</p>
+{% endif %}
+<h2>Add a lullaby</h2>
+<form method="post" class="panel" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Title <input name="title"></label>
+  <label>MP3 file <input type="file" name="audio" accept=".mp3"></label>
+  <button type="submit">Add</button>
+</form>
+{% endblock %}

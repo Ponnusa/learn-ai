@@ -1,5 +1,6 @@
 """Minimal schema migration runner: memory_records, reminders,
-parent_pin, child_profiles, stories. Each CREATE statement is
+parent_pin, child_profiles, stories, engagement_sessions,
+transcripts, lullabies. Each CREATE statement is
 idempotent (CREATE TABLE/INDEX IF NOT EXISTS) so re-running against an
 already-migrated database is always safe -- but that alone only
 covers whole new tables. Adding a column to a table that already
@@ -121,6 +122,14 @@ CREATE INDEX IF NOT EXISTS idx_transcripts_child_profile
 ON transcripts (child_profile_id)
 """
 
+_LULLABIES_TABLE = """
+CREATE TABLE IF NOT EXISTS lullabies (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    created_at TEXT NOT NULL
+)
+"""
+
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, add_column_ddl: str) -> None:
     """Idempotently adds a column to a table that may already exist
@@ -146,6 +155,7 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(_ENGAGEMENT_SESSIONS_CHILD_INDEX)
     conn.execute(_TRANSCRIPTS_TABLE)
     conn.execute(_TRANSCRIPTS_CHILD_INDEX)
+    conn.execute(_LULLABIES_TABLE)
     _ensure_column(
         conn, "child_profiles", "speech_speed", "speech_speed REAL NOT NULL DEFAULT 1.0"
     )

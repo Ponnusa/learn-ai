@@ -16,10 +16,13 @@ import functools
 import secrets
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import Flask, redirect, render_template, request, session, url_for
 
 from companion_robot.engagement.repository import EngagementRepository
+from companion_robot.lullabies.repository import LullabyRepository
+from companion_robot.lullabies.schema import LullabyRecord
 from companion_robot.memory.repository import MemoryRepository
 from companion_robot.transcripts.repository import TranscriptRepository
 
@@ -27,14 +30,20 @@ from .auth import PinRepository, RateLimiter, load_or_create_secret_key
 from .profiles import ChildProfile, ChildProfileRepository
 from .stories import StoryRecord, StoryRepository
 
+# 20MB -- a generous ceiling for a single lullaby MP3, cheap guard
+# against a huge accidental upload filling up the Pi's limited storage.
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
 
 def create_app(
     conn: sqlite3.Connection,
     secret_key_path: str,
+    lullabies_dir: Path | None = None,
     rate_limiter: RateLimiter | None = None,
 ) -> Flask:
     app = Flask(__name__)
     app.secret_key = load_or_create_secret_key(secret_key_path)
+    app.config["MAX_CONTENT_LENGTH"] = _MAX_UPLOAD_BYTES
 
     pins = PinRepository(conn)
     profiles = ChildProfileRepository(conn)
@@ -42,6 +51,9 @@ def create_app(
     memories = MemoryRepository(conn)
     engagement = EngagementRepository(conn)
     transcripts = TranscriptRepository(conn)
+    lullabies = LullabyRepository(conn)
+    lullabies_dir = Path(lullabies_dir) if lullabies_dir is not None else Path("data/lullabies")
+    lullabies_dir.mkdir(parents=True, exist_ok=True)
     limiter = rate_limiter or RateLimiter()
 
     def _csrf_token() -> str:
@@ -120,7 +132,10 @@ def create_app(
     @requires_auth
     def dashboard():
         return render_template(
-            "dashboard.html", profiles=profiles.list_all(), stories=stories.list_all()
+            "dashboard.html",
+            profiles=profiles.list_all(),
+            stories=stories.list_all(),
+            lullabies=lullabies.list_all(),
         )
 
     @app.route("/profiles", methods=["GET", "POST"])
@@ -230,6 +245,53 @@ def create_app(
         stories.delete(story_id)
         return redirect(url_for("stories_view"))
 
+    @app.route("/lullabies", methods=["GET", "POST"])
+    @requires_auth
+    def lullabies_view():
+        if request.method == "POST":
+            if not _csrf_valid():
+                return "Invalid request.", 400
+            title = request.form.get("title", "").strip()
+            audio = request.files.get("audio")
+            valid_upload = (
+                audio is not None
+                and audio.filename
+                and audio.filename.lower().endswith(".mp3")
+            )
+            if not title or not valid_upload:
+                return (
+                    render_template(
+                        "lullabies.html",
+                        lullabies=lullabies.list_all(),
+                        error="Title and an .mp3 file are required.",
+                    ),
+                    400,
+                )
+            lullaby_id = secrets.token_hex(8)
+            # The file's path is always derived from this id, never
+            # from the parent-supplied filename -- see lullabies/
+            # __init__.py for why (sidesteps path-traversal/collision
+            # risk entirely rather than needing to sanitize anything).
+            audio.save(lullabies_dir / f"{lullaby_id}.mp3")
+            lullabies.create(
+                LullabyRecord(
+                    id=lullaby_id,
+                    title=title,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            return redirect(url_for("lullabies_view"))
+        return render_template("lullabies.html", lullabies=lullabies.list_all(), error=None)
+
+    @app.post("/lullabies/<lullaby_id>/delete")
+    @requires_auth
+    def delete_lullaby(lullaby_id):
+        if not _csrf_valid():
+            return "Invalid request.", 400
+        lullabies.delete(lullaby_id)
+        (lullabies_dir / f"{lullaby_id}.mp3").unlink(missing_ok=True)
+        return redirect(url_for("lullabies_view"))
+
     @app.get("/profiles/<profile_id>/memories")
     @requires_auth
     def profile_memories(profile_id):
@@ -293,7 +355,11 @@ def main() -> None:
     data_dir = Path(__file__).resolve().parent.parent.parent.parent / "data"
     data_dir.mkdir(exist_ok=True)
     conn = connect(data_dir / "chitti.db")
-    app = create_app(conn, secret_key_path=data_dir / "session_secret.key")
+    app = create_app(
+        conn,
+        secret_key_path=data_dir / "session_secret.key",
+        lullabies_dir=data_dir / "lullabies",
+    )
     app.run(host="0.0.0.0", port=5000, debug=False)
 
 

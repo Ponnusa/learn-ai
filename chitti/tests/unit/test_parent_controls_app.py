@@ -19,9 +19,16 @@ def _make_app(rate_limiter: RateLimiter | None = None):
     are per-connection, so a second connect(":memory:") would be an
     entirely separate, empty database)."""
     conn = connect(":memory:")
-    secret_path = Path(tempfile.mkdtemp()) / "secret.key"
-    app = create_app(conn, secret_key_path=secret_path, rate_limiter=rate_limiter)
+    tmp_dir = Path(tempfile.mkdtemp())
+    secret_path = tmp_dir / "secret.key"
+    app = create_app(
+        conn,
+        secret_key_path=secret_path,
+        lullabies_dir=tmp_dir / "lullabies",
+        rate_limiter=rate_limiter,
+    )
     app.config["TESTING"] = True
+    app.config["LULLABIES_DIR"] = tmp_dir / "lullabies"  # test-only, for file-on-disk assertions
     return app, conn
 
 
@@ -240,6 +247,82 @@ def test_delete_story():
 
     response = client.get("/stories")
     assert b"The Fox" not in response.data
+
+
+def test_create_and_list_lullaby():
+    import io
+
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+
+    client.post(
+        "/lullabies",
+        data={
+            "title": "Hush Little Baby",
+            "audio": (io.BytesIO(b"fake mp3 bytes"), "lullaby.mp3"),
+            "csrf_token": token,
+        },
+        content_type="multipart/form-data",
+    )
+    response = client.get("/lullabies")
+
+    assert response.status_code == 200
+    assert b"Hush Little Baby" in response.data
+    saved_files = list(app.config["LULLABIES_DIR"].glob("*.mp3"))
+    assert len(saved_files) == 1
+    assert saved_files[0].read_bytes() == b"fake mp3 bytes"
+
+
+def test_lullaby_upload_rejects_non_mp3_file():
+    import io
+
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+
+    response = client.post(
+        "/lullabies",
+        data={
+            "title": "Not Audio",
+            "audio": (io.BytesIO(b"not an mp3"), "notes.txt"),
+            "csrf_token": token,
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    assert b"Not Audio" not in client.get("/lullabies").data
+
+
+def test_delete_lullaby_removes_record_and_file():
+    import io
+    import re
+
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    client.post(
+        "/lullabies",
+        data={
+            "title": "Hush Little Baby",
+            "audio": (io.BytesIO(b"fake mp3 bytes"), "lullaby.mp3"),
+            "csrf_token": token,
+        },
+        content_type="multipart/form-data",
+    )
+
+    response = client.get("/lullabies")
+    match = re.search(rb'/lullabies/([a-f0-9]+)/delete', response.data)
+    assert match is not None
+    lullaby_id = match.group(1).decode()
+
+    token = _get_csrf_token(client)
+    client.post(f"/lullabies/{lullaby_id}/delete", data={"csrf_token": token})
+
+    response = client.get("/lullabies")
+    assert b"Hush Little Baby" not in response.data
+    assert not (app.config["LULLABIES_DIR"] / f"{lullaby_id}.mp3").exists()
 
 
 def test_memory_review_lists_and_deletes_records_scoped_to_profile():

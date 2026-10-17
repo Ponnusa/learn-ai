@@ -48,6 +48,7 @@ from companion_robot.education.math_check import (
 )
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.engagement.schema import EngagementMode, EngagementSession
+from companion_robot.lullabies.repository import LullabyRepository
 from companion_robot.memory.repository import MemoryRepository
 from companion_robot.memory.schema import (
     ConsentStatus,
@@ -108,6 +109,37 @@ async def _capture_and_transcribe(stt) -> str:
 async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
     reply_audio = await tts.synthesize(text, speed=speed)
     await audio.play(reply_audio)
+
+
+async def _play_lullaby_file(path) -> None:
+    """mpg123 pattern adapted from pixel-ai/pixel_tts.py (decision
+    0041, same reuse-a-proven-pattern approach decision 0040 used for
+    pixel_face.py). Two hard-won fixes carried forward: -b 2048 raises
+    mpg123's output buffer, avoiding audio underruns on the Pi 1's weak
+    audio path; start_new_session=True puts mpg123 in its own session
+    so its keyboard controls can't open /dev/tty and steal keystrokes
+    from push-to-talk's own input()-based start/stop -- that matters
+    here specifically because nothing else in this project relies on
+    keyboard input the way this one does.
+
+    Polls rather than blocking on proc.wait() so Ctrl-C during
+    playback (KeyboardInterrupt at the await) reaches the finally
+    below and terminates the still-running child -- otherwise, being
+    deliberately isolated from the terminal, nothing else would stop
+    it.
+    """
+    proc = subprocess.Popen(
+        ["mpg123", "-q", "-b", "2048", str(path)],
+        stdin=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        while proc.poll() is None:
+            await asyncio.sleep(0.2)
+    finally:
+        if proc.poll() is None:
+            proc.terminate()
 
 
 def _select_or_create_profile(profiles: ChildProfileRepository) -> ChildProfile:
@@ -611,6 +643,31 @@ async def _run_story_companion(
         _save_transcript(transcripts, child_profile_id, EngagementMode.STORY_COMPANION, messages)
 
 
+async def _run_lullaby_time(lullabies, face, data_dir: Path) -> None:
+    """Simple playback, not a conversation (decision 0041): no LLM, no
+    STT, no transcript/engagement recording -- those all assume
+    conversational turns, and there are none here."""
+    all_lullabies = lullabies.list_all()
+    if not all_lullabies:
+        print("No lullabies yet -- add one via the Parent Controls web UI first.")
+        return
+    for i, lullaby in enumerate(all_lullabies):
+        print(f"{i + 1}) {lullaby.title}")
+    choice = input("Pick a lullaby: ").strip()
+    try:
+        lullaby = all_lullabies[int(choice) - 1]
+    except (ValueError, IndexError):
+        print("Not a valid choice.")
+        return
+
+    print(f"\n-- Lullaby time: {lullaby.title}. Ctrl-C to stop. --")
+    face.set_status_led(DeviceState.SPEAKING)
+    try:
+        await _play_lullaby_file(data_dir / "lullabies" / f"{lullaby.id}.mp3")
+    finally:
+        face.set_status_led(DeviceState.IDLE)
+
+
 async def main() -> None:
     data_dir = Path(__file__).resolve().parent.parent.parent / "data"
     data_dir.mkdir(exist_ok=True)
@@ -630,6 +687,7 @@ async def main() -> None:
     profiles = ChildProfileRepository(conn)
     engagement = EngagementRepository(conn)
     transcripts = TranscriptRepository(conn)
+    lullabies = LullabyRepository(conn)
 
     # Decision 0040: renders listening/thinking/speaking/idle on the
     # HDMI screen. Degrades to "no visible face" on its own (logged,
@@ -655,7 +713,8 @@ async def main() -> None:
     print("1) Teachable-Friend (you teach Chitti something)")
     print("2) Story Companion (Chitti tells a story, answers questions)")
     print("3) Just Chat (talk, play, wonder, or share your day)")
-    choice = input("Choose mode (1/2/3): ").strip()
+    print("4) Lullaby time (play a song)")
+    choice = input("Choose mode (1/2/3/4): ").strip()
 
     try:
         if choice == "2":
@@ -687,6 +746,8 @@ async def main() -> None:
                 profile.speech_speed,
                 child_age=profile.age,
             )
+        elif choice == "4":
+            await _run_lullaby_time(lullabies, face, data_dir)
         else:
             await _run_teachable_friend(
                 conversation,
