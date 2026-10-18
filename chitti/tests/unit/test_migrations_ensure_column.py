@@ -38,6 +38,35 @@ def test_ensure_column_adds_missing_column_with_default():
     assert row["speech_speed"] == 1.0
 
 
+def test_ensure_column_adds_interest_column_with_default():
+    """Same scenario, for decision 0051's follow-up: Reading Partner's
+    interest field, added to child_profiles after it already existed
+    and had rows."""
+    conn = connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE child_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            age INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            teachable_friend_enabled INTEGER NOT NULL,
+            story_companion_enabled INTEGER NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO child_profiles VALUES ('p1', 'Anna', 7, 'x', 'x', 1, 1)"
+    )
+    conn.commit()
+
+    _ensure_column(conn, "child_profiles", "interest", "interest TEXT NOT NULL DEFAULT ''")
+
+    row = conn.execute("SELECT interest FROM child_profiles WHERE id = 'p1'").fetchone()
+    assert row["interest"] == ""
+
+
 def test_ensure_column_is_a_noop_if_column_already_present():
     conn = connect(":memory:")
     run_migrations(conn)  # already-current schema, speech_speed included
@@ -75,3 +104,4 @@ def test_run_migrations_is_safe_against_a_table_missing_the_new_column():
 
     columns = {row[1] for row in conn.execute("PRAGMA table_info(child_profiles)").fetchall()}
     assert "speech_speed" in columns
+    assert "interest" in columns

@@ -26,6 +26,13 @@ class ChildProfile:
     # age/feature toggles already living here, rather than adding an
     # unvalidated "talk slower" voice command surface for the child.
     speech_speed: float = 1.0
+    # Decision 0051 follow-up: themes Reading Partner's LLM-generated
+    # books ("a story about dinosaurs"). Parent-settable here, same as
+    # age/speech_speed, rather than a CLI flag -- Chitti has no
+    # argparse-style entry point the way phono-storyforge's own
+    # tutor_cli.py did. Reading-only for now, not fed into any other
+    # mode's prompt.
+    interest: str = ""
 
 
 class ChildProfileRepository:
@@ -38,8 +45,8 @@ class ChildProfileRepository:
             """
             INSERT INTO child_profiles (
                 id, name, age, created_at, updated_at,
-                teachable_friend_enabled, story_companion_enabled, speech_speed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                teachable_friend_enabled, story_companion_enabled, speech_speed, interest
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 profile.id,
@@ -50,6 +57,7 @@ class ChildProfileRepository:
                 int(profile.teachable_friend_enabled),
                 int(profile.story_companion_enabled),
                 profile.speech_speed,
+                profile.interest,
             ),
         )
         self._conn.commit()
@@ -72,6 +80,7 @@ class ChildProfileRepository:
         teachable_friend_enabled: bool | None = None,
         story_companion_enabled: bool | None = None,
         speech_speed: float | None = None,
+        interest: str | None = None,
     ) -> bool:
         existing = self.get(profile_id)
         if existing is None:
@@ -89,10 +98,11 @@ class ChildProfileRepository:
             else story_companion_enabled
         )
         speech_speed = existing.speech_speed if speech_speed is None else speech_speed
+        interest = existing.interest if interest is None else interest
         self._conn.execute(
             "UPDATE child_profiles SET name = ?, age = ?, updated_at = ?, "
             "teachable_friend_enabled = ?, story_companion_enabled = ?, "
-            "speech_speed = ? WHERE id = ?",
+            "speech_speed = ?, interest = ? WHERE id = ?",
             (
                 name,
                 age,
@@ -100,6 +110,7 @@ class ChildProfileRepository:
                 int(teachable_friend_enabled),
                 int(story_companion_enabled),
                 speech_speed,
+                interest,
                 profile_id,
             ),
         )
@@ -122,4 +133,5 @@ def _row_to_profile(row: sqlite3.Row) -> ChildProfile:
         teachable_friend_enabled=bool(row["teachable_friend_enabled"]),
         story_companion_enabled=bool(row["story_companion_enabled"]),
         speech_speed=row["speech_speed"],
+        interest=row["interest"],
     )

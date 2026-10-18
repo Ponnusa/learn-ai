@@ -516,6 +516,36 @@ def test_edit_profile_updates_speech_speed():
     assert profiles.get(profile_id).speech_speed == 0.8
 
 
+def test_edit_profile_updates_interest():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    client.post("/profiles", data={"name": "Anna", "age": "7", "csrf_token": token})
+
+    response = client.get("/profiles")
+    import re
+
+    profile_id = re.search(rb'/profiles/([a-f0-9]+)/edit', response.data).group(1).decode()
+
+    token = _get_csrf_token(client)
+    response = client.post(
+        f"/profiles/{profile_id}/edit",
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "1.0",
+            "interest": "dinosaurs",
+            "csrf_token": token,
+        },
+    )
+    assert response.status_code == 302
+
+    from companion_robot.parent_controls.profiles import ChildProfileRepository
+
+    profiles = ChildProfileRepository(conn)
+    assert profiles.get(profile_id).interest == "dinosaurs"
+
+
 def test_edit_profile_rejects_out_of_range_speed():
     app, conn = _make_app()
     client = _authenticated_client(app)

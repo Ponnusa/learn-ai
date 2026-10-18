@@ -197,4 +197,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _ensure_column(
         conn, "child_profiles", "speech_speed", "speech_speed REAL NOT NULL DEFAULT 1.0"
     )
+    _ensure_column(conn, "child_profiles", "interest", "interest TEXT NOT NULL DEFAULT ''")
     conn.commit()

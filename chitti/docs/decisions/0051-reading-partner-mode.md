@@ -176,6 +176,32 @@ self-correction instead, since "sat" is similar enough to the
 following word "mat" to trigger that heuristic; the test's inserted
 word was changed to one with no such similarity.
 
+## Addendum (2026-10-18): parent-settable interest
+
+At ship time, `ReadingProfile.interest` (used to theme generated
+books, e.g. "about dinosaurs") had no input path at all --
+`_run_reading_partner()` always passed an empty string, since nothing
+set it. Fixed by adding `interest` as a field on `ChildProfile` itself
+(`parent_controls/profiles.py`), editable from the existing
+edit-profile page -- same place `age`/`speech_speed` already live,
+rather than a CLI flag (Chitti has no argparse entry point the way the
+source project's own `tutor_cli.py --interest dinosaurs` did).
+`_run_reading_partner()` now takes a `child_interest` parameter and
+passes it into `reading_repo.get_or_create()`, which only uses it to
+seed a brand-new reading profile -- an existing profile's own already-
+stored interest is never clobbered by a stale/empty value on
+subsequent calls. Deliberately scoped to Reading Partner only: Story
+Companion, Teachable Friend, and Just Chat have no concept of a
+child's interests at all, and folding interest-based personalization
+into them is a separate, larger decision (different prompts, and the
+same "Chitti narrowing a child's exposure by always picking their
+favorite topic" question that hasn't been raised yet), not bundled in
+here. `_ensure_column()` migrates existing `child_profiles` rows the
+same way `speech_speed` was added in decision 0016. 5 new tests
+(`test_child_profile_interest.py`, plus additions to
+`test_migrations_ensure_column.py` and `test_parent_controls_app.py`).
+382 passed, 1 skipped.
+
 ## Not yet done
 
 - Parent Controls UI for reading progress (a view parallel to

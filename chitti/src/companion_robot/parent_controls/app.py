@@ -188,6 +188,7 @@ def create_app(
             name = request.form.get("name", "").strip()
             age = request.form.get("age", "").strip()
             speed_raw = request.form.get("speech_speed", "").strip()
+            interest = request.form.get("interest", "").strip()
             try:
                 speed = float(speed_raw)
             except ValueError:
@@ -205,7 +206,7 @@ def create_app(
                     ),
                     400,
                 )
-            profiles.update(profile_id, name=name, age=int(age), speech_speed=speed)
+            profiles.update(profile_id, name=name, age=int(age), speech_speed=speed, interest=interest)
             return redirect(url_for("profiles_view"))
         return render_template("edit_profile.html", profile=profile, error=None)
 

@@ -1040,6 +1040,7 @@ async def _run_reading_partner(
     child_profile_id: str,
     speed: float,
     child_age: int | None = None,
+    child_interest: str = "",
     initial_text: str | None = None,
 ) -> tuple[str | None, str | None]:
     """Decision 0051: phonics-based reading practice -- picks the next
@@ -1059,6 +1060,14 @@ async def _run_reading_partner(
     to feed it into; the loop always starts by generating the first
     book.
 
+    `child_interest` seeds a brand-new reading profile's own stored
+    interest (used to theme every generated book, e.g. "about
+    dinosaurs") -- parent-settable from Parent Controls' edit-profile
+    page, same place age/speech_speed already live. Once a reading
+    profile exists, its own stored value takes over (so an empty
+    `child_interest` here never clobbers one already set), which
+    `reading_repo.get_or_create()` enforces on its own.
+
     IMPORTANT, deliberately different from every other mode's turn
     loop: intent-switch detection never runs on the child's read-aloud
     transcript -- that transcript *is* the story's own text, and
@@ -1067,7 +1076,7 @@ async def _run_reading_partner(
     another one?" reply between books.
     """
     face.set_expression_mode("learning")  # decision 0044
-    profile = reading_repo.get_or_create(child_profile_id)
+    profile = reading_repo.get_or_create(child_profile_id, interest=child_interest)
     print("\n-- Reading Partner. Ctrl-C to quit. --")
 
     next_mode: str | None = None
@@ -1327,6 +1336,7 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.profile.id,
                     ctx.profile.speech_speed,
                     child_age=ctx.profile.age,
+                    child_interest=ctx.profile.interest,
                     initial_text=carried_text,
                 )
             else:
