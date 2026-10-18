@@ -7,6 +7,24 @@ import pytest
 from companion_robot.voice.openai_backend import OpenAILanguageModelBackend
 
 
+async def test_reuses_the_same_session_across_multiple_calls(monkeypatch):
+    """Decision 0049: a persistent Session (TCP/TLS connection reuse)
+    is the whole point of the fix -- a fresh Session per call would
+    silently defeat it and bring back the per-call handshake cost."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.Session.post", return_value=mock_response):
+        backend = OpenAILanguageModelBackend()
+        session_before = backend._session
+        await backend.generate_reply([{"role": "user", "content": "Hi"}], "system")
+        await backend.generate_reply([{"role": "user", "content": "Hi again"}], "system")
+
+    assert backend._session is session_before
+
+
 async def test_generate_reply_sends_correct_request_shape(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
     mock_response = MagicMock()
@@ -15,7 +33,7 @@ async def test_generate_reply_sends_correct_request_shape(monkeypatch):
     }
     mock_response.raise_for_status.return_value = None
 
-    with patch("companion_robot.voice.openai_backend.requests.post", return_value=mock_response) as mock_post:
+    with patch("requests.Session.post", return_value=mock_response) as mock_post:
         backend = OpenAILanguageModelBackend()
         reply, model = await backend.generate_reply(
             [{"role": "user", "content": "Hi"}], "You are a friendly robot."
@@ -47,7 +65,7 @@ async def test_generate_reply_uses_custom_model(monkeypatch):
     mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
     mock_response.raise_for_status.return_value = None
 
-    with patch("companion_robot.voice.openai_backend.requests.post", return_value=mock_response):
+    with patch("requests.Session.post", return_value=mock_response):
         backend = OpenAILanguageModelBackend(model="gpt-4o")
         _, model = await backend.generate_reply(
             [{"role": "user", "content": "Hi"}], "system"
@@ -67,7 +85,7 @@ async def test_generate_reply_sends_the_default_max_tokens_cap(monkeypatch):
     mock_response.raise_for_status.return_value = None
 
     with patch(
-        "companion_robot.voice.openai_backend.requests.post", return_value=mock_response
+        "requests.Session.post", return_value=mock_response
     ) as mock_post:
         backend = OpenAILanguageModelBackend()
         await backend.generate_reply([{"role": "user", "content": "Hi"}], "system")
@@ -86,7 +104,7 @@ async def test_generate_reply_uses_custom_max_tokens_and_temperature(monkeypatch
     mock_response.raise_for_status.return_value = None
 
     with patch(
-        "companion_robot.voice.openai_backend.requests.post", return_value=mock_response
+        "requests.Session.post", return_value=mock_response
     ) as mock_post:
         backend = OpenAILanguageModelBackend(max_tokens=10, temperature=0)
         await backend.generate_reply([{"role": "user", "content": "Hi"}], "system")
@@ -102,7 +120,7 @@ async def test_generate_reply_omits_max_tokens_when_explicitly_none(monkeypatch)
     mock_response.raise_for_status.return_value = None
 
     with patch(
-        "companion_robot.voice.openai_backend.requests.post", return_value=mock_response
+        "requests.Session.post", return_value=mock_response
     ) as mock_post:
         backend = OpenAILanguageModelBackend(max_tokens=None)
         await backend.generate_reply([{"role": "user", "content": "Hi"}], "system")

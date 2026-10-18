@@ -18,6 +18,21 @@ style (every real reply observed so far is well under half of it), so
 it shouldn't truncate anything that was actually working; callers that
 need a much tighter cap (classify_intent()'s one-word answer) pass
 their own.
+
+Decision 0049: `requests.post(...)` (the bare module-level function)
+creates a brand-new, throwaway Session internally on every single
+call -- no TCP/TLS connection reuse across calls, even to the same
+host seconds apart. Real Pi timing logs showed this plainly: capping
+classify_intent() to max_tokens=10 (decision 0047) didn't move its
+latency at all (5.19s -> 5.74s, unchanged) -- a payload-independent
+floor is the signature of per-call connection setup, not response
+size. Each backend instance now keeps one persistent `requests.Session`
+and reuses it for every call, so the TCP/TLS handshake happens once
+(or occasionally, as pooled connections expire) instead of every time.
+A connection that goes idle and gets closed by the server is handled
+transparently by urllib3's own connection pool -- nothing here needs
+to detect or recreate that; only a connection that actually dies
+mid-request raises, same as it already could before this change.
 """
 import asyncio
 
@@ -42,6 +57,7 @@ class OpenAILanguageModelBackend(LanguageModelBackend):
         self._model = model
         self._max_tokens = max_tokens
         self._temperature = temperature
+        self._session = requests.Session()
 
     async def generate_reply(
         self, messages: list[dict], system_prompt: str
@@ -59,7 +75,7 @@ class OpenAILanguageModelBackend(LanguageModelBackend):
         # stall the event loop, same reasoning as pixel-ai's own
         # executor-offloading in pixel_openai_voice_semantic.py.
         response = await asyncio.to_thread(
-            requests.post,
+            self._session.post,
             _API_URL,
             headers={"Authorization": f"Bearer {api_key}"},
             json=payload,

@@ -1,6 +1,12 @@
 """OpenAI Whisper SpeechRecognitionBackend implementation. Same
 lightweight requests-based HTTP pattern as openai_backend.py/
 claude_backend.py -- not the official SDK.
+
+Decision 0049: holds one persistent `requests.Session`, reused for
+every call, instead of the bare `requests.post(...)` function (which
+opens a brand-new connection, full TCP/TLS handshake included, on
+every single call). See voice/openai_backend.py's module docstring for
+the real-hardware evidence this was based on.
 """
 import asyncio
 
@@ -17,6 +23,7 @@ _DEFAULT_MODEL = "whisper-1"
 class OpenAIWhisperBackend(SpeechRecognitionBackend):
     def __init__(self, model: str = _DEFAULT_MODEL) -> None:
         self._model = model
+        self._session = requests.Session()
 
     async def transcribe(self, audio: bytes, language: str | None = None) -> str:
         api_key = require_env("OPENAI_API_KEY")
@@ -25,7 +32,7 @@ class OpenAIWhisperBackend(SpeechRecognitionBackend):
             data["language"] = language
 
         def _do_request():
-            return requests.post(
+            return self._session.post(
                 _API_URL,
                 headers={"Authorization": f"Bearer {api_key}"},
                 files={"file": ("audio.wav", audio, "audio/wav")},

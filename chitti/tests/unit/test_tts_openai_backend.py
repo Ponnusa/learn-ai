@@ -7,6 +7,24 @@ import pytest
 from companion_robot.voice.tts_openai import OpenAITTSBackend
 
 
+async def test_reuses_the_same_session_across_multiple_calls(monkeypatch):
+    """Decision 0049: a persistent Session (TCP/TLS connection reuse)
+    is the whole point of the fix -- a fresh Session per call would
+    silently defeat it and bring back the per-call handshake cost."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
+    mock_response = MagicMock()
+    mock_response.content = b"fake raw pcm audio bytes"
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.Session.post", return_value=mock_response):
+        backend = OpenAITTSBackend()
+        session_before = backend._session
+        await backend.synthesize("Hello there!")
+        await backend.synthesize("Hello again!")
+
+    assert backend._session is session_before
+
+
 async def test_synthesize_sends_correct_request_shape(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
     mock_response = MagicMock()
@@ -14,7 +32,7 @@ async def test_synthesize_sends_correct_request_shape(monkeypatch):
     mock_response.raise_for_status.return_value = None
 
     with patch(
-        "companion_robot.voice.tts_openai.requests.post", return_value=mock_response
+        "requests.Session.post", return_value=mock_response
     ) as mock_post:
         backend = OpenAITTSBackend()
         audio = await backend.synthesize("Hello there!")
@@ -36,7 +54,7 @@ async def test_synthesize_passes_through_a_custom_speed(monkeypatch):
     mock_response.raise_for_status.return_value = None
 
     with patch(
-        "companion_robot.voice.tts_openai.requests.post", return_value=mock_response
+        "requests.Session.post", return_value=mock_response
     ) as mock_post:
         backend = OpenAITTSBackend()
         await backend.synthesize("Slow down please", speed=0.8)

@@ -7,13 +7,31 @@ import pytest
 from companion_robot.voice.claude_backend import ClaudeLanguageModelBackend
 
 
+async def test_reuses_the_same_session_across_multiple_calls(monkeypatch):
+    """Decision 0049: a persistent Session (TCP/TLS connection reuse)
+    is the whole point of the fix -- a fresh Session per call would
+    silently defeat it and bring back the per-call handshake cost."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-456")
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"content": [{"text": "ok"}]}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.Session.post", return_value=mock_response):
+        backend = ClaudeLanguageModelBackend()
+        session_before = backend._session
+        await backend.generate_reply([{"role": "user", "content": "Hi"}], "system")
+        await backend.generate_reply([{"role": "user", "content": "Hi again"}], "system")
+
+    assert backend._session is session_before
+
+
 async def test_generate_reply_sends_correct_request_shape(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-456")
     mock_response = MagicMock()
     mock_response.json.return_value = {"content": [{"text": "Hei sinä!"}]}
     mock_response.raise_for_status.return_value = None
 
-    with patch("companion_robot.voice.claude_backend.requests.post", return_value=mock_response) as mock_post:
+    with patch("requests.Session.post", return_value=mock_response) as mock_post:
         backend = ClaudeLanguageModelBackend()
         reply, model = await backend.generate_reply(
             [{"role": "user", "content": "Hei"}], "You are a friendly robot."
@@ -42,7 +60,7 @@ async def test_generate_reply_uses_custom_model(monkeypatch):
     mock_response.json.return_value = {"content": [{"text": "ok"}]}
     mock_response.raise_for_status.return_value = None
 
-    with patch("companion_robot.voice.claude_backend.requests.post", return_value=mock_response):
+    with patch("requests.Session.post", return_value=mock_response):
         backend = ClaudeLanguageModelBackend(model="claude-sonnet-5-5")
         _, model = await backend.generate_reply(
             [{"role": "user", "content": "Hi"}], "system"

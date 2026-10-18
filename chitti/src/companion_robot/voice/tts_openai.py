@@ -8,6 +8,12 @@ hardware silently lost the start of short replies to USB-device
 warmup; raw PCM into one persistent process is what fixed it.
 PLAYBACK_SAMPLE_RATE in audio/real.py must match the 24kHz this
 returns.
+
+Decision 0049: holds one persistent `requests.Session`, reused for
+every call, instead of the bare `requests.post(...)` function (which
+opens a brand-new connection, full TCP/TLS handshake included, on
+every single call). See voice/openai_backend.py's module docstring for
+the real-hardware evidence this was based on.
 """
 import asyncio
 
@@ -26,6 +32,7 @@ class OpenAITTSBackend(TextToSpeechBackend):
     def __init__(self, model: str = _DEFAULT_MODEL, voice: str = _DEFAULT_VOICE) -> None:
         self._model = model
         self._voice = voice
+        self._session = requests.Session()
 
     async def synthesize(self, text: str, speed: float = 1.0) -> bytes:
         api_key = require_env("OPENAI_API_KEY")
@@ -40,7 +47,7 @@ class OpenAITTSBackend(TextToSpeechBackend):
             "speed": speed,
         }
         response = await asyncio.to_thread(
-            requests.post,
+            self._session.post,
             _API_URL,
             headers={"Authorization": f"Bearer {api_key}"},
             json=payload,

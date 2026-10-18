@@ -3,6 +3,12 @@ pipeline). Same lightweight requests-based pattern as
 pixel-ai/pixel_direct_claude.py -- Anthropic's Messages API shape
 (system as a top-level field, not in the messages list; x-api-key
 header, not Authorization: Bearer).
+
+Decision 0049: holds one persistent `requests.Session`, reused for
+every call, instead of the bare `requests.post(...)` function (which
+opens a brand-new connection, full TCP/TLS handshake included, on
+every single call). See voice/openai_backend.py's module docstring for
+the real-hardware evidence this was based on.
 """
 import asyncio
 
@@ -21,6 +27,7 @@ class ClaudeLanguageModelBackend(LanguageModelBackend):
     def __init__(self, model: str = _DEFAULT_MODEL, max_tokens: int = 1024) -> None:
         self._model = model
         self._max_tokens = max_tokens
+        self._session = requests.Session()
 
     async def generate_reply(
         self, messages: list[dict], system_prompt: str
@@ -33,7 +40,7 @@ class ClaudeLanguageModelBackend(LanguageModelBackend):
             "messages": messages,
         }
         response = await asyncio.to_thread(
-            requests.post,
+            self._session.post,
             _API_URL,
             headers={
                 "x-api-key": api_key,

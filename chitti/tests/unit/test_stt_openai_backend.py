@@ -7,6 +7,24 @@ import pytest
 from companion_robot.voice.stt_openai import OpenAIWhisperBackend
 
 
+async def test_reuses_the_same_session_across_multiple_calls(monkeypatch):
+    """Decision 0049: a persistent Session (TCP/TLS connection reuse)
+    is the whole point of the fix -- a fresh Session per call would
+    silently defeat it and bring back the per-call handshake cost."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"text": "Hello Chitti"}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.Session.post", return_value=mock_response):
+        backend = OpenAIWhisperBackend()
+        session_before = backend._session
+        await backend.transcribe(b"fake wav bytes")
+        await backend.transcribe(b"more fake wav bytes")
+
+    assert backend._session is session_before
+
+
 async def test_transcribe_sends_correct_request_shape(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
     mock_response = MagicMock()
@@ -14,7 +32,7 @@ async def test_transcribe_sends_correct_request_shape(monkeypatch):
     mock_response.raise_for_status.return_value = None
 
     with patch(
-        "companion_robot.voice.stt_openai.requests.post", return_value=mock_response
+        "requests.Session.post", return_value=mock_response
     ) as mock_post:
         backend = OpenAIWhisperBackend()
         text = await backend.transcribe(b"fake wav bytes")
@@ -39,7 +57,7 @@ async def test_transcribe_passes_through_a_language_hint(monkeypatch):
     mock_response.raise_for_status.return_value = None
 
     with patch(
-        "companion_robot.voice.stt_openai.requests.post", return_value=mock_response
+        "requests.Session.post", return_value=mock_response
     ) as mock_post:
         backend = OpenAIWhisperBackend()
         await backend.transcribe(b"fake wav bytes", language="en")
