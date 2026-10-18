@@ -613,6 +613,9 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
     assert carried_text == "let's just chat"
     # A perfect read-aloud got a warm, qualitative spoken feedback line.
     assert any("really well" in line for line in tts.synthesized)
+    # Found live: nothing used to tell the child Chitti was waiting on
+    # them after the feedback -- it just silently started listening.
+    assert any("try another one" in line for line in tts.synthesized)
     # The book's text was actually shown on screen, then cleared both
     # before grading and again once the mode loop exits (the `finally`).
     assert face.reading_texts[0] == ["A cat sat.", "A cat ran."]

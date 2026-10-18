@@ -1234,6 +1234,18 @@ async def _run_reading_partner(
             face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, feedback_text, speed=speed)
 
+            # Found live: nothing ever told the child Chitti was now
+            # waiting on them -- it just silently started listening
+            # again after the feedback, with no cue that it was their
+            # turn to say whether they wanted another book or
+            # something else. This was the original decision 0051
+            # plan's own intent ("ask 'want to try another one?'"),
+            # never actually spoken in the shipped code.
+            next_prompt = "Want to try another one, or would you like to do something else?"
+            print(f"Chitti: {next_prompt}")
+            face.set_status_led(DeviceState.SPEAKING)
+            await _speak(tts, audio, next_prompt, speed=speed)
+
             face.set_status_led(DeviceState.LISTENING)
             next_text = await _capture_and_transcribe(stt)
             print(f"You said: {next_text}")
