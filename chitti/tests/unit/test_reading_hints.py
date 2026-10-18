@@ -50,6 +50,20 @@ def test_pick_hint_word_returns_none_when_every_miscue_is_too_short():
     assert pick_hint_word(result) is None
 
 
+def test_pick_hint_word_skips_a_sight_word():
+    """Decision 0058, also found live: "the" passed the length check
+    but is a sight word (meant to be recognized by memory, not sounded
+    out) -- the search should continue to the next real, decodable
+    miscue instead of hinting on it."""
+    result = assess("the cat sat", "a cat mat", duration_seconds=3.0)
+    assert pick_hint_word(result) == "sat"  # not "the"
+
+
+def test_pick_hint_word_returns_none_when_every_miscue_is_a_sight_word():
+    result = assess("the was said", "a is told", duration_seconds=3.0)
+    assert pick_hint_word(result) is None
+
+
 def test_build_hint_line_stage_0_is_encouragement():
     line = build_hint_line("sat", 0)
     assert "take your time" in line.lower()

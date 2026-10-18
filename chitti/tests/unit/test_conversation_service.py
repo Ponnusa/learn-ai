@@ -431,3 +431,75 @@ async def test_generate_decodable_book_uses_the_main_llm_and_returns_a_book():
     assert book.title == "The Cat"
     assert book.pages == ["A cat sat.", "A cat ran."]
     assert len(llm.calls) == 1
+
+
+async def test_generate_comprehension_questions_parses_the_reply():
+    llm = FakeLanguageModelBackend(
+        reply="QUESTION: What does the bunny see?\nQUESTION: Where does it sit?"
+    )
+    service = ConversationService(llm)
+
+    questions = await service.generate_comprehension_questions(
+        "A bunny sees an apple and sits under a tree.", num_questions=2, age=6
+    )
+
+    assert questions == ["What does the bunny see?", "Where does it sit?"]
+    assert len(llm.calls) == 1
+
+
+async def test_generate_comprehension_questions_drops_an_unsafe_one():
+    """Decision 0059: each candidate question is screened through
+    check_speech() independently -- a flagged one is dropped, the
+    safe ones still come back."""
+    llm = FakeLanguageModelBackend(
+        reply=(
+            "QUESTION: What does the bunny see?\n"
+            "QUESTION: This is a damn good story, right?\n"
+            "QUESTION: Where does it sit?"
+        )
+    )
+    service = ConversationService(llm)
+
+    questions = await service.generate_comprehension_questions(
+        "A bunny sees an apple and sits under a tree.", num_questions=3, age=6
+    )
+
+    assert questions == ["What does the bunny see?", "Where does it sit?"]
+
+
+async def test_generate_comprehension_questions_returns_empty_when_all_unsafe():
+    llm = FakeLanguageModelBackend(reply="QUESTION: This is a damn good story, right?")
+    service = ConversationService(llm)
+
+    questions = await service.generate_comprehension_questions(
+        "A bunny sees an apple.", num_questions=1, age=6
+    )
+
+    assert questions == []
+
+
+async def test_react_to_comprehension_answer_grounds_in_the_story():
+    llm = FakeLanguageModelBackend(reply="Yes, exactly -- the bunny found a red apple!")
+    service = ConversationService(llm)
+
+    result = await service.react_to_comprehension_answer(
+        "A bunny sees a red apple.", "What does the bunny see?", "an apple", age=6
+    )
+
+    assert result.blocked is False
+    assert result.text == "Yes, exactly -- the bunny found a red apple!"
+    assert len(llm.calls) == 1
+    # The prompt actually sent grounds the reaction in the real story text.
+    assert "A bunny sees a red apple." in llm.calls[0][1]
+
+
+async def test_react_to_comprehension_answer_is_screened_like_any_other_reply():
+    llm = FakeLanguageModelBackend(reply="That's a damn good answer!")
+    service = ConversationService(llm)
+
+    result = await service.react_to_comprehension_answer(
+        "A bunny sees a red apple.", "What does the bunny see?", "an apple", age=6
+    )
+
+    assert result.blocked is True
+    assert "damn" not in result.text

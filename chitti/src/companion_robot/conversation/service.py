@@ -17,6 +17,11 @@ from companion_robot.reading.book_generation import (
     generate_decodable_book,
     parse_story_draft,
 )
+from companion_robot.reading.comprehension import (
+    build_question_prompt,
+    build_reaction_prompt,
+    parse_questions,
+)
 from companion_robot.reading.schema import GeneratedBook, Objective
 from companion_robot.safety.checks import SafetyCategory, check_speech, decline_message
 from companion_robot.voice.interfaces import LanguageModelBackend
@@ -159,6 +164,40 @@ class ConversationService:
         return await generate_decodable_book(
             objective, proposer=_propose, sight_words=sight_words, interest=interest, age=age
         )
+
+    async def generate_comprehension_questions(
+        self, story_text: str, num_questions: int = 2, age: int | None = None
+    ) -> list[str]:
+        """Decision 0059: 1-2 comprehension questions about the story
+        just read -- including a parent-uploaded exercise (decision
+        0052), a deliberate precedent change: that path otherwise
+        never touches an LLM at all. Open-ended "why"/"what happened"
+        questions have no single correct string to diff against, so
+        unlike generate_decodable_book() there's no retry loop here --
+        each candidate question is screened through check_speech()
+        independently and a flagged one is simply dropped, not
+        retried. Returns [] if every question gets dropped, so the
+        caller skips the whole phase rather than blocking the reading
+        session on it."""
+        prompt = build_question_prompt(story_text, num_questions, age)
+        reply_text, _model = await self._llm.generate_reply(
+            [{"role": "user", "content": "Write the questions now."}], prompt
+        )
+        questions = parse_questions(reply_text)
+        safe_questions = [q for q in questions if check_speech(q).allowed]
+        return safe_questions[:num_questions]
+
+    async def react_to_comprehension_answer(
+        self, story_text: str, question: str, child_answer: str, age: int | None = None
+    ) -> ConversationResult:
+        """One short, warm, story-grounded reaction to what the child
+        said -- never a strict grade, screened like any other spoken
+        output in this class."""
+        prompt = build_reaction_prompt(story_text, question, child_answer, age)
+        reply_text, _model = await self._llm.generate_reply(
+            [{"role": "user", "content": "React now."}], prompt
+        )
+        return self._screen(reply_text)
 
     def repeat_after_me(self, text: str) -> ConversationResult:
         """No LLM call -- the child's own words are screened and either

@@ -11,7 +11,8 @@ surfaced a real miss -- offer a short hint-and-retry exchange for that
 one word before the normal feedback. One hint-word per book in V1.
 """
 from .alignment import OMISSION, SUBSTITUTION
-from .decodability import decompose
+from .curriculum import DEFAULT_SIGHT_WORDS
+from .decodability import clean_word, decompose
 from .schema import AssessmentResult
 
 _HINT_STAGES = 3
@@ -24,20 +25,28 @@ _HINT_STAGES = 3
 # short enough to keep those, long enough to skip trivial function words.
 _MIN_HINT_WORD_LENGTH = 3
 
+# Decision 0058, also found live: "the" passed the length check above
+# but is a sight word (curriculum.DEFAULT_SIGHT_WORDS) -- meant to be
+# recognized by memory, not sounded out. "Let's sound it out: th-e"
+# doesn't apply to it, and the child's actual reply ("Duh!") read as
+# genuine annoyance at being asked to sound out something that trivial.
+_SIGHT_WORDS = {clean_word(w) for w in DEFAULT_SIGHT_WORDS}
+
 
 def pick_hint_word(assessment: AssessmentResult) -> str | None:
     """Returns the first real-error word (substitution/omission) worth
     a graduated hint, or None if there isn't one. self_correction/
     hesitation/insertion miscues are skipped -- assess() itself
     already treats those as not the child's fault. Words shorter than
-    _MIN_HINT_WORD_LENGTH are skipped too -- too trivial to graduate a
-    hint on -- the search continues to the next real miscue rather
-    than giving up outright."""
+    _MIN_HINT_WORD_LENGTH, or sight words, are skipped too -- neither
+    is a word worth graduating a sound-it-out hint on -- the search
+    continues to the next real miscue rather than giving up outright."""
     for miscue in assessment.miscues:
         if (
             miscue.kind in (SUBSTITUTION, OMISSION)
             and miscue.expected
             and len(miscue.expected) >= _MIN_HINT_WORD_LENGTH
+            and clean_word(miscue.expected) not in _SIGHT_WORDS
         ):
             return miscue.expected
     return None

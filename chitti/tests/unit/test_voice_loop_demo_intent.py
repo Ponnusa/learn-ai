@@ -636,7 +636,10 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
 async def test_run_reading_partner_uses_a_pending_exercise_instead_of_generating():
     """Decision 0052: a parent-assigned exercise is read verbatim --
     no book-generation LLM call at all -- and marked consumed so it's
-    not served again next session."""
+    not served again next session. Decision 0059 does still call the
+    LLM for this exercise, but only to generate comprehension
+    questions about it, never to generate or rewrite the passage
+    itself -- the two calls are distinguished by their own prompts."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -649,7 +652,9 @@ async def test_run_reading_partner_uses_a_pending_exercise_instead_of_generating
             created_at=datetime.now(timezone.utc),
         )
     )
-    llm = _FakeLLM(reply="unused -- must never be called for this turn")
+    # No "QUESTION:" lines in this reply -- generate_comprehension_questions()
+    # parses it to an empty list, so decision 0059's phase is a no-op here.
+    llm = _FakeLLM(reply="unused -- must never be a book-generation call")
     conversation = ConversationService(llm)
     face = _FakeFace()
     tts = _FakeTTS()
@@ -666,7 +671,10 @@ async def test_run_reading_partner_uses_a_pending_exercise_instead_of_generating
         )
 
     assert next_mode == "3"
-    assert llm.calls == []  # no book-generation call -- the exercise was used as-is
+    # No book-generation call -- the exercise was used as-is.
+    assert not any(
+        call[0][0]["content"] == "Write the story now." for call in llm.calls
+    )
     assert face.reading_texts[0] == ["The cat sat."]
     exercise = reading_exercises.list_for_child("child-1")[0]
     assert exercise.consumed_at is not None
@@ -806,6 +814,130 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_th
     # wrong), then cleared once the loop gave up (and again on the
     # mode's own exit cleanup, right after).
     assert face.spotlights == ["sat", None, None]
+
+
+# -- post-reading comprehension questions (decision 0059) -----------------
+
+
+async def test_run_reading_partner_asks_and_reacts_to_comprehension_questions():
+    """For an LLM-generated book: questions are generated after the
+    feedback line, asked one at a time, and each answer gets a
+    story-grounded reaction -- all before the word game."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            ("TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.", "fake-model"),
+            ("QUESTION: What did the cat do?\nQUESTION: Where did it sit?", "fake-model"),
+            ("Great answer! The cat sat down.", "fake-model"),
+            ("Nice! It sat under a tree.", "fake-model"),
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "a cat sat a cat ran",  # the read-aloud (perfect, no hint)
+            "the cat sat down",  # answer to question 1
+            "under a tree",  # answer to question 2
+            "no thanks",  # declines the word game
+            "let's just chat",  # ends the session
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert any("talk about the story" in line.lower() for line in tts.synthesized)
+    assert "What did the cat do?" in tts.synthesized
+    assert "Where did it sit?" in tts.synthesized
+    assert "Great answer! The cat sat down." in tts.synthesized
+    assert "Nice! It sat under a tree." in tts.synthesized
+
+
+async def test_run_reading_partner_comprehension_questions_also_run_for_an_exercise():
+    """Decision 0059's deliberate precedent change: a parent-uploaded
+    exercise (decision 0052, otherwise entirely LLM-free) still gets
+    comprehension questions about its own text."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            ("QUESTION: What did the cat do?", "fake-model"),
+            ("Great answer! The cat sat down.", "fake-model"),
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", "the cat sat down", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert "What did the cat do?" in tts.synthesized
+    assert "Great answer! The cat sat down." in tts.synthesized
+
+
+async def test_run_reading_partner_skips_comprehension_phase_when_no_questions_parsed():
+    """A reply with no "QUESTION:" lines parses to an empty list --
+    the whole phase must skip cleanly, speaking nothing and consuming
+    no extra capture."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="Sorry, I don't have any questions.")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert not any("talk about the story" in line.lower() for line in tts.synthesized)
 
 
 # -- post-reading word game (decision 0057) --------------------------------

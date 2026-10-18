@@ -1043,6 +1043,56 @@ async def _run_lullaby_time(lullabies, face, data_dir: Path, audio, tts, stt, sp
         face.set_status_led(DeviceState.IDLE)
 
 
+async def _run_comprehension_questions(
+    book, conversation, tts, audio, stt, face, speed: float, child_age: int | None = None
+) -> None:
+    """Decision 0059: 1-2 comprehension questions about the story just
+    read, reacted to warmly -- not graded, nothing persisted. Runs for
+    every book regardless of source, including a parent-uploaded
+    exercise (decision 0052) -- a deliberate precedent change, since
+    that path otherwise never touches an LLM at all; both sources look
+    identical by this point since both are a GeneratedBook. Always
+    offered, not gated behind a yes/no like decision 0057's word game
+    -- this is framed as part of finishing the story, not an optional
+    side activity. Open-ended "why" questions have no exact expected
+    answer, unlike every other grading in this mode, so this reuses
+    Story Companion's "ground in the story, react, don't grade"
+    pattern (ConversationService.react_to_comprehension_answer())
+    instead of a deterministic diff."""
+    face.set_status_led(DeviceState.PROCESSING)
+    questions = await _generate_with_thinking_filler(
+        conversation.generate_comprehension_questions(book.text, age=child_age or 6),
+        tts, audio, face, speed, "comprehension_questions",
+    )
+    if not questions:
+        return
+
+    intro = "Let's talk about the story for a moment!"
+    print(f"Chitti: {intro}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, intro, speed=speed)
+
+    for question in questions:
+        print(f"Chitti: {question}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, question, speed=speed)
+
+        face.set_status_led(DeviceState.LISTENING)
+        answer = await _capture_and_transcribe(stt)
+        print(f"You said: {answer}")
+
+        face.set_status_led(DeviceState.PROCESSING)
+        reaction = await _generate_with_thinking_filler(
+            conversation.react_to_comprehension_answer(
+                book.text, question, answer, child_age or 6
+            ),
+            tts, audio, face, speed, "comprehension_reaction",
+        )
+        print(f"Chitti: {reaction.text}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, reaction.text, speed=speed)
+
+
 async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:
     """Decision 0057: a fun, deterministic "missing letters" bonus
     game after a book -- not part of mastery grading (reading/mastery.py
@@ -1310,6 +1360,14 @@ async def _run_reading_partner(
             print(f"Chitti: {feedback_text}")
             face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, feedback_text, speed=speed)
+
+            # Decision 0059: a couple of comprehension questions about
+            # the story, reacted to warmly -- not graded, nothing
+            # persisted. Runs before the word game: talk about the
+            # story, then play.
+            await _run_comprehension_questions(
+                book, conversation, tts, audio, stt, face, speed, child_age
+            )
 
             # Decision 0057: a fun, optional bonus game using words
             # from the story -- separate from the grading above.
