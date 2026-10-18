@@ -1,6 +1,7 @@
 """Minimal schema migration runner: memory_records, reminders,
 parent_pin, child_profiles, stories, engagement_sessions,
-transcripts, lullabies, reading_profiles, reading_grapheme_mastery.
+transcripts, lullabies, reading_profiles, reading_grapheme_mastery,
+reading_exercises.
 Each CREATE statement is
 idempotent (CREATE TABLE/INDEX IF NOT EXISTS) so re-running against an
 already-migrated database is always safe -- but that alone only
@@ -165,6 +166,28 @@ CREATE INDEX IF NOT EXISTS idx_reading_grapheme_mastery_child_profile
 ON reading_grapheme_mastery (child_profile_id)
 """
 
+# Decision 0052: a specific, parent-assigned passage (e.g. school
+# homework) for one child -- deliberately separate from the shared
+# `stories` table (Story Companion's library, read TO the child) and
+# from LLM-generated books, which this table has no relation to.
+# consumed_at is set once _run_reading_partner() has used it, so it's
+# served to the child exactly once, not every session.
+_READING_EXERCISES_TABLE = """
+CREATE TABLE IF NOT EXISTS reading_exercises (
+    id TEXT PRIMARY KEY,
+    child_profile_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    consumed_at TEXT
+)
+"""
+
+_READING_EXERCISES_CHILD_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_reading_exercises_child_profile
+ON reading_exercises (child_profile_id)
+"""
+
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, add_column_ddl: str) -> None:
     """Idempotently adds a column to a table that may already exist
@@ -194,6 +217,8 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(_READING_PROFILES_TABLE)
     conn.execute(_READING_GRAPHEME_MASTERY_TABLE)
     conn.execute(_READING_GRAPHEME_MASTERY_CHILD_INDEX)
+    conn.execute(_READING_EXERCISES_TABLE)
+    conn.execute(_READING_EXERCISES_CHILD_INDEX)
     _ensure_column(
         conn, "child_profiles", "speech_speed", "speech_speed REAL NOT NULL DEFAULT 1.0"
     )

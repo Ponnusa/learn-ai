@@ -28,6 +28,7 @@ from companion_robot.transcripts.repository import TranscriptRepository
 
 from .auth import PinRepository, RateLimiter, load_or_create_secret_key
 from .profiles import ChildProfile, ChildProfileRepository
+from .reading_exercises import ReadingExerciseRecord, ReadingExerciseRepository
 from .stories import StoryRecord, StoryRepository
 
 # 20MB -- a generous ceiling for a single lullaby MP3, cheap guard
@@ -52,6 +53,7 @@ def create_app(
     engagement = EngagementRepository(conn)
     transcripts = TranscriptRepository(conn)
     lullabies = LullabyRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
     lullabies_dir = Path(lullabies_dir) if lullabies_dir is not None else Path("data/lullabies")
     lullabies_dir.mkdir(parents=True, exist_ok=True)
     limiter = rate_limiter or RateLimiter()
@@ -333,6 +335,49 @@ def create_app(
             return "Invalid request.", 400
         transcripts.delete(transcript_id, profile_id)
         return redirect(url_for("profile_transcripts", profile_id=profile_id))
+
+    @app.route("/profiles/<profile_id>/reading-exercises", methods=["GET", "POST"])
+    @requires_auth
+    def profile_reading_exercises(profile_id):
+        if request.method == "POST":
+            if not _csrf_valid():
+                return "Invalid request.", 400
+            title = request.form.get("title", "").strip()
+            content = request.form.get("content", "").strip()
+            if not title or not content:
+                return (
+                    render_template(
+                        "reading_exercises.html",
+                        profile_id=profile_id,
+                        exercises=reading_exercises.list_for_child(profile_id),
+                        error="Title and content are required.",
+                    ),
+                    400,
+                )
+            reading_exercises.create(
+                ReadingExerciseRecord(
+                    id=secrets.token_hex(8),
+                    child_profile_id=profile_id,
+                    title=title,
+                    content=content,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            return redirect(url_for("profile_reading_exercises", profile_id=profile_id))
+        return render_template(
+            "reading_exercises.html",
+            profile_id=profile_id,
+            exercises=reading_exercises.list_for_child(profile_id),
+            error=None,
+        )
+
+    @app.post("/profiles/<profile_id>/reading-exercises/<exercise_id>/delete")
+    @requires_auth
+    def delete_reading_exercise(profile_id, exercise_id):
+        if not _csrf_valid():
+            return "Invalid request.", 400
+        reading_exercises.delete(exercise_id)
+        return redirect(url_for("profile_reading_exercises", profile_id=profile_id))
 
     return app
 

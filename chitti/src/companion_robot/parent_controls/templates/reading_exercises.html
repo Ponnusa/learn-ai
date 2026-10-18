@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Reading exercises</h1>
+<p class="hint">A specific passage (e.g. school homework) for this child to read aloud in Reading Partner -- read once, then Reading Partner goes back to generating its own stories.</p>
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+{% if exercises %}
+<ul class="card-list">
+{% for e in exercises %}
+  <li class="card">
+    <div class="card-actions">
+      <div class="card-title" style="flex:1">{{ e.title }}</div>
+      <div class="card-meta">{{ "Read" if e.consumed_at else "Pending" }}</div>
+      <form method="post" action="{{ url_for('delete_reading_exercise', profile_id=profile_id, exercise_id=e.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="danger">Delete</button>
+      </form>
+    </div>
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<p class="empty-state">No reading exercises yet -- add one below.</p>
+{% endif %}
+<h2>Add a reading exercise</h2>
+<form method="post" class="panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>Title <input name="title"></label>
+  <label>Content <textarea name="content" rows="10" cols="60"></textarea></label>
+  <button type="submit">Add</button>
+</form>
+<p><a class="action-link" href="{{ url_for('profiles_view') }}">Back</a></p>
+{% endblock %}

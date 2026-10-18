@@ -4,6 +4,7 @@ fake LLM/tts/audio/stt stand-ins, no real API calls, hardware, or
 keyboard input() needed.
 """
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from companion_robot.conversation.service import ConversationService
@@ -11,6 +12,11 @@ from companion_robot.device.interfaces import DeviceState
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.engagement.schema import EngagementMode
 from companion_robot.memory.repository import MemoryRepository
+from companion_robot.parent_controls.reading_exercises import (
+    ReadingExerciseRecord,
+    ReadingExerciseRepository,
+)
+from companion_robot.reading.hints import build_hint_line
 from companion_robot.reading.repository import ReadingRepository
 from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
@@ -537,18 +543,32 @@ async def test_run_reading_partner_never_checks_the_read_aloud_transcript_for_a_
     would never be reached."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
     llm = _FakeLLM(reply="TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.")
     conversation = ConversationService(llm)
     face = _FakeFace()
 
+    # A function, not a static list: the read-aloud text ("tell me a
+    # story") is totally unrelated to the generated book, so decision
+    # 0052's hint-and-retry loop will very likely fire for a missed
+    # word before the real "what next" turn is ever reached -- every
+    # call after the first (whichever turn it ends up being) returns
+    # the same switch phrase, so the test doesn't need to predict
+    # exactly how many hint-stage captures happen in between.
+    calls = {"n": 0}
+
+    async def _capture_side_effect(*_args, **_kwargs):
+        calls["n"] += 1
+        return "tell me a story" if calls["n"] == 1 else "can we sing a song"
+
     with patch(
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
-        side_effect=["tell me a story", "can we sing a song"],
+        side_effect=_capture_side_effect,
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
-            reading, face, "child-1", 1.0,
+            reading, reading_exercises, face, "child-1", 1.0,
         )
 
     # Only the real "what next" turn ("can we sing a song") decided the
@@ -561,6 +581,7 @@ async def test_run_reading_partner_never_checks_the_read_aloud_transcript_for_a_
 async def test_run_reading_partner_grades_the_read_and_persists_mastery():
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
     llm = _FakeLLM(reply="TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.")
     conversation = ConversationService(llm)
     face = _FakeFace()
@@ -569,14 +590,16 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
     with patch(
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
-        # The second turn is a genuine switch request (needed so the
-        # mode loop -- which otherwise keeps generating books forever --
+        # A perfect read -- no miscue, so decision 0052's hint loop
+        # never fires here and doesn't consume extra captures. The
+        # second turn is a genuine switch request (needed so the mode
+        # loop -- which otherwise keeps generating books forever --
         # actually terminates for this test).
         side_effect=["a cat sat a cat ran", "let's just chat"],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
-            reading, face, "child-1", 1.0,
+            reading, reading_exercises, face, "child-1", 1.0,
         )
 
     assert next_mode == "3"
@@ -590,3 +613,125 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
     # The session was actually persisted, not just held in memory.
     profile = reading.get_or_create("child-1")
     assert profile.sessions_completed == 1
+
+
+async def test_run_reading_partner_uses_a_pending_exercise_instead_of_generating():
+    """Decision 0052: a parent-assigned exercise is read verbatim --
+    no book-generation LLM call at all -- and marked consumed so it's
+    not served again next session."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="The cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused -- must never be called for this turn")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["the cat sat", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert llm.calls == []  # no book-generation call -- the exercise was used as-is
+    assert face.reading_texts[0] == ["The cat sat."]
+    exercise = reading_exercises.list_for_child("child-1")[0]
+    assert exercise.consumed_at is not None
+
+
+async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
+    """Decision 0052: a missed word gets a graduated hint; a corrected
+    retry is merged into the grading evidence rather than thrown away."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        # "mat" for "sat" is a clean substitution (test_reading_alignment's
+        # own precedent); the retry gets it right on the very first hint.
+        side_effect=["a cat mat", "sat", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # [0] is the story intro, spoken before the read-aloud capture.
+    assert tts.synthesized[1] == build_hint_line("sat", 0)
+    assert tts.synthesized[2] == "There you go!"
+    assert tts.synthesized[3].startswith("Good try! Reading can be tricky sometimes.")
+    # The corrected retry counted as a real extra opportunity, not
+    # discarded -- one wrong (from the original read) + one right
+    # (from the retry) for the substituted word's first sound.
+    profile = reading.get_or_create("child-1")
+    assert profile.masteries["s"].opportunities == 2
+
+
+async def test_run_reading_partner_hint_retry_continues_without_penalty_after_three_misses():
+    """Decision 0052: even if the child never gets the hinted word
+    right, the session continues to normal feedback after the third
+    stage -- no penalty, no infinite loop."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat mat", "nope", "nope", "nope", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # [0] is the story intro, spoken before the read-aloud capture.
+    assert tts.synthesized[1] == build_hint_line("sat", 0)
+    assert tts.synthesized[2] == build_hint_line("sat", 1)
+    assert tts.synthesized[3] == build_hint_line("sat", 2)
+    assert "There you go!" not in tts.synthesized
+    assert tts.synthesized[4].startswith("Good try! Reading can be tricky sometimes.")

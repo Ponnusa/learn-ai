@@ -13,6 +13,7 @@
       <a class="action-link" href="{{ url_for('profile_memories', profile_id=p.id) }}">Memories</a>
       <a class="action-link" href="{{ url_for('profile_engagement', profile_id=p.id) }}">Engagement</a>
       <a class="action-link" href="{{ url_for('profile_transcripts', profile_id=p.id) }}">Transcripts</a>
+      <a class="action-link" href="{{ url_for('profile_reading_exercises', profile_id=p.id) }}">Reading</a>
       <form method="post" action="{{ url_for('delete_profile', profile_id=p.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="danger">Delete</button>

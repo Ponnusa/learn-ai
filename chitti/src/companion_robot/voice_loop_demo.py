@@ -69,13 +69,17 @@ from companion_robot.memory.schema import (
     MemorySource,
 )
 from companion_robot.parent_controls.profiles import ChildProfile, ChildProfileRepository
+from companion_robot.parent_controls.reading_exercises import ReadingExerciseRepository
 from companion_robot.parent_controls.stories import StoryRepository
-from companion_robot.reading.alignment import assess
+from companion_robot.reading.alignment import align, assess, attribute_evidence
 from companion_robot.reading.book_generation import BookGenerationError
+from companion_robot.reading.decodability import clean_word
 from companion_robot.reading.feedback import build_reading_feedback
+from companion_robot.reading.hints import build_hint_line, pick_hint_word
 from companion_robot.reading.mastery import update_from_evidence
 from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
+from companion_robot.reading.schema import GeneratedBook
 from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.transcripts.schema import TranscriptRecord
@@ -1036,6 +1040,7 @@ async def _run_reading_partner(
     audio,
     stt,
     reading_repo: ReadingRepository,
+    reading_exercises: ReadingExerciseRepository,
     face,
     child_profile_id: str,
     speed: float,
@@ -1074,6 +1079,18 @@ async def _run_reading_partner(
     running phrase/keyword detection on arbitrary story content would
     be a real false-positive source. It only runs on the short "want
     another one?" reply between books.
+
+    Decision 0052: if the parent has assigned a reading exercise
+    (`reading_exercises.next_pending_for_child()`), that passage is
+    used verbatim instead of generating a book -- no decodability
+    check, no LLM call -- and marked consumed, so it's read once, not
+    every session. Also decision 0052: if the read-aloud surfaces a
+    real miscue (substitution/omission), a short graduated hint-and-
+    retry exchange runs for that one word before the normal feedback
+    -- deliberately post-hoc, not a live mid-sentence interruption,
+    since _capture_and_transcribe() is push-to-talk (record until
+    Enter, then transcribe once) with no streaming/VAD to notice a
+    child pausing mid-read.
     """
     face.set_expression_mode("learning")  # decision 0044
     profile = reading_repo.get_or_create(child_profile_id, interest=child_interest)
@@ -1085,22 +1102,40 @@ async def _run_reading_partner(
         while True:
             objective = select_objective(profile, session_index=profile.sessions_completed)
             face.set_status_led(DeviceState.PROCESSING)
-            try:
-                book = await _generate_with_thinking_filler(
-                    conversation.generate_decodable_book(
-                        objective, interest=profile.interest, age=child_age or 6
-                    ),
-                    tts, audio, face, speed, "reading_book_generation",
+
+            exercise = reading_exercises.next_pending_for_child(child_profile_id)
+            exercise_pages = (
+                [line.strip() for line in exercise.content.split("\n") if line.strip()]
+                if exercise
+                else []
+            )
+            if exercise and exercise_pages:
+                book = GeneratedBook(
+                    title=exercise.title,
+                    pages=exercise_pages,
+                    target_grapheme=objective.target_grapheme,
+                    objective=objective,
+                    sight_words=set(),
+                    generation_source="parent_uploaded",
                 )
-            except BookGenerationError:
-                apology = (
-                    "I'm having trouble coming up with a story right now -- "
-                    "let's try reading again in a little while."
-                )
-                print(f"Chitti: {apology}")
-                face.set_status_led(DeviceState.SPEAKING)
-                await _speak(tts, audio, apology, speed=speed)
-                break
+                reading_exercises.mark_consumed(exercise.id)
+            else:
+                try:
+                    book = await _generate_with_thinking_filler(
+                        conversation.generate_decodable_book(
+                            objective, interest=profile.interest, age=child_age or 6
+                        ),
+                        tts, audio, face, speed, "reading_book_generation",
+                    )
+                except BookGenerationError:
+                    apology = (
+                        "I'm having trouble coming up with a story right now -- "
+                        "let's try reading again in a little while."
+                    )
+                    print(f"Chitti: {apology}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, apology, speed=speed)
+                    break
 
             print(f"\n-- {book.title} --")
             for page in book.pages:
@@ -1125,6 +1160,37 @@ async def _run_reading_partner(
             assessment = assess(
                 book.text, spoken, duration_seconds=duration_seconds, sight_words=book.sight_words
             )
+
+            # Decision 0052: graduated hint + retry for one missed word,
+            # before the mastery update so a corrected retry still
+            # counts as real evidence rather than being thrown away.
+            hint_word = pick_hint_word(assessment)
+            if hint_word is not None:
+                for stage in range(3):
+                    hint_line = build_hint_line(hint_word, stage)
+                    print(f"Chitti: {hint_line}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, hint_line, speed=speed)
+
+                    face.set_status_led(DeviceState.LISTENING)
+                    attempt = await _capture_and_transcribe(stt)
+                    print(f"You said: {attempt}")
+
+                    retry_evidence = attribute_evidence(
+                        align(hint_word, attempt), sight_words=book.sight_words
+                    )
+                    for grapheme, observations in retry_evidence.items():
+                        assessment.grapheme_evidence.setdefault(grapheme, []).extend(observations)
+
+                    if clean_word(attempt) == clean_word(hint_word):
+                        praise = "There you go!"
+                        print(f"Chitti: {praise}")
+                        face.set_status_led(DeviceState.SPEAKING)
+                        await _speak(tts, audio, praise, speed=speed)
+                        break
+                # No penalty for still missing it after the third stage
+                # (saying the word outright) -- the session just moves on.
+
             delta = update_from_evidence(
                 profile, assessment.grapheme_evidence, session_index=profile.sessions_completed
             )
@@ -1172,6 +1238,7 @@ class DemoContext:
     transcripts: TranscriptRepository
     lullabies: LullabyRepository
     reading: ReadingRepository
+    reading_exercises: ReadingExerciseRepository
     face: ScreenFaceDeviceController
     data_dir: Path
     profile: ChildProfile
@@ -1213,6 +1280,7 @@ async def setup_demo() -> DemoContext:
     transcripts = TranscriptRepository(conn)
     lullabies = LullabyRepository(conn)
     reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
 
     # Decision 0040: renders listening/thinking/speaking/idle on the
     # HDMI screen. Degrades to "no visible face" on its own (logged,
@@ -1258,6 +1326,7 @@ async def setup_demo() -> DemoContext:
         transcripts=transcripts,
         lullabies=lullabies,
         reading=reading,
+        reading_exercises=reading_exercises,
         face=face,
         data_dir=data_dir,
         profile=profile,
@@ -1332,6 +1401,7 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.audio,
                     ctx.stt,
                     ctx.reading,
+                    ctx.reading_exercises,
                     ctx.face,
                     ctx.profile.id,
                     ctx.profile.speech_speed,

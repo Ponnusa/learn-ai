@@ -563,3 +563,99 @@ def test_edit_profile_rejects_out_of_range_speed():
         data={"name": "Anna", "age": "7", "speech_speed": "9.0", "csrf_token": token},
     )
     assert response.status_code == 400
+
+
+def _create_profile_and_get_id(client, token) -> str:
+    client.post("/profiles", data={"name": "Anna", "age": "7", "csrf_token": token})
+    response = client.get("/profiles")
+    import re
+
+    return re.search(rb'/profiles/([a-f0-9]+)/edit', response.data).group(1).decode()
+
+
+def test_create_and_list_reading_exercise():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/reading-exercises",
+        data={"title": "Homework", "content": "The cat sat.", "csrf_token": token},
+    )
+    response = client.get(f"/profiles/{profile_id}/reading-exercises")
+
+    assert response.status_code == 200
+    assert b"Homework" in response.data
+    assert b"Pending" in response.data
+
+
+def test_reading_exercise_requires_title_and_content():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    token = _get_csrf_token(client)
+    response = client.post(
+        f"/profiles/{profile_id}/reading-exercises",
+        data={"title": "", "content": "", "csrf_token": token},
+    )
+    assert response.status_code == 400
+
+
+def test_delete_reading_exercise():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/reading-exercises",
+        data={"title": "Homework", "content": "The cat sat.", "csrf_token": token},
+    )
+
+    response = client.get(f"/profiles/{profile_id}/reading-exercises")
+    import re
+
+    exercise_id = re.search(
+        rb'/profiles/[a-f0-9]+/reading-exercises/([a-f0-9]+)/delete', response.data
+    ).group(1).decode()
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/reading-exercises/{exercise_id}/delete",
+        data={"csrf_token": token},
+    )
+
+    response = client.get(f"/profiles/{profile_id}/reading-exercises")
+    assert b"Homework" not in response.data
+
+
+def test_reading_exercises_are_scoped_per_child():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    client.post("/profiles", data={"name": "Anna", "age": "7", "csrf_token": token})
+    token = _get_csrf_token(client)
+    client.post("/profiles", data={"name": "Ben", "age": "9", "csrf_token": token})
+
+    response = client.get("/profiles")
+    import re
+
+    profile_ids = [
+        m.decode() for m in re.findall(rb'/profiles/([a-f0-9]+)/edit', response.data)
+    ]
+    assert len(profile_ids) == 2
+    anna_id, ben_id = profile_ids
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{anna_id}/reading-exercises",
+        data={"title": "Anna's homework", "content": "The cat sat.", "csrf_token": token},
+    )
+
+    response = client.get(f"/profiles/{ben_id}/reading-exercises")
+    assert b"Anna's homework" not in response.data
