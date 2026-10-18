@@ -997,7 +997,16 @@ async def setup_demo() -> DemoContext:
     # Claude (decision 0018), independent of whichever backend handles
     # live conversation turns -- needs ANTHROPIC_API_KEY in .env too.
     summarizer_llm = ClaudeLanguageModelBackend()
-    conversation = ConversationService(llm, summarizer_llm=summarizer_llm)
+    # Decision 0047: classify_intent() only ever needs to answer with
+    # one word (STORY/SONG/CHAT/TEACH/NONE) -- found live it was taking
+    # 5.19s on the main conversational backend's much larger token
+    # budget. max_tokens=10 is generous for one word; temperature=0
+    # keeps it terse and deterministic rather than occasionally
+    # elaborating.
+    classifier_llm = OpenAILanguageModelBackend(max_tokens=10, temperature=0)
+    conversation = ConversationService(
+        llm, summarizer_llm=summarizer_llm, classifier_llm=classifier_llm
+    )
     stt = OpenAIWhisperBackend()
     tts = OpenAITTSBackend()
     audio = RealAudioTransport()

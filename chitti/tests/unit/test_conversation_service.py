@@ -387,3 +387,29 @@ async def test_classify_intent_output_is_not_screened_through_check_speech():
     label = await service.classify_intent("tell me a story")
 
     assert label == "STORY"  # plain string, not a ConversationResult
+
+
+async def test_classify_intent_uses_classifier_llm_when_given():
+    """Decision 0047: classify_intent() asks for exactly one word, so
+    a caller that wants it tightly capped (max_tokens=10, temperature=0
+    on the real OpenAI backend) passes a separate instance here rather
+    than inheriting the main conversational llm's much larger budget."""
+    main_llm = FakeLanguageModelBackend(reply="irrelevant -- must not be called")
+    classifier_llm = FakeLanguageModelBackend(reply="SONG")
+    service = ConversationService(main_llm, classifier_llm=classifier_llm)
+
+    label = await service.classify_intent("play a song")
+
+    assert label == "SONG"
+    assert main_llm.calls == []
+    assert len(classifier_llm.calls) == 1
+
+
+async def test_classify_intent_defaults_to_the_main_llm_when_no_classifier_given():
+    llm = FakeLanguageModelBackend(reply="CHAT")
+    service = ConversationService(llm)
+
+    label = await service.classify_intent("let's just talk")
+
+    assert label == "CHAT"
+    assert len(llm.calls) == 1

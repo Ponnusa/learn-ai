@@ -38,7 +38,10 @@ class ConversationResult:
 
 class ConversationService:
     def __init__(
-        self, llm: LanguageModelBackend, summarizer_llm: LanguageModelBackend | None = None
+        self,
+        llm: LanguageModelBackend,
+        summarizer_llm: LanguageModelBackend | None = None,
+        classifier_llm: LanguageModelBackend | None = None,
     ) -> None:
         self._llm = llm
         # Decision 0018: lets session summarization/welcome-back use a
@@ -46,6 +49,13 @@ class ConversationService:
         # specifically wants Claude for this), without forcing every
         # caller to use two backends if they don't need to.
         self._summarizer_llm = summarizer_llm or llm
+        # Decision 0047: classify_intent() asks for exactly one word --
+        # found live it was still taking 5.19s on the main conversational
+        # backend's much larger token budget. A caller that wants that
+        # call tightly capped (e.g. max_tokens=10) passes its own
+        # instance here; defaults to the main llm, same optional-second-
+        # backend pattern summarizer_llm already uses.
+        self._classifier_llm = classifier_llm or llm
 
     async def teachable_friend_reply(
         self,
@@ -113,7 +123,7 @@ class ConversationService:
         is never spoken and deliberately not screened through
         check_speech() -- same reasoning summarize_session() already
         uses for its own non-spoken LLM call."""
-        reply_text, _model = await self._llm.generate_reply(
+        reply_text, _model = await self._classifier_llm.generate_reply(
             [{"role": "user", "content": text}], INTENT_CLASSIFIER_SYSTEM_PROMPT
         )
         label = reply_text.strip().upper().split()[0] if reply_text.strip() else ""

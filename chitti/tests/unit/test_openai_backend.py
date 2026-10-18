@@ -54,3 +54,58 @@ async def test_generate_reply_uses_custom_model(monkeypatch):
         )
 
     assert model == "gpt-4o"
+
+
+async def test_generate_reply_sends_the_default_max_tokens_cap(monkeypatch):
+    """Decision 0047: found live that an uncapped response length was
+    a real contributor to reply_generation consistently running far
+    slower than this project's own earlier benchmark -- every instance
+    now sends a sane default cap unless told otherwise."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+    mock_response.raise_for_status.return_value = None
+
+    with patch(
+        "companion_robot.voice.openai_backend.requests.post", return_value=mock_response
+    ) as mock_post:
+        backend = OpenAILanguageModelBackend()
+        await backend.generate_reply([{"role": "user", "content": "Hi"}], "system")
+
+    assert mock_post.call_args.kwargs["json"]["max_tokens"] == 300
+
+
+async def test_generate_reply_uses_custom_max_tokens_and_temperature(monkeypatch):
+    """Decision 0047: ConversationService.classify_intent() needs only
+    one word back, so it's given a much tighter cap than a full
+    conversational reply, plus temperature=0 to keep it terse and
+    deterministic."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "STORY"}}]}
+    mock_response.raise_for_status.return_value = None
+
+    with patch(
+        "companion_robot.voice.openai_backend.requests.post", return_value=mock_response
+    ) as mock_post:
+        backend = OpenAILanguageModelBackend(max_tokens=10, temperature=0)
+        await backend.generate_reply([{"role": "user", "content": "Hi"}], "system")
+
+    assert mock_post.call_args.kwargs["json"]["max_tokens"] == 10
+    assert mock_post.call_args.kwargs["json"]["temperature"] == 0
+
+
+async def test_generate_reply_omits_max_tokens_when_explicitly_none(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+    mock_response.raise_for_status.return_value = None
+
+    with patch(
+        "companion_robot.voice.openai_backend.requests.post", return_value=mock_response
+    ) as mock_post:
+        backend = OpenAILanguageModelBackend(max_tokens=None)
+        await backend.generate_reply([{"role": "user", "content": "Hi"}], "system")
+
+    assert "max_tokens" not in mock_post.call_args.kwargs["json"]
+    assert "temperature" not in mock_post.call_args.kwargs["json"]
