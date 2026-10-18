@@ -107,6 +107,25 @@ async def test_detect_switch_intent_ambiguous_phrasing_falls_back_to_the_llm():
     assert len(llm.calls) == 1
 
 
+async def test_detect_switch_intent_chat_via_llm_fallback_is_always_confident():
+    """Decision 0048: switching into Just Chat never needs a spoken
+    confirmation, even via the lower-confidence LLM-fallback tier --
+    found live that confirming right after an emotional statement
+    ("my friend isn't talking to me") read as Chitti not listening.
+    Landing in Just Chat by mistake costs nothing, unlike Story/Song/
+    Teach, so this is the one mode where "confident" is always True."""
+    llm = _FakeLLM(reply="CHAT")
+    conversation = ConversationService(llm)
+
+    mode, confident = await _detect_switch_intent(
+        "my friend is not talking to me", conversation, current_mode="1"
+    )
+
+    assert mode == "3"
+    assert confident is True
+    assert len(llm.calls) == 1  # the fallback tier still ran -- only confirmation is skipped
+
+
 async def test_detect_switch_intent_llm_none_keeps_current_mode():
     llm = _FakeLLM(reply="NONE")
     conversation = ConversationService(llm)
@@ -287,6 +306,44 @@ async def test_run_teachable_friend_switches_mode_on_detected_intent():
     assert len(llm.calls) == 1  # only the first, ordinary turn reached teachable_friend_reply()
     assert len(engagement.list_for_child("child-1")) == 1  # finally cleanup still ran
     assert len(transcripts.list_for_child("child-1")) == 1
+
+
+async def test_run_teachable_friend_switches_to_just_chat_with_no_confirmation():
+    """Decision 0048, the actual product fix: an emotional statement
+    ("my friend is not talking to me") said in Teachable-Friend that
+    resolves to CHAT via the LLM-fallback tier must switch straight
+    into Just Chat -- no "is that right?" confirmation question -- so
+    the carried-over text gets a real empathetic reply as its very
+    next turn, immediately."""
+    conn = connect(":memory:")
+    memories = MemoryRepository(conn)
+    engagement = EngagementRepository(conn)
+    transcripts = TranscriptRepository(conn)
+    # Only one scripted reply: classify_intent() (fallback tier) --
+    # CHAT. If _confirm_switch() asked a question, generate_reply
+    # would never be called again for it (it's deterministic, not an
+    # LLM call), but tts.synthesized below is what actually proves no
+    # question was spoken.
+    llm = _FakeLLM(reply="CHAT")
+    summarizer = _FakeLLM(reply="NOTHING")
+    conversation = ConversationService(llm, summarizer_llm=summarizer)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        return_value="my friend is not talking to me",
+    ):
+        next_mode, carried_text = await _run_teachable_friend(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            memories, engagement, transcripts, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert carried_text == "my friend is not talking to me"
+    assert len(llm.calls) == 1  # only classify_intent() ran -- never reached a reply call
+    assert tts.synthesized == []  # no confirmation prompt was ever spoken
 
 
 async def test_carried_over_text_gets_a_real_reply_without_another_capture():

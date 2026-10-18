@@ -194,6 +194,17 @@ async def _detect_switch_intent(
     statement, since teaching Chitti something naturally involves
     saying "teach". `current_mode` is the caller's own mode code;
     detecting the mode you're already in is a no-op, not a switch.
+
+    Decision 0048: switching INTO Just Chat ("3") is always treated as
+    confident, regardless of which tier detected it -- found live that
+    asking "Sounds like you want to just chat -- is that right?" right
+    after a child said something emotional ("my friend isn't talking
+    to me", right after "I am really sad") read as Chitti not actually
+    listening. Unlike Story/Song/Teach, landing in Just Chat by mistake
+    costs nothing -- it's the neutral, supportive default mode -- so
+    the confirmation step that protects against a jarring *wrong*
+    activity switch has no benefit here and a real cost: it delays and
+    undercuts the empathetic reply the moment actually calls for.
     """
     phrase_match = detect_intent_phrase(text)
     if phrase_match is not None:
@@ -208,6 +219,8 @@ async def _detect_switch_intent(
         return None, False
     if mode_code is None or mode_code == current_mode:
         return None, False
+    if mode_code == "3":
+        confident = True
     return mode_code, confident
 
 
