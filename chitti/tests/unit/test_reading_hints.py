@@ -36,6 +36,20 @@ def test_pick_hint_word_picks_the_first_real_miscue_in_order():
     assert pick_hint_word(result) == "sat"  # not "rug", which comes later
 
 
+def test_pick_hint_word_skips_a_trivially_short_word():
+    """Found live: "a" got selected as a hint target -- "that word
+    starts with the 'a' sound" is nonsensical for a word that IS the
+    sound. The search should continue past it to the next real,
+    substantial miscue instead of hinting on it."""
+    result = assess("a cat sat", "I cat mat", duration_seconds=3.0)
+    assert pick_hint_word(result) == "sat"  # not "a"
+
+
+def test_pick_hint_word_returns_none_when_every_miscue_is_too_short():
+    result = assess("a is it", "I are at", duration_seconds=3.0)
+    assert pick_hint_word(result) is None
+
+
 def test_build_hint_line_stage_0_is_encouragement():
     line = build_hint_line("sat", 0)
     assert "take your time" in line.lower()

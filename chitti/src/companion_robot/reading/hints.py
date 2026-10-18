@@ -16,14 +16,29 @@ from .schema import AssessmentResult
 
 _HINT_STAGES = 3
 
+# Found live: a 1-2 letter word like "a" or "I" got selected as a hint
+# target -- "that word starts with the 'a' sound" is nonsensical for a
+# word that IS the sound, nothing to graduate into sounding out. 3
+# letters is deliberately the level this curriculum's own shortest
+# real phonics targets sit at (CVC words like "cat"/"sat"/"mat") --
+# short enough to keep those, long enough to skip trivial function words.
+_MIN_HINT_WORD_LENGTH = 3
+
 
 def pick_hint_word(assessment: AssessmentResult) -> str | None:
     """Returns the first real-error word (substitution/omission) worth
-    a graduated hint, or None on a clean read. self_correction/
+    a graduated hint, or None if there isn't one. self_correction/
     hesitation/insertion miscues are skipped -- assess() itself
-    already treats those as not the child's fault."""
+    already treats those as not the child's fault. Words shorter than
+    _MIN_HINT_WORD_LENGTH are skipped too -- too trivial to graduate a
+    hint on -- the search continues to the next real miscue rather
+    than giving up outright."""
     for miscue in assessment.miscues:
-        if miscue.kind in (SUBSTITUTION, OMISSION) and miscue.expected:
+        if (
+            miscue.kind in (SUBSTITUTION, OMISSION)
+            and miscue.expected
+            and len(miscue.expected) >= _MIN_HINT_WORD_LENGTH
+        ):
             return miscue.expected
     return None
 
