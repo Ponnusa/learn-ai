@@ -29,9 +29,12 @@ product eventually wants -- a scoped, honest first real-audio test on
 real hardware, not Milestone 2's final design.
 """
 import asyncio
+import contextlib
 import difflib
+import logging
 import secrets
 import subprocess
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -40,6 +43,7 @@ from companion_robot.audio.real import CAPTURE_DEVICE, PLAYBACK_SAMPLE_RATE, Rea
 from companion_robot.conversation.service import ConversationResult, ConversationService
 from companion_robot.device.interfaces import DeviceState
 from companion_robot.device.screen_face import ScreenFaceDeviceController
+from companion_robot.diagnostics.logging_setup import configure_logging
 from companion_robot.education.math_check import (
     MathCheckResult,
     build_result,
@@ -50,7 +54,11 @@ from companion_robot.education.math_check import (
 )
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.engagement.schema import EngagementMode, EngagementSession
-from companion_robot.intent.router import detect_intent_phrase, mentions_activity_keyword
+from companion_robot.intent.router import (
+    detect_intent_phrase,
+    is_affirmative,
+    mentions_activity_keyword,
+)
 from companion_robot.lullabies.repository import LullabyRepository
 from companion_robot.memory.repository import MemoryRepository
 from companion_robot.memory.schema import (
@@ -69,7 +77,24 @@ from companion_robot.voice.openai_backend import OpenAILanguageModelBackend
 from companion_robot.voice.stt_openai import OpenAIWhisperBackend
 from companion_robot.voice.tts_openai import OpenAITTSBackend
 
+logger = logging.getLogger(__name__)
+
 _CAPTURE_PATH = "/tmp/chitti_demo_capture.wav"
+
+
+@contextlib.asynccontextmanager
+async def _timed(label: str):
+    """Decision 0046: diagnostic-only timing around suspected latency
+    sources (a mode switch's own session-summary call, the intent-
+    detection LLM fallback, reply generation, TTS/playback) -- no
+    behavior change, just an INFO log line per wrapped call. Per
+    diagnostics/logging_setup.py's own constraint, never logs the
+    child's actual text -- only a fixed label and a duration."""
+    start = time.monotonic()
+    try:
+        yield
+    finally:
+        logger.info("timing: %s took %.2fs", label, time.monotonic() - start)
 
 
 def _record_clip(path: str) -> None:
@@ -106,12 +131,24 @@ async def _capture_and_transcribe(stt) -> str:
     # project's dev-first language (decision 0003's sequencing); should
     # become a per-profile setting once Finnish is actually in play,
     # not assumed English forever.
-    return await stt.transcribe(audio_bytes, language="en")
+    #
+    # Only the transcribe() call itself is timed (decision 0046), not
+    # the function above it -- recording time is paced by how long the
+    # child takes to talk, not a system latency to diagnose.
+    async with _timed("stt_transcribe"):
+        return await stt.transcribe(audio_bytes, language="en")
 
 
 async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
-    reply_audio = await tts.synthesize(text, speed=speed)
-    await audio.play(reply_audio)
+    # Split (decision 0046): synthesis latency is what feels like lag
+    # before Chitti starts responding; playback duration is mostly
+    # just the reply being read aloud in real time (RealAudioTransport
+    # deliberately waits close to the clip's real duration -- decision
+    # 0019), not a processing delay worth conflating with synthesis.
+    async with _timed("tts_synthesize"):
+        reply_audio = await tts.synthesize(text, speed=speed)
+    async with _timed("audio_playback"):
+        await audio.play(reply_audio)
 
 
 # Decision 0042: reuses the exact menu-choice strings main() already
@@ -122,11 +159,12 @@ _INTENT_TO_MODE_CHOICE = {"STORY": "2", "SONG": "4", "CHAT": "3", "TEACH": "1"}
 
 async def _detect_switch_intent(
     text: str, conversation: ConversationService, current_mode: str
-) -> str | None:
+) -> tuple[str | None, bool]:
     """Hybrid mode-switch detection (decision 0042). Three tiers, in
     order, each cheaper than the next:
     1. A strict deterministic phrase match (intent/router.py) resolves
-       immediately -- free, no LLM call.
+       immediately -- free, no LLM call. High confidence: unambiguous
+       phrasing.
     2. If the turn doesn't even mention an activity keyword, it's
        definitely not a switch request -- also free, skips the LLM
        entirely. Without this gate, a literal "phrase match, else
@@ -138,6 +176,13 @@ async def _detect_switch_intent(
     3. Only a turn that mentions an activity keyword but didn't match
        a strict phrase reaches ConversationService.classify_intent()
        (one cheap classification call, not a conversational reply).
+       Lower confidence: a judgment call, not a certainty -- decision
+       0046 has callers confirm with the child before actually
+       switching on this tier, rather than switching silently.
+
+    Returns (mode_code, confident). mode_code is None when nothing
+    matched or it resolved to the mode already running, in which case
+    confident is always False too.
 
     Found live (decision 0042 addendum): "I want to teach you
     mathematics" said *while already in Teachable-Friend mode*
@@ -152,12 +197,44 @@ async def _detect_switch_intent(
     phrase_match = detect_intent_phrase(text)
     if phrase_match is not None:
         mode_code = _INTENT_TO_MODE_CHOICE.get(phrase_match)
+        confident = True
     elif mentions_activity_keyword(text):
-        label = await conversation.classify_intent(text)
+        async with _timed("intent_detection_llm_fallback"):
+            label = await conversation.classify_intent(text)
         mode_code = _INTENT_TO_MODE_CHOICE.get(label) if label else None
+        confident = False
     else:
-        return None
-    return mode_code if mode_code is not None and mode_code != current_mode else None
+        return None, False
+    if mode_code is None or mode_code == current_mode:
+        return None, False
+    return mode_code, confident
+
+
+_CONFIRMATION_PROMPTS = {
+    "2": "Sounds like you want to hear a story -- is that right?",
+    "4": "Sounds like you want to hear a song -- is that right?",
+    "3": "Sounds like you want to just chat -- is that right?",
+    "1": "Sounds like you want to teach me something -- is that right?",
+}
+
+
+async def _confirm_switch(mode_code: str, tts, audio, stt, face, speed: float) -> bool:
+    """Decision 0046: the LLM-fallback intent tier (see
+    _detect_switch_intent's `confident` flag) is a judgment call, not
+    a certainty -- for a child-facing device, a silent wrong switch is
+    worse than asking once, especially mid-emotional-moment in Just
+    Chat (almost happened for real: "my friend isn't talking to me"
+    mentions "talk"). Strict phrase matches skip this entirely. Any
+    unclear/negative answer defaults to NOT switching, same safer-
+    default instinct as _pick_item_by_voice()'s retry."""
+    prompt_text = _CONFIRMATION_PROMPTS.get(mode_code, "Is that right?")
+    print(f"Chitti: {prompt_text}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, prompt_text, speed=speed)
+    face.set_status_led(DeviceState.LISTENING)
+    answer = await _capture_and_transcribe(stt)
+    print(f"You said: {answer}")
+    return is_affirmative(answer)
 
 
 _ORDINAL_WORDS = {
@@ -375,7 +452,11 @@ async def _summarize_and_remember_session(
         transcript_lines = [f"{m['role']}: {m['content']}" for m in messages]
         if story_title:
             transcript_lines.insert(0, f"(discussing the story: {story_title})")
-        summary = await conversation.summarize_session(transcript_lines)
+        # Decision 0046: this now runs on every mode switch, not just
+        # true session end (see run_mode_dispatch_loop) -- timed to
+        # confirm/deny it as the dominant latency source.
+        async with _timed("session_summary"):
+            summary = await conversation.summarize_session(transcript_lines)
     except asyncio.CancelledError:
         print("(interrupted before saving finished -- this session's summary wasn't saved)")
         return
@@ -620,8 +701,12 @@ async def _run_teachable_friend(
                 if not text.strip():
                     print("(nothing heard, try again)")
                     continue
-                next_mode = await _detect_switch_intent(text, conversation, "1")
-                if next_mode is not None:
+                candidate_mode, confident = await _detect_switch_intent(text, conversation, "1")
+                if candidate_mode is not None and (
+                    confident
+                    or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
+                ):
+                    next_mode = candidate_mode
                     switch_trigger_text = text
                     break
             messages.append({"role": "user", "content": text})
@@ -633,9 +718,10 @@ async def _run_teachable_friend(
             )
             already_tried = incorrect_streak > 1
 
-            result = await conversation.teachable_friend_reply(
-                messages, math_check=math_check, already_tried=already_tried
-            )
+            async with _timed("reply_generation"):
+                result = await conversation.teachable_friend_reply(
+                    messages, math_check=math_check, already_tried=already_tried
+                )
             result = _patch_if_still_unresolved(result, math_check, already_tried)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
@@ -696,8 +782,12 @@ async def _run_everyday_companion(
                 if not text.strip():
                     print("(nothing heard, try again)")
                     continue
-                next_mode = await _detect_switch_intent(text, conversation, "3")
-                if next_mode is not None:
+                candidate_mode, confident = await _detect_switch_intent(text, conversation, "3")
+                if candidate_mode is not None and (
+                    confident
+                    or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
+                ):
+                    next_mode = candidate_mode
                     switch_trigger_text = text
                     break
             messages.append({"role": "user", "content": text})
@@ -709,9 +799,10 @@ async def _run_everyday_companion(
             )
             already_tried = incorrect_streak > 1
 
-            result = await conversation.everyday_companion_reply(
-                messages, math_check=math_check, already_tried=already_tried, child_age=child_age
-            )
+            async with _timed("reply_generation"):
+                result = await conversation.everyday_companion_reply(
+                    messages, math_check=math_check, already_tried=already_tried, child_age=child_age
+                )
             result = _patch_if_still_unresolved(result, math_check, already_tried)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
@@ -770,7 +861,8 @@ async def _run_story_companion(
     # opening observation/question instead, so the conversation
     # actually starts.
     face.set_status_led(DeviceState.PROCESSING)
-    opening = await conversation.story_opening_invitation(story.content, story.title, child_age)
+    async with _timed("reply_generation"):
+        opening = await conversation.story_opening_invitation(story.content, story.title, child_age)
     if not opening.blocked:
         print(f"Chitti: {opening.text}")
         messages.append({"role": "assistant", "content": opening.text})
@@ -787,15 +879,19 @@ async def _run_story_companion(
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
-            next_mode = await _detect_switch_intent(text, conversation, "2")
-            if next_mode is not None:
+            candidate_mode, confident = await _detect_switch_intent(text, conversation, "2")
+            if candidate_mode is not None and (
+                confident or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
+            ):
+                next_mode = candidate_mode
                 switch_trigger_text = text
                 break
             messages.append({"role": "user", "content": text})
             face.set_status_led(DeviceState.PROCESSING)
-            result = await conversation.story_companion_reply(
-                messages, story.content, story.title, child_age
-            )
+            async with _timed("reply_generation"):
+                result = await conversation.story_companion_reply(
+                    messages, story.content, story.title, child_age
+                )
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
             face.set_status_led(DeviceState.SPEAKING)
@@ -865,6 +961,12 @@ class DemoContext:
 
 
 async def setup_demo() -> DemoContext:
+    # Decision 0046: makes the new timing logs (and anything else
+    # logged at INFO) actually visible -- previously only app.py called
+    # this, so voice_loop_demo.py's own logger.info() calls were
+    # silently dropped (no handler configured on the root logger).
+    configure_logging()
+
     data_dir = Path(__file__).resolve().parent.parent.parent / "data"
     data_dir.mkdir(exist_ok=True)
     conn = connect(data_dir / "chitti.db")  # same db file parent_controls/app.py uses

@@ -46,6 +46,7 @@ import logging
 import os
 import random
 import threading
+import time
 
 from .interfaces import DeviceController, DeviceState
 
@@ -205,6 +206,13 @@ _EYE_GAP = 90
 _EYE_OFFSET_Y = 20
 _MOUTH_OFFSET_Y = 60
 
+# Decision 0046: how many frames between logging the rolling-average
+# draw+flip duration -- ~5s of frames at _FPS, not every single frame
+# (would flood the log at 15/sec). Diagnostic only, to test whether
+# the heavier dot-matrix rendering (decision 0044) is contending for
+# CPU with STT/TTS/API calls on the Pi 1 B+'s single weak core.
+_FRAME_TIMING_LOG_INTERVAL = _FPS * 5
+
 _STATE_COLORS: dict[DeviceState, tuple[int, int, int]] = {
     DeviceState.LISTENING: _BLUE,
     DeviceState.PROCESSING: _PURPLE,
@@ -361,8 +369,11 @@ class ScreenFaceDeviceController(DeviceController):
         thinking_shifter = _DiscreteTimer(
             _THINKING_SHIFT_MIN_INTERVAL, _THINKING_SHIFT_MAX_INTERVAL, _THINKING_SHIFT_DURATION
         )
+        frame_durations: list[float] = []
 
         while self._running:
+            frame_start = time.monotonic()
+
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self._running = False
@@ -394,6 +405,20 @@ class ScreenFaceDeviceController(DeviceController):
             _draw_pattern(screen, cx, cy + _MOUTH_OFFSET_Y, mouth_pattern, _WHITE)
 
             pygame.display.flip()
+
+            # Decision 0046: draw+flip time only -- deliberately
+            # excludes clock.tick()'s own sleep, which isn't real work.
+            frame_durations.append(time.monotonic() - frame_start)
+            if len(frame_durations) >= _FRAME_TIMING_LOG_INTERVAL:
+                avg_ms = (sum(frame_durations) / len(frame_durations)) * 1000
+                logger.info(
+                    "timing: face_render avg %.1fms/frame over %d frames (budget %.1fms)",
+                    avg_ms,
+                    len(frame_durations),
+                    1000.0 / _FPS,
+                )
+                frame_durations.clear()
+
             clock.tick(_FPS)
             t += 1.0 / _FPS
 

@@ -61,3 +61,23 @@ def detect_intent_phrase(text: str) -> str | None:
 def mentions_activity_keyword(text: str) -> bool:
     lowered = text.lower()
     return any(keyword in lowered for keyword in _ACTIVITY_KEYWORDS)
+
+
+_AFFIRMATIVE_WORDS = {
+    "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "right", "correct", "please",
+}
+_NEGATIVE_WORDS = {"no", "nope", "nah", "not"}
+
+
+def is_affirmative(text: str) -> bool:
+    """Decision 0046: deterministic yes/no parsing for the switch-
+    confirmation question -- word-list based, same pure-function style
+    as detect_intent_phrase(). Defaults to False (don't switch) unless
+    a clear affirmative word is present and no negative word is -- a
+    negative word always wins over an affirmative one in the same
+    reply, and an empty/unclear answer is treated as "no". Same safer-
+    default instinct _pick_item_by_voice()'s retry already uses."""
+    words = set(text.lower().split())
+    if words & _NEGATIVE_WORDS:
+        return False
+    return bool(words & _AFFIRMATIVE_WORDS)

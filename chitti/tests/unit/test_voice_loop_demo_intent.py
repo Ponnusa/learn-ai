@@ -14,6 +14,7 @@ from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
 from companion_robot.voice_loop_demo import (
+    _confirm_switch,
     _detect_switch_intent,
     _pick_item_by_voice,
     _resolve_spoken_choice,
@@ -73,9 +74,10 @@ async def test_detect_switch_intent_strict_phrase_match_skips_the_llm():
     llm = _FakeLLM(reply="unused")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent("can you tell me a story", conversation, current_mode="1")
+    mode, confident = await _detect_switch_intent("can you tell me a story", conversation, current_mode="1")
 
     assert mode == "2"
+    assert confident is True  # decision 0046: strict match -> no confirmation needed
     assert llm.calls == []  # strict phrase match never reaches classify_intent()
 
 
@@ -85,9 +87,10 @@ async def test_detect_switch_intent_no_activity_keyword_skips_the_llm():
     llm = _FakeLLM(reply="STORY")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent("the cat has four legs", conversation, current_mode="1")
+    mode, confident = await _detect_switch_intent("the cat has four legs", conversation, current_mode="1")
 
     assert mode is None
+    assert confident is False
     assert llm.calls == []
 
 
@@ -95,11 +98,12 @@ async def test_detect_switch_intent_ambiguous_phrasing_falls_back_to_the_llm():
     llm = _FakeLLM(reply="SONG")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent(
+    mode, confident = await _detect_switch_intent(
         "I don't want a story, let's do something else musical", conversation, current_mode="1"
     )
 
     assert mode == "4"
+    assert confident is False  # decision 0046: LLM-fallback match -> caller must confirm
     assert len(llm.calls) == 1
 
 
@@ -107,9 +111,12 @@ async def test_detect_switch_intent_llm_none_keeps_current_mode():
     llm = _FakeLLM(reply="NONE")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent("can we sing something later maybe", conversation, current_mode="1")
+    mode, confident = await _detect_switch_intent(
+        "can we sing something later maybe", conversation, current_mode="1"
+    )
 
     assert mode is None
+    assert confident is False
 
 
 async def test_detect_switch_intent_matching_current_mode_is_a_no_op():
@@ -123,13 +130,14 @@ async def test_detect_switch_intent_matching_current_mode_is_a_no_op():
     llm = _FakeLLM(reply="unused")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent(
+    mode, confident = await _detect_switch_intent(
         "I want to teach you mathematics, I want to be the teacher",
         conversation,
         current_mode="1",  # already in Teachable-Friend -- the strict phrase matches TEACH -> "1"
     )
 
     assert mode is None
+    assert confident is False
     assert llm.calls == []  # the strict phrase still matched; only the mode-equality check changed
 
 
@@ -141,12 +149,45 @@ async def test_detect_switch_intent_llm_fallback_matching_current_mode_is_also_a
     llm = _FakeLLM(reply="TEACH")
     conversation = ConversationService(llm)
 
-    mode = await _detect_switch_intent(
+    mode, confident = await _detect_switch_intent(
         "can we keep going with the teaching", conversation, current_mode="1"
     )
 
     assert mode is None
+    assert confident is False
     assert len(llm.calls) == 1  # the LLM fallback was still called -- just suppressed after
+
+
+# -- _confirm_switch (decision 0046) ---------------------------------------
+
+
+async def test_confirm_switch_speaks_the_mode_specific_prompt_and_returns_true_on_yes():
+    tts = _FakeTTS()
+    face = _FakeFace()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        return_value="yes",
+    ):
+        confirmed = await _confirm_switch("2", tts, _FakeAudio(), "fake-stt", face, 1.0)
+
+    assert confirmed is True
+    assert tts.synthesized == ["Sounds like you want to hear a story -- is that right?"]
+
+
+async def test_confirm_switch_returns_false_on_no():
+    tts = _FakeTTS()
+    face = _FakeFace()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        return_value="no thanks",
+    ):
+        confirmed = await _confirm_switch("4", tts, _FakeAudio(), "fake-stt", face, 1.0)
+
+    assert confirmed is False
 
 
 # -- _resolve_spoken_choice -----------------------------------------------
@@ -283,3 +324,56 @@ async def test_carried_over_text_gets_a_real_reply_without_another_capture():
     # which gets the assistant reply appended after the call -- check
     # the first entry (the carried-over turn) rather than the whole list.
     assert llm.calls[0][0][0] == {"role": "user", "content": "let's just chat"}
+
+
+async def test_fallback_tier_switch_declined_stays_in_current_mode():
+    """Decision 0046: an LLM-fallback-tier detection ("can we keep
+    going with the teaching" mentions "teach" but doesn't match the
+    strict TEACH phrase) must ask before switching. Declining must not
+    switch at all -- the original utterance gets a normal reply in the
+    mode it was actually said in."""
+    conn = connect(":memory:")
+    memories = MemoryRepository(conn)
+    engagement = EngagementRepository(conn)
+    transcripts = TranscriptRepository(conn)
+    # First call: ConversationService.classify_intent() (the fallback
+    # tier) -- returns TEACH. Second call: everyday_companion_reply(),
+    # since the switch gets declined and the turn continues normally.
+    llm = _FakeLLM(reply="irrelevant -- overridden per-call below")
+    llm.generate_reply = AsyncMock(
+        side_effect=[("TEACH", "fake-model"), ("Sure, let's keep chatting!", "fake-model")]
+    )
+    summarizer = _FakeLLM(reply="NOTHING")
+    conversation = ConversationService(llm, summarizer_llm=summarizer)
+    face = _FakeFace()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "can we keep going with the teaching",  # fallback-tier TEACH match
+            "no",  # declines the confirmation
+        ],
+        # A third call would mean the loop looped back around to listen
+        # again instead of falling through to a normal reply -- raise to
+        # catch that instead of hanging the test.
+    ):
+        with patch(
+            "companion_robot.voice_loop_demo._speak",
+            new_callable=AsyncMock,
+            side_effect=[None, KeyboardInterrupt],  # confirmation prompt, then the real reply
+        ):
+            try:
+                await _run_everyday_companion(
+                    conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
+                    memories, engagement, transcripts, face, "child-1", 1.0,
+                )
+            except KeyboardInterrupt:
+                pass
+
+    assert llm.generate_reply.call_count == 2
+    # The declined turn still got a real reply in the same mode.
+    assert llm.generate_reply.call_args_list[1].args[0][0] == {
+        "role": "user",
+        "content": "can we keep going with the teaching",
+    }
