@@ -1,6 +1,7 @@
 """Minimal schema migration runner: memory_records, reminders,
 parent_pin, child_profiles, stories, engagement_sessions,
-transcripts, lullabies. Each CREATE statement is
+transcripts, lullabies, reading_profiles, reading_grapheme_mastery.
+Each CREATE statement is
 idempotent (CREATE TABLE/INDEX IF NOT EXISTS) so re-running against an
 already-migrated database is always safe -- but that alone only
 covers whole new tables. Adding a column to a table that already
@@ -130,6 +131,40 @@ CREATE TABLE IF NOT EXISTS lullabies (
 )
 """
 
+# Decision 0051: one row per child -- the per-learner fields
+# reading/schema.py's ReadingProfile needs besides its mastery map
+# (which lives in reading_grapheme_mastery below, one row per
+# child+grapheme, matching this project's existing flat-row
+# convention rather than a JSON blob).
+_READING_PROFILES_TABLE = """
+CREATE TABLE IF NOT EXISTS reading_profiles (
+    child_profile_id TEXT PRIMARY KEY,
+    interest TEXT NOT NULL DEFAULT '',
+    sight_words TEXT NOT NULL DEFAULT '',
+    sessions_completed INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)
+"""
+
+_READING_GRAPHEME_MASTERY_TABLE = """
+CREATE TABLE IF NOT EXISTS reading_grapheme_mastery (
+    child_profile_id TEXT NOT NULL,
+    grapheme TEXT NOT NULL,
+    level TEXT NOT NULL,
+    p_mastery REAL NOT NULL,
+    opportunities INTEGER NOT NULL DEFAULT 0,
+    correct INTEGER NOT NULL DEFAULT 0,
+    last_seen_session INTEGER,
+    PRIMARY KEY (child_profile_id, grapheme)
+)
+"""
+
+_READING_GRAPHEME_MASTERY_CHILD_INDEX = """
+CREATE INDEX IF NOT EXISTS idx_reading_grapheme_mastery_child_profile
+ON reading_grapheme_mastery (child_profile_id)
+"""
+
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, add_column_ddl: str) -> None:
     """Idempotently adds a column to a table that may already exist
@@ -156,6 +191,9 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(_TRANSCRIPTS_TABLE)
     conn.execute(_TRANSCRIPTS_CHILD_INDEX)
     conn.execute(_LULLABIES_TABLE)
+    conn.execute(_READING_PROFILES_TABLE)
+    conn.execute(_READING_GRAPHEME_MASTERY_TABLE)
+    conn.execute(_READING_GRAPHEME_MASTERY_CHILD_INDEX)
     _ensure_column(
         conn, "child_profiles", "speech_speed", "speech_speed REAL NOT NULL DEFAULT 1.0"
     )

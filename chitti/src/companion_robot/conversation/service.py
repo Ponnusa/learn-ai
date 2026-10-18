@@ -12,6 +12,12 @@ other path too).
 from dataclasses import dataclass
 
 from companion_robot.education.math_check import MathCheckResult
+from companion_robot.reading.book_generation import (
+    StoryDraft,
+    generate_decodable_book,
+    parse_story_draft,
+)
+from companion_robot.reading.schema import GeneratedBook, Objective
 from companion_robot.safety.checks import SafetyCategory, check_speech, decline_message
 from companion_robot.voice.interfaces import LanguageModelBackend
 
@@ -26,7 +32,7 @@ from .prompts import (
     build_welcome_back_prompt,
 )
 
-_KNOWN_INTENT_LABELS = {"STORY", "SONG", "CHAT", "TEACH"}
+_KNOWN_INTENT_LABELS = {"STORY", "READ", "SONG", "CHAT", "TEACH"}
 
 
 @dataclass
@@ -128,6 +134,31 @@ class ConversationService:
         )
         label = reply_text.strip().upper().split()[0] if reply_text.strip() else ""
         return label if label in _KNOWN_INTENT_LABELS else None
+
+    async def generate_decodable_book(
+        self, objective: Objective, *, interest: str = "", age: int = 6, sight_words=None
+    ) -> GeneratedBook:
+        """Decision 0051: the Reading Partner mode's verifier-gated book
+        generator. Builds a real StoryProposer around this service's
+        own llm and hands it to reading/book_generation.py's pure loop
+        -- same propose/check-decodability/check_speech/retry shape as
+        every other reading/ module, just with the real backend wired
+        in instead of a test fake. Unlike every other path in this
+        class, there's no single ConversationResult to return here --
+        decodability and safety are enforced *inside* the generation
+        loop itself (a violation is fed back and retried, not declined
+        after the fact), so a GeneratedBook that comes back has always
+        already passed check_speech() on every page."""
+
+        async def _propose(prompt: str) -> StoryDraft:
+            reply_text, _model = await self._llm.generate_reply(
+                [{"role": "user", "content": "Write the story now."}], prompt
+            )
+            return parse_story_draft(reply_text)
+
+        return await generate_decodable_book(
+            objective, proposer=_propose, sight_words=sight_words, interest=interest, age=age
+        )
 
     def repeat_after_me(self, text: str) -> ConversationResult:
         """No LLM call -- the child's own words are screened and either

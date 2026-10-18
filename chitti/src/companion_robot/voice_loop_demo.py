@@ -70,6 +70,12 @@ from companion_robot.memory.schema import (
 )
 from companion_robot.parent_controls.profiles import ChildProfile, ChildProfileRepository
 from companion_robot.parent_controls.stories import StoryRepository
+from companion_robot.reading.alignment import assess
+from companion_robot.reading.book_generation import BookGenerationError
+from companion_robot.reading.feedback import build_reading_feedback
+from companion_robot.reading.mastery import update_from_evidence
+from companion_robot.reading.planner import select_objective
+from companion_robot.reading.repository import ReadingRepository
 from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.transcripts.schema import TranscriptRecord
@@ -196,7 +202,7 @@ async def _generate_with_thinking_filler(coro, tts, audio, face, speed: float, l
 # Decision 0042: reuses the exact menu-choice strings main() already
 # dispatches on (see its mode-selection prompt), rather than a parallel
 # enum that would just need mapping back to these anyway.
-_INTENT_TO_MODE_CHOICE = {"STORY": "2", "SONG": "4", "CHAT": "3", "TEACH": "1"}
+_INTENT_TO_MODE_CHOICE = {"STORY": "2", "SONG": "4", "CHAT": "3", "TEACH": "1", "READ": "5"}
 
 
 async def _detect_switch_intent(
@@ -270,6 +276,7 @@ _CONFIRMATION_PROMPTS = {
     "4": "Sounds like you want to hear a song -- is that right?",
     "3": "Sounds like you want to just chat -- is that right?",
     "1": "Sounds like you want to teach me something -- is that right?",
+    "5": "Sounds like you want to practice reading -- is that right?",
 }
 
 _CONFIRMED_ACK = "Great, let's do that!"
@@ -1023,6 +1030,120 @@ async def _run_lullaby_time(lullabies, face, data_dir: Path, audio, tts, stt, sp
         face.set_status_led(DeviceState.IDLE)
 
 
+async def _run_reading_partner(
+    conversation,
+    tts,
+    audio,
+    stt,
+    reading_repo: ReadingRepository,
+    face,
+    child_profile_id: str,
+    speed: float,
+    child_age: int | None = None,
+    initial_text: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Decision 0051: phonics-based reading practice -- picks the next
+    phonics skill the child hasn't mastered, generates a decodable
+    story for it, has the child read it aloud, grades the read via
+    deterministic miscue analysis, and updates mastery, looping to the
+    next book until the child asks for something else.
+
+    No EngagementRepository/TranscriptRepository use here, same as
+    _run_lullaby_time -- reading progress has its own, far more
+    meaningful dedicated tracking (reading_profiles/
+    reading_grapheme_mastery) than generic turn/word counts would add.
+
+    `initial_text` is accepted for calling-convention uniformity with
+    the other modes (decision 0042's carry-forward) but deliberately
+    unused -- like _run_story_companion, there's no natural first turn
+    to feed it into; the loop always starts by generating the first
+    book.
+
+    IMPORTANT, deliberately different from every other mode's turn
+    loop: intent-switch detection never runs on the child's read-aloud
+    transcript -- that transcript *is* the story's own text, and
+    running phrase/keyword detection on arbitrary story content would
+    be a real false-positive source. It only runs on the short "want
+    another one?" reply between books.
+    """
+    face.set_expression_mode("learning")  # decision 0044
+    profile = reading_repo.get_or_create(child_profile_id)
+    print("\n-- Reading Partner. Ctrl-C to quit. --")
+
+    next_mode: str | None = None
+    switch_trigger_text: str | None = None
+    try:
+        while True:
+            objective = select_objective(profile, session_index=profile.sessions_completed)
+            face.set_status_led(DeviceState.PROCESSING)
+            try:
+                book = await _generate_with_thinking_filler(
+                    conversation.generate_decodable_book(
+                        objective, interest=profile.interest, age=child_age or 6
+                    ),
+                    tts, audio, face, speed, "reading_book_generation",
+                )
+            except BookGenerationError:
+                apology = (
+                    "I'm having trouble coming up with a story right now -- "
+                    "let's try reading again in a little while."
+                )
+                print(f"Chitti: {apology}")
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, apology, speed=speed)
+                break
+
+            print(f"\n-- {book.title} --")
+            for page in book.pages:
+                print(f"  {page}")
+            face.set_reading_text(book.pages)
+            intro = f'Here\'s your story, "{book.title}"! Give it a try -- read it out loud to me.'
+            print(f"Chitti: {intro}")
+            face.set_status_led(DeviceState.SPEAKING)
+            await _speak(tts, audio, intro, speed=speed)
+
+            face.set_status_led(DeviceState.LISTENING)
+            # Real elapsed recording time, not the estimated-duration
+            # fallback the original project's typed-transcript CLI path
+            # needs -- Chitti's push-to-talk already has a real clock.
+            capture_started = time.monotonic()
+            spoken = await _capture_and_transcribe(stt)
+            duration_seconds = time.monotonic() - capture_started
+            print(f"You read: {spoken}")
+            face.set_reading_text(None)
+
+            face.set_status_led(DeviceState.PROCESSING)
+            assessment = assess(
+                book.text, spoken, duration_seconds=duration_seconds, sight_words=book.sight_words
+            )
+            delta = update_from_evidence(
+                profile, assessment.grapheme_evidence, session_index=profile.sessions_completed
+            )
+            profile.sessions_completed += 1
+            reading_repo.save(profile)
+
+            feedback_text = build_reading_feedback(assessment, delta)
+            print(f"Chitti: {feedback_text}")
+            face.set_status_led(DeviceState.SPEAKING)
+            await _speak(tts, audio, feedback_text, speed=speed)
+
+            face.set_status_led(DeviceState.LISTENING)
+            next_text = await _capture_and_transcribe(stt)
+            print(f"You said: {next_text}")
+            if not next_text.strip():
+                continue
+            candidate_mode, confident = await _detect_switch_intent(next_text, conversation, "5")
+            if candidate_mode is not None and (
+                confident or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
+            ):
+                next_mode = candidate_mode
+                switch_trigger_text = next_text
+                break
+    finally:
+        face.set_reading_text(None)
+    return next_mode, switch_trigger_text
+
+
 @dataclass
 class DemoContext:
     """Everything a mode-dispatch loop needs, built once by
@@ -1041,6 +1162,7 @@ class DemoContext:
     engagement: EngagementRepository
     transcripts: TranscriptRepository
     lullabies: LullabyRepository
+    reading: ReadingRepository
     face: ScreenFaceDeviceController
     data_dir: Path
     profile: ChildProfile
@@ -1081,6 +1203,7 @@ async def setup_demo() -> DemoContext:
     engagement = EngagementRepository(conn)
     transcripts = TranscriptRepository(conn)
     lullabies = LullabyRepository(conn)
+    reading = ReadingRepository(conn)
 
     # Decision 0040: renders listening/thinking/speaking/idle on the
     # HDMI screen. Degrades to "no visible face" on its own (logged,
@@ -1125,6 +1248,7 @@ async def setup_demo() -> DemoContext:
         engagement=engagement,
         transcripts=transcripts,
         lullabies=lullabies,
+        reading=reading,
         face=face,
         data_dir=data_dir,
         profile=profile,
@@ -1192,6 +1316,19 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.profile.speech_speed,
                 )
                 next_mode, carried_text = None, None
+            elif next_mode == "5":
+                next_mode, carried_text = await _run_reading_partner(
+                    ctx.conversation,
+                    ctx.tts,
+                    ctx.audio,
+                    ctx.stt,
+                    ctx.reading,
+                    ctx.face,
+                    ctx.profile.id,
+                    ctx.profile.speech_speed,
+                    child_age=ctx.profile.age,
+                    initial_text=carried_text,
+                )
             else:
                 # Matches the original dispatch exactly: anything that
                 # isn't "2"/"3"/"4" (including the typed menu's own
@@ -1229,7 +1366,8 @@ async def main() -> None:
     print("2) Story Companion (Chitti tells a story, answers questions)")
     print("3) Just Chat (talk, play, wonder, or share your day)")
     print("4) Lullaby time (play a song)")
-    next_mode = input("Choose mode (1/2/3/4): ").strip()
+    print("5) Reading Partner (practice reading out loud)")
+    next_mode = input("Choose mode (1/2/3/4/5): ").strip()
 
     await run_mode_dispatch_loop(next_mode, ctx)
 

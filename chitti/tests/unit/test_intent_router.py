@@ -3,6 +3,7 @@ LLM/IO needed.
 """
 from companion_robot.intent.router import (
     CHAT,
+    READ,
     SONG,
     STORY,
     TEACH,
@@ -16,6 +17,24 @@ def test_detects_story_request():
     assert detect_intent_phrase("can you tell me a story") == STORY
     assert detect_intent_phrase("read me a story please") == STORY
     assert detect_intent_phrase("I want story time now") == STORY
+
+
+def test_detects_read_request():
+    assert detect_intent_phrase("I want to read") == READ
+    assert detect_intent_phrase("let me read") == READ
+    assert detect_intent_phrase("can I read now") == READ
+    assert detect_intent_phrase("I'll read") == READ
+    assert detect_intent_phrase("help me practice reading") == READ
+    assert detect_intent_phrase("reading practice please") == READ
+    assert detect_intent_phrase("I want to practice my reading") == READ
+
+
+def test_ambiguous_read_a_story_resolves_to_story_not_read():
+    """Decision 0051: _STORY_PATTERN is checked first in
+    detect_intent_phrase() specifically so this stays STORY -- Chitti
+    reading TO the child, not the child reading out loud."""
+    assert detect_intent_phrase("I want to read a story") == STORY
+    assert detect_intent_phrase("can you read me a story") == STORY
 
 
 def test_detects_song_request():
@@ -43,6 +62,7 @@ def test_returns_none_for_ordinary_conversation():
 def test_mentions_activity_keyword_true_cases():
     assert mentions_activity_keyword("I don't want a story, let's chat instead") is True
     assert mentions_activity_keyword("can we sing something") is True
+    assert mentions_activity_keyword("I'd like to do some reading") is True
 
 
 def test_mentions_activity_keyword_false_for_ordinary_turns():

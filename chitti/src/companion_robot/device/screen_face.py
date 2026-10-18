@@ -262,6 +262,53 @@ class _DiscreteTimer:
         return False
 
 
+# Decision 0051: the Reading Partner mode needs the child to actually
+# see story text -- nothing before this rendered any text at all, only
+# the dot-matrix face. A third, independent axis alongside state/mode:
+# when set_reading_text() has lines, the render loop draws them instead
+# of the face for that frame; when None, the face renders as normal.
+_READING_FONT_SIZE = 28
+_READING_LINE_SPACING = 6
+_READING_MARGIN = 16
+
+
+def _wrap_text(text: str, font, max_width: int) -> list[str]:
+    """Greedy word-wrap to fit max_width -- simple and good enough for
+    a few short decodable-story sentences, not a general text layout
+    engine."""
+    words = text.split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if font.size(candidate)[0] <= max_width or not current:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _draw_reading_text(screen, width: int, height: int, font, pages: list[str]) -> None:
+    max_width = width - 2 * _READING_MARGIN
+    lines: list[str] = []
+    for i, page in enumerate(pages):
+        lines.extend(_wrap_text(page, font, max_width))
+        if i != len(pages) - 1:
+            lines.append("")  # blank separator between pages
+
+    y = _READING_MARGIN
+    line_height = font.get_linesize() + _READING_LINE_SPACING
+    for line in lines:
+        if y + line_height > height - _READING_MARGIN:
+            break  # simple overflow guard -- no multi-screen pagination in v1
+        if line:
+            screen.blit(font.render(line, True, _WHITE), (_READING_MARGIN, y))
+        y += line_height
+
+
 def _draw_pattern(screen, cx: int, cy: int, pattern: list[str], color) -> None:
     width = len(pattern[0])
     height = len(pattern)
@@ -285,6 +332,7 @@ class ScreenFaceDeviceController(DeviceController):
         self._height = height
         self._state = DeviceState.OFFLINE
         self._mode: str | None = None
+        self._reading_lines: list[str] | None = None
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -319,6 +367,14 @@ class ScreenFaceDeviceController(DeviceController):
         with self._lock:
             self._mode = mode
 
+    def set_reading_text(self, lines: list[str] | None) -> None:
+        """Decision 0051: lines to show on screen for Reading Partner
+        -- when set, the render loop draws this text instead of the
+        dot-matrix face; None returns to the normal face. Independent
+        of set_status_led()/set_expression_mode(), same pattern."""
+        with self._lock:
+            self._reading_lines = lines
+
     def emergency_stop(self) -> None:
         """Synchronous, per the ABC's requirement -- must work even if
         the event loop is unresponsive. Safe to be this simple today:
@@ -338,6 +394,10 @@ class ScreenFaceDeviceController(DeviceController):
     def _get_mode(self) -> str | None:
         with self._lock:
             return self._mode
+
+    def _get_reading_text(self) -> list[str] | None:
+        with self._lock:
+            return self._reading_lines
 
     def _create_screen(self):
         os.environ.setdefault("SDL_FBDEV", "/dev/fb0")
@@ -363,6 +423,7 @@ class ScreenFaceDeviceController(DeviceController):
             self._running = False
             return
         pygame.display.set_caption("Chitti")
+        font = pygame.font.Font(None, _READING_FONT_SIZE)
         clock = pygame.time.Clock()
         t = 0.0
         blinker = _DiscreteTimer(_BLINK_MIN_INTERVAL, _BLINK_MAX_INTERVAL, _BLINK_DURATION)
@@ -388,21 +449,25 @@ class ScreenFaceDeviceController(DeviceController):
                 t += 1.0 / _FPS
                 continue
 
-            mode = self._get_mode()
-            eye_pattern, mouth_pattern = _resolve_expression(state, mode)
+            reading_lines = self._get_reading_text()
+            if reading_lines is not None:
+                _draw_reading_text(screen, self._width, self._height, font, reading_lines)
+            else:
+                mode = self._get_mode()
+                eye_pattern, mouth_pattern = _resolve_expression(state, mode)
 
-            # Discrete, restrained animation only -- per spec, never
-            # continuous pulsing/spinning/lip-sync.
-            if state in _BLINK_ELIGIBLE_STATES and blinker.tick(t):
-                eye_pattern = _EYE_CLOSED
-            elif state == DeviceState.PROCESSING and thinking_shifter.tick(t):
-                eye_pattern = _EYE_THINKING_ALT
+                # Discrete, restrained animation only -- per spec, never
+                # continuous pulsing/spinning/lip-sync.
+                if state in _BLINK_ELIGIBLE_STATES and blinker.tick(t):
+                    eye_pattern = _EYE_CLOSED
+                elif state == DeviceState.PROCESSING and thinking_shifter.tick(t):
+                    eye_pattern = _EYE_THINKING_ALT
 
-            color = _STATE_COLORS.get(state, _CYAN)
-            eye_y = cy - _EYE_OFFSET_Y
-            _draw_pattern(screen, cx - _EYE_GAP // 2, eye_y, eye_pattern, color)
-            _draw_pattern(screen, cx + _EYE_GAP // 2, eye_y, eye_pattern, color)
-            _draw_pattern(screen, cx, cy + _MOUTH_OFFSET_Y, mouth_pattern, _WHITE)
+                color = _STATE_COLORS.get(state, _CYAN)
+                eye_y = cy - _EYE_OFFSET_Y
+                _draw_pattern(screen, cx - _EYE_GAP // 2, eye_y, eye_pattern, color)
+                _draw_pattern(screen, cx + _EYE_GAP // 2, eye_y, eye_pattern, color)
+                _draw_pattern(screen, cx, cy + _MOUTH_OFFSET_Y, mouth_pattern, _WHITE)
 
             pygame.display.flip()
 

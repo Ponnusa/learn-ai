@@ -413,3 +413,21 @@ async def test_classify_intent_defaults_to_the_main_llm_when_no_classifier_given
 
     assert label == "CHAT"
     assert len(llm.calls) == 1
+
+
+async def test_generate_decodable_book_uses_the_main_llm_and_returns_a_book():
+    """Decision 0051: wires reading/book_generation.py's pure
+    verifier-gated loop to this service's own llm, parsing its
+    TITLE:/PAGE: reply format."""
+    from companion_robot.reading.planner import select_objective
+    from companion_robot.reading.schema import ReadingProfile
+
+    llm = FakeLanguageModelBackend(reply="TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.")
+    service = ConversationService(llm)
+    objective = select_objective(ReadingProfile.new("child-1"))
+
+    book = await service.generate_decodable_book(objective, interest="cats", age=6)
+
+    assert book.title == "The Cat"
+    assert book.pages == ["A cat sat.", "A cat ran."]
+    assert len(llm.calls) == 1

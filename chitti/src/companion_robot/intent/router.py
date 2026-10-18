@@ -13,12 +13,24 @@ real switch requests almost always name the activity.
 import re
 
 STORY = "STORY"
+READ = "READ"
 SONG = "SONG"
 CHAT = "CHAT"
 TEACH = "TEACH"
 
 _STORY_PATTERN = re.compile(
     r"\b(tell|read)\s+(me\s+)?a\s+story\b|\bstory\s*time\b", re.IGNORECASE
+)
+# Decision 0051: deliberately distinct from _STORY_PATTERN above -- that
+# one is "Chitti reads TO the child" (needs "a story"); this one is
+# "the child wants to read OUT LOUD themselves", so none of these
+# phrasings include "a story". Checked after _STORY_PATTERN in
+# detect_intent_phrase() so an ambiguous "I want to read a story"
+# still resolves to the existing, more specific STORY match.
+_READ_PATTERN = re.compile(
+    r"\b(i\s+want\s+to|let\s+me|i'?ll|can\s+i|help\s+me(\s+practice)?)\s+read\b|"
+    r"\breading\s+practice\b|\bpractice\s+(my\s+)?reading\b",
+    re.IGNORECASE,
 )
 _SONG_PATTERN = re.compile(
     r"\b(play|sing)\s+(me\s+)?a\s+(song|lullaby)\b|\bplay\s+(some\s+)?music\b",
@@ -34,6 +46,8 @@ _TEACH_PATTERN = re.compile(
 _ACTIVITY_KEYWORDS = (
     "story",
     "stories",
+    "read",
+    "reading",
     "song",
     "songs",
     "sing",
@@ -49,6 +63,8 @@ _ACTIVITY_KEYWORDS = (
 def detect_intent_phrase(text: str) -> str | None:
     if _STORY_PATTERN.search(text):
         return STORY
+    if _READ_PATTERN.search(text):
+        return READ
     if _SONG_PATTERN.search(text):
         return SONG
     if _CHAT_PATTERN.search(text):

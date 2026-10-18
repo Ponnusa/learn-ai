@@ -11,6 +11,7 @@ from companion_robot.device.interfaces import DeviceState
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.engagement.schema import EngagementMode
 from companion_robot.memory.repository import MemoryRepository
+from companion_robot.reading.repository import ReadingRepository
 from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
@@ -22,6 +23,7 @@ from companion_robot.voice_loop_demo import (
     _pick_item_by_voice,
     _resolve_spoken_choice,
     _run_everyday_companion,
+    _run_reading_partner,
     _run_teachable_friend,
     _speak_while_thinking,
 )
@@ -58,12 +60,16 @@ class _FakeFace:
     def __init__(self) -> None:
         self.states: list[DeviceState] = []
         self.modes: list[str | None] = []
+        self.reading_texts: list[list[str] | None] = []
 
     def set_status_led(self, state: DeviceState) -> None:
         self.states.append(state)
 
     def set_expression_mode(self, mode: str | None) -> None:
         self.modes.append(mode)
+
+    def set_reading_text(self, lines: list[str] | None) -> None:
+        self.reading_texts.append(lines)
 
 
 class _Item:
@@ -513,3 +519,74 @@ async def test_fallback_tier_switch_declined_stays_in_current_mode():
         "role": "user",
         "content": "can we keep going with the teaching",
     }
+
+
+# -- _run_reading_partner (decision 0051) ----------------------------------
+
+
+async def test_run_reading_partner_never_checks_the_read_aloud_transcript_for_a_switch():
+    """The mode's one genuinely different rule, called out explicitly
+    in its own docstring: intent-switch detection must run on the
+    short "want another one?" reply between books, never on the
+    child's read-aloud transcript -- that transcript *is* the story's
+    own text, so running phrase detection on it would be a false-
+    positive source. The read-aloud text below ("tell me a story")
+    would itself resolve to a strict-phrase STORY match if it were
+    (incorrectly) checked -- if that happened, the loop would break
+    after the FIRST capture and the second, real "what next" turn
+    would never be reached."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    llm = _FakeLLM(reply="TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["tell me a story", "can we sing a song"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
+            reading, face, "child-1", 1.0,
+        )
+
+    # Only the real "what next" turn ("can we sing a song") decided the
+    # switch -- had the read-aloud transcript been checked instead, this
+    # would be STORY ("2") and the loop would have stopped after one capture.
+    assert next_mode == "4"
+    assert carried_text == "can we sing a song"
+
+
+async def test_run_reading_partner_grades_the_read_and_persists_mastery():
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    llm = _FakeLLM(reply="TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        # The second turn is a genuine switch request (needed so the
+        # mode loop -- which otherwise keeps generating books forever --
+        # actually terminates for this test).
+        side_effect=["a cat sat a cat ran", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert carried_text == "let's just chat"
+    # A perfect read-aloud got a warm, qualitative spoken feedback line.
+    assert any("really well" in line for line in tts.synthesized)
+    # The book's text was actually shown on screen, then cleared both
+    # before grading and again once the mode loop exits (the `finally`).
+    assert face.reading_texts[0] == ["A cat sat.", "A cat ran."]
+    assert None in face.reading_texts
+    # The session was actually persisted, not just held in memory.
+    profile = reading.get_or_create("child-1")
+    assert profile.sessions_completed == 1
