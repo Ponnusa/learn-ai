@@ -17,6 +17,25 @@
     <input name="interest" value="{{ profile.interest }}" placeholder="e.g. dinosaurs">
   </label>
   <small>Used to theme the stories Reading Partner generates. Leave blank for no particular theme.</small>
+  <label>
+    Reading pace (words per minute)
+    <input type="number" name="reading_pace_wpm" value="{{ profile.reading_pace_wpm }}"
+           min="20" max="120" step="5">
+  </label>
+  <small>How fast the word highlight advances on screen during Reading Partner -- slower is easier to follow.</small>
+  <label>
+    Reading font size
+    <input type="number" name="reading_font_size" value="{{ profile.reading_font_size }}"
+           min="18" max="48" step="2">
+  </label>
+  <label>
+    Reading font color
+    <select name="reading_font_color">
+      {% for color in valid_reading_font_colors %}
+        <option value="{{ color }}" {{ "selected" if color == profile.reading_font_color else "" }}>{{ color }}</option>
+      {% endfor %}
+    </select>
+  </label>
   <button type="submit">Save</button>
 </form>
 <p><a class="action-link" href="{{ url_for('profiles_view') }}">Back</a></p>

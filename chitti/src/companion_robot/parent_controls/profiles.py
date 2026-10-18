@@ -33,6 +33,16 @@ class ChildProfile:
     # tutor_cli.py did. Reading-only for now, not fed into any other
     # mode's prompt.
     interest: str = ""
+    # Decision 0053: Reading Partner's teleprompter display -- how
+    # fast the word-highlight advances (words per minute), and the
+    # on-screen font size/color. Parent-settable here, same as
+    # speech_speed/interest. Color is one of a short vetted list
+    # (device/screen_face.py's _READING_FONT_COLORS), not a free
+    # picker, so a parent can't accidentally choose something
+    # unreadable against the display's dark background.
+    reading_pace_wpm: float = 45.0
+    reading_font_size: int = 28
+    reading_font_color: str = "white"
 
 
 class ChildProfileRepository:
@@ -45,8 +55,9 @@ class ChildProfileRepository:
             """
             INSERT INTO child_profiles (
                 id, name, age, created_at, updated_at,
-                teachable_friend_enabled, story_companion_enabled, speech_speed, interest
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                teachable_friend_enabled, story_companion_enabled, speech_speed, interest,
+                reading_pace_wpm, reading_font_size, reading_font_color
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 profile.id,
@@ -58,6 +69,9 @@ class ChildProfileRepository:
                 int(profile.story_companion_enabled),
                 profile.speech_speed,
                 profile.interest,
+                profile.reading_pace_wpm,
+                profile.reading_font_size,
+                profile.reading_font_color,
             ),
         )
         self._conn.commit()
@@ -81,6 +95,9 @@ class ChildProfileRepository:
         story_companion_enabled: bool | None = None,
         speech_speed: float | None = None,
         interest: str | None = None,
+        reading_pace_wpm: float | None = None,
+        reading_font_size: int | None = None,
+        reading_font_color: str | None = None,
     ) -> bool:
         existing = self.get(profile_id)
         if existing is None:
@@ -99,10 +116,20 @@ class ChildProfileRepository:
         )
         speech_speed = existing.speech_speed if speech_speed is None else speech_speed
         interest = existing.interest if interest is None else interest
+        reading_pace_wpm = (
+            existing.reading_pace_wpm if reading_pace_wpm is None else reading_pace_wpm
+        )
+        reading_font_size = (
+            existing.reading_font_size if reading_font_size is None else reading_font_size
+        )
+        reading_font_color = (
+            existing.reading_font_color if reading_font_color is None else reading_font_color
+        )
         self._conn.execute(
             "UPDATE child_profiles SET name = ?, age = ?, updated_at = ?, "
             "teachable_friend_enabled = ?, story_companion_enabled = ?, "
-            "speech_speed = ?, interest = ? WHERE id = ?",
+            "speech_speed = ?, interest = ?, reading_pace_wpm = ?, "
+            "reading_font_size = ?, reading_font_color = ? WHERE id = ?",
             (
                 name,
                 age,
@@ -111,6 +138,9 @@ class ChildProfileRepository:
                 int(story_companion_enabled),
                 speech_speed,
                 interest,
+                reading_pace_wpm,
+                reading_font_size,
+                reading_font_color,
                 profile_id,
             ),
         )
@@ -134,4 +164,7 @@ def _row_to_profile(row: sqlite3.Row) -> ChildProfile:
         story_companion_enabled=bool(row["story_companion_enabled"]),
         speech_speed=row["speech_speed"],
         interest=row["interest"],
+        reading_pace_wpm=row["reading_pace_wpm"],
+        reading_font_size=row["reading_font_size"],
+        reading_font_color=row["reading_font_color"],
     )

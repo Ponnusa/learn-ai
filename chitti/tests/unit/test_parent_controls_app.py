@@ -506,7 +506,15 @@ def test_edit_profile_updates_speech_speed():
     token = _get_csrf_token(client)
     response = client.post(
         f"/profiles/{profile_id}/edit",
-        data={"name": "Anna", "age": "7", "speech_speed": "0.8", "csrf_token": token},
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "0.8",
+            "reading_pace_wpm": "45",
+            "reading_font_size": "28",
+            "reading_font_color": "white",
+            "csrf_token": token,
+        },
     )
     assert response.status_code == 302
 
@@ -535,6 +543,9 @@ def test_edit_profile_updates_interest():
             "age": "7",
             "speech_speed": "1.0",
             "interest": "dinosaurs",
+            "reading_pace_wpm": "45",
+            "reading_font_size": "28",
+            "reading_font_color": "white",
             "csrf_token": token,
         },
     )
@@ -561,6 +572,94 @@ def test_edit_profile_rejects_out_of_range_speed():
     response = client.post(
         f"/profiles/{profile_id}/edit",
         data={"name": "Anna", "age": "7", "speech_speed": "9.0", "csrf_token": token},
+    )
+    assert response.status_code == 400
+
+
+def test_edit_profile_updates_reading_display_settings():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    client.post("/profiles", data={"name": "Anna", "age": "7", "csrf_token": token})
+
+    response = client.get("/profiles")
+    import re
+
+    profile_id = re.search(rb'/profiles/([a-f0-9]+)/edit', response.data).group(1).decode()
+
+    token = _get_csrf_token(client)
+    response = client.post(
+        f"/profiles/{profile_id}/edit",
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "1.0",
+            "reading_pace_wpm": "60",
+            "reading_font_size": "36",
+            "reading_font_color": "yellow",
+            "csrf_token": token,
+        },
+    )
+    assert response.status_code == 302
+
+    from companion_robot.parent_controls.profiles import ChildProfileRepository
+
+    profile = ChildProfileRepository(conn).get(profile_id)
+    assert profile.reading_pace_wpm == 60.0
+    assert profile.reading_font_size == 36
+    assert profile.reading_font_color == "yellow"
+
+
+def test_edit_profile_rejects_out_of_range_reading_pace():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    client.post("/profiles", data={"name": "Anna", "age": "7", "csrf_token": token})
+
+    response = client.get("/profiles")
+    import re
+
+    profile_id = re.search(rb'/profiles/([a-f0-9]+)/edit', response.data).group(1).decode()
+
+    token = _get_csrf_token(client)
+    response = client.post(
+        f"/profiles/{profile_id}/edit",
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "1.0",
+            "reading_pace_wpm": "500",
+            "reading_font_size": "28",
+            "reading_font_color": "white",
+            "csrf_token": token,
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_edit_profile_rejects_an_unlisted_reading_font_color():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    client.post("/profiles", data={"name": "Anna", "age": "7", "csrf_token": token})
+
+    response = client.get("/profiles")
+    import re
+
+    profile_id = re.search(rb'/profiles/([a-f0-9]+)/edit', response.data).group(1).decode()
+
+    token = _get_csrf_token(client)
+    response = client.post(
+        f"/profiles/{profile_id}/edit",
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "1.0",
+            "reading_pace_wpm": "45",
+            "reading_font_size": "28",
+            "reading_font_color": "purple",  # not in the vetted list
+            "csrf_token": token,
+        },
     )
     assert response.status_code == 400
 

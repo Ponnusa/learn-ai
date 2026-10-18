@@ -67,6 +67,7 @@ class _FakeFace:
         self.states: list[DeviceState] = []
         self.modes: list[str | None] = []
         self.reading_texts: list[list[str] | None] = []
+        self.spotlights: list[str | None] = []
 
     def set_status_led(self, state: DeviceState) -> None:
         self.states.append(state)
@@ -74,8 +75,14 @@ class _FakeFace:
     def set_expression_mode(self, mode: str | None) -> None:
         self.modes.append(mode)
 
-    def set_reading_text(self, lines: list[str] | None) -> None:
+    def set_reading_text(
+        self, lines: list[str] | None, *, wpm: float = 45.0, font_size: int = 28,
+        font_color: str = "white",
+    ) -> None:
         self.reading_texts.append(lines)
+
+    def set_reading_spotlight(self, word: str | None) -> None:
+        self.spotlights.append(word)
 
 
 class _Item:
@@ -695,6 +702,12 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
     # (from the retry) for the substituted word's first sound.
     profile = reading.get_or_create("child-1")
     assert profile.masteries["s"].opportunities == 2
+    # Decision 0053: the actual bug fix -- the display froze on the
+    # missed word for the whole hint exchange, then cleared once the
+    # loop ended, rather than leaving the child with no idea what was
+    # being asked. (A second clear comes from the mode's own cleanup
+    # when it exits right after, via the switch to Just Chat.)
+    assert face.spotlights == ["sat", None, None]
 
 
 async def test_run_reading_partner_hint_retry_continues_without_penalty_after_three_misses():
@@ -735,3 +748,8 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_th
     assert tts.synthesized[3] == build_hint_line("sat", 2)
     assert "There you go!" not in tts.synthesized
     assert tts.synthesized[4].startswith("Good try! Reading can be tricky sometimes.")
+    # Decision 0053: the display stayed frozen on the missed word for
+    # all three stages (never cleared early just because a retry was
+    # wrong), then cleared once the loop gave up (and again on the
+    # mode's own exit cleanup, right after).
+    assert face.spotlights == ["sat", None, None]

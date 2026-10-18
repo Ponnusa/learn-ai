@@ -1046,6 +1046,9 @@ async def _run_reading_partner(
     speed: float,
     child_age: int | None = None,
     child_interest: str = "",
+    reading_pace_wpm: float = 45.0,
+    reading_font_size: int = 28,
+    reading_font_color: str = "white",
     initial_text: str | None = None,
 ) -> tuple[str | None, str | None]:
     """Decision 0051: phonics-based reading practice -- picks the next
@@ -1091,6 +1094,19 @@ async def _run_reading_partner(
     since _capture_and_transcribe() is push-to-talk (record until
     Enter, then transcribe once) with no streaming/VAD to notice a
     child pausing mid-read.
+
+    Decision 0053: the book's text is shown as a parent-paced
+    (`reading_pace_wpm`), parent-sized/colored (`reading_font_size`/
+    `reading_font_color`) scrolling teleprompter -- a pacing aid, not
+    reactive to the child's actual speech, same push-to-talk
+    limitation as above. `face.set_reading_text()` is called right
+    before the read-aloud capture (not before the spoken intro), so
+    its internal clock starts close to when the child is actually
+    expected to begin reading. During the hint loop, `face.
+    set_reading_spotlight(hint_word)` freezes the display on just the
+    missed word for the whole hint-and-retry exchange -- the actual
+    fix for a confirmed bug where the child had no way to know which
+    word a hint was even about.
     """
     face.set_expression_mode("learning")  # decision 0044
     profile = reading_repo.get_or_create(child_profile_id, interest=child_interest)
@@ -1140,12 +1156,22 @@ async def _run_reading_partner(
             print(f"\n-- {book.title} --")
             for page in book.pages:
                 print(f"  {page}")
-            face.set_reading_text(book.pages)
             intro = f'Here\'s your story, "{book.title}"! Give it a try -- read it out loud to me.'
             print(f"Chitti: {intro}")
             face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, intro, speed=speed)
 
+            # Decision 0053: the teleprompter's clock starts here, as
+            # close as practical to when the child is actually
+            # expected to start reading -- not before the intro, which
+            # would burn several seconds of scroll time while Chitti
+            # is still talking.
+            face.set_reading_text(
+                book.pages,
+                wpm=reading_pace_wpm,
+                font_size=reading_font_size,
+                font_color=reading_font_color,
+            )
             face.set_status_led(DeviceState.LISTENING)
             # Real elapsed recording time, not the estimated-duration
             # fallback the original project's typed-transcript CLI path
@@ -1166,6 +1192,11 @@ async def _run_reading_partner(
             # counts as real evidence rather than being thrown away.
             hint_word = pick_hint_word(assessment)
             if hint_word is not None:
+                # Decision 0053: the actual bug fix -- freezes the
+                # display on the missed word for the whole exchange,
+                # so the child always knows which word is meant,
+                # regardless of hint stage.
+                face.set_reading_spotlight(hint_word)
                 for stage in range(3):
                     hint_line = build_hint_line(hint_word, stage)
                     print(f"Chitti: {hint_line}")
@@ -1190,6 +1221,7 @@ async def _run_reading_partner(
                         break
                 # No penalty for still missing it after the third stage
                 # (saying the word outright) -- the session just moves on.
+                face.set_reading_spotlight(None)
 
             delta = update_from_evidence(
                 profile, assessment.grapheme_evidence, session_index=profile.sessions_completed
@@ -1216,6 +1248,7 @@ async def _run_reading_partner(
                 break
     finally:
         face.set_reading_text(None)
+        face.set_reading_spotlight(None)
     return next_mode, switch_trigger_text
 
 
@@ -1407,6 +1440,9 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.profile.speech_speed,
                     child_age=ctx.profile.age,
                     child_interest=ctx.profile.interest,
+                    reading_pace_wpm=ctx.profile.reading_pace_wpm,
+                    reading_font_size=ctx.profile.reading_font_size,
+                    reading_font_color=ctx.profile.reading_font_color,
                     initial_text=carried_text,
                 )
             else:

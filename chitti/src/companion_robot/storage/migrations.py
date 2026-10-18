@@ -223,4 +223,19 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         conn, "child_profiles", "speech_speed", "speech_speed REAL NOT NULL DEFAULT 1.0"
     )
     _ensure_column(conn, "child_profiles", "interest", "interest TEXT NOT NULL DEFAULT ''")
+    _ensure_column(
+        conn, "child_profiles", "reading_pace_wpm", "reading_pace_wpm REAL NOT NULL DEFAULT 45.0"
+    )
+    _ensure_column(
+        conn,
+        "child_profiles",
+        "reading_font_size",
+        "reading_font_size INTEGER NOT NULL DEFAULT 28",
+    )
+    _ensure_column(
+        conn,
+        "child_profiles",
+        "reading_font_color",
+        "reading_font_color TEXT NOT NULL DEFAULT 'white'",
+    )
     conn.commit()

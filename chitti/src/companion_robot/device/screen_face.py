@@ -47,6 +47,7 @@ import os
 import random
 import threading
 import time
+from dataclasses import dataclass
 
 from .interfaces import DeviceController, DeviceState
 
@@ -291,22 +292,141 @@ def _wrap_text(text: str, font, max_width: int) -> list[str]:
     return lines
 
 
-def _draw_reading_text(screen, width: int, height: int, font, pages: list[str]) -> None:
-    max_width = width - 2 * _READING_MARGIN
-    lines: list[str] = []
-    for i, page in enumerate(pages):
-        lines.extend(_wrap_text(page, font, max_width))
-        if i != len(pages) - 1:
-            lines.append("")  # blank separator between pages
+# Decision 0053: the only reading-display font colors a parent can
+# choose (parent_controls/profiles.py's ChildProfile.reading_font_color),
+# all legible against _BG. Cross-referenced with
+# parent_controls/app.py's _VALID_READING_FONT_COLORS, which must list
+# the same names.
+_READING_FONT_COLORS: dict[str, tuple[int, int, int]] = {
+    "white": _WHITE,
+    "yellow": (240, 220, 80),
+    "cyan": _CYAN,
+    "green": (120, 220, 120),
+}
+_SPOTLIGHT_FONT_SIZE_CAP = 96
+_SPOTLIGHT_FONT_SIZE_MULTIPLIER = 2
+_DEFAULT_READING_WPM = 45.0
 
-    y = _READING_MARGIN
-    line_height = font.get_linesize() + _READING_LINE_SPACING
-    for line in lines:
-        if y + line_height > height - _READING_MARGIN:
-            break  # simple overflow guard -- no multi-screen pagination in v1
-        if line:
-            screen.blit(font.render(line, True, _WHITE), (_READING_MARGIN, y))
-        y += line_height
+
+@dataclass
+class TimedWord:
+    """One word's slot in the teleprompter's reading timeline (decision
+    0053). char_start/char_end are offsets within its own wrapped
+    line's text -- tracked (rather than matching by word text) so a
+    repeated word like "the" highlights the correct occurrence, not
+    always the first."""
+
+    text: str
+    line_index: int
+    char_start: int
+    char_end: int
+    start: float
+    end: float
+
+
+def _build_word_timeline(
+    pages: list[str], font, max_width: int, seconds_per_word: float
+) -> tuple[list[str], list[TimedWord]]:
+    """Wraps `pages` into screen lines (reusing _wrap_text()) and
+    assigns every word an equal-length time slot, in reading order
+    across all lines/pages -- a uniform pace, not scaled by word
+    length or punctuation (decision 0053's deferred list). Blank
+    separator lines between pages take a line slot but no word/time."""
+    lines: list[str] = []
+    words: list[TimedWord] = []
+    t = 0.0
+    for page_i, page in enumerate(pages):
+        for line in _wrap_text(page, font, max_width):
+            line_index = len(lines)
+            lines.append(line)
+            cursor = 0
+            for word in line.split():
+                char_start = line.index(word, cursor)
+                char_end = char_start + len(word)
+                cursor = char_end
+                words.append(
+                    TimedWord(
+                        text=word,
+                        line_index=line_index,
+                        char_start=char_start,
+                        char_end=char_end,
+                        start=t,
+                        end=t + seconds_per_word,
+                    )
+                )
+                t += seconds_per_word
+        if page_i != len(pages) - 1:
+            lines.append("")  # blank separator between pages
+    return lines, words
+
+
+def _current_word_index(words: list[TimedWord], elapsed: float) -> int:
+    """The word whose [start, end) contains `elapsed`; holds on the
+    last word once the passage's total duration has elapsed -- never
+    loops, never goes blank, so every line gets its moment on screen
+    regardless of how long the child takes to actually finish reading."""
+    if not words:
+        return -1
+    for i, word in enumerate(words):
+        if elapsed < word.end:
+            return i
+    return len(words) - 1
+
+
+def _draw_teleprompter(
+    screen,
+    width: int,
+    height: int,
+    font,
+    lines: list[str],
+    words: list[TimedWord],
+    elapsed: float,
+    *,
+    base_color,
+    highlight_color,
+    line_height: int,
+) -> None:
+    """Bottom-to-top auto-scroll: the current line is anchored at the
+    screen's vertical middle, every other line offset by its distance
+    (in lines) from it -- lines already read scroll up and off the
+    top, lines not yet reached queue in from the bottom. Unlike the
+    old static _draw_reading_text() this replaces, nothing is ever
+    silently cut off by screen height; a line simply isn't drawn while
+    it's off-screen; it gets its turn as the scroll reaches it."""
+    current_idx = _current_word_index(words, elapsed)
+    current_line = words[current_idx].line_index if current_idx >= 0 else 0
+    anchor_y = height // 2
+    for i, line in enumerate(lines):
+        y = anchor_y + (i - current_line) * line_height
+        if y + line_height < 0 or y > height:
+            continue
+        if not line:
+            continue
+        if current_idx >= 0 and words[current_idx].line_index == i:
+            word = words[current_idx]
+            prefix = line[: word.char_start]
+            highlighted = line[word.char_start : word.char_end]
+            suffix = line[word.char_end :]
+            x = _READING_MARGIN
+            if prefix:
+                screen.blit(font.render(prefix, True, base_color), (x, y))
+                x += font.size(prefix)[0]
+            screen.blit(font.render(highlighted, True, highlight_color), (x, y))
+            x += font.size(highlighted)[0]
+            if suffix:
+                screen.blit(font.render(suffix, True, base_color), (x, y))
+        else:
+            screen.blit(font.render(line, True, base_color), (_READING_MARGIN, y))
+
+
+def _draw_spotlight(screen, width: int, height: int, font, word: str, color) -> None:
+    """Decision 0052/0053's hint-stage fix: freezes on just the missed
+    word, large and centered, so the child always knows which word is
+    meant -- independent of, and drawn instead of, the scrolling
+    teleprompter."""
+    rendered = font.render(word, True, color)
+    rect = rendered.get_rect(center=(width // 2, height // 2))
+    screen.blit(rendered, rect)
 
 
 def _draw_pattern(screen, cx: int, cy: int, pattern: list[str], color) -> None:
@@ -333,6 +453,11 @@ class ScreenFaceDeviceController(DeviceController):
         self._state = DeviceState.OFFLINE
         self._mode: str | None = None
         self._reading_lines: list[str] | None = None
+        self._reading_wpm: float = _DEFAULT_READING_WPM
+        self._reading_font_size: int = _READING_FONT_SIZE
+        self._reading_font_color: str = "white"
+        self._reading_started_at: float | None = None
+        self._spotlight_word: str | None = None
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -367,13 +492,38 @@ class ScreenFaceDeviceController(DeviceController):
         with self._lock:
             self._mode = mode
 
-    def set_reading_text(self, lines: list[str] | None) -> None:
-        """Decision 0051: lines to show on screen for Reading Partner
-        -- when set, the render loop draws this text instead of the
-        dot-matrix face; None returns to the normal face. Independent
-        of set_status_led()/set_expression_mode(), same pattern."""
+    def set_reading_text(
+        self,
+        lines: list[str] | None,
+        *,
+        wpm: float = _DEFAULT_READING_WPM,
+        font_size: int = _READING_FONT_SIZE,
+        font_color: str = "white",
+    ) -> None:
+        """Decision 0051/0053: lines to show on screen for Reading
+        Partner -- when set, the render loop draws a word-by-word-
+        highlighted, auto-scrolling teleprompter instead of the dot-
+        matrix face; None returns to the normal face. `wpm`/`font_size`/
+        `font_color` are parent-settable (parent_controls/profiles.py's
+        ChildProfile) and only take effect when `lines` is being set,
+        not cleared. Independent of set_status_led()/
+        set_expression_mode(), same pattern."""
         with self._lock:
             self._reading_lines = lines
+            self._reading_wpm = wpm
+            self._reading_font_size = font_size
+            self._reading_font_color = font_color
+            self._reading_started_at = time.monotonic() if lines is not None else None
+
+    def set_reading_spotlight(self, word: str | None) -> None:
+        """Decision 0053: freezes the display on a single word, large
+        and centered, in the hint color -- used while Reading
+        Partner's hint-and-retry loop (decision 0052) is running, so
+        the child always knows which word is meant regardless of hint
+        stage. Independent of set_reading_text(); None returns to
+        whatever set_reading_text()/the face would otherwise show."""
+        with self._lock:
+            self._spotlight_word = word
 
     def emergency_stop(self) -> None:
         """Synchronous, per the ABC's requirement -- must work even if
@@ -395,9 +545,21 @@ class ScreenFaceDeviceController(DeviceController):
         with self._lock:
             return self._mode
 
-    def _get_reading_text(self) -> list[str] | None:
+    def _get_reading_display(
+        self,
+    ) -> tuple[list[str] | None, float, int, str, float | None]:
         with self._lock:
-            return self._reading_lines
+            return (
+                self._reading_lines,
+                self._reading_wpm,
+                self._reading_font_size,
+                self._reading_font_color,
+                self._reading_started_at,
+            )
+
+    def _get_spotlight(self) -> str | None:
+        with self._lock:
+            return self._spotlight_word
 
     def _create_screen(self):
         os.environ.setdefault("SDL_FBDEV", "/dev/fb0")
@@ -423,7 +585,6 @@ class ScreenFaceDeviceController(DeviceController):
             self._running = False
             return
         pygame.display.set_caption("Chitti")
-        font = pygame.font.Font(None, _READING_FONT_SIZE)
         clock = pygame.time.Clock()
         t = 0.0
         blinker = _DiscreteTimer(_BLINK_MIN_INTERVAL, _BLINK_MAX_INTERVAL, _BLINK_DURATION)
@@ -431,6 +592,25 @@ class ScreenFaceDeviceController(DeviceController):
             _THINKING_SHIFT_MIN_INTERVAL, _THINKING_SHIFT_MAX_INTERVAL, _THINKING_SHIFT_DURATION
         )
         frame_durations: list[float] = []
+
+        # Decision 0053: font size is now parent-configurable
+        # (reading_font_size) rather than one fixed module-level font,
+        # so fonts are created on demand and cached by size here --
+        # local to this thread, no locking needed.
+        font_cache: dict[int, "pygame.font.Font"] = {}
+
+        def _font_for_size(size: int):
+            if size not in font_cache:
+                font_cache[size] = pygame.font.Font(None, size)
+            return font_cache[size]
+
+        # The word timeline only needs rebuilding when the lines/size/
+        # pace actually change, not every frame at _FPS -- rebuilding
+        # it 15x/second for the same unchanged passage would be wasted
+        # work for no visual difference.
+        timeline_key: tuple | None = None
+        timeline_lines: list[str] = []
+        timeline_words: list[TimedWord] = []
 
         while self._running:
             frame_start = time.monotonic()
@@ -449,9 +629,38 @@ class ScreenFaceDeviceController(DeviceController):
                 t += 1.0 / _FPS
                 continue
 
-            reading_lines = self._get_reading_text()
-            if reading_lines is not None:
-                _draw_reading_text(screen, self._width, self._height, font, reading_lines)
+            spotlight_word = self._get_spotlight()
+            reading_lines, wpm, font_size, font_color, started_at = self._get_reading_display()
+
+            if spotlight_word is not None:
+                spotlight_size = min(_SPOTLIGHT_FONT_SIZE_CAP, font_size * _SPOTLIGHT_FONT_SIZE_MULTIPLIER)
+                _draw_spotlight(
+                    screen, self._width, self._height,
+                    _font_for_size(spotlight_size), spotlight_word, _RED,
+                )
+            elif reading_lines is not None:
+                reading_font = _font_for_size(font_size)
+                key = (tuple(reading_lines), font_size, wpm)
+                if key != timeline_key:
+                    seconds_per_word = 60.0 / wpm if wpm > 0 else 60.0 / _DEFAULT_READING_WPM
+                    timeline_lines, timeline_words = _build_word_timeline(
+                        reading_lines, reading_font, self._width - 2 * _READING_MARGIN,
+                        seconds_per_word,
+                    )
+                    timeline_key = key
+                elapsed = time.monotonic() - started_at if started_at is not None else 0.0
+                base_color = _READING_FONT_COLORS.get(font_color, _WHITE)
+                # The highlighted "current" word always needs to stand
+                # out from the base color too, not just the background
+                # -- swaps to white in the one case (base == cyan)
+                # where cyan-on-cyan would otherwise be invisible.
+                highlight_color = _WHITE if base_color == _CYAN else _CYAN
+                _draw_teleprompter(
+                    screen, self._width, self._height, reading_font,
+                    timeline_lines, timeline_words, elapsed,
+                    base_color=base_color, highlight_color=highlight_color,
+                    line_height=reading_font.get_linesize() + _READING_LINE_SPACING,
+                )
             else:
                 mode = self._get_mode()
                 eye_pattern, mouth_pattern = _resolve_expression(state, mode)

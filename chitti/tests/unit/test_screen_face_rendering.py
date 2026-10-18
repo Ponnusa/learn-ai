@@ -73,3 +73,35 @@ async def test_shutdown_stops_the_thread_and_sets_offline():
 
     assert face.health_check() is False
     assert face._get_state() == DeviceState.OFFLINE
+
+
+async def test_teleprompter_and_spotlight_render_without_crashing_the_thread():
+    """Decision 0053: a smoke test, not a pixel check -- proves the
+    live render thread survives a real frame or two with the
+    scrolling teleprompter active, then with the hint spotlight
+    active, instead of raising inside the thread (which would be
+    silent otherwise, since it's a daemon thread)."""
+    import asyncio
+
+    face = ScreenFaceDeviceController()
+    await face.start()
+    try:
+        face.set_reading_text(
+            ["The cat sat on a mat.", "The dog ran to the park."],
+            wpm=600.0,  # fast, so the timeline isn't a concern for this smoke test
+            font_size=28,
+            font_color="yellow",
+        )
+        await asyncio.sleep(0.2)
+        assert face.health_check() is True
+
+        face.set_reading_spotlight("cat")
+        await asyncio.sleep(0.2)
+        assert face.health_check() is True
+
+        face.set_reading_spotlight(None)
+        face.set_reading_text(None)
+        await asyncio.sleep(0.2)
+        assert face.health_check() is True
+    finally:
+        await face.shutdown()

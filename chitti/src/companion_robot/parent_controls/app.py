@@ -35,6 +35,14 @@ from .stories import StoryRecord, StoryRepository
 # against a huge accidental upload filling up the Pi's limited storage.
 _MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
+# Decision 0053: the only reading-display font colors a parent can
+# choose -- all legible against device/screen_face.py's dark
+# background. Kept as a plain tuple here (rather than importing
+# device/screen_face.py, a pygame-dependent module, just for this)
+# and cross-referenced with that module's _READING_FONT_COLORS, which
+# must define the same names.
+_VALID_READING_FONT_COLORS = ("white", "yellow", "cyan", "green")
+
 
 def create_app(
     conn: sqlite3.Connection,
@@ -191,26 +199,70 @@ def create_app(
             age = request.form.get("age", "").strip()
             speed_raw = request.form.get("speech_speed", "").strip()
             interest = request.form.get("interest", "").strip()
+            pace_raw = request.form.get("reading_pace_wpm", "").strip()
+            font_size_raw = request.form.get("reading_font_size", "").strip()
+            font_color = request.form.get("reading_font_color", "").strip()
             try:
                 speed = float(speed_raw)
             except ValueError:
                 speed = None
+            try:
+                pace = float(pace_raw)
+            except ValueError:
+                pace = None
+            try:
+                font_size = int(font_size_raw)
+            except ValueError:
+                font_size = None
             # OpenAI's TTS API accepts 0.25-4.0 (voice/tts_openai.py) --
             # validated here too so a bad value gets a clear in-page
             # error now, not a confusing API failure during a live
-            # conversation later.
-            if not name or not age.isdigit() or speed is None or not (0.25 <= speed <= 4.0):
+            # conversation later. The reading-display ranges (decision
+            # 0053) are this project's own sane bounds, not an external
+            # API's; font_color is checked against the same vetted
+            # list device/screen_face.py's _READING_FONT_COLORS renders
+            # from, so a parent can never pick an unreadable color.
+            if (
+                not name
+                or not age.isdigit()
+                or speed is None
+                or not (0.25 <= speed <= 4.0)
+                or pace is None
+                or not (20.0 <= pace <= 120.0)
+                or font_size is None
+                or not (18 <= font_size <= 48)
+                or font_color not in _VALID_READING_FONT_COLORS
+            ):
                 return (
                     render_template(
                         "edit_profile.html",
                         profile=profile,
-                        error="Name, a numeric age, and a speech speed between 0.25 and 4.0 are required.",
+                        valid_reading_font_colors=_VALID_READING_FONT_COLORS,
+                        error=(
+                            "Name, a numeric age, a speech speed between 0.25 and 4.0, a "
+                            "reading pace between 20 and 120 words per minute, a reading font "
+                            "size between 18 and 48, and a valid reading font color are required."
+                        ),
                     ),
                     400,
                 )
-            profiles.update(profile_id, name=name, age=int(age), speech_speed=speed, interest=interest)
+            profiles.update(
+                profile_id,
+                name=name,
+                age=int(age),
+                speech_speed=speed,
+                interest=interest,
+                reading_pace_wpm=pace,
+                reading_font_size=font_size,
+                reading_font_color=font_color,
+            )
             return redirect(url_for("profiles_view"))
-        return render_template("edit_profile.html", profile=profile, error=None)
+        return render_template(
+            "edit_profile.html",
+            profile=profile,
+            valid_reading_font_colors=_VALID_READING_FONT_COLORS,
+            error=None,
+        )
 
     @app.route("/stories", methods=["GET", "POST"])
     @requires_auth
