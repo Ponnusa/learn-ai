@@ -80,6 +80,15 @@ from companion_robot.reading.mastery import update_from_evidence
 from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
 from companion_robot.reading.schema import GeneratedBook
+from companion_robot.reading.word_game import (
+    blank_vowels,
+    incorrect_response,
+    is_correct_answer,
+    pick_game_words,
+    random_closing_line,
+    random_correct_response,
+    spell_out_blanked,
+)
 from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.transcripts.schema import TranscriptRecord
@@ -1034,6 +1043,66 @@ async def _run_lullaby_time(lullabies, face, data_dir: Path, audio, tts, stt, sp
         face.set_status_led(DeviceState.IDLE)
 
 
+async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:
+    """Decision 0057: a fun, deterministic "missing letters" bonus
+    game after a book -- not part of mastery grading (reading/mastery.py
+    is never touched here), just encouragement and engagement. Offered,
+    not forced: explains itself, checks the child wants to play via
+    the same is_affirmative() gate _confirm_switch() uses, and a
+    decline/unclear reply skips the whole thing gracefully. Reuses
+    decision 0053's set_reading_spotlight() for the blanked-word
+    display -- no new rendering needed.
+    """
+    game_words = pick_game_words(book.words)
+    if not game_words:
+        return
+
+    intro = (
+        "Want to play a quick word game? I'll show you a word from the "
+        "story with some letters missing, and you tell me the missing "
+        "letters and say the whole word. Ready to play?"
+    )
+    print(f"Chitti: {intro}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, intro, speed=speed)
+
+    face.set_status_led(DeviceState.LISTENING)
+    reply = await _capture_and_transcribe(stt)
+    print(f"You said: {reply}")
+    if not is_affirmative(reply):
+        return
+
+    for word in game_words:
+        blanked = blank_vowels(word)
+        face.set_reading_spotlight(blanked)
+        prompt = (
+            f"Here's your word: {spell_out_blanked(blanked)}. "
+            "What letters are missing, and can you say the whole word?"
+        )
+        print(f"Chitti: {prompt}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, prompt, speed=speed)
+
+        face.set_status_led(DeviceState.LISTENING)
+        answer = await _capture_and_transcribe(stt)
+        print(f"You said: {answer}")
+        face.set_reading_spotlight(None)
+
+        response = (
+            random_correct_response()
+            if is_correct_answer(word, answer)
+            else incorrect_response(word)
+        )
+        print(f"Chitti: {response}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, response, speed=speed)
+
+    closing = random_closing_line()
+    print(f"Chitti: {closing}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, closing, speed=speed)
+
+
 async def _run_reading_partner(
     conversation,
     tts,
@@ -1241,6 +1310,10 @@ async def _run_reading_partner(
             print(f"Chitti: {feedback_text}")
             face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, feedback_text, speed=speed)
+
+            # Decision 0057: a fun, optional bonus game using words
+            # from the story -- separate from the grading above.
+            await _run_word_game(book, tts, audio, stt, face, speed)
 
             # Found live: nothing ever told the child Chitti was now
             # waiting on them -- it just silently started listening

@@ -18,6 +18,11 @@ from companion_robot.parent_controls.reading_exercises import (
 )
 from companion_robot.reading.hints import build_hint_line
 from companion_robot.reading.repository import ReadingRepository
+from companion_robot.reading.word_game import (
+    _CLOSING_LINES,
+    _CORRECT_RESPONSES,
+    blank_vowels,
+)
 from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
@@ -598,11 +603,14 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
         # A perfect read -- no miscue, so decision 0052's hint loop
-        # never fires here and doesn't consume extra captures. The
-        # second turn is a genuine switch request (needed so the mode
-        # loop -- which otherwise keeps generating books forever --
-        # actually terminates for this test).
-        side_effect=["a cat sat a cat ran", "let's just chat"],
+        # never fires here and doesn't consume extra captures. "no
+        # thanks" declines decision 0057's post-reading word game
+        # (offered since "cat"/"sat"/"ran" all qualify) so it never
+        # consumes further captures either. The final turn is a
+        # genuine switch request (needed so the mode loop -- which
+        # otherwise keeps generating books forever -- actually
+        # terminates for this test).
+        side_effect=["a cat sat a cat ran", "no thanks", "let's just chat"],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -649,7 +657,8 @@ async def test_run_reading_partner_uses_a_pending_exercise_instead_of_generating
     with patch(
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
-        side_effect=["the cat sat", "let's just chat"],
+        # "no thanks" declines decision 0057's post-reading word game.
+        side_effect=["the cat sat", "no thanks", "let's just chat"],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -686,7 +695,8 @@ async def test_run_reading_partner_feedback_cites_a_specific_word_from_the_read(
     with patch(
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
-        side_effect=["a little bunny hops", "let's just chat"],
+        # "no thanks" declines decision 0057's post-reading word game.
+        side_effect=["a little bunny hops", "no thanks", "let's just chat"],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -721,8 +731,9 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
         # "mat" for "sat" is a clean substitution (test_reading_alignment's
-        # own precedent); the retry gets it right on the very first hint.
-        side_effect=["a cat mat", "sat", "let's just chat"],
+        # own precedent); the retry gets it right on the very first
+        # hint. "no thanks" declines decision 0057's post-reading word game.
+        side_effect=["a cat mat", "sat", "no thanks", "let's just chat"],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -771,7 +782,8 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_th
     with patch(
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
-        side_effect=["a cat mat", "nope", "nope", "nope", "let's just chat"],
+        # "no thanks" declines decision 0057's post-reading word game.
+        side_effect=["a cat mat", "nope", "nope", "nope", "no thanks", "let's just chat"],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -794,3 +806,134 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_th
     # wrong), then cleared once the loop gave up (and again on the
     # mode's own exit cleanup, right after).
     assert face.spotlights == ["sat", None, None]
+
+
+# -- post-reading word game (decision 0057) --------------------------------
+
+
+async def test_run_word_game_declined_plays_no_rounds():
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A little bunny hops.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a little bunny hops", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # The game was offered (a question was asked)...
+    assert any("word game" in line.lower() for line in tts.synthesized)
+    # ...but declining it means no word was ever shown or revealed --
+    # the only spotlight call is the mode's own unconditional
+    # clear-on-exit cleanup, not a real round.
+    assert face.spotlights == [None]
+    assert not any(line in _CORRECT_RESPONSES for line in tts.synthesized)
+    assert not any('"bunny"' in line for line in tts.synthesized)  # never revealed/graded
+    assert not any(line in _CLOSING_LINES for line in tts.synthesized)
+
+
+async def test_run_word_game_accepted_plays_through_both_words():
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A little bunny hops.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "a little bunny hops",  # the read-aloud (perfect, no hint)
+            "yes",  # accepts the game
+            "little",  # round 1 ("little"): correct
+            "nope",  # round 2 ("bunny"): incorrect
+            "let's just chat",  # ends the session
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # Both picked words (longest-first: "little" then "bunny") were
+    # shown, blanked, on screen -- and cleared again after each round
+    # (plus once more from the mode's own clear-on-exit cleanup).
+    assert face.spotlights == [
+        blank_vowels("little"), None, blank_vowels("bunny"), None, None,
+    ]
+    # Round 1's correct answer got one of the fixed celebratory replies.
+    assert any(line in _CORRECT_RESPONSES for line in tts.synthesized)
+    # Round 2's wrong answer still named the real word, gently.
+    assert any('"bunny"' in line for line in tts.synthesized)
+    # The game always ends on a warm note, regardless of the mix of
+    # right/wrong answers.
+    assert any(line in _CLOSING_LINES for line in tts.synthesized)
+
+
+async def test_run_word_game_never_offered_when_no_word_qualifies():
+    """Every word in this exercise is under the 3-letter minimum --
+    the game must not even ask, and must not consume an extra capture
+    doing so."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="I am in it.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["i am in it", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert not any("word game" in line.lower() for line in tts.synthesized)
+    # Only the mode's own unconditional clear-on-exit cleanup -- no
+    # real game round ever ran.
+    assert face.spotlights == [None]
