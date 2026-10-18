@@ -32,6 +32,7 @@ import asyncio
 import contextlib
 import difflib
 import logging
+import os
 import secrets
 import subprocess
 import time
@@ -217,6 +218,9 @@ _CONFIRMATION_PROMPTS = {
     "1": "Sounds like you want to teach me something -- is that right?",
 }
 
+_CONFIRMED_ACK = "Great, let's do that!"
+_DECLINED_ACK = "Okay, got it."
+
 
 async def _confirm_switch(mode_code: str, tts, audio, stt, face, speed: float) -> bool:
     """Decision 0046: the LLM-fallback intent tier (see
@@ -226,7 +230,19 @@ async def _confirm_switch(mode_code: str, tts, audio, stt, face, speed: float) -
     Chat (almost happened for real: "my friend isn't talking to me"
     mentions "talk"). Strict phrase matches skip this entirely. Any
     unclear/negative answer defaults to NOT switching, same safer-
-    default instinct as _pick_item_by_voice()'s retry."""
+    default instinct as _pick_item_by_voice()'s retry.
+
+    Addendum, found live: the child's answer to this question was
+    being consumed purely as a yes/no signal and otherwise completely
+    discarded -- in one real case it was itself emotionally loaded
+    ("yes my friend is not talking to me", repeated for emphasis), and
+    getting no acknowledgment at all for it read as Chitti ignoring
+    them. A short, fixed, deterministic acknowledgment closes that gap
+    cheaply -- not a full LLM-generated reply, which would add another
+    round-trip during what's already a slower-than-usual interaction.
+    The original trigger text still gets a full real reply right after
+    this, in whichever mode ends up running.
+    """
     prompt_text = _CONFIRMATION_PROMPTS.get(mode_code, "Is that right?")
     print(f"Chitti: {prompt_text}")
     face.set_status_led(DeviceState.SPEAKING)
@@ -234,7 +250,12 @@ async def _confirm_switch(mode_code: str, tts, audio, stt, face, speed: float) -
     face.set_status_led(DeviceState.LISTENING)
     answer = await _capture_and_transcribe(stt)
     print(f"You said: {answer}")
-    return is_affirmative(answer)
+    confirmed = is_affirmative(answer)
+    ack_text = _CONFIRMED_ACK if confirmed else _DECLINED_ACK
+    print(f"Chitti: {ack_text}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, ack_text, speed=speed)
+    return confirmed
 
 
 _ORDINAL_WORDS = {
@@ -991,8 +1012,21 @@ async def setup_demo() -> DemoContext:
     # HDMI screen. Degrades to "no visible face" on its own (logged,
     # not raised) if pygame isn't installed or no SDL driver works --
     # never allowed to take down a real conversation session.
+    #
+    # CHITTI_DISABLE_FACE=1 (decision 0046): skips starting the render
+    # thread entirely -- an A/B toggle for comparing the timing logs
+    # above against the same kind of session with no face rendering at
+    # all, to isolate how much (if any) of the observed slowdown is
+    # the render thread contending for the Pi's single CPU core versus
+    # something else (network conditions, API-side latency). The
+    # controller object still exists either way, so every
+    # set_status_led()/set_expression_mode() call site is unaffected --
+    # they're harmless no-ops while the render thread was never started.
     face = ScreenFaceDeviceController()
-    await face.start()
+    if os.environ.get("CHITTI_DISABLE_FACE") == "1":
+        logger.info("CHITTI_DISABLE_FACE=1 -- not starting the face render thread")
+    else:
+        await face.start()
 
     # Picks the existing profile automatically if there's exactly one
     # (the common single-child case), prompts if there are several,

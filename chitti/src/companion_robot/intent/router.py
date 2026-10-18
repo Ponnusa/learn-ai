@@ -72,12 +72,23 @@ _NEGATIVE_WORDS = {"no", "nope", "nah", "not"}
 def is_affirmative(text: str) -> bool:
     """Decision 0046: deterministic yes/no parsing for the switch-
     confirmation question -- word-list based, same pure-function style
-    as detect_intent_phrase(). Defaults to False (don't switch) unless
-    a clear affirmative word is present and no negative word is -- a
-    negative word always wins over an affirmative one in the same
-    reply, and an empty/unclear answer is treated as "no". Same safer-
-    default instinct _pick_item_by_voice()'s retry already uses."""
-    words = set(text.lower().split())
-    if words & _NEGATIVE_WORDS:
-        return False
-    return bool(words & _AFFIRMATIVE_WORDS)
+    as detect_intent_phrase(). Defaults to False (don't switch) when no
+    signal word appears at all -- same safer-default instinct
+    _pick_item_by_voice()'s retry already uses.
+
+    Addendum, found live: a real "yes my friend is not talking to me
+    my friend is not talking to me" (a genuine yes, repeated for
+    emphasis) was misread as a decline, because the original "any
+    negative word anywhere in the reply wins" rule let the unrelated
+    "not" (from restating the complaint, not negating the answer)
+    override the "yes" that actually opened the sentence. People
+    answer yes/no questions by leading with the answer, so this now
+    walks the words in order and returns on the FIRST signal word --
+    position, not "negative always wins" -- carries the real answer.
+    """
+    for word in text.lower().split():
+        if word in _NEGATIVE_WORDS:
+            return False
+        if word in _AFFIRMATIVE_WORDS:
+            return True
+    return False

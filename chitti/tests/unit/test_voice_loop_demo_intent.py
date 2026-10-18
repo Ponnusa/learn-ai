@@ -173,7 +173,13 @@ async def test_confirm_switch_speaks_the_mode_specific_prompt_and_returns_true_o
         confirmed = await _confirm_switch("2", tts, _FakeAudio(), "fake-stt", face, 1.0)
 
     assert confirmed is True
-    assert tts.synthesized == ["Sounds like you want to hear a story -- is that right?"]
+    # Decision 0046 addendum: the confirmation prompt, then a short
+    # acknowledgment of the answer -- the answer itself must never be
+    # silently consumed with no response at all.
+    assert tts.synthesized == [
+        "Sounds like you want to hear a story -- is that right?",
+        "Great, let's do that!",
+    ]
 
 
 async def test_confirm_switch_returns_false_on_no():
@@ -361,7 +367,8 @@ async def test_fallback_tier_switch_declined_stays_in_current_mode():
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            side_effect=[None, KeyboardInterrupt],  # confirmation prompt, then the real reply
+            # confirmation prompt, decline acknowledgment, then the real reply
+            side_effect=[None, None, KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(

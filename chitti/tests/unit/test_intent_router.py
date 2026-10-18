@@ -66,8 +66,15 @@ def test_is_affirmative_defaults_to_false_for_unclear_or_empty():
     assert is_affirmative("maybe later") is False
 
 
-def test_is_affirmative_negative_word_wins_over_affirmative_in_same_reply():
-    """Decision 0046's safer default: an answer like "no, not really"
-    should never be read as a yes just because neither word alone is
-    decisive."""
-    assert is_affirmative("yes but no actually not") is False
+def test_is_affirmative_negative_first_word_wins():
+    assert is_affirmative("no that's not what I meant") is False
+
+
+def test_is_affirmative_first_signal_word_wins_over_a_later_unrelated_negative():
+    """Decision 0046 addendum, found live: a real "yes my friend is
+    not talking to me my friend is not talking to me" (a genuine yes,
+    repeated for emphasis) was misread as a decline because it
+    contains "not" later in the sentence. People lead with their
+    answer, so the first signal word -- not any negative word anywhere
+    -- is what actually carries it."""
+    assert is_affirmative("yes my friend is not talking to me") is True
