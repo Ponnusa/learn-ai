@@ -152,6 +152,47 @@ async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
         await audio.play(reply_audio)
 
 
+# Decision 0050: escalating filler lines spoken while an AI reply is
+# still generating, so the wait feels alive instead of silent --
+# "camouflaging" the call's latency rather than adding to it, since
+# the real work and the filler speech happen concurrently (the real
+# call runs as a background task; fillers play in the foreground,
+# checking after each one whether the real call has finished yet).
+# Fixed, deterministic text -- no LLM call needed just to mask another
+# one's latency. Escalates for a longer wait, but never loops/repeats
+# once the list is exhausted -- a long tail of silence is preferable
+# to an awkward repeated filler.
+_THINKING_FILLERS = [
+    "Hmm, let me think about that...",
+    "Okay, just a little longer...",
+    "Almost got it...",
+]
+
+
+async def _speak_while_thinking(task: "asyncio.Task", tts, audio, face, speed: float) -> None:
+    for filler in _THINKING_FILLERS:
+        if task.done():
+            return
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, filler, speed=speed)
+        face.set_status_led(DeviceState.PROCESSING)
+
+
+async def _generate_with_thinking_filler(coro, tts, audio, face, speed: float, label: str):
+    """Runs `coro` (the real AI call) in the background while speaking
+    escalating filler lines (see _speak_while_thinking) -- decision
+    0050. Times the real call's own duration (creation to completion),
+    not however long the filler speech happened to take, so decision
+    0046's existing timing logs stay accurate regardless of how the
+    wait was filled."""
+    start = time.monotonic()
+    task = asyncio.ensure_future(coro)
+    await _speak_while_thinking(task, tts, audio, face, speed)
+    result = await task
+    logger.info("timing: %s took %.2fs", label, time.monotonic() - start)
+    return result
+
+
 # Decision 0042: reuses the exact menu-choice strings main() already
 # dispatches on (see its mode-selection prompt), rather than a parallel
 # enum that would just need mapping back to these anyway.
@@ -752,10 +793,12 @@ async def _run_teachable_friend(
             )
             already_tried = incorrect_streak > 1
 
-            async with _timed("reply_generation"):
-                result = await conversation.teachable_friend_reply(
+            result = await _generate_with_thinking_filler(
+                conversation.teachable_friend_reply(
                     messages, math_check=math_check, already_tried=already_tried
-                )
+                ),
+                tts, audio, face, speed, "reply_generation",
+            )
             result = _patch_if_still_unresolved(result, math_check, already_tried)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
@@ -833,10 +876,12 @@ async def _run_everyday_companion(
             )
             already_tried = incorrect_streak > 1
 
-            async with _timed("reply_generation"):
-                result = await conversation.everyday_companion_reply(
+            result = await _generate_with_thinking_filler(
+                conversation.everyday_companion_reply(
                     messages, math_check=math_check, already_tried=already_tried, child_age=child_age
-                )
+                ),
+                tts, audio, face, speed, "reply_generation",
+            )
             result = _patch_if_still_unresolved(result, math_check, already_tried)
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
@@ -895,8 +940,10 @@ async def _run_story_companion(
     # opening observation/question instead, so the conversation
     # actually starts.
     face.set_status_led(DeviceState.PROCESSING)
-    async with _timed("reply_generation"):
-        opening = await conversation.story_opening_invitation(story.content, story.title, child_age)
+    opening = await _generate_with_thinking_filler(
+        conversation.story_opening_invitation(story.content, story.title, child_age),
+        tts, audio, face, speed, "reply_generation",
+    )
     if not opening.blocked:
         print(f"Chitti: {opening.text}")
         messages.append({"role": "assistant", "content": opening.text})
@@ -922,10 +969,10 @@ async def _run_story_companion(
                 break
             messages.append({"role": "user", "content": text})
             face.set_status_led(DeviceState.PROCESSING)
-            async with _timed("reply_generation"):
-                result = await conversation.story_companion_reply(
-                    messages, story.content, story.title, child_age
-                )
+            result = await _generate_with_thinking_filler(
+                conversation.story_companion_reply(messages, story.content, story.title, child_age),
+                tts, audio, face, speed, "reply_generation",
+            )
             print(f"Chitti: {result.text}")
             messages.append({"role": "assistant", "content": result.text})
             face.set_status_led(DeviceState.SPEAKING)
@@ -955,7 +1002,12 @@ async def _run_lullaby_time(lullabies, face, data_dir: Path, audio, tts, stt, sp
 
     face.set_expression_mode("music")  # decision 0044
     print(f"\n-- Lullaby time: {lullaby.title}. Ctrl-C to stop. --")
+    # Decision 0050: a short, fixed warm-up line before playback starts
+    # instead of jumping straight into the song -- found live that
+    # going silent-to-song felt abrupt. Deterministic text, no LLM call
+    # needed just to announce what's about to happen.
     face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, f"I'm going to play {lullaby.title} for you!", speed=speed)
     try:
         await _play_lullaby_file(data_dir / "lullabies" / f"{lullaby.id}.mp3", audio)
     except (KeyboardInterrupt, asyncio.CancelledError):

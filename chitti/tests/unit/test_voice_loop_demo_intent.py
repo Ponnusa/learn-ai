@@ -3,6 +3,7 @@ picker in voice_loop_demo.py -- real ConversationService/repositories,
 fake LLM/tts/audio/stt stand-ins, no real API calls, hardware, or
 keyboard input() needed.
 """
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 from companion_robot.conversation.service import ConversationService
@@ -14,12 +15,15 @@ from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
 from companion_robot.voice_loop_demo import (
+    _THINKING_FILLERS,
     _confirm_switch,
     _detect_switch_intent,
+    _generate_with_thinking_filler,
     _pick_item_by_voice,
     _resolve_spoken_choice,
     _run_everyday_companion,
     _run_teachable_friend,
+    _speak_while_thinking,
 )
 
 
@@ -215,6 +219,63 @@ async def test_confirm_switch_returns_false_on_no():
     assert confirmed is False
 
 
+# -- _speak_while_thinking / _generate_with_thinking_filler (decision 0050) -
+
+
+class _FakeTask:
+    """Reports done() as False for the first `done_after` checks, then
+    True -- lets the escalation-stopping logic be tested precisely
+    without depending on real asyncio scheduling timing (genuinely
+    fragile to get right: nothing in a chain of trivial fake
+    coroutines actually yields to the event loop the way real network
+    I/O does, so a real asyncio.Task's completion timing relative to
+    the filler loop isn't reliably controllable here)."""
+
+    def __init__(self, done_after: int) -> None:
+        self._checks = 0
+        self._done_after = done_after
+
+    def done(self) -> bool:
+        self._checks += 1
+        return self._checks > self._done_after
+
+
+async def test_speak_while_thinking_stops_once_the_task_is_done():
+    tts = _FakeTTS()
+    face = _FakeFace()
+    fake_task = _FakeTask(done_after=1)  # "done" starting from the 2nd check
+
+    await _speak_while_thinking(fake_task, tts, _FakeAudio(), face, 1.0)
+
+    assert tts.synthesized == [_THINKING_FILLERS[0]]
+
+
+async def test_speak_while_thinking_stops_after_the_last_filler_when_still_not_done():
+    """A Future that's never resolved guarantees task.done() stays
+    False for the whole loop -- no real sleep/timing needed to prove
+    the function speaks each filler once, in order, and then simply
+    stops rather than looping back or repeating one."""
+    tts = _FakeTTS()
+    face = _FakeFace()
+    never_done = asyncio.get_running_loop().create_future()
+
+    await _speak_while_thinking(never_done, tts, _FakeAudio(), face, 1.0)
+
+    assert tts.synthesized == _THINKING_FILLERS  # each spoken once, in order, no repeats
+
+
+async def test_generate_with_thinking_filler_returns_the_real_result():
+    tts = _FakeTTS()
+    face = _FakeFace()
+
+    async def _coro():
+        return "the real answer"
+
+    result = await _generate_with_thinking_filler(_coro(), tts, _FakeAudio(), face, 1.0, "test_label")
+
+    assert result == "the real answer"
+
+
 # -- _resolve_spoken_choice -----------------------------------------------
 
 
@@ -367,11 +428,18 @@ async def test_carried_over_text_gets_a_real_reply_without_another_capture():
     ):
         # Ctrl-C after the first (carried-over) turn is processed --
         # proves that turn used initial_text, since _capture_and_transcribe
-        # would raise immediately if it were ever called.
+        # would raise immediately if it were ever called. Decision
+        # 0050's thinking filler plays before the real reply; with
+        # every fake here fully synchronous internally (no real
+        # asyncio suspension anywhere), the background AI-call task
+        # never gets a scheduling chance to finish early, so all three
+        # fillers play in full before the real reply's own _speak call
+        # -- see test_speak_while_thinking_stops_once_the_task_is_done
+        # for the early-stop behavior with a real task.
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            side_effect=KeyboardInterrupt,
+            side_effect=[None, None, None, KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(
@@ -424,8 +492,12 @@ async def test_fallback_tier_switch_declined_stays_in_current_mode():
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            # confirmation prompt, decline acknowledgment, then the real reply
-            side_effect=[None, None, KeyboardInterrupt],
+            # confirmation prompt, decline acknowledgment, all three of
+            # decision 0050's thinking fillers (see the comment in
+            # test_carried_over_text_gets_a_real_reply_without_another_capture
+            # for why all three play with fully-synchronous fakes),
+            # then the real reply
+            side_effect=[None, None, None, None, None, KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(
