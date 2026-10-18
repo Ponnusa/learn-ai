@@ -139,6 +139,11 @@ class AssessmentResult:
     duration_seconds: float = 0.0
     miscues: list[Miscue] = field(default_factory=list)
     grapheme_evidence: dict[str, list[bool]] = field(default_factory=dict)
+    # Decision 0055: the expected words actually read correctly, in
+    # order (duplicates included) -- lets feedback.py cite a specific
+    # real word from this read as evidence, instead of a list of
+    # phonics sound labels disconnected from what the child actually did.
+    correct_words: list[str] = field(default_factory=list)
 
 
 @dataclass

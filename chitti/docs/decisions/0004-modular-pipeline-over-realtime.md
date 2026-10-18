@@ -71,3 +71,19 @@ the fallback to revisit — not the default to start from.
   picking one.
 - Measure actual first-response latency on the real pipeline before
   deciding whether it meets the spec's ~1s target or needs revisiting.
+- **2026-10-18, flagged by external feedback on Reading Partner's
+  teleprompter (decision 0053)**: a genuinely reactive word-highlight
+  (advancing only when the child's word is actually recognized,
+  rather than decision 0053's timer-paced highlight) needs streaming/
+  partial speech recognition, which this decision's modular pipeline
+  doesn't have -- `audio/real.py` is push-to-talk only (documented
+  there), and `voice/stt_openai.py` only exposes one-shot batch
+  transcription. Worth a dedicated feasibility evaluation before
+  committing to it, not a quick add-on to Reading Partner alone: a
+  streaming *input* backend doesn't reopen this decision's actual
+  safety-checkpoint concern (that was about Chitti's own *output*
+  speech skipping text-level screening), but it's still a new backend
+  with its own cost/latency/privacy profile, and would need
+  `audio/real.py`'s capture model and `device/screen_face.py`'s
+  render loop both extended to consume live partial results instead
+  of a timer. Not started.

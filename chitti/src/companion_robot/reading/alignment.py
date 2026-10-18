@@ -223,6 +223,7 @@ def assess(
     self_corrections = sum(1 for op in ops if op.kind == SELF_CORRECTION)
 
     evidence = attribute_evidence(ops, sight_words=sight_words)
+    correct_words = [op.expected for op in ops if op.kind == CORRECT and op.expected]
     miscues = [
         Miscue(
             kind=op.kind,
@@ -250,4 +251,5 @@ def assess(
         duration_seconds=duration_seconds,
         miscues=miscues,
         grapheme_evidence=evidence,
+        correct_words=correct_words,
     )

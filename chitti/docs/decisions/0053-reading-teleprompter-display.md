@@ -112,6 +112,10 @@ pre-existing per decision 0040).
   per-word duration only.
 - True speech-synced highlighting -- needs streaming STT/VAD, which
   Chitti doesn't have (the same constraint decision 0052 already
-  documented).
+  documented). Tracked as its own future feasibility evaluation in
+  decision 0004's "Open follow-ups" (2026-10-18 entry) -- a real
+  architecture decision, not a quick add-on, since it needs a
+  different STT backend and changes to both the audio capture layer
+  and this decision's render loop.
 - Per-word-length pace scaling -- uniform `seconds_per_word` only.
 - A free color picker -- the vetted list stays fixed.

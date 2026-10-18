@@ -663,6 +663,40 @@ async def test_run_reading_partner_uses_a_pending_exercise_instead_of_generating
     assert exercise.consumed_at is not None
 
 
+async def test_run_reading_partner_feedback_cites_a_specific_word_from_the_read():
+    """Decision 0055: a clean read with no hint cites a real standout
+    word from the actual passage, not a list of phonics sound labels."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A little bunny hops.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a little bunny hops", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert any('"little"' in line for line in tts.synthesized)  # the longest word read
+
+
 async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
     """Decision 0052: a missed word gets a graduated hint; a corrected
     retry is merged into the grading evidence rather than thrown away."""
@@ -751,6 +785,10 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_th
     assert tts.synthesized[3] == build_hint_line("sat", 2)
     assert "There you go!" not in tts.synthesized
     assert tts.synthesized[4].startswith("Good try! Reading can be tricky sometimes.")
+    # Decision 0055: an unresolved hint word is mentioned again in the
+    # final feedback as something to revisit, instead of the old
+    # unconditional phonics-sound list.
+    assert '"sat"' in tts.synthesized[4]
     # Decision 0053: the display stayed frozen on the missed word for
     # all three stages (never cleared early just because a retry was
     # wrong), then cleared once the loop gave up (and again on the

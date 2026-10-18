@@ -1191,6 +1191,7 @@ async def _run_reading_partner(
             # before the mastery update so a corrected retry still
             # counts as real evidence rather than being thrown away.
             hint_word = pick_hint_word(assessment)
+            hint_resolved = False
             if hint_word is not None:
                 # Decision 0053: the actual bug fix -- freezes the
                 # display on the missed word for the whole exchange,
@@ -1214,6 +1215,7 @@ async def _run_reading_partner(
                         assessment.grapheme_evidence.setdefault(grapheme, []).extend(observations)
 
                     if clean_word(attempt) == clean_word(hint_word):
+                        hint_resolved = True
                         praise = "There you go!"
                         print(f"Chitti: {praise}")
                         face.set_status_led(DeviceState.SPEAKING)
@@ -1229,7 +1231,13 @@ async def _run_reading_partner(
             profile.sessions_completed += 1
             reading_repo.save(profile)
 
-            feedback_text = build_reading_feedback(assessment, delta)
+            # Decision 0055: only mention the hinted word again if the
+            # child never actually got it right -- otherwise cite a
+            # standout correctly-read word instead of repeating
+            # something already resolved moments ago.
+            feedback_text = build_reading_feedback(
+                assessment, delta, hint_word=hint_word if not hint_resolved else None
+            )
             print(f"Chitti: {feedback_text}")
             face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, feedback_text, speed=speed)

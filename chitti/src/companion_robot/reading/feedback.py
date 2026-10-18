@@ -5,14 +5,30 @@ follows for math -- except this is spoken directly to the child rather
 than fed to a model as a note, since there's no free-form conversation
 happening here to weave it into. Never raw accuracy percentages or
 WCPM numbers dumped on a child -- qualitative, warm framing only.
+
+Decision 0055: replaces the original per-book mastery-sound
+announcement (decision 0051, capped but not removed by decision
+0054) with evidence tied to this specific read -- a real word the
+child actually said correctly, or the one word still worth practicing
+-- found live to read as more genuine than a list of phonics sound
+labels disconnected from what was actually read, and to avoid
+implying broad mastery from a single read. Mastery itself is
+unaffected -- reading/mastery.py still updates and persists it every
+turn; it's just no longer announced after every single book.
 """
 from .schema import AssessmentResult, MasteryDelta
 
+_STANDOUT_MIN_LENGTH = 4
 
-_MAX_SPOKEN_SOUNDS = 3
 
-
-def build_reading_feedback(assessment: AssessmentResult, delta: MasteryDelta) -> str:
+def build_reading_feedback(
+    assessment: AssessmentResult, delta: MasteryDelta, hint_word: str | None = None
+) -> str:
+    """`hint_word` is the word the hint-and-retry loop (decision 0052)
+    worked on, passed only if the child never got it right -- gives
+    one gentle, specific thing to revisit next time instead of ending
+    on an unresolved struggle. Pass None (the default) when there was
+    no hint this turn, or the child got it right."""
     if assessment.accuracy >= 0.95:
         parts = ["Wow, you read that really well!"]
     elif assessment.accuracy >= 0.75:
@@ -20,32 +36,22 @@ def build_reading_feedback(assessment: AssessmentResult, delta: MasteryDelta) ->
     else:
         parts = ["Good try! Reading can be tricky sometimes."]
 
-    # Found live: a near-perfect first read can cross the mastery
-    # threshold for a dozen-plus graphemes in one session, and
-    # mastery.py's grapheme_evidence keys aren't all speakable --
-    # alignment.py also tracks internal, non-phonemic sentinels like
-    # "_blend_" (any adjacent consonant blend) and "-s"/"-ed" (suffix
-    # endings) for the BKT model's own bookkeeping, never meant to be
-    # read aloud as if they were letter-sounds. A real grapheme key is
-    # always plain letters (e.g. "sh", "ee") -- isalpha() is enough to
-    # tell the two apart without hardcoding every sentinel name.
-    speakable = [g for g in delta.newly_mastered if g.isalpha()]
-    if speakable:
-        sounds = _spoken_list(speakable)
-        plural = "s" if len(speakable) > 1 else ""
-        parts.append(f"You're getting really good at the {sounds} sound{plural}!")
+    if hint_word:
+        parts.append(f'Let\'s keep practicing the word "{hint_word}" together next time.')
+    else:
+        standout = _standout_word(assessment.correct_words)
+        if standout:
+            parts.append(f'I especially loved how you read "{standout}"!')
 
     return " ".join(parts)
 
 
-def _spoken_list(items: list[str], max_items: int = _MAX_SPOKEN_SOUNDS) -> str:
-    """Caps how many sounds are named in one breath -- naming a dozen-
-    plus in a single sentence (found live) doesn't read as praise, it
-    reads as an overwhelming list."""
-    shown = items[:max_items]
-    quoted = [f"'{item}'" for item in shown]
-    if len(items) > max_items:
-        return ", ".join(quoted) + ", and more"
-    if len(quoted) == 1:
-        return quoted[0]
-    return ", ".join(quoted[:-1]) + " and " + quoted[-1]
+def _standout_word(correct_words: list[str], min_length: int = _STANDOUT_MIN_LENGTH) -> str | None:
+    """Picks a specific, real word the child actually read correctly
+    -- concrete evidence, not a generic sound label. The longest word
+    at least `min_length` letters, since a short, common word ("a",
+    "is") isn't a notable callout."""
+    candidates = [w for w in correct_words if len(w) >= min_length]
+    if not candidates:
+        return None
+    return max(candidates, key=len)

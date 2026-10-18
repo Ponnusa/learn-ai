@@ -114,3 +114,10 @@ def test_assess_miscues_list_excludes_correct_ops():
     result = assess("cat sat mat", "cat sit mat", duration_seconds=3.0)
     assert all(m.kind != CORRECT for m in result.miscues)
     assert len(result.miscues) == 1
+
+
+def test_assess_correct_words_lists_only_the_correctly_read_words():
+    """Decision 0055: feedback.py cites a specific real word the child
+    read correctly as evidence -- this is where that list comes from."""
+    result = assess("cat sat mat", "cat sit mat", duration_seconds=3.0)
+    assert result.correct_words == ["cat", "mat"]  # "sat" was substituted
