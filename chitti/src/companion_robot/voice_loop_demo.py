@@ -1350,12 +1350,13 @@ async def _run_reading_partner(
             profile.sessions_completed += 1
             reading_repo.save(profile)
 
-            # Decision 0055: only mention the hinted word again if the
-            # child never actually got it right -- otherwise cite a
-            # standout correctly-read word instead of repeating
-            # something already resolved moments ago.
+            # Decision 0060: build_reading_feedback() now surfaces every
+            # real missed word itself (not just whichever one the hint
+            # ladder picked) -- only tell it which word to EXCLUDE
+            # (the one just resolved live, so it's not redundantly
+            # re-mentioned seconds later).
             feedback_text = build_reading_feedback(
-                assessment, delta, hint_word=hint_word if not hint_resolved else None
+                assessment, delta, resolved_word=hint_word if hint_resolved else None
             )
             print(f"Chitti: {feedback_text}")
             face.set_status_led(DeviceState.SPEAKING)

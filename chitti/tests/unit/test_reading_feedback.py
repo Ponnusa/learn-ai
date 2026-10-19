@@ -49,21 +49,43 @@ def test_feedback_skips_the_standout_sentence_with_no_notable_word():
     assert text == "Wow, you read that really well!"
 
 
-def test_feedback_mentions_the_unresolved_hint_word_instead_of_a_standout():
-    """When the hint-and-retry loop (decision 0052) never got a
-    correct retry, the final feedback gently points back at that one
-    word rather than praising an unrelated standout."""
-    result = assess("a little bunny hops", "a little bunny hops", duration_seconds=3.0)
-    text = build_reading_feedback(result, MasteryDelta(), hint_word="hops")
+def test_feedback_surfaces_every_real_missed_word_not_just_the_hinted_one():
+    """Decision 0060, found live: the hint-and-retry loop (decision
+    0052) only ever addresses ONE word per book, so a session with two
+    real misses left the second one completely unmentioned -- the
+    final feedback either praised an unrelated word or said nothing
+    actionable. Both real misses must now surface."""
+    result = assess(
+        "little bunny hops in the garden", "silly bunny hops in the gotten", duration_seconds=3.0
+    )
+    text = build_reading_feedback(result, MasteryDelta())
 
-    assert '"hops"' in text
-    assert '"bunny"' not in text
+    assert '"little"' in text
+    assert '"garden"' in text
 
 
-def test_feedback_omits_the_hint_word_once_it_was_resolved():
-    """The caller passes hint_word=None once the child got it right --
-    covered by the default, documenting the contract here."""
-    result = assess("a little bunny hops", "a little bunny hops", duration_seconds=3.0)
-    text = build_reading_feedback(result, MasteryDelta(), hint_word=None)
+def test_feedback_excludes_the_resolved_hint_word_but_keeps_other_misses():
+    """The word the hint-and-retry loop (decision 0052) already fixed
+    live is excluded -- re-mentioning it seconds later would feel
+    redundant -- but a second, never-addressed miss still surfaces."""
+    result = assess(
+        "little bunny hops in the garden", "silly bunny hops in the gotten", duration_seconds=3.0
+    )
+    text = build_reading_feedback(result, MasteryDelta(), resolved_word="little")
 
-    assert "Let's keep practicing" not in text
+    assert '"little"' not in text
+    assert '"garden"' in text
+
+
+def test_feedback_caps_practice_words_at_three():
+    result = assess(
+        "little garden purple yellow orange banana",
+        "silly gotten people mellow orchid bandana",
+        duration_seconds=3.0,
+    )
+    text = build_reading_feedback(result, MasteryDelta())
+
+    mentioned = sum(
+        f'"{w}"' in text for w in ("little", "garden", "purple", "yellow", "orange", "banana")
+    )
+    assert mentioned == 3

@@ -33,20 +33,28 @@ _MIN_HINT_WORD_LENGTH = 3
 _SIGHT_WORDS = {clean_word(w) for w in DEFAULT_SIGHT_WORDS}
 
 
+def is_worth_practicing(word: str) -> bool:
+    """True if `word` is substantial enough to practice -- not
+    trivially short, not a sight word (meant to be recognized by
+    memory, not decoded). Shared by pick_hint_word() and
+    feedback.py's own practice-word list (decision 0060), so both
+    apply exactly the same bar for "a real word worth calling out,"
+    not two definitions that can drift apart."""
+    return len(word) >= _MIN_HINT_WORD_LENGTH and clean_word(word) not in _SIGHT_WORDS
+
+
 def pick_hint_word(assessment: AssessmentResult) -> str | None:
     """Returns the first real-error word (substitution/omission) worth
     a graduated hint, or None if there isn't one. self_correction/
     hesitation/insertion miscues are skipped -- assess() itself
-    already treats those as not the child's fault. Words shorter than
-    _MIN_HINT_WORD_LENGTH, or sight words, are skipped too -- neither
-    is a word worth graduating a sound-it-out hint on -- the search
-    continues to the next real miscue rather than giving up outright."""
+    already treats those as not the child's fault. Words that aren't
+    is_worth_practicing() are skipped too -- the search continues to
+    the next real miscue rather than giving up outright."""
     for miscue in assessment.miscues:
         if (
             miscue.kind in (SUBSTITUTION, OMISSION)
             and miscue.expected
-            and len(miscue.expected) >= _MIN_HINT_WORD_LENGTH
-            and clean_word(miscue.expected) not in _SIGHT_WORDS
+            and is_worth_practicing(miscue.expected)
         ):
             return miscue.expected
     return None
