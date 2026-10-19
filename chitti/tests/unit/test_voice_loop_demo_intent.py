@@ -7,6 +7,8 @@ import asyncio
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from companion_robot.conversation.service import ConversationService
 from companion_robot.device.interfaces import DeviceState
 from companion_robot.engagement.repository import EngagementRepository
@@ -38,6 +40,20 @@ from companion_robot.voice_loop_demo import (
     _run_teachable_friend,
     _speak_while_thinking,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reading_exercises_enabled(monkeypatch):
+    """Decision 0063 made decision 0052's parent-uploaded exercises
+    opt-in behind CHITTI_ENABLE_READING_EXERCISES=1 (default off).
+    Most Reading Partner tests in this file use a pending exercise
+    purely as a convenient, deterministic content fixture -- not to
+    test the exercise feature itself -- so this keeps that pattern
+    working for all of them; test_run_reading_partner_exercise_is_* in
+    this file is the one place that explicitly asserts the flag's own
+    on/off behavior, overriding this fixture with monkeypatch.delenv().
+    """
+    monkeypatch.setenv("CHITTI_ENABLE_READING_EXERCISES", "1")
 
 
 class _FakeLLM(LanguageModelBackend):
@@ -678,6 +694,45 @@ async def test_run_reading_partner_uses_a_pending_exercise_instead_of_generating
     assert face.reading_texts[0] == ["The cat sat."]
     exercise = reading_exercises.list_for_child("child-1")[0]
     assert exercise.consumed_at is not None
+
+
+async def test_run_reading_partner_exercise_is_ignored_when_flag_is_off(monkeypatch):
+    """Decision 0063: with CHITTI_ENABLE_READING_EXERCISES unset
+    (the real default), a pending exercise must be completely ignored
+    -- never read, never consumed -- even though one exists. Every
+    book comes from the LLM path instead."""
+    monkeypatch.delenv("CHITTI_ENABLE_READING_EXERCISES", raising=False)
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="The cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="TITLE: The Dog\nPAGE: A dog ran.")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a dog ran", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert face.reading_texts[0] == ["A dog ran."]  # the LLM-generated book, not the exercise
+    exercise = reading_exercises.list_for_child("child-1")[0]
+    assert exercise.consumed_at is None  # never touched
 
 
 async def test_run_reading_partner_feedback_cites_a_specific_word_from_the_read():

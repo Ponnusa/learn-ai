@@ -1219,7 +1219,11 @@ async def _run_reading_partner(
     (`reading_exercises.next_pending_for_child()`), that passage is
     used verbatim instead of generating a book -- no decodability
     check, no LLM call -- and marked consumed, so it's read once, not
-    every session. Also decision 0052: if the read-aloud surfaces a
+    every session. Decision 0063: this path is now opt-in behind
+    `CHITTI_ENABLE_READING_EXERCISES=1` (default off) -- for now,
+    every book comes from the age-adapted LLM path instead; the
+    upload feature itself is untouched, just not consulted while the
+    flag is off. Also decision 0052: if the read-aloud surfaces a
     real miscue (substitution/omission), a short graduated hint-and-
     retry exchange runs for that one word before the normal feedback
     -- deliberately post-hoc, not a live mid-sentence interruption,
@@ -1251,7 +1255,19 @@ async def _run_reading_partner(
             objective = select_objective(profile, session_index=profile.sessions_completed)
             face.set_status_led(DeviceState.PROCESSING)
 
-            exercise = reading_exercises.next_pending_for_child(child_profile_id)
+            # Decision 0063: parent-uploaded exercises (decision 0052)
+            # are opt-in behind CHITTI_ENABLE_READING_EXERCISES=1,
+            # default off -- for now, every book comes from the LLM
+            # path (already age-adapted via `age=child_age or 6`
+            # below), not a parent-provided passage. The upload
+            # feature itself (Parent Controls UI, ReadingExerciseRepository)
+            # is untouched, just not consulted while the flag is off,
+            # so it can be switched back on later with no code changes.
+            exercise = (
+                reading_exercises.next_pending_for_child(child_profile_id)
+                if os.environ.get("CHITTI_ENABLE_READING_EXERCISES") == "1"
+                else None
+            )
             exercise_pages = (
                 [line.strip() for line in exercise.content.split("\n") if line.strip()]
                 if exercise
