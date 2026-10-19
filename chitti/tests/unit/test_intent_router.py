@@ -81,6 +81,18 @@ def test_is_affirmative_clear_no():
     assert is_affirmative("nope not really") is False
 
 
+def test_is_affirmative_strips_trailing_punctuation():
+    """Found live: a real "Yes." (the trailing period Whisper commonly
+    adds) returned False -- the word never got stripped of punctuation
+    before matching against _AFFIRMATIVE_WORDS, silently mis-reading a
+    genuine yes as a decline (the word game was offered, the child
+    said "Yes.", and it was skipped entirely)."""
+    assert is_affirmative("Yes.") is True
+    assert is_affirmative("No.") is False
+    assert is_affirmative("Sure!") is True
+    assert is_affirmative("okay, let's do it") is True
+
+
 def test_is_affirmative_defaults_to_false_for_unclear_or_empty():
     assert is_affirmative("") is False
     assert is_affirmative("maybe later") is False

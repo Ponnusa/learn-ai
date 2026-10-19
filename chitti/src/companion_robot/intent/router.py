@@ -101,8 +101,17 @@ def is_affirmative(text: str) -> bool:
     answer yes/no questions by leading with the answer, so this now
     walks the words in order and returns on the FIRST signal word --
     position, not "negative always wins" -- carries the real answer.
+
+    Second addendum, also found live: a real "Yes." -- a one-word
+    affirmative with the trailing period Whisper commonly adds --
+    returned False. `text.lower().split()` never stripped punctuation
+    per word, so "yes." never equals "yes" in _AFFIRMATIVE_WORDS and
+    silently fell through to the safer-default False, mis-reading a
+    genuine yes as a decline. Every word is now stripped of anything
+    that isn't a letter/digit/apostrophe before matching.
     """
-    for word in text.lower().split():
+    for raw_word in text.lower().split():
+        word = re.sub(r"[^\w']", "", raw_word)
         if word in _NEGATIVE_WORDS:
             return False
         if word in _AFFIRMATIVE_WORDS:
