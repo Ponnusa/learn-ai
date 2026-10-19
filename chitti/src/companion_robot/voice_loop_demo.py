@@ -1058,7 +1058,14 @@ async def _run_comprehension_questions(
     answer, unlike every other grading in this mode, so this reuses
     Story Companion's "ground in the story, react, don't grade"
     pattern (ConversationService.react_to_comprehension_answer())
-    instead of a deterministic diff."""
+    instead of a deterministic diff.
+
+    Decision 0062: a wrong/incomplete first answer gets one clue and
+    one retry (`reaction.needs_retry`) instead of the correct detail
+    being revealed immediately -- bounded to exactly one retry per
+    question; the second call's prompt guarantees it resolves either
+    way, so at most one extra capture+reaction per question, never a
+    loop."""
     face.set_status_led(DeviceState.PROCESSING)
     questions = await _generate_with_thinking_filler(
         conversation.generate_comprehension_questions(book.text, age=child_age or 6),
@@ -1072,25 +1079,31 @@ async def _run_comprehension_questions(
     face.set_status_led(DeviceState.SPEAKING)
     await _speak(tts, audio, intro, speed=speed)
 
+    max_attempts = 2
     for question in questions:
         print(f"Chitti: {question}")
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, question, speed=speed)
 
-        face.set_status_led(DeviceState.LISTENING)
-        answer = await _capture_and_transcribe(stt)
-        print(f"You said: {answer}")
+        for attempt_number in range(1, max_attempts + 1):
+            face.set_status_led(DeviceState.LISTENING)
+            answer = await _capture_and_transcribe(stt)
+            print(f"You said: {answer}")
 
-        face.set_status_led(DeviceState.PROCESSING)
-        reaction = await _generate_with_thinking_filler(
-            conversation.react_to_comprehension_answer(
-                book.text, question, answer, child_age or 6
-            ),
-            tts, audio, face, speed, "comprehension_reaction",
-        )
-        print(f"Chitti: {reaction.text}")
-        face.set_status_led(DeviceState.SPEAKING)
-        await _speak(tts, audio, reaction.text, speed=speed)
+            face.set_status_led(DeviceState.PROCESSING)
+            reaction = await _generate_with_thinking_filler(
+                conversation.react_to_comprehension_answer(
+                    book.text, question, answer, child_age or 6,
+                    attempt_number=attempt_number, max_attempts=max_attempts,
+                ),
+                tts, audio, face, speed, "comprehension_reaction",
+            )
+            print(f"Chitti: {reaction.text}")
+            face.set_status_led(DeviceState.SPEAKING)
+            await _speak(tts, audio, reaction.text, speed=speed)
+
+            if not reaction.needs_retry:
+                break
 
 
 async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:

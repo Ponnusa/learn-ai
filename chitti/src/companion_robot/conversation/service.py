@@ -18,8 +18,10 @@ from companion_robot.reading.book_generation import (
     parse_story_draft,
 )
 from companion_robot.reading.comprehension import (
+    ComprehensionReaction,
     build_question_prompt,
     build_reaction_prompt,
+    parse_comprehension_reaction,
     parse_questions,
 )
 from companion_robot.reading.schema import GeneratedBook, Objective
@@ -188,16 +190,37 @@ class ConversationService:
         return safe_questions[:num_questions]
 
     async def react_to_comprehension_answer(
-        self, story_text: str, question: str, child_answer: str, age: int | None = None
-    ) -> ConversationResult:
+        self,
+        story_text: str,
+        question: str,
+        child_answer: str,
+        age: int | None = None,
+        *,
+        attempt_number: int = 1,
+        max_attempts: int = 2,
+    ) -> ComprehensionReaction:
         """One short, warm, story-grounded reaction to what the child
-        said -- never a strict grade, screened like any other spoken
-        output in this class."""
-        prompt = build_reaction_prompt(story_text, question, child_answer, age)
+        said. Decision 0062: before the last attempt, the prompt
+        itself withholds the correct detail in favor of one clue and
+        a retry invitation -- `needs_retry` is the routing signal
+        voice_loop_demo.py uses to decide whether to capture one more
+        attempt, bounded to exactly one retry (max_attempts=2 by
+        default). Screened like any other spoken output in this class;
+        if the screened text is blocked, needs_retry is forced False
+        -- never retry into an unsafe-reply loop, just move on with
+        the safe decline message."""
+        prompt = build_reaction_prompt(
+            story_text, question, child_answer, age,
+            attempt_number=attempt_number, max_attempts=max_attempts,
+        )
         reply_text, _model = await self._llm.generate_reply(
             [{"role": "user", "content": "React now."}], prompt
         )
-        return self._screen(reply_text)
+        reaction = parse_comprehension_reaction(reply_text)
+        screened = self._screen(reaction.text)
+        if screened.blocked:
+            return ComprehensionReaction(text=screened.text, needs_retry=False)
+        return ComprehensionReaction(text=screened.text, needs_retry=reaction.needs_retry)
 
     def repeat_after_me(self, text: str) -> ConversationResult:
         """No LLM call -- the child's own words are screened and either

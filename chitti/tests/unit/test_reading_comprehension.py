@@ -1,10 +1,11 @@
 """Unit tests for companion_robot.reading.comprehension -- prompt
-building and parsing only (decision 0059). The actual LLM call lives
-in ConversationService; see test_conversation_service.py.
+building and parsing only (decisions 0059/0062). The actual LLM call
+lives in ConversationService; see test_conversation_service.py.
 """
 from companion_robot.reading.comprehension import (
     build_question_prompt,
     build_reaction_prompt,
+    parse_comprehension_reaction,
     parse_questions,
 )
 
@@ -23,7 +24,42 @@ def test_build_reaction_prompt_embeds_the_question_answer_and_story():
     assert "A little bunny hops in the garden." in prompt
     assert "What does the bunny see?" in prompt
     assert "an apple" in prompt
-    assert "not a grade" in prompt
+    assert "STATUS:" in prompt and "SAY:" in prompt
+
+
+def test_build_reaction_prompt_withholds_the_answer_before_the_last_attempt():
+    """Decision 0062, found live: the original prompt revealed the
+    correct detail immediately on a wrong answer. Any attempt before
+    the last must instead ask for a clue-and-retry, not a reveal."""
+    prompt = build_reaction_prompt("story", "q", "a", 6, attempt_number=1, max_attempts=2)
+    assert "do NOT reveal the correct" in prompt
+    assert "ONE small clue" in prompt
+
+
+def test_build_reaction_prompt_resolves_on_the_last_attempt():
+    prompt = build_reaction_prompt("story", "q", "a", 6, attempt_number=2, max_attempts=2)
+    assert "last attempt" in prompt
+    assert "do NOT ask them to try again" in prompt
+
+
+def test_parse_comprehension_reaction_reads_needs_retry():
+    reaction = parse_comprehension_reaction("STATUS: needs_retry\nSAY: Try once more!")
+    assert reaction.needs_retry is True
+    assert reaction.text == "Try once more!"
+
+
+def test_parse_comprehension_reaction_reads_resolved():
+    reaction = parse_comprehension_reaction("status: resolved\nsay: Great job!")
+    assert reaction.needs_retry is False
+    assert reaction.text == "Great job!"
+
+
+def test_parse_comprehension_reaction_defaults_to_resolved_on_malformed_reply():
+    """A parse hiccup must never leave the child stuck in a retry
+    loop -- it defaults to moving on, and never says nothing."""
+    reaction = parse_comprehension_reaction("not the expected format at all")
+    assert reaction.needs_retry is False
+    assert reaction.text  # never empty
 
 
 def test_parse_questions_reads_one_per_line():

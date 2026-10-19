@@ -479,27 +479,60 @@ async def test_generate_comprehension_questions_returns_empty_when_all_unsafe():
 
 
 async def test_react_to_comprehension_answer_grounds_in_the_story():
-    llm = FakeLanguageModelBackend(reply="Yes, exactly -- the bunny found a red apple!")
+    llm = FakeLanguageModelBackend(
+        reply="STATUS: resolved\nSAY: Yes, exactly -- the bunny found a red apple!"
+    )
     service = ConversationService(llm)
 
     result = await service.react_to_comprehension_answer(
         "A bunny sees a red apple.", "What does the bunny see?", "an apple", age=6
     )
 
-    assert result.blocked is False
+    assert result.needs_retry is False
     assert result.text == "Yes, exactly -- the bunny found a red apple!"
     assert len(llm.calls) == 1
     # The prompt actually sent grounds the reaction in the real story text.
     assert "A bunny sees a red apple." in llm.calls[0][1]
 
 
+async def test_react_to_comprehension_answer_requests_a_retry():
+    """Decision 0062: before the last attempt, a wrong/incomplete
+    answer asks for one retry instead of revealing the answer."""
+    llm = FakeLanguageModelBackend(
+        reply="STATUS: needs_retry\nSAY: Good try! What color was it?"
+    )
+    service = ConversationService(llm)
+
+    result = await service.react_to_comprehension_answer(
+        "A bunny sees a red apple.", "What does the bunny see?", "cheese", age=6,
+        attempt_number=1, max_attempts=2,
+    )
+
+    assert result.needs_retry is True
+    assert result.text == "Good try! What color was it?"
+
+
 async def test_react_to_comprehension_answer_is_screened_like_any_other_reply():
-    llm = FakeLanguageModelBackend(reply="That's a damn good answer!")
+    llm = FakeLanguageModelBackend(reply="STATUS: resolved\nSAY: That's a damn good answer!")
     service = ConversationService(llm)
 
     result = await service.react_to_comprehension_answer(
         "A bunny sees a red apple.", "What does the bunny see?", "an apple", age=6
     )
 
-    assert result.blocked is True
+    assert result.needs_retry is False
+    assert "damn" not in result.text
+
+
+async def test_react_to_comprehension_answer_never_retries_into_an_unsafe_reply():
+    """Even if the model itself asked for a retry, a blocked reply
+    forces needs_retry=False -- never loop on an unsafe response."""
+    llm = FakeLanguageModelBackend(reply="STATUS: needs_retry\nSAY: That's a damn good try!")
+    service = ConversationService(llm)
+
+    result = await service.react_to_comprehension_answer(
+        "A bunny sees a red apple.", "What does the bunny see?", "cheese", age=6
+    )
+
+    assert result.needs_retry is False
     assert "damn" not in result.text

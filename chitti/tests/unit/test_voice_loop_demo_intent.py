@@ -831,8 +831,8 @@ async def test_run_reading_partner_asks_and_reacts_to_comprehension_questions():
         side_effect=[
             ("TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.", "fake-model"),
             ("QUESTION: What did the cat do?\nQUESTION: Where did it sit?", "fake-model"),
-            ("Great answer! The cat sat down.", "fake-model"),
-            ("Nice! It sat under a tree.", "fake-model"),
+            ("STATUS: resolved\nSAY: Great answer! The cat sat down.", "fake-model"),
+            ("STATUS: resolved\nSAY: Nice! It sat under a tree.", "fake-model"),
         ]
     )
     conversation = ConversationService(llm)
@@ -863,6 +863,100 @@ async def test_run_reading_partner_asks_and_reacts_to_comprehension_questions():
     assert "Nice! It sat under a tree." in tts.synthesized
 
 
+async def test_run_reading_partner_comprehension_retry_gives_one_clue_before_resolving():
+    """Decision 0062: a wrong/incomplete first answer gets one clue
+    and one retry instead of the correct detail being revealed
+    immediately -- exactly one extra capture+reaction, then it moves
+    on regardless of the second answer."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            ("QUESTION: What did the cat do?", "fake-model"),
+            ("STATUS: needs_retry\nSAY: Good try! What color was the cat?", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, a black cat!", "fake-model"),
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "a cat sat",  # the read-aloud
+            "it ran",  # wrong/incomplete first answer
+            "a black cat",  # the retry
+            "no thanks",  # declines the word game
+            "let's just chat",  # ends the session
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert "Good try! What color was the cat?" in tts.synthesized
+    assert "Yes, a black cat!" in tts.synthesized
+    # Never revealed the answer on the first, wrong attempt.
+    assert tts.synthesized.index("Good try! What color was the cat?") < tts.synthesized.index(
+        "Yes, a black cat!"
+    )
+
+
+async def test_run_reading_partner_comprehension_resolved_first_try_never_retries():
+    """A resolved first answer must not trigger a second capture at
+    all -- confirmed by a side_effect list with no spare entry for one."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            ("QUESTION: What did the cat do?", "fake-model"),
+            ("STATUS: resolved\nSAY: Great job!", "fake-model"),
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", "it sat", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert "Great job!" in tts.synthesized
+
+
 async def test_run_reading_partner_comprehension_questions_also_run_for_an_exercise():
     """Decision 0059's deliberate precedent change: a parent-uploaded
     exercise (decision 0052, otherwise entirely LLM-free) still gets
@@ -883,7 +977,7 @@ async def test_run_reading_partner_comprehension_questions_also_run_for_an_exerc
     llm.generate_reply = AsyncMock(
         side_effect=[
             ("QUESTION: What did the cat do?", "fake-model"),
-            ("Great answer! The cat sat down.", "fake-model"),
+            ("STATUS: resolved\nSAY: Great answer! The cat sat down.", "fake-model"),
         ]
     )
     conversation = ConversationService(llm)
