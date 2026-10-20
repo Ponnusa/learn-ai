@@ -14,6 +14,7 @@ import random
 
 from .alignment import tokenize
 from .decodability import clean_word, decompose
+from .hints import blend_breakdown
 
 _MIN_WORD_LENGTH = 3
 _MAX_WORDS = 2
@@ -24,7 +25,17 @@ _CORRECT_RESPONSES = [
     "That's right, nice work!",
 ]
 
-_INCORRECT_TEMPLATE = 'Good try! The word is "{word}". Let\'s keep going!'
+# Decision 0070: found live -- a wrong guess (e.g. "frog" blanked to
+# "fr_g", child says just the letter "o") got nothing but the answer
+# handed over, no phonics explanation at all, unlike the hint ladder's
+# own graduated breakdown (decision 0064). Reusing hints.py's
+# blend_breakdown() here gives this fun bonus game the same
+# phoneme-accurate teaching moment on a miss, without turning it into
+# a second, duplicate hint ladder -- still one line, still moves on
+# right after.
+_INCORRECT_TEMPLATE = (
+    'Good try! The word is "{word}" -- {breakdown}. Let\'s keep going!'
+)
 
 _CLOSING_LINES = [
     "You're a word wizard! That was so much fun.",
@@ -86,7 +97,7 @@ def random_correct_response() -> str:
 
 
 def incorrect_response(word: str) -> str:
-    return _INCORRECT_TEMPLATE.format(word=word)
+    return _INCORRECT_TEMPLATE.format(word=word, breakdown=blend_breakdown(word))
 
 
 def random_closing_line() -> str:

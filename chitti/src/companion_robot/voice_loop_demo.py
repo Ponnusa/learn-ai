@@ -1412,17 +1412,32 @@ async def _run_reading_partner(
             else:
                 source_passage = followup_source_text
                 followup_source_text = None
-                try:
-                    book = await _generate_with_thinking_filler(
-                        conversation.generate_decodable_book(
-                            objective,
-                            interest=profile.interest,
-                            age=child_age or 6,
-                            source_passage=source_passage,
-                        ),
-                        tts, audio, face, speed, "reading_book_generation",
-                    )
-                except BookGenerationError:
+                # Decision 0071: a themed follow-up is a nice-to-have,
+                # not worth ending the whole session over -- if it
+                # fails (e.g. the passage's own vocabulary fought the
+                # decodability budget too hard even with the tightened
+                # prompt above), fall back once to the plain,
+                # untethered generator before actually giving up.
+                # Found live: a themed attempt failing used to go
+                # straight to the apology even though a normal book
+                # would very likely have succeeded.
+                attempts = [source_passage, None] if source_passage is not None else [None]
+                book = None
+                for attempt_source in attempts:
+                    try:
+                        book = await _generate_with_thinking_filler(
+                            conversation.generate_decodable_book(
+                                objective,
+                                interest=profile.interest,
+                                age=child_age or 6,
+                                source_passage=attempt_source,
+                            ),
+                            tts, audio, face, speed, "reading_book_generation",
+                        )
+                        break
+                    except BookGenerationError:
+                        continue
+                if book is None:
                     apology = (
                         "I'm having trouble coming up with a story right now -- "
                         "let's try reading again in a little while."

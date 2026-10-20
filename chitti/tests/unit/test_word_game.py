@@ -76,5 +76,15 @@ def test_incorrect_response_names_the_word():
     assert '"sat"' in incorrect_response("sat")
 
 
+def test_incorrect_response_includes_a_phonics_breakdown():
+    """Decision 0070: found live -- a missed word in this game got
+    nothing but the answer handed over, with zero phonics explanation,
+    unlike the hint ladder's own graduated breakdown. A wrong guess now
+    gets the same sound-by-sound teaching moment."""
+    response = incorrect_response("frog")
+    assert "'f' like in 'fish'" in response
+    assert "'o' like in 'dog'" in response
+
+
 def test_random_closing_line_is_never_empty():
     assert random_closing_line()

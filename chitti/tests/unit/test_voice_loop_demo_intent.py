@@ -1369,6 +1369,64 @@ async def test_run_reading_partner_themes_the_followup_book_on_the_finished_exer
     assert '"The Cat Family"' in "".join(tts.synthesized)
 
 
+async def test_run_reading_partner_falls_back_to_a_plain_book_when_the_themed_one_fails():
+    """Decision 0071, found live: a themed follow-up failing (the
+    passage's own vocabulary fighting the decodability budget) used to
+    go straight to the apology, even though a normal, untethered book
+    would very likely have succeeded. Now it retries once without
+    theming before actually giving up."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+
+    async def _llm_side_effect(_messages, system_prompt):
+        # The themed attempt's prompt contains the source passage --
+        # always return something undecodable (needs digraphs) so it
+        # exhausts every retry and raises. The plain fallback's prompt
+        # has no source passage at all -- always decodable.
+        if "A cat sat." in system_prompt and "decodable" in system_prompt.lower():
+            return "TITLE: Bad\nPAGE: A ship sat.", "fake-model"
+        if "decodable" in system_prompt.lower() and "story" in system_prompt.lower():
+            return "TITLE: The Dog\nPAGE: A dog ran.", "fake-model"
+        return "Sorry, no questions.", "fake-model"
+
+    llm.generate_reply = AsyncMock(side_effect=_llm_side_effect)
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "a cat sat",  # read-aloud of the exercise
+            "no thanks",  # declines the word game
+            "yes please",  # wants another one
+            "a dog ran",  # read-aloud of the FALLBACK book, not a themed one
+            "no thanks",  # declines the word game again
+            "let's just chat",  # ends the session
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert not any("having trouble coming up with a story" in line for line in tts.synthesized)
+    assert '"The Dog"' in "".join(tts.synthesized)
+
+
 # -- post-reading comprehension questions (decision 0059) -----------------
 
 

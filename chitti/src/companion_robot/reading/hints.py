@@ -141,7 +141,7 @@ def build_hint_line(word: str, stage: int) -> str:
         first_example = _sound_example(_first_grapheme(word))
         return f"Here's a hint: that word starts with the same sound as '{first_example}'."
     if stage == 2:
-        return f"Let's sound it out together: {_blend_breakdown(word)}. Now blend it: {word}."
+        return f"Let's sound it out together: {blend_breakdown(word)}. Now blend it: {word}."
     return f'That word is "{word}" -- can you say it back to me?'
 
 
@@ -154,10 +154,14 @@ def _sound_example(grapheme: str) -> str:
     return _SOUND_EXAMPLES.get(grapheme, grapheme)
 
 
-def _blend_breakdown(word: str) -> str:
+def blend_breakdown(word: str) -> str:
     """"frog" -> "'f' like in 'fish', 'r' like in 'run', 'o' like in
     'dog', 'g' like in 'goat'" -- every grapheme in reading order,
-    each tied to a reliably-pronounced example word."""
+    each tied to a reliably-pronounced example word. Public (not
+    underscore-prefixed): decision 0070 reuses this exact breakdown in
+    word_game.py's incorrect_response(), so the bonus game explains a
+    missed word's sounds the same way the hint ladder does, rather
+    than a second phonics explanation that could drift out of sync."""
     graphemes = decompose(word).graphemes
     if not graphemes:
         return word

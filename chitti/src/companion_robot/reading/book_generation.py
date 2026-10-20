@@ -123,13 +123,30 @@ def _build_prompt(
     sight = ", ".join(sorted(sight_words)) or "none"
 
     if source_passage:
+        # Decision 0071, found live: a parent-uploaded passage is never
+        # decodability-checked (decision 0052 -- the parent is the
+        # authorizing adult), so it very often uses words well outside
+        # the current budget (e.g. "frog", "jumps", "over" need blends/
+        # suffixes/r-controlled a brand-new learner hasn't got yet).
+        # The original wording here asked the model to reuse "some of
+        # the same words," and a capable model kept trying to honor
+        # that over the budget below, burning every retry attempt on
+        # violations and ending in BookGenerationError -- the themed
+        # follow-up silently failing, apology and all, even though
+        # real material existed. Now explicit: the budget always wins;
+        # matching the passage's own words is a bonus, not a goal.
         opening = (
             f"Write a short decodable follow-up practice story of about {length} "
             "words across 3-5 short pages (1-2 simple sentences each) for a child "
             f"who is {age} years old. The child just read this passage -- build on "
-            "it as a natural companion story, reusing its topic and some of the "
-            "same words where you can, but don't just repeat it word-for-word:\n"
+            "its TOPIC, characters, or setting as a natural companion story:\n"
             f'"{source_passage}"\n'
+            "IMPORTANT: that passage was not checked against the decodability "
+            "budget below, so most of its own words are likely too advanced for "
+            "it. Only reuse an exact word from it if that word already fits the "
+            "budget -- otherwise invent new, simpler words with the same topic "
+            "and feel. The decodability budget below always wins over matching "
+            "the passage's exact wording.\n"
             "Warm, gentle, age-appropriate -- never scary, violent, or sad."
         )
     else:

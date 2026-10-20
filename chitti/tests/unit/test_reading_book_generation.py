@@ -110,6 +110,27 @@ async def test_generate_decodable_book_themes_on_a_source_passage_when_given():
     assert "dinosaurs" not in prompts[0]
 
 
+async def test_generate_decodable_book_source_passage_prompt_prioritizes_the_budget():
+    """Decision 0071, found live: the original source_passage wording
+    asked the model to reuse "some of the same words," and a capable
+    model kept honoring that over the decodability budget, exhausting
+    every retry on a passage whose own vocabulary (e.g. "frog",
+    "jumps") needed phonics levels nowhere near mastered yet. The
+    prompt must now say explicitly that the budget always wins."""
+    prompts = []
+
+    async def proposer(prompt: str) -> StoryDraft:
+        prompts.append(prompt)
+        return StoryDraft(title="The Cat", pages=["A cat sat."])
+
+    await generate_decodable_book(
+        _objective(), proposer=proposer, source_passage="The frog jumps over the log."
+    )
+
+    assert "decodability budget below always wins" in prompts[0]
+    assert "not checked against the decodability" in prompts[0]
+
+
 async def test_generate_decodable_book_uses_interest_when_no_source_passage():
     prompts = []
 
