@@ -17,16 +17,28 @@ def test_extract_rime_splits_onset_and_rime():
     assert [g.grapheme for g in rime_graphemes] == ["a", "t"]
 
 
-def test_extract_rime_rime_is_every_grapheme_after_the_first():
+def test_extract_rime_splits_on_a_full_blend_not_just_the_first_letter():
+    """Decision 0073, found live: treating only "frog"'s first letter
+    as the onset gave rime "rog" -- a pattern almost no other real
+    word shares, which is exactly why the LLM asked to match it
+    invented "prog"/"brog"/"srog" instead. The standard linguistic
+    split (onset = everything before the first vowel) gives "fr"/"og"
+    instead -- "og" has real matches (dog, fog, hog, jog, log)."""
     rime_spelling, rime_graphemes = extract_rime("frog")
-    assert rime_spelling == "rog"
-    assert [g.grapheme for g in rime_graphemes] == ["r", "o", "g"]
+    assert rime_spelling == "og"
+    assert [g.grapheme for g in rime_graphemes] == ["o", "g"]
 
 
 def test_extract_rime_returns_none_for_a_single_grapheme_word():
     """"a" is one grapheme -- nothing left to vary once the onset is
     removed, so there's no rime to build a word family from."""
     assert extract_rime("a") is None
+
+
+def test_extract_rime_returns_none_when_the_word_starts_with_the_vowel_itself():
+    """"at" has no consonant onset to strip -- nothing meaningful to
+    vary into a family."""
+    assert extract_rime("at") is None
 
 
 def test_build_family_prompt_embeds_the_word_and_rime():
@@ -72,3 +84,21 @@ def test_verify_family_word_rejects_an_undecodable_candidate():
 def test_verify_family_word_rejects_a_single_grapheme_candidate():
     _, target_rime = extract_rime("mat")
     assert verify_family_word("I", target_rime, ["short_vowels"]) is False
+
+
+def test_verify_family_word_rejects_invented_non_words_sharing_a_real_rime():
+    """Decision 0073, found live: asked for words rhyming with "frog,"
+    the LLM returned "prog," "brog," "srog" -- each one phonics-
+    structurally valid (same "og" rime, decodable) but not real
+    English words. Phonics structure alone is no longer enough."""
+    _, target_rime = extract_rime("frog")  # rime "og"
+    for fake_word in ("prog", "brog", "srog"):
+        assert verify_family_word(fake_word, target_rime, ["short_vowels", "blends"]) is False
+
+
+def test_verify_family_word_accepts_real_words_sharing_frogs_corrected_rime():
+    """With the onset-rime split fixed (decision 0073), "frog"'s rime
+    is "og," not "rog" -- and real words sharing it do exist."""
+    _, target_rime = extract_rime("frog")
+    assert verify_family_word("dog", target_rime, ["short_vowels"]) is True
+    assert verify_family_word("log", target_rime, ["short_vowels"]) is True
