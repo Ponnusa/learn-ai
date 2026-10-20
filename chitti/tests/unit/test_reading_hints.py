@@ -1,8 +1,7 @@
 """Unit tests for companion_robot.reading.hints -- the deterministic,
 no-LLM graduated hint ladder (decision 0052)."""
 from companion_robot.reading.alignment import assess
-from companion_robot.reading.decodability import decompose
-from companion_robot.reading.hints import build_hint_line, pick_hint_word
+from companion_robot.reading.hints import build_hint_line, pick_hint_word, pick_hint_words
 
 
 def test_pick_hint_word_returns_none_on_a_clean_read():
@@ -70,13 +69,73 @@ def test_build_hint_line_stage_0_is_encouragement():
     assert "sat" not in line  # not given away yet
 
 
-def test_build_hint_line_stage_1_gives_the_first_sound():
+def test_build_hint_line_stage_1_gives_the_first_sound_as_an_example_word():
+    """Decision 0064: the hint must say an actual, reliably-pronounced
+    example word ("the same sound as 'sun'"), not the bare letter --
+    TTS reading a lone grapheme character like "f" would very likely
+    say the letter name ("eff"), not the phoneme."""
     line = build_hint_line("sat", 1)
-    first_sound = decompose("sat").graphemes[0].grapheme
-    assert first_sound in line
+    assert "sun" in line  # the example word for 's', sat's first grapheme
+    assert "'s'" not in line  # not the bare letter
     assert "sat" not in line  # still not the whole word
 
 
-def test_build_hint_line_stage_2_says_the_word():
+def test_build_hint_line_stage_2_breaks_the_word_down_sound_by_sound():
+    """Decision 0064: a new stage between the first-sound hint and
+    saying the whole word -- walks every grapheme with its own
+    example word, then invites blending."""
     line = build_hint_line("sat", 2)
+    assert "sun" in line  # 's'
+    assert "cat" in line  # 'a'
+    assert "top" in line  # 't'
+    assert "sat" in line  # the word itself, to blend into
+
+
+def test_build_hint_line_stage_3_says_the_word():
+    line = build_hint_line("sat", 3)
     assert "sat" in line
+
+
+def test_every_inventory_grapheme_has_a_sound_example():
+    """Decision 0064: the lookup must cover every grapheme
+    decodability.decompose() can actually return -- a missing entry
+    would silently fall back to the bare letter, the exact bug this
+    table exists to avoid."""
+    from companion_robot.reading.curriculum import GRAPHEME_INVENTORY
+    from companion_robot.reading.hints import _SOUND_EXAMPLES
+
+    real_graphemes = [
+        g for g, _level in GRAPHEME_INVENTORY if not g.startswith("-") and g != "_blend_"
+    ]
+    assert all(g in _SOUND_EXAMPLES for g in real_graphemes)
+
+
+# -- pick_hint_words() (decision 0065) -------------------------------------
+
+
+def test_pick_hint_words_returns_every_real_miss_in_order():
+    result = assess("cat sat mat rug", "cat sit mat bug", duration_seconds=3.0)
+    assert pick_hint_words(result) == ["sat", "rug"]
+
+
+def test_pick_hint_words_caps_at_max_words():
+    result = assess(
+        "cat sat mat rug dog pit", "cot sit mit rag dig pot", duration_seconds=3.0
+    )
+    words = pick_hint_words(result, max_words=2)
+    assert len(words) == 2
+
+
+def test_pick_hint_words_dedupes_the_same_word():
+    result = assess("cat sat cat sat", "cot sit cot sit", duration_seconds=3.0)
+    assert pick_hint_words(result) == ["cat", "sat"]
+
+
+def test_pick_hint_words_returns_empty_list_on_a_clean_read():
+    result = assess("cat sat mat", "cat sat mat", duration_seconds=3.0)
+    assert pick_hint_words(result) == []
+
+
+def test_pick_hint_word_is_the_first_of_pick_hint_words():
+    result = assess("cat sat mat rug", "cat sit mat bug", duration_seconds=3.0)
+    assert pick_hint_word(result) == pick_hint_words(result)[0]

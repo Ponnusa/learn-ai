@@ -75,7 +75,7 @@ from companion_robot.reading.alignment import align, assess, attribute_evidence
 from companion_robot.reading.book_generation import BookGenerationError
 from companion_robot.reading.decodability import clean_word
 from companion_robot.reading.feedback import build_reading_feedback
-from companion_robot.reading.hints import build_hint_line, pick_hint_word
+from companion_robot.reading.hints import HINT_STAGES, build_hint_line, pick_hint_words
 from companion_robot.reading.mastery import update_from_evidence
 from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
@@ -1335,18 +1335,19 @@ async def _run_reading_partner(
                 book.text, spoken, duration_seconds=duration_seconds, sight_words=book.sight_words
             )
 
-            # Decision 0052: graduated hint + retry for one missed word,
-            # before the mastery update so a corrected retry still
-            # counts as real evidence rather than being thrown away.
-            hint_word = pick_hint_word(assessment)
-            hint_resolved = False
-            if hint_word is not None:
+            # Decision 0052/0065: graduated hint + retry for every real
+            # missed word (not just the first), before the mastery
+            # update so a corrected retry still counts as real evidence
+            # rather than being thrown away.
+            hint_words = pick_hint_words(assessment)
+            resolved_words: list[str] = []
+            for hint_word in hint_words:
                 # Decision 0053: the actual bug fix -- freezes the
                 # display on the missed word for the whole exchange,
                 # so the child always knows which word is meant,
                 # regardless of hint stage.
                 face.set_reading_spotlight(hint_word)
-                for stage in range(3):
+                for stage in range(HINT_STAGES):
                     hint_line = build_hint_line(hint_word, stage)
                     print(f"Chitti: {hint_line}")
                     face.set_status_led(DeviceState.SPEAKING)
@@ -1356,21 +1357,32 @@ async def _run_reading_partner(
                     attempt = await _capture_and_transcribe(stt)
                     print(f"You said: {attempt}")
 
-                    retry_evidence = attribute_evidence(
-                        align(hint_word, attempt), sight_words=book.sight_words
-                    )
-                    for grapheme, observations in retry_evidence.items():
-                        assessment.grapheme_evidence.setdefault(grapheme, []).extend(observations)
+                    # Decision 0065: the final stage has already told
+                    # the child the word outright ("That word is
+                    # 'X'..."), so a correct repeat there is an echo,
+                    # not independent decoding -- it must not feed
+                    # mastery the same way sounding it out themselves
+                    # (every earlier stage) does.
+                    if stage < HINT_STAGES - 1:
+                        retry_evidence = attribute_evidence(
+                            align(hint_word, attempt), sight_words=book.sight_words
+                        )
+                        for grapheme, observations in retry_evidence.items():
+                            assessment.grapheme_evidence.setdefault(grapheme, []).extend(
+                                observations
+                            )
 
                     if clean_word(attempt) == clean_word(hint_word):
-                        hint_resolved = True
+                        resolved_words.append(hint_word)
                         praise = "There you go!"
                         print(f"Chitti: {praise}")
                         face.set_status_led(DeviceState.SPEAKING)
                         await _speak(tts, audio, praise, speed=speed)
                         break
-                # No penalty for still missing it after the third stage
-                # (saying the word outright) -- the session just moves on.
+                # No penalty for still missing it after the last stage
+                # (saying the word outright) -- just moves on to the
+                # next missed word, if any.
+            if hint_words:
                 face.set_reading_spotlight(None)
 
             delta = update_from_evidence(
@@ -1379,13 +1391,13 @@ async def _run_reading_partner(
             profile.sessions_completed += 1
             reading_repo.save(profile)
 
-            # Decision 0060: build_reading_feedback() now surfaces every
-            # real missed word itself (not just whichever one the hint
-            # ladder picked) -- only tell it which word to EXCLUDE
-            # (the one just resolved live, so it's not redundantly
-            # re-mentioned seconds later).
+            # Decision 0060/0065: build_reading_feedback() now surfaces
+            # every real missed word itself (not just whichever ones
+            # the hint ladder picked) -- only tell it which words to
+            # EXCLUDE (the ones just resolved live, so they're not
+            # redundantly re-mentioned seconds later).
             feedback_text = build_reading_feedback(
-                assessment, delta, resolved_word=hint_word if hint_resolved else None
+                assessment, delta, resolved_words=resolved_words
             )
             print(f"Chitti: {feedback_text}")
             face.set_status_led(DeviceState.SPEAKING)

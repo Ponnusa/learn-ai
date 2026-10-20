@@ -821,10 +821,10 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
     assert face.spotlights == ["sat", None, None]
 
 
-async def test_run_reading_partner_hint_retry_continues_without_penalty_after_three_misses():
-    """Decision 0052: even if the child never gets the hinted word
-    right, the session continues to normal feedback after the third
-    stage -- no penalty, no infinite loop."""
+async def test_run_reading_partner_hint_retry_continues_without_penalty_after_four_misses():
+    """Decision 0052/0064: even if the child never gets the hinted
+    word right across all four graduated stages, the session
+    continues to normal feedback -- no penalty, no infinite loop."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -846,7 +846,9 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_th
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
         # "no thanks" declines decision 0057's post-reading word game.
-        side_effect=["a cat mat", "nope", "nope", "nope", "no thanks", "let's just chat"],
+        side_effect=[
+            "a cat mat", "nope", "nope", "nope", "nope", "no thanks", "let's just chat",
+        ],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -858,17 +860,121 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_th
     assert tts.synthesized[1] == build_hint_line("sat", 0)
     assert tts.synthesized[2] == build_hint_line("sat", 1)
     assert tts.synthesized[3] == build_hint_line("sat", 2)
+    assert tts.synthesized[4] == build_hint_line("sat", 3)
     assert "There you go!" not in tts.synthesized
-    assert tts.synthesized[4].startswith("Good try! Reading can be tricky sometimes.")
+    assert tts.synthesized[5].startswith("Good try! Reading can be tricky sometimes.")
     # Decision 0055: an unresolved hint word is mentioned again in the
     # final feedback as something to revisit, instead of the old
     # unconditional phonics-sound list.
-    assert '"sat"' in tts.synthesized[4]
+    assert '"sat"' in tts.synthesized[5]
     # Decision 0053: the display stayed frozen on the missed word for
-    # all three stages (never cleared early just because a retry was
+    # all four stages (never cleared early just because a retry was
     # wrong), then cleared once the loop gave up (and again on the
     # mode's own exit cleanup, right after).
     assert face.spotlights == ["sat", None, None]
+
+
+async def test_run_reading_partner_hints_every_real_miss_not_just_the_first():
+    """Decision 0065: a read with two real misses gets both hinted in
+    turn, not just the first -- and the final stage's evidence
+    (where the word was said outright) must not count toward mastery
+    the way an earlier, self-sounded-out stage does."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="little garden hops.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "silly gotten hops",  # the read-aloud -- "little" and "garden" both missed
+            "little",  # "little" resolved on the very first retry
+            "nope", "nope", "nope", "nope",  # "garden" never resolved, exhausts all 4 stages
+            "no thanks",  # declines the word game
+            "let's just chat",  # ends the session
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # Both missed words got their own hint sequence, "little" first
+    # (reading order).
+    assert build_hint_line("little", 0) in tts.synthesized
+    assert "There you go!" in tts.synthesized  # "little" resolved
+    assert build_hint_line("garden", 0) in tts.synthesized
+    assert build_hint_line("garden", 3) in tts.synthesized  # "garden" exhausted the ladder
+    # "little" is excluded from the final practice-words mention
+    # (resolved live); "garden" still surfaces since it never was.
+    feedback_line = next(
+        line for line in tts.synthesized if line.startswith("Good try!")
+    )
+    assert '"garden"' in feedback_line
+    assert '"little"' not in feedback_line
+
+
+async def test_run_reading_partner_final_stage_resolution_does_not_feed_mastery():
+    """Decision 0065, Gap B: resolving a word only at the final hint
+    stage -- where Chitti has already said the word outright -- is an
+    echo, not independent decoding. Its evidence must not be fed into
+    mastery the way the three earlier stages' attempts (sounded out
+    themselves after a sound/blend cue, even if wrong) still are."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "a cat mat",  # the read-aloud -- "sat" missed (substituted as "mat")
+            "nope", "nope", "nope",  # stages 0, 1, 2 -- wrong, but still real attempts
+            "sat",  # stage 3 -- only correct after being told the word outright
+            "no thanks",
+            "let's just chat",
+        ],
+    ):
+        await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    # "There you go!" is still spoken (the attempt did match), but
+    # the grapheme "s" (sat's first sound) only gets 4 opportunities --
+    # the original miscue plus the three *earlier* stages' attempts --
+    # not 5, which would mean the final, told-the-answer attempt was
+    # wrongly counted as a fifth independent opportunity.
+    assert "There you go!" in tts.synthesized
+    profile = reading.get_or_create("child-1")
+    assert profile.masteries["s"].opportunities == 4
 
 
 # -- post-reading comprehension questions (decision 0059) -----------------

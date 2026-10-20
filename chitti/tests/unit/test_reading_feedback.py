@@ -71,10 +71,25 @@ def test_feedback_excludes_the_resolved_hint_word_but_keeps_other_misses():
     result = assess(
         "little bunny hops in the garden", "silly bunny hops in the gotten", duration_seconds=3.0
     )
-    text = build_reading_feedback(result, MasteryDelta(), resolved_word="little")
+    text = build_reading_feedback(result, MasteryDelta(), resolved_words=["little"])
 
     assert '"little"' not in text
     assert '"garden"' in text
+
+
+def test_feedback_excludes_multiple_resolved_words_at_once():
+    """Decision 0065: the hint ladder now works through every real
+    miss, not just one -- resolved_words must accept (and exclude)
+    more than a single word."""
+    result = assess(
+        "little bunny hops in the garden",
+        "silly bunny hops in the dotten",
+        duration_seconds=3.0,
+    )
+    text = build_reading_feedback(result, MasteryDelta(), resolved_words=["little", "garden"])
+
+    assert '"little"' not in text
+    assert '"garden"' not in text
 
 
 def test_feedback_caps_practice_words_at_three():

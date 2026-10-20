@@ -27,15 +27,19 @@ _MAX_PRACTICE_WORDS = 3
 
 
 def build_reading_feedback(
-    assessment: AssessmentResult, delta: MasteryDelta, resolved_word: str | None = None
+    assessment: AssessmentResult,
+    delta: MasteryDelta,
+    resolved_words: list[str] | None = None,
 ) -> str:
-    """`resolved_word` is the word the hint-and-retry loop (decision
-    0052) worked on, passed only if the child *did* get it right by
-    the end -- excluded from the practice-words list below so it's
+    """`resolved_words` are the words the hint-and-retry ladder
+    (decisions 0052/0065) worked on *and the child got right* by the
+    end -- excluded from the practice-words list below so they're
     never redundantly re-mentioned moments after being fixed live.
-    Pass None (the default) when there was no hint this turn, or it
-    was never resolved -- in that case it surfaces naturally, since
-    it's still a real miscue in `assessment`."""
+    Pass None/empty (the default) when there was no hint this turn, or
+    none were resolved -- those surface naturally, since they're still
+    real miscues in `assessment`. Decision 0065 generalized this from
+    a single word to a list, since the hint ladder itself now works
+    through every real miss, not just the first."""
     if assessment.accuracy >= 0.95:
         parts = ["Wow, you read that really well!"]
     elif assessment.accuracy >= 0.75:
@@ -43,7 +47,7 @@ def build_reading_feedback(
     else:
         parts = ["Good try! Reading can be tricky sometimes."]
 
-    practice_words = _practice_words(assessment, exclude=resolved_word)
+    practice_words = _practice_words(assessment, exclude=resolved_words)
     if practice_words:
         parts.append(_practice_sentence(practice_words))
     else:
@@ -54,12 +58,14 @@ def build_reading_feedback(
     return " ".join(parts)
 
 
-def _practice_words(assessment: AssessmentResult, exclude: str | None = None) -> list[str]:
+def _practice_words(
+    assessment: AssessmentResult, exclude: list[str] | None = None
+) -> list[str]:
     """Every real missed word from this read worth practicing (same
     is_worth_practicing() bar hints.py's pick_hint_word() uses),
     deduped, in reading order, capped at _MAX_PRACTICE_WORDS -- not
     just the single word the hint ladder happened to address."""
-    excluded = clean_word(exclude) if exclude else None
+    excluded = {clean_word(w) for w in exclude} if exclude else set()
     seen: set[str] = set()
     words: list[str] = []
     for miscue in assessment.miscues:
@@ -68,7 +74,7 @@ def _practice_words(assessment: AssessmentResult, exclude: str | None = None) ->
         if not is_worth_practicing(miscue.expected):
             continue
         cleaned = clean_word(miscue.expected)
-        if cleaned == excluded or cleaned in seen:
+        if cleaned in excluded or cleaned in seen:
             continue
         seen.add(cleaned)
         words.append(miscue.expected)
