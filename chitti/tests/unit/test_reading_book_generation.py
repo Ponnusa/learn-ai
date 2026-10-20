@@ -12,7 +12,7 @@ from companion_robot.reading.book_generation import (
     parse_story_draft,
 )
 from companion_robot.reading.planner import select_objective
-from companion_robot.reading.schema import ReadingProfile
+from companion_robot.reading.schema import Objective, ReadingProfile
 
 
 def _objective():
@@ -141,6 +141,80 @@ async def test_generate_decodable_book_uses_interest_when_no_source_passage():
     await generate_decodable_book(_objective(), proposer=proposer, interest="dinosaurs")
 
     assert "dinosaurs" in prompts[0]
+
+
+async def test_generate_decodable_book_shortens_the_target_at_the_most_restrictive_budget():
+    """Decision 0076, found live against the real backend: a 16-word
+    target routinely failed to converge within max_attempts at the
+    very first level (budget = short_vowels alone) -- true single-
+    consonant CVC/VC vocabulary is tiny, and 16 words gives many more
+    chances to need a disallowed pattern than a shorter target does.
+    No explicit `length` -> defaults to 8 at this budget size."""
+    prompts = []
+
+    async def proposer(prompt: str) -> StoryDraft:
+        prompts.append(prompt)
+        return StoryDraft(title="The Cat", pages=["A cat sat."])
+
+    await generate_decodable_book(_objective(), proposer=proposer)
+
+    assert "about 8 words" in prompts[0]
+
+
+async def test_generate_decodable_book_uses_the_full_length_once_more_is_unlocked():
+    prompts = []
+
+    async def proposer(prompt: str) -> StoryDraft:
+        prompts.append(prompt)
+        return StoryDraft(title="The Cat", pages=["A cat sat."])
+
+    objective = Objective(
+        target_grapheme="sh", target_level="digraphs", mastered_levels=["short_vowels"]
+    )
+    await generate_decodable_book(objective, proposer=proposer)
+
+    assert "about 16 words" in prompts[0]
+
+
+async def test_generate_decodable_book_respects_an_explicit_length():
+    prompts = []
+
+    async def proposer(prompt: str) -> StoryDraft:
+        prompts.append(prompt)
+        return StoryDraft(title="The Cat", pages=["A cat sat."])
+
+    await generate_decodable_book(_objective(), proposer=proposer, length=20)
+
+    assert "about 20 words" in prompts[0]
+
+
+async def test_generate_decodable_book_tries_more_at_the_most_restrictive_budget():
+    """Decision 0076: the hardest budget to satisfy (short_vowels
+    alone) gets more attempts by default (6, not 4) before giving up
+    -- an always-undecodable draft should exhaust all 6."""
+    attempts = []
+
+    async def proposer(prompt: str) -> StoryDraft:
+        attempts.append(prompt)
+        return StoryDraft(title="Bad", pages=["A ship sat."])  # always needs digraphs
+
+    with pytest.raises(BookGenerationError):
+        await generate_decodable_book(_objective(), proposer=proposer)
+
+    assert len(attempts) == 6
+
+
+async def test_generate_decodable_book_respects_an_explicit_max_attempts():
+    attempts = []
+
+    async def proposer(prompt: str) -> StoryDraft:
+        attempts.append(prompt)
+        return StoryDraft(title="Bad", pages=["A ship sat."])
+
+    with pytest.raises(BookGenerationError):
+        await generate_decodable_book(_objective(), proposer=proposer, max_attempts=2)
+
+    assert len(attempts) == 2
 
 
 def test_parse_story_draft_reads_title_and_pages():

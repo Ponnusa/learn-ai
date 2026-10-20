@@ -35,8 +35,26 @@ from .schema import GeneratedBook, Objective
 
 # Human-readable description of what each phonics level licenses, so the
 # writer knows the patterns it may use.
+#
+# Decision 0076, found live: generate_decodable_book() repeatedly
+# failed for a brand-new profile (budget = short_vowels only) because
+# the LLM kept reaching for words like "camp," "pals," "all" -- each
+# LOOKS like a simple short-vowel word, but "camp"'s trailing "mp" is
+# a consonant blend, "pals" needs the "-s" suffix, and "all" is a
+# glued sound -- none allowed until their own level is unlocked. The
+# original short_vowels hint's example words (cat, red, pin, ...) are
+# all true single-consonant CVC/VC shapes, but nothing told the model
+# that was the actual boundary; it kept guessing from "looks short and
+# plain" instead. Spelled out explicitly now, with the exact kind of
+# word that looks safe but isn't.
 _LEVEL_HINTS: dict[str, str] = {
-    "short_vowels": "short-vowel CVC/VC words only (cat, red, pin, dog, run, on, at)",
+    "short_vowels": (
+        "short-vowel CVC/VC words ONLY, with exactly one consonant before "
+        "and after the vowel -- no consonant cluster anywhere in the word, "
+        "including at the end (cat, red, pin, dog, run, on, at are fine; "
+        "camp, jump, hand, fast, best, pals look just as simple but are "
+        "NOT allowed yet -- those need the 'blends' or 'suffixes' level)"
+    ),
     "digraphs": "consonant digraphs sh, ch, th, wh, ck, ng, ph, qu (ship, chip, this)",
     "blends": "consonant blends (flat, stop, hand, went, drum)",
     "silent_e": "silent-e long vowels (make, like, home, cube)",
@@ -220,11 +238,11 @@ async def generate_decodable_book(
     session_index: int = 0,
     sight_words: set[str] | None = None,
     num_target: int = 6,
-    length: int = 16,
+    length: int | None = None,
     interest: str = "",
     age: int = 6,
     rng: random.Random | None = None,
-    max_attempts: int = 4,
+    max_attempts: int | None = None,
     source_passage: str | None = None,
 ) -> GeneratedBook:
     """Generates a safe, fully decodable book for an objective,
@@ -238,9 +256,32 @@ async def generate_decodable_book(
     that passage's own topic/vocabulary instead of `interest` -- see
     _build_prompt(). `interest` is simply ignored in that case, not an
     error; callers don't need to omit it themselves.
+
+    `length` and `max_attempts` both default to None, meaning "pick a
+    sensible value for this objective's own budget" (decision 0076,
+    found live): at the very first level, the budget is just
+    "short_vowels" alone -- true single-consonant CVC/VC words are a
+    tiny vocabulary, and a 16-word target gives many more chances to
+    need a disallowed pattern (a blend, digraph, suffix, ...) than a
+    shorter one does, and even a shorter target still doesn't converge
+    as reliably as at any other level. Measured against the real
+    backend: a 16-word target at 4 attempts routinely failed to
+    converge at this level; an 8-word target at 6 attempts converged
+    far more often (not guaranteed -- this budget is genuinely the
+    hardest one to satisfy, not a bug with one clean fix). Once more
+    than one level is unlocked, the decodable vocabulary is large
+    enough that the usual defaults (16 words, 4 attempts) are fine.
+    Callers that pass their own `length`/`max_attempts` are never
+    overridden.
     """
     sight = set(sight_words or set())
     profile = _phonics_profile(objective, sight)
+    budget_size = len(set(profile["mastered_levels"]) | {profile["target_level"]})
+    most_restrictive = budget_size <= 1
+    if length is None:
+        length = 8 if most_restrictive else 16
+    if max_attempts is None:
+        max_attempts = 6 if most_restrictive else 4
 
     feedback = ""
     best_decodable: StoryDraft | None = None

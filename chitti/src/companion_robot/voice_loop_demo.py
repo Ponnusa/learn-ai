@@ -1498,7 +1498,17 @@ async def _run_reading_partner(
                             tts, audio, face, speed, "reading_book_generation",
                         )
                         break
-                    except BookGenerationError:
+                    except BookGenerationError as exc:
+                        # Decision 0076: this used to be silently
+                        # swallowed -- the exception's own message
+                        # (target grapheme + exactly which words/why
+                        # the last attempt was rejected) is the single
+                        # most useful diagnostic for "why did this
+                        # fail," and had to be re-derived by hand
+                        # against the real backend to debug a live
+                        # report. Logged, not spoken -- never meant for
+                        # the child.
+                        logger.warning("book generation attempt failed: %s", exc)
                         continue
                 if book is None:
                     apology = (
@@ -1889,7 +1899,11 @@ async def _run_reading_partner_v2(
                         ),
                         tts, audio, face, speed, "reading_book_generation",
                     )
-                except BookGenerationError:
+                except BookGenerationError as exc:
+                    # Decision 0076: logged, not spoken -- see the
+                    # matching comment in _run_reading_partner()'s own
+                    # BookGenerationError handling for why.
+                    logger.warning("book generation attempt failed: %s", exc)
                     apology = (
                         "I'm having trouble coming up with a story right now -- "
                         "let's try reading again in a little while."

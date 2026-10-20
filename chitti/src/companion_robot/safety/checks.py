@@ -53,8 +53,26 @@ _BATHROOM_HUMOR_WHITELIST = ["fart", "poop", "pee"]
 # UNSAFE_CONTENT instead of the less-precise PROFANITY.
 _NATURE_VOCABULARY_WHITELIST = ["kill"]
 
+# Decision 0076, found live: generate_decodable_book() kept failing
+# for a brand-new profile -- the LLM, writing within an extremely
+# restrictive short-vowels-only budget, naturally reached for "fat"
+# ("the cat was fat") as one of the few simple, decodable adjectives
+# available, and the generic profanity wordlist blocks it outright,
+# burning a retry attempt on a false positive every time it appeared.
+# "fat" as a plain body/size descriptor ("a fat cat," "a fat book") is
+# ordinary, age-typical vocabulary, not an insult -- same reasoning
+# decisions 0031/0036 already applied to other over-blocked words.
+# Narrow and specific, not a general relaxation: this doesn't touch
+# "fat" used as a slur in a sentence directed at a person, which the
+# UNSAFE_CONTENT/other category checks below are a better fit for
+# catching anyway (this module's profanity check was never doing that
+# distinction in the first place -- it's a bare wordlist match).
+_DESCRIPTIVE_WORD_WHITELIST = ["fat"]
+
 profanity.load_censor_words(
-    whitelist_words=_BATHROOM_HUMOR_WHITELIST + _NATURE_VOCABULARY_WHITELIST
+    whitelist_words=(
+        _BATHROOM_HUMOR_WHITELIST + _NATURE_VOCABULARY_WHITELIST + _DESCRIPTIVE_WORD_WHITELIST
+    )
 )
 
 

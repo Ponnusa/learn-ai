@@ -140,6 +140,28 @@ def test_kill_whitelist_does_not_weaken_self_harm_detection(text):
 @pytest.mark.parametrize(
     "text",
     [
+        "fat",
+        "The cat was fat.",
+        "Pat has a fat cat.",
+        "A fat book sat on the mat.",
+    ],
+)
+def test_allows_fat_as_an_ordinary_descriptor(text):
+    """Found live (decision 0076): generate_decodable_book() kept
+    failing for a brand-new profile's maximally restrictive short-
+    vowels-only budget -- the LLM naturally reached for "fat" as one
+    of the few simple, decodable adjectives available, and the
+    generic profanity wordlist blocked it outright every time,
+    burning a retry attempt. "Fat" describing an animal/object is
+    ordinary, age-typical vocabulary, not an insult."""
+    verdict = check_speech(text)
+    assert verdict.allowed is True
+    assert verdict.category is None
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
         "The dragon breathed fire and the knight pretended to fight it with a wooden sword.",
         "In the game, the pirate said 'I'll make you walk the plank!'",
         "The witch in the story said she would lock them in the cage.",
