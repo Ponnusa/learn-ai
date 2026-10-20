@@ -74,6 +74,7 @@ from companion_robot.parent_controls.stories import StoryRepository
 from companion_robot.reading.alignment import align, assess, attribute_evidence, merge_assessments
 from companion_robot.reading.book_generation import BookGenerationError
 from companion_robot.reading.decodability import clean_word
+from companion_robot.reading.deterministic_book import build_deterministic_book
 from companion_robot.reading.feedback import build_reading_feedback
 from companion_robot.reading.hints import HINT_STAGES, build_hint_line, pick_hint_words
 from companion_robot.reading.mastery import update_from_evidence
@@ -1511,14 +1512,19 @@ async def _run_reading_partner(
                         logger.warning("book generation attempt failed: %s", exc)
                         continue
                 if book is None:
-                    apology = (
-                        "I'm having trouble coming up with a story right now -- "
-                        "let's try reading again in a little while."
+                    # Decision 0077: the LLM path can still fail even
+                    # with decision 0076's improved odds -- fall back
+                    # to the guaranteed-decodable, offline builder
+                    # (no LLM, no network, cannot raise) rather than
+                    # apologizing with nothing to read. This is why
+                    # the old apology-and-break path is gone: there is
+                    # nothing left that can leave `book` unset here.
+                    book = build_deterministic_book(
+                        objective,
+                        session_index=profile.sessions_completed,
+                        interest=profile.interest,
+                        source_passage=source_passage,
                     )
-                    print(f"Chitti: {apology}")
-                    face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, apology, speed=speed)
-                    break
 
             print(f"\n-- {book.title} --")
             for page in book.pages:
@@ -1902,16 +1908,17 @@ async def _run_reading_partner_v2(
                 except BookGenerationError as exc:
                     # Decision 0076: logged, not spoken -- see the
                     # matching comment in _run_reading_partner()'s own
-                    # BookGenerationError handling for why.
+                    # BookGenerationError handling for why. Decision
+                    # 0077: falls back to the guaranteed-decodable,
+                    # offline builder (no LLM, no network, cannot
+                    # raise) instead of apologizing with nothing to
+                    # read.
                     logger.warning("book generation attempt failed: %s", exc)
-                    apology = (
-                        "I'm having trouble coming up with a story right now -- "
-                        "let's try reading again in a little while."
+                    book = build_deterministic_book(
+                        objective,
+                        session_index=profile.sessions_completed,
+                        interest=profile.interest,
                     )
-                    print(f"Chitti: {apology}")
-                    face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, apology, speed=speed)
-                    break
 
             print(f"\n-- {book.title} --")
             for page in book.pages:

@@ -308,3 +308,56 @@ async def test_v1_and_v2_use_the_same_reading_profile():
     profile = reading.get_or_create("child-1")
     assert profile.sessions_completed == 1
     assert profile.masteries["a"].opportunities > 0
+
+
+async def test_falls_back_to_the_deterministic_builder_when_generation_fails():
+    """Decision 0077: when LLM book generation fails, v2 falls back to
+    the guaranteed-decodable, offline builder instead of apologizing
+    with nothing to read."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = _make_exercise(conn, "A cat sat.")
+    llm = _FakeLLM(reply="unused")
+
+    async def _always_fails(_messages, system_prompt):
+        if "decodable" in system_prompt.lower() and "story" in system_prompt.lower():
+            return "TITLE: Bad\nPAGE: A ship sat.", "fake-model"  # always undecodable
+        return "Sorry, no questions.", "fake-model"
+
+    llm.generate_reply = AsyncMock(side_effect=_always_fails)
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    # A function, not a fixed list: the fallback builder's own content
+    # is deterministic word-practice text, not natural prose, so a
+    # fixed "read it back" guess could easily read as a rough first
+    # attempt and walk into model/together/second-read/practice --
+    # an unpredictable number of extra captures. Answering with an
+    # explicit stop request after the two known turns ends the
+    # session cleanly and quickly however many turns v2's adaptive
+    # flow would otherwise take.
+    scripted = iter(["a cat sat", "yes please"])
+
+    async def _capture_side_effect(*_args, **_kwargs):
+        try:
+            return next(scripted)
+        except StopIteration:
+            return "I'm done, this is too hard"
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=_capture_side_effect,
+    ):
+        next_mode, carried_text = await _run_reading_partner_v2(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode is None
+    assert not any("having trouble coming up with a story" in line for line in tts.synthesized)
+    # The session continued into a real sentence from the fallback
+    # book (modeled, then stopped on request) instead of dead-ending.
+    assert "Listen to me first. Follow the words with your eyes!" in tts.synthesized
+    assert "That's okay, we can try more another time! Great effort today." in tts.synthesized
