@@ -238,4 +238,14 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         "reading_font_color",
         "reading_font_color TEXT NOT NULL DEFAULT 'white'",
     )
+    # Decision 0067: where a child is mid-passage, persisted so a
+    # session interrupted partway through a longer passage can resume
+    # instead of restarting.
+    _ensure_column(conn, "reading_profiles", "current_passage_key", "current_passage_key TEXT")
+    _ensure_column(
+        conn,
+        "reading_profiles",
+        "current_sentence_index",
+        "current_sentence_index INTEGER NOT NULL DEFAULT 0",
+    )
     conn.commit()

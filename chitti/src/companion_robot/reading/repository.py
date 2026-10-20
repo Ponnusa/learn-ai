@@ -61,6 +61,8 @@ class ReadingRepository:
             sessions_completed=row["sessions_completed"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
+            current_passage_key=row["current_passage_key"],
+            current_sentence_index=row["current_sentence_index"],
         )
 
     def save(self, profile: ReadingProfile) -> None:
@@ -72,13 +74,16 @@ class ReadingRepository:
         self._conn.execute(
             """
             INSERT INTO reading_profiles
-                (child_profile_id, interest, sight_words, sessions_completed, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (child_profile_id, interest, sight_words, sessions_completed, created_at, updated_at,
+                 current_passage_key, current_sentence_index)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(child_profile_id) DO UPDATE SET
                 interest = excluded.interest,
                 sight_words = excluded.sight_words,
                 sessions_completed = excluded.sessions_completed,
-                updated_at = excluded.updated_at
+                updated_at = excluded.updated_at,
+                current_passage_key = excluded.current_passage_key,
+                current_sentence_index = excluded.current_sentence_index
             """,
             (
                 profile.child_profile_id,
@@ -87,6 +92,8 @@ class ReadingRepository:
                 profile.sessions_completed,
                 created_at.isoformat(),
                 now.isoformat(),
+                profile.current_passage_key,
+                profile.current_sentence_index,
             ),
         )
         for mastery in profile.masteries.values():

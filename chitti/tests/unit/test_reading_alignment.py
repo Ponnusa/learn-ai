@@ -10,6 +10,7 @@ from companion_robot.reading.alignment import (
     align,
     assess,
     attribute_evidence,
+    merge_assessments,
 )
 
 
@@ -121,3 +122,51 @@ def test_assess_correct_words_lists_only_the_correctly_read_words():
     read correctly as evidence -- this is where that list comes from."""
     result = assess("cat sat mat", "cat sit mat", duration_seconds=3.0)
     assert result.correct_words == ["cat", "mat"]  # "sat" was substituted
+
+
+# -- merge_assessments() (decision 0067) -----------------------------------
+
+
+def test_merge_assessments_sums_totals_across_sentences():
+    """Decision 0067: sentence-by-sentence reading runs assess() once
+    per sentence -- the combined result must match what one single
+    whole-passage assess() call would have produced, word-count-wise."""
+    whole = assess("cat sat mat dog ran", "cat sat mat dog ran", duration_seconds=5.0)
+    per_sentence = [
+        assess("cat sat mat", "cat sat mat", duration_seconds=3.0),
+        assess("dog ran", "dog ran", duration_seconds=2.0),
+    ]
+    merged = merge_assessments(per_sentence)
+
+    assert merged.total_words == whole.total_words
+    assert merged.words_correct == whole.words_correct
+    assert merged.accuracy == whole.accuracy
+    assert merged.duration_seconds == whole.duration_seconds
+    assert merged.wcpm == whole.wcpm
+
+
+def test_merge_assessments_combines_miscues_and_correct_words_in_order():
+    per_sentence = [
+        assess("cat sat", "cat sit", duration_seconds=2.0),  # "sat" missed
+        assess("dog ran", "dog ran", duration_seconds=2.0),  # clean
+    ]
+    merged = merge_assessments(per_sentence)
+
+    assert [m.expected for m in merged.miscues] == ["sat"]
+    assert merged.correct_words == ["cat", "dog", "ran"]
+    assert merged.substitutions == 1
+    assert merged.errors == 1
+
+
+def test_merge_assessments_combines_grapheme_evidence_from_every_sentence():
+    """Decision 0067: mastery evidence must accumulate across every
+    sentence's own assess() call, not just the last one -- the whole
+    point of grading finer-grained is that nothing gets lost."""
+    per_sentence = [
+        assess("cat", "cat", duration_seconds=1.0),
+        assess("cot", "cot", duration_seconds=1.0),
+    ]
+    merged = merge_assessments(per_sentence)
+
+    assert merged.grapheme_evidence["c"] == [True, True]
+    assert merged.grapheme_evidence["t"] == [True, True]

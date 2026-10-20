@@ -62,3 +62,46 @@ def test_sight_words_round_trip():
     reloaded = repo.get_or_create("child-1")
 
     assert reloaded.sight_words == ["the", "was"]
+
+
+def test_new_profile_has_no_passage_in_progress():
+    repo = _repo()
+    profile = repo.get_or_create("child-1")
+
+    assert profile.current_passage_key is None
+    assert profile.current_sentence_index == 0
+
+
+def test_passage_position_round_trip():
+    """Decision 0067: a mid-passage position must survive a reload --
+    the whole point is resuming across separate sessions/processes,
+    not just within one in-memory run."""
+    repo = _repo()
+    profile = repo.get_or_create("child-1")
+    profile.current_passage_key = "abc123"
+    profile.current_sentence_index = 2
+    repo.save(profile)
+
+    reloaded = repo.get_or_create("child-1")
+
+    assert reloaded.current_passage_key == "abc123"
+    assert reloaded.current_sentence_index == 2
+
+
+def test_passage_position_resets_to_none_round_trip():
+    """A finished passage resets its position -- confirms None itself
+    round-trips back to None, not the string "None" or some other
+    truthy placeholder."""
+    repo = _repo()
+    profile = repo.get_or_create("child-1")
+    profile.current_passage_key = "abc123"
+    profile.current_sentence_index = 2
+    repo.save(profile)
+
+    profile.current_passage_key = None
+    profile.current_sentence_index = 0
+    repo.save(profile)
+    reloaded = repo.get_or_create("child-1")
+
+    assert reloaded.current_passage_key is None
+    assert reloaded.current_sentence_index == 0

@@ -71,7 +71,7 @@ from companion_robot.memory.schema import (
 from companion_robot.parent_controls.profiles import ChildProfile, ChildProfileRepository
 from companion_robot.parent_controls.reading_exercises import ReadingExerciseRepository
 from companion_robot.parent_controls.stories import StoryRepository
-from companion_robot.reading.alignment import align, assess, attribute_evidence
+from companion_robot.reading.alignment import align, assess, attribute_evidence, merge_assessments
 from companion_robot.reading.book_generation import BookGenerationError
 from companion_robot.reading.decodability import clean_word
 from companion_robot.reading.feedback import build_reading_feedback
@@ -79,7 +79,8 @@ from companion_robot.reading.hints import HINT_STAGES, build_hint_line, pick_hin
 from companion_robot.reading.mastery import update_from_evidence
 from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
-from companion_robot.reading.schema import GeneratedBook
+from companion_robot.reading.schema import AssessmentResult, GeneratedBook, MasteryDelta
+from companion_robot.reading.sentences import passage_key, split_into_sentences
 from companion_robot.reading.word_game import (
     blank_vowels,
     incorrect_response,
@@ -1369,107 +1370,168 @@ async def _run_reading_partner(
             face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, intro, speed=speed)
 
-            # Decision 0053: the teleprompter's clock starts here, as
-            # close as practical to when the child is actually
-            # expected to start reading -- not before the intro, which
-            # would burn several seconds of scroll time while Chitti
-            # is still talking.
-            face.set_reading_text(
-                book.pages,
-                wpm=reading_pace_wpm,
-                font_size=reading_font_size,
-                font_color=reading_font_color,
-            )
-            face.set_status_led(DeviceState.LISTENING)
-            # Real elapsed recording time, not the estimated-duration
-            # fallback the original project's typed-transcript CLI path
-            # needs -- Chitti's push-to-talk already has a real clock.
-            capture_started = time.monotonic()
-            spoken = await _capture_and_transcribe(stt)
-            duration_seconds = time.monotonic() - capture_started
-            print(f"You read: {spoken}")
-            face.set_reading_text(None)
+            # Decision 0067: read one sentence at a time rather than
+            # the whole passage in a single capture -- easier for a
+            # young child to sustain, kinder to STT accuracy on a
+            # longer parent-provided passage, and lets position persist
+            # across sessions. passage_key() ties current_sentence_index
+            # to this exact passage's own text, not the book/exercise
+            # row id, so a freshly-generated book (different text every
+            # time) never resumes into an unrelated passage.
+            sentences = split_into_sentences(book.text)
+            key = passage_key(book.text)
+            if (
+                profile.current_passage_key == key
+                and 0 < profile.current_sentence_index < len(sentences)
+            ):
+                start_index = profile.current_sentence_index
+                resume_cue = "Let's pick up where we left off!"
+                print(f"Chitti: {resume_cue}")
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, resume_cue, speed=speed)
+            else:
+                start_index = 0
+                profile.current_passage_key = key
+                profile.current_sentence_index = 0
+                reading_repo.save(profile)
 
-            face.set_status_led(DeviceState.PROCESSING)
-            assessment = assess(
-                book.text, spoken, duration_seconds=duration_seconds, sight_words=book.sight_words
-            )
-
-            # Decision 0052/0065: graduated hint + retry for every real
-            # missed word (not just the first), before the mastery
-            # update so a corrected retry still counts as real evidence
-            # rather than being thrown away.
-            hint_words = pick_hint_words(assessment)
+            sentence_assessments: list[AssessmentResult] = []
+            sentence_deltas: list[MasteryDelta] = []
             resolved_words: list[str] = []
-            for hint_word in hint_words:
-                # Decision 0053: the actual bug fix -- freezes the
-                # display on the missed word for the whole exchange,
-                # so the child always knows which word is meant,
-                # regardless of hint stage.
-                face.set_reading_spotlight(hint_word)
-                for stage in range(HINT_STAGES):
-                    hint_line = build_hint_line(hint_word, stage)
-                    print(f"Chitti: {hint_line}")
-                    face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, hint_line, speed=speed)
+            for sentence_index in range(start_index, len(sentences)):
+                sentence = sentences[sentence_index]
 
-                    face.set_status_led(DeviceState.LISTENING)
-                    attempt = await _capture_and_transcribe(stt)
-                    print(f"You said: {attempt}")
+                # Decision 0053's teleprompter, now shown one sentence
+                # at a time -- its clock starts right before this
+                # sentence's own capture, same "as close as practical
+                # to when the child actually starts" reasoning as
+                # before, just scoped to one sentence instead of the
+                # whole passage.
+                face.set_reading_text(
+                    [sentence],
+                    wpm=reading_pace_wpm,
+                    font_size=reading_font_size,
+                    font_color=reading_font_color,
+                )
+                face.set_status_led(DeviceState.LISTENING)
+                # Real elapsed recording time, not the estimated-duration
+                # fallback the original project's typed-transcript CLI path
+                # needs -- Chitti's push-to-talk already has a real clock.
+                capture_started = time.monotonic()
+                spoken = await _capture_and_transcribe(stt)
+                duration_seconds = time.monotonic() - capture_started
+                print(f"You read: {spoken}")
+                face.set_reading_text(None)
 
-                    # Decision 0065: the final stage has already told
-                    # the child the word outright ("That word is
-                    # 'X'..."), so a correct repeat there is an echo,
-                    # not independent decoding -- it must not feed
-                    # mastery the same way sounding it out themselves
-                    # (every earlier stage) does.
-                    if stage < HINT_STAGES - 1:
-                        retry_evidence = attribute_evidence(
-                            align(hint_word, attempt), sight_words=book.sight_words
-                        )
-                        for grapheme, observations in retry_evidence.items():
-                            assessment.grapheme_evidence.setdefault(grapheme, []).extend(
-                                observations
-                            )
+                face.set_status_led(DeviceState.PROCESSING)
+                assessment = assess(
+                    sentence, spoken, duration_seconds=duration_seconds, sight_words=book.sight_words
+                )
 
-                    if clean_word(attempt) == clean_word(hint_word):
-                        resolved_words.append(hint_word)
-                        praise = "There you go!"
-                        print(f"Chitti: {praise}")
+                # Decision 0052/0065: graduated hint + retry for every
+                # real missed word in this sentence (not just the
+                # first), before the mastery update so a corrected
+                # retry still counts as real evidence rather than being
+                # thrown away.
+                hint_words = pick_hint_words(assessment)
+                for hint_word in hint_words:
+                    # Decision 0053: the actual bug fix -- freezes the
+                    # display on the missed word for the whole exchange,
+                    # so the child always knows which word is meant,
+                    # regardless of hint stage.
+                    face.set_reading_spotlight(hint_word)
+                    for stage in range(HINT_STAGES):
+                        hint_line = build_hint_line(hint_word, stage)
+                        print(f"Chitti: {hint_line}")
                         face.set_status_led(DeviceState.SPEAKING)
-                        await _speak(tts, audio, praise, speed=speed)
-                        # Decision 0066: only a stage before the last
-                        # counts as independent decoding (decision
-                        # 0065's own Gap B distinction) -- fresh,
-                        # confirmed evidence the skill generalizes is
-                        # worth checking with a word family; echoing
-                        # a word Chitti just said outright is not.
-                        if stage < HINT_STAGES - 1:
-                            # Same budget book_generation.py itself
-                            # wrote the book under (objective.mastered_levels
-                            # plus the in-progress target_level) --
-                            # using the bare mastered_levels would
-                            # reject family words built on the very
-                            # grapheme this book was teaching.
-                            family_budget = list(objective.mastered_levels)
-                            if objective.target_level not in family_budget:
-                                family_budget.append(objective.target_level)
-                            await _run_word_family_practice(
-                                hint_word, conversation, tts, audio, stt, face, speed,
-                                child_age, family_budget,
-                            )
-                        break
-                # No penalty for still missing it after the last stage
-                # (saying the word outright) -- just moves on to the
-                # next missed word, if any.
-            if hint_words:
-                face.set_reading_spotlight(None)
+                        await _speak(tts, audio, hint_line, speed=speed)
 
-            delta = update_from_evidence(
-                profile, assessment.grapheme_evidence, session_index=profile.sessions_completed
-            )
+                        face.set_status_led(DeviceState.LISTENING)
+                        attempt = await _capture_and_transcribe(stt)
+                        print(f"You said: {attempt}")
+
+                        # Decision 0065: the final stage has already told
+                        # the child the word outright ("That word is
+                        # 'X'..."), so a correct repeat there is an echo,
+                        # not independent decoding -- it must not feed
+                        # mastery the same way sounding it out themselves
+                        # (every earlier stage) does.
+                        if stage < HINT_STAGES - 1:
+                            retry_evidence = attribute_evidence(
+                                align(hint_word, attempt), sight_words=book.sight_words
+                            )
+                            for grapheme, observations in retry_evidence.items():
+                                assessment.grapheme_evidence.setdefault(grapheme, []).extend(
+                                    observations
+                                )
+
+                        if clean_word(attempt) == clean_word(hint_word):
+                            resolved_words.append(hint_word)
+                            praise = "There you go!"
+                            print(f"Chitti: {praise}")
+                            face.set_status_led(DeviceState.SPEAKING)
+                            await _speak(tts, audio, praise, speed=speed)
+                            # Decision 0066: only a stage before the last
+                            # counts as independent decoding (decision
+                            # 0065's own Gap B distinction) -- fresh,
+                            # confirmed evidence the skill generalizes is
+                            # worth checking with a word family; echoing
+                            # a word Chitti just said outright is not.
+                            if stage < HINT_STAGES - 1:
+                                # Same budget book_generation.py itself
+                                # wrote the book under (objective.mastered_levels
+                                # plus the in-progress target_level) --
+                                # using the bare mastered_levels would
+                                # reject family words built on the very
+                                # grapheme this book was teaching.
+                                family_budget = list(objective.mastered_levels)
+                                if objective.target_level not in family_budget:
+                                    family_budget.append(objective.target_level)
+                                await _run_word_family_practice(
+                                    hint_word, conversation, tts, audio, stt, face, speed,
+                                    child_age, family_budget,
+                                )
+                            break
+                    # No penalty for still missing it after the last stage
+                    # (saying the word outright) -- just moves on to the
+                    # next missed word, if any.
+                if hint_words:
+                    face.set_reading_spotlight(None)
+
+                sentence_deltas.append(
+                    update_from_evidence(
+                        profile, assessment.grapheme_evidence, session_index=profile.sessions_completed
+                    )
+                )
+                sentence_assessments.append(assessment)
+
+                # Decision 0067: persist after EACH sentence, not just
+                # at the end -- a session interrupted partway through a
+                # longer passage picks back up here next time instead
+                # of losing progress or restarting from the top.
+                profile.current_sentence_index = sentence_index + 1
+                reading_repo.save(profile)
+
+            # The whole passage is done -- position memory only matters
+            # while a passage is in progress, so it resets clean for
+            # whatever comes next (a new book, or this same passage
+            # re-read from the top if ever re-assigned).
+            profile.current_passage_key = None
+            profile.current_sentence_index = 0
             profile.sessions_completed += 1
             reading_repo.save(profile)
+
+            # Decision 0067: one combined AssessmentResult/MasteryDelta
+            # across every sentence, so build_reading_feedback() and the
+            # activities below keep working against a single whole-
+            # passage result exactly as before -- they don't need to
+            # know reading happened sentence by sentence underneath.
+            assessment = merge_assessments(sentence_assessments)
+            delta = MasteryDelta(
+                changes=[c for d in sentence_deltas for c in d.changes],
+                newly_mastered=[g for d in sentence_deltas for g in d.newly_mastered],
+                newly_mastered_levels=[lvl for d in sentence_deltas for lvl in d.newly_mastered_levels],
+            )
 
             # Decision 0060/0065: build_reading_feedback() now surfaces
             # every real missed word itself (not just whichever ones

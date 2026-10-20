@@ -46,6 +46,15 @@ class ReadingProfile:
     sessions_completed: int = 0
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    # Decision 0067: where this child is in a longer, still-in-progress
+    # passage. current_passage_key is a stable hash of the passage's own
+    # text (reading/sentences.py's passage_key()) -- never the book/
+    # exercise row id, since a resumed parent-uploaded exercise needs
+    # the same key across sessions but a freshly-generated book needs a
+    # new one every time. Reset to None/0 once a passage is finished;
+    # only meaningful while one is actually in progress.
+    current_passage_key: str | None = None
+    current_sentence_index: int = 0
 
     @classmethod
     def new(

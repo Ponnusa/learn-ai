@@ -253,3 +253,40 @@ def assess(
         grapheme_evidence=evidence,
         correct_words=correct_words,
     )
+
+
+def merge_assessments(results: list[AssessmentResult]) -> AssessmentResult:
+    """Decision 0067: combines one AssessmentResult per sentence (from
+    sentence-by-sentence assess() calls) into a single result spanning
+    the whole passage -- so build_reading_feedback() and the post-read
+    activities keep working against one AssessmentResult the same way
+    they always have, without needing to know reading happened sentence
+    by sentence underneath. Every count is a straight sum; accuracy/wcpm
+    are recomputed from the summed totals rather than averaged, same as
+    assess() computes them from a single read's totals."""
+    total_words = sum(r.total_words for r in results)
+    words_correct = sum(r.words_correct for r in results)
+    duration_seconds = sum(r.duration_seconds for r in results)
+
+    merged_evidence: dict[str, list[bool]] = defaultdict(list)
+    for r in results:
+        for grapheme, observations in r.grapheme_evidence.items():
+            merged_evidence[grapheme].extend(observations)
+
+    return AssessmentResult(
+        expected_text=" ".join(r.expected_text for r in results),
+        spoken_text=" ".join(r.spoken_text for r in results),
+        total_words=total_words,
+        words_correct=words_correct,
+        errors=sum(r.errors for r in results),
+        substitutions=sum(r.substitutions for r in results),
+        omissions=sum(r.omissions for r in results),
+        insertions=sum(r.insertions for r in results),
+        self_corrections=sum(r.self_corrections for r in results),
+        accuracy=fluency.accuracy(words_correct, total_words),
+        wcpm=fluency.wcpm(words_correct, duration_seconds),
+        duration_seconds=duration_seconds,
+        miscues=[m for r in results for m in r.miscues],
+        grapheme_evidence=dict(merged_evidence),
+        correct_words=[w for r in results for w in r.correct_words],
+    )

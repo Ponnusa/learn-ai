@@ -619,14 +619,15 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
         # A perfect read -- no miscue, so decision 0052's hint loop
-        # never fires here and doesn't consume extra captures. "no
-        # thanks" declines decision 0057's post-reading word game
+        # never fires here and doesn't consume extra captures. Decision
+        # 0067: the book's two sentences are each their own capture.
+        # "no thanks" declines decision 0057's post-reading word game
         # (offered since "cat"/"sat"/"ran" all qualify) so it never
         # consumes further captures either. The final turn is a
         # genuine switch request (needed so the mode loop -- which
         # otherwise keeps generating books forever -- actually
         # terminates for this test).
-        side_effect=["a cat sat a cat ran", "no thanks", "let's just chat"],
+        side_effect=["a cat sat", "a cat ran", "no thanks", "let's just chat"],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -640,9 +641,10 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
     # Found live: nothing used to tell the child Chitti was waiting on
     # them after the feedback -- it just silently started listening.
     assert any("try another one" in line for line in tts.synthesized)
-    # The book's text was actually shown on screen, then cleared both
-    # before grading and again once the mode loop exits (the `finally`).
-    assert face.reading_texts[0] == ["A cat sat.", "A cat ran."]
+    # Decision 0067: the teleprompter shows one sentence at a time, not
+    # the whole book at once -- cleared before grading and again once
+    # the mode loop exits (the `finally`).
+    assert face.reading_texts[0] == ["A cat sat."]
     assert None in face.reading_texts
     # The session was actually persisted, not just held in memory.
     profile = reading.get_or_create("child-1")
@@ -1057,6 +1059,107 @@ async def test_run_reading_partner_word_family_skipped_when_llm_gives_no_usable_
     assert not any("more words like it" in line for line in tts.synthesized)
 
 
+# -- sentence-by-sentence reading with persistent position (decision 0067) --
+
+
+async def test_run_reading_partner_shows_and_captures_one_sentence_at_a_time():
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat. A dog ran.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", "a dog ran", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # Each sentence shown on its own, in order -- never the whole
+    # two-sentence passage in one teleprompter call.
+    assert [lines for lines in face.reading_texts if lines] == [["A cat sat."], ["A dog ran."]]
+    # The passage finished cleanly in one sitting -- position memory
+    # resets, since it only matters while something is in progress.
+    profile = reading.get_or_create("child-1")
+    assert profile.current_passage_key is None
+    assert profile.current_sentence_index == 0
+
+
+async def test_run_reading_partner_resumes_mid_passage_after_an_interrupted_session():
+    """Decision 0067: a session that ends partway through a longer
+    passage (here, simulated by an exception during the second
+    sentence's capture) picks back up at the right sentence next time
+    instead of re-reading from the top or losing progress."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    # No reading_exercises row -- the LLM path is used both times, with
+    # the same fixed reply both sessions so the regenerated book's text
+    # (and therefore its passage_key) is identical across the two calls.
+    # Decodable at a fresh profile's budget (short_vowels only) --
+    # unlike, say, "ate" (a silent-e long-vowel pattern), which would
+    # fail the book generator's own decodability check and never reach
+    # the capture/read-aloud step at all.
+    llm = _FakeLLM(reply="TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.\nPAGE: A dog ran.")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", RuntimeError("simulated interruption")],
+    ):
+        with pytest.raises(RuntimeError, match="simulated interruption"):
+            await _run_reading_partner(
+                conversation, tts, _FakeAudio(), "fake-stt",
+                reading, reading_exercises, face, "child-1", 1.0,
+            )
+
+    interrupted_profile = reading.get_or_create("child-1")
+    assert interrupted_profile.current_sentence_index == 1
+    assert interrupted_profile.current_passage_key is not None
+
+    tts2 = _FakeTTS()
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat ran", "a dog ran", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts2, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # Resumed with the spoken cue, and the first sentence shown this
+    # time is the SECOND one -- the first was never re-shown or re-asked.
+    assert any("pick up where we left off" in line.lower() for line in tts2.synthesized)
+    face2_shown = [lines for lines in face.reading_texts if lines]
+    assert face2_shown[-2:] == [["A cat ran."], ["A dog ran."]]
+    assert ["A cat sat."] not in face2_shown[-2:]
+
+    finished_profile = reading.get_or_create("child-1")
+    assert finished_profile.current_passage_key is None
+    assert finished_profile.current_sentence_index == 0
+
+
 # -- post-reading comprehension questions (decision 0059) -----------------
 
 
@@ -1084,7 +1187,8 @@ async def test_run_reading_partner_asks_and_reacts_to_comprehension_questions():
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
         side_effect=[
-            "a cat sat a cat ran",  # the read-aloud (perfect, no hint)
+            "a cat sat",  # decision 0067: sentence 1 of 2 (perfect, no hint)
+            "a cat ran",  # sentence 2 of 2 (perfect, no hint)
             "the cat sat down",  # answer to question 1
             "under a tree",  # answer to question 2
             "no thanks",  # declines the word game
