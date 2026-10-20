@@ -478,6 +478,58 @@ async def test_generate_comprehension_questions_returns_empty_when_all_unsafe():
     assert questions == []
 
 
+async def test_generate_word_family_parses_and_verifies_candidates():
+    llm = FakeLanguageModelBackend(reply="WORD: cat\nWORD: sat\nWORD: bat")
+    service = ConversationService(llm)
+
+    words = await service.generate_word_family("mat", mastered_levels=["short_vowels"], age=6)
+
+    assert words == ["cat", "sat", "bat"]
+    assert len(llm.calls) == 1
+
+
+async def test_generate_word_family_drops_a_candidate_with_a_different_rime():
+    """Decision 0066: each candidate is verified against the target
+    rime's exact grapheme sequence, not trusted on the model's say-so
+    -- a candidate that doesn't actually share the rime is dropped."""
+    llm = FakeLanguageModelBackend(reply="WORD: cat\nWORD: dog\nWORD: sat")
+    service = ConversationService(llm)
+
+    words = await service.generate_word_family("mat", mastered_levels=["short_vowels"], age=6)
+
+    assert words == ["cat", "sat"]
+
+
+async def test_generate_word_family_drops_the_original_word_itself():
+    llm = FakeLanguageModelBackend(reply="WORD: mat\nWORD: cat")
+    service = ConversationService(llm)
+
+    words = await service.generate_word_family("mat", mastered_levels=["short_vowels"], age=6)
+
+    assert words == ["cat"]
+
+
+async def test_generate_word_family_returns_empty_when_word_has_no_rime():
+    """A single-grapheme word (e.g. "a") has nothing left to vary --
+    skipped before ever calling the LLM."""
+    llm = FakeLanguageModelBackend(reply="WORD: should not be called")
+    service = ConversationService(llm)
+
+    words = await service.generate_word_family("a", mastered_levels=["short_vowels"], age=6)
+
+    assert words == []
+    assert len(llm.calls) == 0
+
+
+async def test_generate_word_family_returns_empty_when_every_candidate_fails():
+    llm = FakeLanguageModelBackend(reply="WORD: dog\nWORD: pig")
+    service = ConversationService(llm)
+
+    words = await service.generate_word_family("mat", mastered_levels=["short_vowels"], age=6)
+
+    assert words == []
+
+
 async def test_react_to_comprehension_answer_grounds_in_the_story():
     llm = FakeLanguageModelBackend(
         reply="STATUS: resolved\nSAY: Yes, exactly -- the bunny found a red apple!"

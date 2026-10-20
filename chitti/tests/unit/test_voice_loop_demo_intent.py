@@ -977,6 +977,86 @@ async def test_run_reading_partner_final_stage_resolution_does_not_feed_mastery(
     assert profile.masteries["s"].opportunities == 4
 
 
+async def test_run_reading_partner_word_family_offered_after_independent_resolution():
+    """Decision 0066: a word resolved via an EARLIER hint stage (real
+    decoding, not an echo) triggers an offer to practice a same-rime
+    word family; accepting reads through every verified candidate."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="WORD: cat\nWORD: bat")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "a cat mat",  # read-aloud -- "sat" substituted as "mat"
+            "sat",  # resolved on the very first retry -- real decoding
+            "yes",  # accepts the word-family offer
+            "cat",  # reads the first family word correctly
+            "bat",  # reads the second family word correctly
+            "no thanks",  # declines the separate post-reading word game
+            "let's just chat",
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert any('"sat"' in line and "more words" in line for line in tts.synthesized)
+    assert any('"cat"' in line for line in tts.synthesized)
+    assert any('"bat"' in line for line in tts.synthesized)
+    assert sum(line in _CORRECT_RESPONSES for line in tts.synthesized) == 2
+
+
+async def test_run_reading_partner_word_family_skipped_when_llm_gives_no_usable_words():
+    """A reply with no verifiable WORD: candidates degrades to simply
+    skipping the activity -- no offer spoken, no extra capture."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat mat", "sat", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert not any("more words like it" in line for line in tts.synthesized)
+
+
 # -- post-reading comprehension questions (decision 0059) -----------------
 
 

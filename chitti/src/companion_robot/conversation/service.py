@@ -25,6 +25,12 @@ from companion_robot.reading.comprehension import (
     parse_questions,
 )
 from companion_robot.reading.schema import GeneratedBook, Objective
+from companion_robot.reading.word_family import (
+    build_family_prompt,
+    extract_rime,
+    parse_family_words,
+    verify_family_word,
+)
 from companion_robot.safety.checks import SafetyCategory, check_speech, decline_message
 from companion_robot.voice.interfaces import LanguageModelBackend
 
@@ -221,6 +227,38 @@ class ConversationService:
         if screened.blocked:
             return ComprehensionReaction(text=screened.text, needs_retry=False)
         return ComprehensionReaction(text=screened.text, needs_retry=reaction.needs_retry)
+
+    async def generate_word_family(
+        self, word: str, mastered_levels: list[str], age: int | None = None, num_words: int = 4
+    ) -> list[str]:
+        """Decision 0066: once a word is read successfully, a small
+        set of same-pattern words (mat -> cat, sat, bat, rat) to check
+        the skill generalized, not just that one word. The LLM
+        proposes candidates; each is independently verified against
+        word_family.verify_family_word() (exact rime match + decodable
+        at the child's current level) and a failing candidate is
+        simply dropped, not retried -- same screen-and-drop shape as
+        generate_comprehension_questions(), since there's no single
+        "fix" for a bad rhyme. Returns [] if `word` has only one
+        grapheme (nothing to vary) or if every candidate fails
+        verification -- the caller skips the activity gracefully."""
+        rime = extract_rime(word)
+        if rime is None:
+            return []
+        rime_spelling, rime_graphemes = rime
+        prompt = build_family_prompt(word, rime_spelling, num_words)
+        reply_text, _model = await self._llm.generate_reply(
+            [{"role": "user", "content": "Write the words now."}], prompt
+        )
+        candidates = parse_family_words(reply_text)
+        verified = [
+            candidate
+            for candidate in candidates
+            if candidate.strip().lower() != word.strip().lower()
+            and verify_family_word(candidate, rime_graphemes, mastered_levels)
+        ]
+        safe_words = [w for w in verified if check_speech(w).allowed]
+        return safe_words[:num_words]
 
     def repeat_after_me(self, text: str) -> ConversationResult:
         """No LLM call -- the child's own words are screened and either

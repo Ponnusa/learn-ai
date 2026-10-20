@@ -1166,6 +1166,66 @@ async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:
     await _speak(tts, audio, closing, speed=speed)
 
 
+async def _run_word_family_practice(
+    word: str,
+    conversation,
+    tts,
+    audio,
+    stt,
+    face,
+    speed: float,
+    age: int | None,
+    mastered_levels: list[str],
+) -> None:
+    """Decision 0066: offered right after `word` resolves independently
+    via the hint ladder (reading/hints.py) -- the moment there's fresh,
+    confirmed evidence the skill behind it is live, not after every
+    already-fluent correct read (that would turn every correct word
+    into another detour). Candidates are LLM-proposed but verified
+    deterministically (reading/word_family.py) before ever reaching
+    the child; an empty verified list just means this activity is
+    skipped, same "degrade gracefully" precedent as comprehension
+    questions and the word game. Offered, not forced -- same
+    is_affirmative() gate every other optional activity in this file
+    uses.
+    """
+    family_words = await conversation.generate_word_family(word, mastered_levels, age=age)
+    if not family_words:
+        return
+
+    intro = f'You just read "{word}" so well! Want to try a few more words like it?'
+    print(f"Chitti: {intro}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, intro, speed=speed)
+
+    face.set_status_led(DeviceState.LISTENING)
+    reply = await _capture_and_transcribe(stt)
+    print(f"You said: {reply}")
+    if not is_affirmative(reply):
+        return
+
+    for family_word in family_words:
+        face.set_reading_spotlight(family_word)
+        prompt = f'Can you read this word: "{family_word}"?'
+        print(f"Chitti: {prompt}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, prompt, speed=speed)
+
+        face.set_status_led(DeviceState.LISTENING)
+        answer = await _capture_and_transcribe(stt)
+        print(f"You said: {answer}")
+        face.set_reading_spotlight(None)
+
+        response = (
+            random_correct_response()
+            if is_correct_answer(family_word, answer)
+            else incorrect_response(family_word)
+        )
+        print(f"Chitti: {response}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, response, speed=speed)
+
+
 async def _run_reading_partner(
     conversation,
     tts,
@@ -1378,6 +1438,26 @@ async def _run_reading_partner(
                         print(f"Chitti: {praise}")
                         face.set_status_led(DeviceState.SPEAKING)
                         await _speak(tts, audio, praise, speed=speed)
+                        # Decision 0066: only a stage before the last
+                        # counts as independent decoding (decision
+                        # 0065's own Gap B distinction) -- fresh,
+                        # confirmed evidence the skill generalizes is
+                        # worth checking with a word family; echoing
+                        # a word Chitti just said outright is not.
+                        if stage < HINT_STAGES - 1:
+                            # Same budget book_generation.py itself
+                            # wrote the book under (objective.mastered_levels
+                            # plus the in-progress target_level) --
+                            # using the bare mastered_levels would
+                            # reject family words built on the very
+                            # grapheme this book was teaching.
+                            family_budget = list(objective.mastered_levels)
+                            if objective.target_level not in family_budget:
+                                family_budget.append(objective.target_level)
+                            await _run_word_family_practice(
+                                hint_word, conversation, tts, audio, stt, face, speed,
+                                child_age, family_budget,
+                            )
                         break
                 # No penalty for still missing it after the last stage
                 # (saying the word outright) -- just moves on to the
