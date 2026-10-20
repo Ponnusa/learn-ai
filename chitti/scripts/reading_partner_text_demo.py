@@ -26,9 +26,15 @@ thread was never started -- no separate fake-face class needed.
 
 Requires OPENAI_API_KEY in chitti/.env (same as voice_loop_demo.py).
 
+Decision 0075: set CHITTI_READING_PARTNER_V2=1 to exercise the new,
+separate model/together/independent/practice flow instead -- same
+toggle voice_loop_demo.py's own mode dispatch uses, so this harness
+tests whichever version is actually configured.
+
 Usage: python scripts/reading_partner_text_demo.py
 """
 import asyncio
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -40,7 +46,11 @@ from companion_robot.parent_controls.reading_exercises import ReadingExerciseRep
 from companion_robot.reading.repository import ReadingRepository
 from companion_robot.storage.sqlite import connect
 from companion_robot.voice.openai_backend import OpenAILanguageModelBackend
-from companion_robot.voice_loop_demo import _run_reading_partner, _select_or_create_profile
+from companion_robot.voice_loop_demo import (
+    _run_reading_partner,
+    _run_reading_partner_v2,
+    _select_or_create_profile,
+)
 
 
 async def _text_capture_and_transcribe(stt) -> str:
@@ -85,14 +95,16 @@ async def main() -> None:
 
     profile = _select_or_create_profile(profiles)
 
-    print("\n-- Reading Partner (text-only test harness) --")
+    is_v2 = os.environ.get("CHITTI_READING_PARTNER_V2") == "1"
+    print(f"\n-- Reading Partner {'v2 (decision 0075)' if is_v2 else ''} (text-only test harness) --")
     print("Type what the child would say at each prompt. Ctrl-C to quit.\n")
 
+    reading_partner_fn = _run_reading_partner_v2 if is_v2 else _run_reading_partner
     with (
         patch.object(voice_loop_demo, "_capture_and_transcribe", _text_capture_and_transcribe),
         patch.object(voice_loop_demo, "_speak", _text_speak),
     ):
-        next_mode, _switch_trigger_text = await _run_reading_partner(
+        next_mode, _switch_trigger_text = await reading_partner_fn(
             conversation,
             tts=None,
             audio=None,

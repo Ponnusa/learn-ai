@@ -81,6 +81,12 @@ from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
 from companion_robot.reading.schema import AssessmentResult, GeneratedBook, MasteryDelta
 from companion_robot.reading.sentences import passage_key, split_into_sentences
+from companion_robot.reading.session_state import (
+    ReadingState,
+    SentenceSession,
+    seems_like_a_help_request,
+    seems_like_a_stop_request,
+)
 from companion_robot.reading.word_game import (
     blank_vowels,
     incorrect_response,
@@ -1767,6 +1773,360 @@ async def _run_reading_partner(
     return next_mode, switch_trigger_text
 
 
+async def _run_reading_partner_v2(
+    conversation,
+    tts,
+    audio,
+    stt,
+    reading_repo: ReadingRepository,
+    reading_exercises: ReadingExerciseRepository,
+    face,
+    child_profile_id: str,
+    speed: float,
+    child_age: int | None = None,
+    child_interest: str = "",
+    reading_pace_wpm: float = 45.0,
+    reading_font_size: int = 28,
+    reading_font_color: str = "white",
+    initial_text: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Reading Partner v2 (decision 0075) -- a second, parallel reading
+    flow, built directly from a product-owner critique of the original
+    (decisions 0051-0074): invite an independent try first; if it's
+    not clean, model the sentence, read it together (supported, not
+    assessed), then let the child try independently again; practice
+    only the words that turn out to actually be hard (capped at
+    reading.session_state.MAX_PRACTICE_WORDS), reread once, then check
+    understanding. A child who reads well on the first try is praised
+    and moved straight to the understanding check -- never forced
+    through the full sequence. The state machine itself
+    (reading/session_state.py) is pure and deterministic; the LLM
+    (via ConversationService) only ever phrases the one comprehension
+    question and reacts to the answer -- it never decides what happens
+    next or whether an attempt counts as correct.
+
+    Deliberately a SEPARATE function, not a modification of
+    _run_reading_partner() -- explicit instruction: "create a new
+    version for this... so at any point we can get back to the old."
+    Gated behind CHITTI_READING_PARTNER_V2=1 in the mode dispatch
+    (default off, so nothing changes for anyone not opting in); the
+    original function above is untouched by this decision.
+
+    Narrower in scope than the original on purpose, for this first
+    version: no word game (decision 0057), no word-family
+    generalization check (decision 0066), no re-read-the-same-exercise
+    offer or themed follow-up (decision 0068) -- none of those are
+    part of the critique's own described flow. Not ruled out for v2
+    later, just not carried over automatically; "take it from here"
+    was the instruction, not "port everything first."
+
+    Book/exercise selection mirrors the original (decision 0052/0063/
+    0069: a pending parent exercise if one exists and the flag isn't
+    explicitly off, otherwise an LLM-generated decodable book) --
+    duplicated here rather than shared, so neither version needs to
+    change if the other's selection logic ever changes.
+
+    Mastery (BKT grapheme evidence, reading/mastery.py) updates the
+    SAME ReadingProfile the original uses -- a child's phonics mastery
+    is the same fact regardless of which flow taught it. Evidence is
+    only fed from genuinely independent attempts (the first read, the
+    second/supported-practice read, and each word's final
+    "try it alone" moment in word practice) -- never from the
+    together-read or an echoed repeat-after-Chitti, same echo-isn't-
+    evidence principle decision 0065 established for the original.
+    Decision 0067's cross-session passage-position resume
+    (current_passage_key/current_sentence_index) is deliberately NOT
+    used here, to avoid the two very differently-shaped flows
+    colliding over the same two profile fields; v2 doesn't resume
+    mid-passage across sessions in this first version.
+
+    Two honest approximations, both unavoidable on this hardware and
+    both already true throughout the original mode: "read together"
+    is sequential (Chitti models, then the child reads), not literally
+    simultaneous -- _capture_and_transcribe() is push-to-talk with one
+    microphone, so there is no live full-duplex audio to read
+    alongside. And the teleprompter highlight during modeling is
+    decision 0053's existing wpm-paced autoscroll, not live TTS-word-
+    timing-synced -- this backend's TTS call returns finished audio,
+    not word-level timestamps, to sync against.
+    """
+    face.set_expression_mode("learning")  # decision 0044
+    profile = reading_repo.get_or_create(child_profile_id, interest=child_interest)
+    print("\n-- Reading Partner v2 (decision 0075). Ctrl-C to quit. --")
+
+    next_mode: str | None = None
+    switch_trigger_text: str | None = None
+    try:
+        while True:
+            objective = select_objective(profile, session_index=profile.sessions_completed)
+            face.set_status_led(DeviceState.PROCESSING)
+
+            exercise = (
+                reading_exercises.next_pending_for_child(child_profile_id)
+                if os.environ.get("CHITTI_ENABLE_READING_EXERCISES", "1") != "0"
+                else None
+            )
+            exercise_pages = (
+                [line.strip() for line in exercise.content.split("\n") if line.strip()]
+                if exercise
+                else []
+            )
+            if exercise and exercise_pages:
+                book = GeneratedBook(
+                    title=exercise.title,
+                    pages=exercise_pages,
+                    target_grapheme=objective.target_grapheme,
+                    objective=objective,
+                    sight_words=set(),
+                    generation_source="parent_uploaded",
+                )
+                reading_exercises.mark_consumed(exercise.id)
+            else:
+                try:
+                    book = await _generate_with_thinking_filler(
+                        conversation.generate_decodable_book(
+                            objective, interest=profile.interest, age=child_age or 6
+                        ),
+                        tts, audio, face, speed, "reading_book_generation",
+                    )
+                except BookGenerationError:
+                    apology = (
+                        "I'm having trouble coming up with a story right now -- "
+                        "let's try reading again in a little while."
+                    )
+                    print(f"Chitti: {apology}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, apology, speed=speed)
+                    break
+
+            print(f"\n-- {book.title} --")
+            for page in book.pages:
+                print(f"  {page}")
+
+            stopped_early = False
+            for sentence in split_into_sentences(book.text):
+                session = SentenceSession(sentence=sentence, sight_words=book.sight_words)
+
+                face.set_reading_text(
+                    [sentence], wpm=reading_pace_wpm, font_size=reading_font_size,
+                    font_color=reading_font_color,
+                )
+                intro = (
+                    "Let's read this sentence together! Have a go yourself. It's okay "
+                    "if some words are tricky. If you want my help, say \"read with me\"!"
+                )
+                print(f"Chitti: {intro}")
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, intro, speed=speed)
+
+                face.set_status_led(DeviceState.LISTENING)
+                capture_started = time.monotonic()
+                first_attempt = await _capture_and_transcribe(stt)
+                duration_seconds = time.monotonic() - capture_started
+                print(f"You read: {first_attempt}")
+                face.set_reading_text(None)
+
+                if seems_like_a_help_request(first_attempt):
+                    # Decision 0075: an empty or explicit-ask capture
+                    # is a request for help, not a bad reading attempt
+                    # -- never graded as one.
+                    reassure = "No worries! Let me show you how."
+                    print(f"Chitti: {reassure}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, reassure, speed=speed)
+                    session.state = ReadingState.MODEL_READ
+                else:
+                    first_result = session.record_attempt(first_attempt, duration_seconds)
+                    update_from_evidence(
+                        profile, first_result.grapheme_evidence,
+                        session_index=profile.sessions_completed,
+                    )
+                    session.decide_after_first_read(first_result)
+                    if session.state == ReadingState.COMPREHENSION:
+                        praise = "Wow, you read that all by yourself!"
+                        print(f"Chitti: {praise}")
+                        face.set_status_led(DeviceState.SPEAKING)
+                        await _speak(tts, audio, praise, speed=speed)
+
+                if session.state == ReadingState.MODEL_READ:
+                    model_cue = "Listen to me first. Follow the words with your eyes!"
+                    print(f"Chitti: {model_cue}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, model_cue, speed=speed)
+                    face.set_reading_text(
+                        [sentence], wpm=reading_pace_wpm, font_size=reading_font_size,
+                        font_color=reading_font_color,
+                    )
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, sentence, speed=speed)
+                    session.state = ReadingState.READ_TOGETHER
+
+                    together_cue = "Now let's read it together. Ready? Let's go!"
+                    print(f"Chitti: {together_cue}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, together_cue, speed=speed)
+                    face.set_status_led(DeviceState.LISTENING)
+                    together_attempt = await _capture_and_transcribe(stt)
+                    print(f"You read: {together_attempt}")
+                    face.set_reading_text(None)
+                    # Decision 0075: supported practice, not an
+                    # independent assessment -- recorded in the
+                    # session's own history (via record_attempt below
+                    # only if we keep going) but deliberately never fed
+                    # into mastery -- the critique's own explicit point
+                    # that a supported correct response doesn't prove
+                    # independent reading.
+
+                    if seems_like_a_stop_request(together_attempt):
+                        stopped_early = True
+                        break
+
+                    session.state = ReadingState.SECOND_INDEPENDENT_READ
+                    second_cue = (
+                        "Lovely! Now it's your turn. See if you can read it all by yourself."
+                    )
+                    print(f"Chitti: {second_cue}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, second_cue, speed=speed)
+                    face.set_status_led(DeviceState.LISTENING)
+                    capture_started = time.monotonic()
+                    second_attempt = await _capture_and_transcribe(stt)
+                    duration_seconds = time.monotonic() - capture_started
+                    print(f"You read: {second_attempt}")
+
+                    if seems_like_a_stop_request(second_attempt):
+                        stopped_early = True
+                        break
+
+                    second_result = session.record_attempt(second_attempt, duration_seconds)
+                    update_from_evidence(
+                        profile, second_result.grapheme_evidence,
+                        session_index=profile.sessions_completed,
+                    )
+                    session.decide_after_second_read(second_result)
+
+                    if session.state == ReadingState.WORD_PRACTICE:
+                        words = session.practice_words
+                        practice_intro = (
+                            f'Let\'s practise just {"this word" if len(words) == 1 else "these tricky words"} '
+                            "together."
+                        )
+                        print(f"Chitti: {practice_intro}")
+                        face.set_status_led(DeviceState.SPEAKING)
+                        await _speak(tts, audio, practice_intro, speed=speed)
+
+                        for word in words:
+                            face.set_reading_spotlight(word)
+                            listen_cue = f'Listen to Chitti say the word: "{word}".'
+                            print(f"Chitti: {listen_cue}")
+                            face.set_status_led(DeviceState.SPEAKING)
+                            await _speak(tts, audio, listen_cue, speed=speed)
+                            await _speak(tts, audio, word, speed=speed)
+
+                            repeat_cue = "Now you try saying it."
+                            print(f"Chitti: {repeat_cue}")
+                            face.set_status_led(DeviceState.SPEAKING)
+                            await _speak(tts, audio, repeat_cue, speed=speed)
+                            face.set_status_led(DeviceState.LISTENING)
+                            echo_attempt = await _capture_and_transcribe(stt)
+                            print(f"You said: {echo_attempt}")
+                            # Decision 0075: an echo right after Chitti
+                            # modeled the word -- not independent
+                            # decoding, so not fed into mastery (same
+                            # principle as decision 0065's Gap B).
+
+                            independent_cue = (
+                                "Great! Now try it again, all by yourself, "
+                                "without me saying it first."
+                            )
+                            print(f"Chitti: {independent_cue}")
+                            face.set_status_led(DeviceState.SPEAKING)
+                            await _speak(tts, audio, independent_cue, speed=speed)
+                            face.set_status_led(DeviceState.LISTENING)
+                            independent_word_attempt = await _capture_and_transcribe(stt)
+                            print(f"You said: {independent_word_attempt}")
+                            word_evidence = attribute_evidence(
+                                align(word, independent_word_attempt),
+                                sight_words=book.sight_words,
+                            )
+                            for grapheme, observations in word_evidence.items():
+                                update_from_evidence(
+                                    profile, {grapheme: observations},
+                                    session_index=profile.sessions_completed,
+                                )
+                        face.set_reading_spotlight(None)
+                        session.finish_word_practice()
+
+                        reread_cue = "Let's read the whole sentence one more time."
+                        print(f"Chitti: {reread_cue}")
+                        face.set_status_led(DeviceState.SPEAKING)
+                        await _speak(tts, audio, reread_cue, speed=speed)
+                        face.set_reading_text(
+                            [sentence], wpm=reading_pace_wpm, font_size=reading_font_size,
+                            font_color=reading_font_color,
+                        )
+                        face.set_status_led(DeviceState.LISTENING)
+                        final_reread_attempt = await _capture_and_transcribe(stt)
+                        print(f"You read: {final_reread_attempt}")
+                        face.set_reading_text(None)
+                        # Decision 0075: a fluency consolidation step,
+                        # not graded again -- same reasoning decision
+                        # 0074 already applied to the original flow's
+                        # own post-hint reread.
+                        session.finish_final_reread()
+
+                # COMPREHENSION -- reuses the existing whole-story
+                # question generator (decision 0059) scoped to just
+                # this one sentence; it only ever needs story_text,
+                # which a single sentence satisfies as well as a whole
+                # book does.
+                face.set_status_led(DeviceState.PROCESSING)
+                questions = await _generate_with_thinking_filler(
+                    conversation.generate_comprehension_questions(
+                        sentence, num_questions=1, age=child_age or 6
+                    ),
+                    tts, audio, face, speed, "comprehension_questions",
+                )
+                if questions:
+                    await _ask_and_react_to_question(
+                        sentence, questions[0], conversation, tts, audio, stt, face, speed,
+                        child_age,
+                    )
+                session.complete()
+
+            profile.sessions_completed += 1
+            reading_repo.save(profile)
+
+            if stopped_early:
+                closing = "That's okay, we can try more another time! Great effort today."
+                print(f"Chitti: {closing}")
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, closing, speed=speed)
+                break
+
+            next_prompt = "Want to try another one, or would you like to do something else?"
+            print(f"Chitti: {next_prompt}")
+            face.set_status_led(DeviceState.SPEAKING)
+            await _speak(tts, audio, next_prompt, speed=speed)
+
+            face.set_status_led(DeviceState.LISTENING)
+            next_text = await _capture_and_transcribe(stt)
+            print(f"You said: {next_text}")
+            if not next_text.strip():
+                continue
+            candidate_mode, confident = await _detect_switch_intent(next_text, conversation, "5")
+            if candidate_mode is not None and (
+                confident or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
+            ):
+                next_mode = candidate_mode
+                switch_trigger_text = next_text
+                break
+    finally:
+        face.set_reading_text(None)
+        face.set_reading_spotlight(None)
+    return next_mode, switch_trigger_text
+
+
 @dataclass
 class DemoContext:
     """Everything a mode-dispatch loop needs, built once by
@@ -1943,7 +2303,18 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                 )
                 next_mode, carried_text = None, None
             elif next_mode == "5":
-                next_mode, carried_text = await _run_reading_partner(
+                # Decision 0075: CHITTI_READING_PARTNER_V2=1 (default
+                # off) switches Reading Partner to the new, separate
+                # model/together/independent/practice flow instead of
+                # the original hint-ladder one -- a toggle, not a
+                # replacement, so the original is always one env-var
+                # flip away.
+                reading_partner_fn = (
+                    _run_reading_partner_v2
+                    if os.environ.get("CHITTI_READING_PARTNER_V2") == "1"
+                    else _run_reading_partner
+                )
+                next_mode, carried_text = await reading_partner_fn(
                     ctx.conversation,
                     ctx.tts,
                     ctx.audio,
