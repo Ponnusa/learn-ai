@@ -88,6 +88,40 @@ async def test_generate_decodable_book_raises_if_never_decodable():
         await generate_decodable_book(_objective(), proposer=proposer, max_attempts=2)
 
 
+async def test_generate_decodable_book_themes_on_a_source_passage_when_given():
+    """Decision 0068: a parent-uploaded exercise's own text, when
+    passed as source_passage, drives the writer prompt instead of the
+    generic interest -- the follow-up story is meant to build on what
+    the child just read, not a new unrelated theme."""
+    prompts = []
+
+    async def proposer(prompt: str) -> StoryDraft:
+        prompts.append(prompt)
+        return StoryDraft(title="The Cat", pages=["A cat sat."])
+
+    await generate_decodable_book(
+        _objective(),
+        proposer=proposer,
+        interest="dinosaurs",  # must be ignored in favor of source_passage
+        source_passage="A rat sat on a mat.",
+    )
+
+    assert "A rat sat on a mat." in prompts[0]
+    assert "dinosaurs" not in prompts[0]
+
+
+async def test_generate_decodable_book_uses_interest_when_no_source_passage():
+    prompts = []
+
+    async def proposer(prompt: str) -> StoryDraft:
+        prompts.append(prompt)
+        return StoryDraft(title="The Cat", pages=["A cat sat."])
+
+    await generate_decodable_book(_objective(), proposer=proposer, interest="dinosaurs")
+
+    assert "dinosaurs" in prompts[0]
+
+
 def test_parse_story_draft_reads_title_and_pages():
     draft = parse_story_draft("TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.")
     assert draft.title == "The Cat"

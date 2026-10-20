@@ -1160,6 +1160,173 @@ async def test_run_reading_partner_resumes_mid_passage_after_an_interrupted_sess
     assert finished_profile.current_sentence_index == 0
 
 
+# -- re-reading a finished exercise + themed follow-up (decision 0068) ----
+
+
+async def test_run_reading_partner_offers_to_reread_a_finished_exercise_next_session():
+    """Decision 0068: once a parent-uploaded exercise has been read
+    and there's no new one waiting, a LATER session offers to read it
+    again -- accepting re-serves the exact same passage, voice-driven,
+    no parent-dashboard change needed."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+
+    # Session 1: read the exercise once, consuming it.
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", "no thanks", "let's just chat"],
+    ):
+        await _run_reading_partner(
+            conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+    assert reading_exercises.list_for_child("child-1")[0].consumed_at is not None
+
+    # Session 2 (separate call): no new exercise waiting -- offered a
+    # re-read of the one already finished, and accepts it.
+    tts2 = _FakeTTS()
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["yes", "a cat sat", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts2, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert any('"Homework"' in line for line in tts2.synthesized)
+    assert tts2.synthesized[0] == 'Would you like to read "Homework" again, or try something new?'
+    # The same passage was shown again, verbatim.
+    assert ["A cat sat."] in [lines for lines in face.reading_texts if lines]
+
+
+async def test_run_reading_partner_declining_reread_falls_back_to_normal_generation():
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", "no thanks", "let's just chat"],
+    ):
+        await _run_reading_partner(
+            conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    # A function, not a fixed list: generate_decodable_book() may retry
+    # the proposer a few times chasing an on-target draft before
+    # falling back to the first decodable one -- this just always
+    # returns a valid, decodable draft regardless of attempt count,
+    # same "never need to predict exactly how many hint-stage captures
+    # happen" reasoning the switch-detection test above already uses.
+    async def _llm_side_effect(_messages, system_prompt):
+        if "decodable" in system_prompt.lower() and "story" in system_prompt.lower():
+            return "TITLE: The Dog\nPAGE: A dog ran.", "fake-model"
+        return "Sorry, no questions.", "fake-model"
+
+    llm.generate_reply = AsyncMock(side_effect=_llm_side_effect)
+    tts2 = _FakeTTS()
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["no", "a dog ran", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts2, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert ["A dog ran."] in [lines for lines in face.reading_texts if lines]
+
+
+async def test_run_reading_partner_themes_the_followup_book_on_the_finished_exercise():
+    """Decision 0068: right after a parent-uploaded exercise is
+    finished, the NEXT generated book (if the child wants another one)
+    is themed as a follow-up to that exercise's own text -- verified
+    here by checking the exercise's own content reached the actual
+    book-generation prompt, not just the generic stored interest."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+
+    # A function, not a fixed list: generate_decodable_book() may retry
+    # the proposer a few times chasing an on-target draft before
+    # falling back to the first decodable one -- this just always
+    # returns a valid, decodable draft regardless of attempt count.
+    async def _llm_side_effect(_messages, system_prompt):
+        if "decodable" in system_prompt.lower() and "story" in system_prompt.lower():
+            return "TITLE: The Cat Family\nPAGE: A cat ran.", "fake-model"
+        return "Sorry, no questions.", "fake-model"
+
+    llm.generate_reply = AsyncMock(side_effect=_llm_side_effect)
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "a cat sat",  # read-aloud of the exercise
+            "no thanks",  # declines the word game
+            "yes please",  # wants another one -- stays in Reading Partner
+            "a cat ran",  # read-aloud of the themed follow-up book
+            "no thanks",  # declines the word game again
+            "let's just chat",  # ends the session
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    book_gen_prompt = llm.generate_reply.call_args_list[1].args[1]
+    assert "A cat sat." in book_gen_prompt
+    assert '"The Cat Family"' in "".join(tts.synthesized)
+
+
 # -- post-reading comprehension questions (decision 0059) -----------------
 
 

@@ -149,7 +149,13 @@ class ConversationService:
         return label if label in _KNOWN_INTENT_LABELS else None
 
     async def generate_decodable_book(
-        self, objective: Objective, *, interest: str = "", age: int = 6, sight_words=None
+        self,
+        objective: Objective,
+        *,
+        interest: str = "",
+        age: int = 6,
+        sight_words=None,
+        source_passage: str | None = None,
     ) -> GeneratedBook:
         """Decision 0051: the Reading Partner mode's verifier-gated book
         generator. Builds a real StoryProposer around this service's
@@ -161,7 +167,11 @@ class ConversationService:
         decodability and safety are enforced *inside* the generation
         loop itself (a violation is fed back and retried, not declined
         after the fact), so a GeneratedBook that comes back has always
-        already passed check_speech() on every page."""
+        already passed check_speech() on every page.
+
+        `source_passage` (decision 0068): a parent-uploaded exercise's
+        own text the child just finished reading -- when given, themes
+        the follow-up book on it instead of `interest`."""
 
         async def _propose(prompt: str) -> StoryDraft:
             reply_text, _model = await self._llm.generate_reply(
@@ -170,7 +180,12 @@ class ConversationService:
             return parse_story_draft(reply_text)
 
         return await generate_decodable_book(
-            objective, proposer=_propose, sight_words=sight_words, interest=interest, age=age
+            objective,
+            proposer=_propose,
+            sight_words=sight_words,
+            interest=interest,
+            age=age,
+            source_passage=source_passage,
         )
 
     async def generate_comprehension_questions(

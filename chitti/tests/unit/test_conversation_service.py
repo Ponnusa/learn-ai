@@ -433,6 +433,24 @@ async def test_generate_decodable_book_uses_the_main_llm_and_returns_a_book():
     assert len(llm.calls) == 1
 
 
+async def test_generate_decodable_book_passes_source_passage_into_the_prompt():
+    """Decision 0068: a parent-uploaded exercise's text, passed as
+    source_passage, must reach the actual prompt sent to the LLM."""
+    from companion_robot.reading.planner import select_objective
+    from companion_robot.reading.schema import ReadingProfile
+
+    llm = FakeLanguageModelBackend(reply="TITLE: The Rat\nPAGE: A rat sat.")
+    service = ConversationService(llm)
+    objective = select_objective(ReadingProfile.new("child-1"))
+
+    await service.generate_decodable_book(
+        objective, age=6, source_passage="A cat sat on a yellow mat."
+    )
+
+    _messages, system_prompt = llm.calls[0]
+    assert "A cat sat on a yellow mat." in system_prompt
+
+
 async def test_generate_comprehension_questions_parses_the_reply():
     llm = FakeLanguageModelBackend(
         reply="QUESTION: What does the bunny see?\nQUESTION: Where does it sit?"

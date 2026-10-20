@@ -99,23 +99,51 @@ def _exercises_target(pages: list[str], target_grapheme: str) -> bool:
 
 
 def _build_prompt(
-    objective: Objective, *, sight_words: set[str], length: int, interest: str, age: int, feedback: str
+    objective: Objective,
+    *,
+    sight_words: set[str],
+    length: int,
+    interest: str,
+    age: int,
+    feedback: str,
+    source_passage: str | None = None,
 ) -> str:
-    """Builds the writer prompt for one attempt, folding in any prior feedback."""
+    """Builds the writer prompt for one attempt, folding in any prior
+    feedback. Decision 0068: when `source_passage` is given (a parent-
+    uploaded exercise the child just finished reading), the opening
+    instruction asks for a themed follow-up built on that passage's own
+    topic and vocabulary instead of the child's generic stored
+    interest -- reusing this exact verifier-gated loop (decodability +
+    safety), not a separate generation path."""
     budget = list(objective.mastered_levels)
     if objective.target_level not in budget:
         budget.append(objective.target_level)
     allowed = "\n".join(f"  - {lvl}: {_LEVEL_HINTS.get(lvl, lvl)}" for lvl in budget)
-    theme = interest.strip() or "a friendly everyday adventure"
     review = ", ".join(objective.review_graphemes) or "none"
     sight = ", ".join(sorted(sight_words)) or "none"
 
+    if source_passage:
+        opening = (
+            f"Write a short decodable follow-up practice story of about {length} "
+            "words across 3-5 short pages (1-2 simple sentences each) for a child "
+            f"who is {age} years old. The child just read this passage -- build on "
+            "it as a natural companion story, reusing its topic and some of the "
+            "same words where you can, but don't just repeat it word-for-word:\n"
+            f'"{source_passage}"\n'
+            "Warm, gentle, age-appropriate -- never scary, violent, or sad."
+        )
+    else:
+        theme = interest.strip() or "a friendly everyday adventure"
+        opening = (
+            f"Write a short decodable practice story of about {length} words across "
+            "3-5 short pages (1-2 simple sentences each) for a child who is "
+            f"{age} years old and loves {theme}. Warm, gentle, age-appropriate -- "
+            "never scary, violent, or sad."
+        )
+
     parts = [
         "You are Chitti, a friendly companion robot helping a child practice reading.",
-        f"Write a short decodable practice story of about {length} words across "
-        "3-5 short pages (1-2 simple sentences each) for a child who is "
-        f"{age} years old and loves {theme}. Warm, gentle, age-appropriate -- "
-        "never scary, violent, or sad.",
+        opening,
         "",
         f"FOCUS SOUND (must appear): the '{objective.target_grapheme}' grapheme "
         f"(phonics level '{objective.target_level}'). Use several words that "
@@ -180,6 +208,7 @@ async def generate_decodable_book(
     age: int = 6,
     rng: random.Random | None = None,
     max_attempts: int = 4,
+    source_passage: str | None = None,
 ) -> GeneratedBook:
     """Generates a safe, fully decodable book for an objective,
     verifier-gated. Loops propose -> prove -> feed-back until a draft
@@ -187,6 +216,11 @@ async def generate_decodable_book(
     also exercises the target grapheme, or "llm_offtarget" otherwise.
     Raises BookGenerationError if nothing safe and decodable is
     produced within `max_attempts`.
+
+    `source_passage` (decision 0068): when given, themes the story on
+    that passage's own topic/vocabulary instead of `interest` -- see
+    _build_prompt(). `interest` is simply ignored in that case, not an
+    error; callers don't need to omit it themselves.
     """
     sight = set(sight_words or set())
     profile = _phonics_profile(objective, sight)
@@ -195,7 +229,13 @@ async def generate_decodable_book(
     best_decodable: StoryDraft | None = None
     for _attempt in range(max_attempts):
         prompt = _build_prompt(
-            objective, sight_words=sight, length=length, interest=interest, age=age, feedback=feedback
+            objective,
+            sight_words=sight,
+            length=length,
+            interest=interest,
+            age=age,
+            feedback=feedback,
+            source_passage=source_passage,
         )
         draft = await proposer(prompt)
         pages = [p for p in (draft.pages or []) if p and p.strip()]

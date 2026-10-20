@@ -6,10 +6,15 @@ is trusted as-is (no safety screening), same reasoning risk register
 #14 already applies to parent-uploaded stories and lullaby audio: the
 parent is the authorizing adult for their own child.
 
-Consumed exactly once: _run_reading_partner() marks an exercise
-consumed as soon as it's picked up, so the child reads the assigned
-passage once, not every session, and the mode falls back to its
-LLM-generated books afterward.
+Consumed exactly once as a NEW assignment: _run_reading_partner()
+marks an exercise consumed as soon as it's picked up, so it's served
+as "the next thing to read" only once, not every session. Decision
+0068: a consumed exercise isn't gone for good, though -- a later
+session offers to read it again (voice-driven, opt-in, asked once per
+session), and the very next freshly-generated book after a first,
+fresh read of one is themed as its follow-up (same topic/vocabulary),
+both still falling back to the mode's usual adaptive generation once
+neither applies.
 """
 import sqlite3
 from dataclasses import dataclass

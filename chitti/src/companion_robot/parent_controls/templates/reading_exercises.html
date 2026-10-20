@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>Reading exercises</h1>
-<p class="hint">A specific passage (e.g. school homework) for this child to read aloud in Reading Partner -- read once, then Reading Partner goes back to generating its own stories.</p>
+<p class="hint">A specific passage (e.g. school homework) for this child to read aloud in Reading Partner. Served once as the next new thing to read; after that, Reading Partner may offer to read it again by voice, and themes its next generated story on it, before going back to its own stories.</p>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 {% if exercises %}
 <ul class="card-list">

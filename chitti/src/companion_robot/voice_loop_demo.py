@@ -1279,18 +1279,26 @@ async def _run_reading_partner(
     Decision 0052: if the parent has assigned a reading exercise
     (`reading_exercises.next_pending_for_child()`), that passage is
     used verbatim instead of generating a book -- no decodability
-    check, no LLM call -- and marked consumed, so it's read once, not
-    every session. Decision 0063: this path is now opt-in behind
-    `CHITTI_ENABLE_READING_EXERCISES=1` (default off) -- for now,
-    every book comes from the age-adapted LLM path instead; the
-    upload feature itself is untouched, just not consulted while the
-    flag is off. Also decision 0052: if the read-aloud surfaces a
-    real miscue (substitution/omission), a short graduated hint-and-
-    retry exchange runs for that one word before the normal feedback
-    -- deliberately post-hoc, not a live mid-sentence interruption,
-    since _capture_and_transcribe() is push-to-talk (record until
-    Enter, then transcribe once) with no streaming/VAD to notice a
-    child pausing mid-read.
+    check, no LLM call -- and marked consumed, so it's served as the
+    next NEW thing to read only once, not every session. Decision
+    0063: this path is now opt-in behind `CHITTI_ENABLE_READING_EXERCISES=1`
+    (default off) -- for now, every book comes from the age-adapted LLM
+    path instead; the upload feature itself is untouched, just not
+    consulted while the flag is off. Also decision 0052: if the
+    read-aloud surfaces a real miscue (substitution/omission), a short
+    graduated hint-and-retry exchange runs for that one word before the
+    normal feedback -- deliberately post-hoc, not a live mid-sentence
+    interruption, since _capture_and_transcribe() is push-to-talk
+    (record until Enter, then transcribe once) with no streaming/VAD to
+    notice a child pausing mid-read.
+
+    Decision 0068, both gated behind the same flag: with no new
+    exercise waiting, a later call offers (once per call, voice-driven)
+    to re-read the most recently finished one verbatim; and right after
+    a FRESH exercise is finished, the very next generated book (if any)
+    is themed as its follow-up (same topic/vocabulary) via
+    `generate_decodable_book(..., source_passage=...)`, falling back to
+    the usual interest-based generation after that one book.
 
     Decision 0053: the book's text is shown as a parent-paced
     (`reading_pace_wpm`), parent-sized/colored (`reading_font_size`/
@@ -1311,6 +1319,16 @@ async def _run_reading_partner(
 
     next_mode: str | None = None
     switch_trigger_text: str | None = None
+    # Decision 0068: tracks state across book iterations within this
+    # one call -- whether the "read it again?" offer has already been
+    # made this session (asked at most once, not every book), which
+    # exercises this call itself has consumed (so a just-finished
+    # exercise isn't immediately re-offered a moment later), and the
+    # text of whichever exercise was just finished fresh, if any (so
+    # the very next book can be themed as its follow-up).
+    offered_reread = False
+    consumed_this_call: set[str] = set()
+    followup_source_text: str | None = None
     try:
         while True:
             objective = select_objective(profile, session_index=profile.sessions_completed)
@@ -1324,16 +1342,43 @@ async def _run_reading_partner(
             # feature itself (Parent Controls UI, ReadingExerciseRepository)
             # is untouched, just not consulted while the flag is off,
             # so it can be switched back on later with no code changes.
-            exercise = (
-                reading_exercises.next_pending_for_child(child_profile_id)
-                if os.environ.get("CHITTI_ENABLE_READING_EXERCISES") == "1"
-                else None
-            )
+            exercises_enabled = os.environ.get("CHITTI_ENABLE_READING_EXERCISES") == "1"
+            exercise = reading_exercises.next_pending_for_child(child_profile_id) if exercises_enabled else None
             exercise_pages = (
                 [line.strip() for line in exercise.content.split("\n") if line.strip()]
                 if exercise
                 else []
             )
+
+            # Decision 0068: with no NEW assignment waiting, offer to
+            # re-read the most recently finished one -- voice-driven,
+            # asked at most once per call, so a long session isn't
+            # re-asked the same thing after every book. A fresh
+            # assignment above always takes priority over this.
+            reread_exercise = None
+            if exercise is None and exercises_enabled and not offered_reread:
+                previously_read = [
+                    e
+                    for e in reading_exercises.list_for_child(child_profile_id)
+                    if e.consumed_at is not None and e.id not in consumed_this_call
+                ]
+                if previously_read:
+                    most_recent = max(previously_read, key=lambda e: e.consumed_at)
+                    offered_reread = True
+                    reread_offer = (
+                        f'Would you like to read "{most_recent.title}" again, '
+                        "or try something new?"
+                    )
+                    print(f"Chitti: {reread_offer}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, reread_offer, speed=speed)
+
+                    face.set_status_led(DeviceState.LISTENING)
+                    reread_reply = await _capture_and_transcribe(stt)
+                    print(f"You said: {reread_reply}")
+                    if is_affirmative(reread_reply):
+                        reread_exercise = most_recent
+
             if exercise and exercise_pages:
                 book = GeneratedBook(
                     title=exercise.title,
@@ -1344,11 +1389,35 @@ async def _run_reading_partner(
                     generation_source="parent_uploaded",
                 )
                 reading_exercises.mark_consumed(exercise.id)
+                consumed_this_call.add(exercise.id)
+                # Decision 0068: once this exercise is finished, the
+                # very next generated book (if any) is themed as its
+                # follow-up -- consumed on that next iteration whether
+                # or not generation succeeds, so it fires exactly once.
+                followup_source_text = exercise.content
+            elif reread_exercise is not None:
+                reread_pages = [
+                    line.strip() for line in reread_exercise.content.split("\n") if line.strip()
+                ]
+                book = GeneratedBook(
+                    title=reread_exercise.title,
+                    pages=reread_pages,
+                    target_grapheme=objective.target_grapheme,
+                    objective=objective,
+                    sight_words=set(),
+                    generation_source="parent_uploaded",
+                )
+                followup_source_text = None
             else:
+                source_passage = followup_source_text
+                followup_source_text = None
                 try:
                     book = await _generate_with_thinking_filler(
                         conversation.generate_decodable_book(
-                            objective, interest=profile.interest, age=child_age or 6
+                            objective,
+                            interest=profile.interest,
+                            age=child_age or 6,
+                            source_passage=source_passage,
                         ),
                         tts, audio, face, speed, "reading_book_generation",
                     )
