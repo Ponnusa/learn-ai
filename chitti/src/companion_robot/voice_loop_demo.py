@@ -1280,17 +1280,17 @@ async def _run_reading_partner(
     (`reading_exercises.next_pending_for_child()`), that passage is
     used verbatim instead of generating a book -- no decodability
     check, no LLM call -- and marked consumed, so it's served as the
-    next NEW thing to read only once, not every session. Decision
-    0063: this path is now opt-in behind `CHITTI_ENABLE_READING_EXERCISES=1`
-    (default off) -- for now, every book comes from the age-adapted LLM
-    path instead; the upload feature itself is untouched, just not
-    consulted while the flag is off. Also decision 0052: if the
-    read-aloud surfaces a real miscue (substitution/omission), a short
-    graduated hint-and-retry exchange runs for that one word before the
-    normal feedback -- deliberately post-hoc, not a live mid-sentence
-    interruption, since _capture_and_transcribe() is push-to-talk
-    (record until Enter, then transcribe once) with no streaming/VAD to
-    notice a child pausing mid-read.
+    next NEW thing to read only once, not every session. Decision 0069
+    (superseding 0063): this is the default, primary path again
+    whenever something's pending -- `CHITTI_ENABLE_READING_EXERCISES=0`
+    opts back out to the LLM-only behavior 0063 had made the default.
+    Also decision 0052: if the read-aloud surfaces a real miscue
+    (substitution/omission), a short graduated hint-and-retry exchange
+    runs for that one word before the normal feedback -- deliberately
+    post-hoc, not a live mid-sentence interruption, since
+    _capture_and_transcribe() is push-to-talk (record until Enter, then
+    transcribe once) with no streaming/VAD to notice a child pausing
+    mid-read.
 
     Decision 0068, both gated behind the same flag: with no new
     exercise waiting, a later call offers (once per call, voice-driven)
@@ -1334,15 +1334,16 @@ async def _run_reading_partner(
             objective = select_objective(profile, session_index=profile.sessions_completed)
             face.set_status_led(DeviceState.PROCESSING)
 
-            # Decision 0063: parent-uploaded exercises (decision 0052)
-            # are opt-in behind CHITTI_ENABLE_READING_EXERCISES=1,
-            # default off -- for now, every book comes from the LLM
-            # path (already age-adapted via `age=child_age or 6`
-            # below), not a parent-provided passage. The upload
-            # feature itself (Parent Controls UI, ReadingExerciseRepository)
-            # is untouched, just not consulted while the flag is off,
-            # so it can be switched back on later with no code changes.
-            exercises_enabled = os.environ.get("CHITTI_ENABLE_READING_EXERCISES") == "1"
+            # Decision 0069: parent-uploaded exercises (decision 0052)
+            # are back to being the primary path by default -- decision
+            # 0063 had favored the LLM path instead ("default off"),
+            # but that left real uploaded material silently unused:
+            # with nothing pending, _run_reading_partner() fell straight
+            # to generate_decodable_book(), and if THAT failed, the
+            # child was left with nothing even though a parent passage
+            # was sitting right there. CHITTI_ENABLE_READING_EXERCISES=0
+            # still opts back OUT for anyone who wants the old default.
+            exercises_enabled = os.environ.get("CHITTI_ENABLE_READING_EXERCISES", "1") != "0"
             exercise = reading_exercises.next_pending_for_child(child_profile_id) if exercises_enabled else None
             exercise_pages = (
                 [line.strip() for line in exercise.content.split("\n") if line.strip()]

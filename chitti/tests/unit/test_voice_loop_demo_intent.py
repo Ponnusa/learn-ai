@@ -44,14 +44,17 @@ from companion_robot.voice_loop_demo import (
 
 @pytest.fixture(autouse=True)
 def _reading_exercises_enabled(monkeypatch):
-    """Decision 0063 made decision 0052's parent-uploaded exercises
-    opt-in behind CHITTI_ENABLE_READING_EXERCISES=1 (default off).
-    Most Reading Partner tests in this file use a pending exercise
-    purely as a convenient, deterministic content fixture -- not to
-    test the exercise feature itself -- so this keeps that pattern
-    working for all of them; test_run_reading_partner_exercise_is_* in
-    this file is the one place that explicitly asserts the flag's own
-    on/off behavior, overriding this fixture with monkeypatch.delenv().
+    """Decision 0069: parent-uploaded exercises default to enabled now
+    (CHITTI_ENABLE_READING_EXERCISES=0 opts out), so this explicit
+    setenv("1") is redundant against today's real default -- kept
+    anyway so these tests stay correct even if that default ever
+    changes again, and so they read the same regardless. Most Reading
+    Partner tests in this file use a pending exercise purely as a
+    convenient, deterministic content fixture -- not to test the
+    exercise feature itself; test_run_reading_partner_exercise_is_*/
+    ..._uses_a_pending_exercise_with_the_flag_unset are the places that
+    explicitly assert the flag's own on/off behavior, overriding this
+    fixture.
     """
     monkeypatch.setenv("CHITTI_ENABLE_READING_EXERCISES", "1")
 
@@ -698,12 +701,51 @@ async def test_run_reading_partner_uses_a_pending_exercise_instead_of_generating
     assert exercise.consumed_at is not None
 
 
-async def test_run_reading_partner_exercise_is_ignored_when_flag_is_off(monkeypatch):
-    """Decision 0063: with CHITTI_ENABLE_READING_EXERCISES unset
-    (the real default), a pending exercise must be completely ignored
-    -- never read, never consumed -- even though one exists. Every
-    book comes from the LLM path instead."""
+async def test_run_reading_partner_uses_a_pending_exercise_with_the_flag_unset(monkeypatch):
+    """Decision 0069 (superseding 0063): with CHITTI_ENABLE_READING_EXERCISES
+    unset -- the real default now -- a pending exercise IS used, not
+    ignored. Found live: a parent-uploaded passage sat unused while
+    this flag defaulted off, and when LLM generation then failed, the
+    child was left with nothing even though real material existed."""
     monkeypatch.delenv("CHITTI_ENABLE_READING_EXERCISES", raising=False)
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="The cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused -- must never be a book-generation call")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["the cat sat", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert face.reading_texts[0] == ["The cat sat."]  # the exercise, not an LLM-generated book
+    exercise = reading_exercises.list_for_child("child-1")[0]
+    assert exercise.consumed_at is not None
+
+
+async def test_run_reading_partner_exercise_is_ignored_when_flag_explicitly_off(monkeypatch):
+    """CHITTI_ENABLE_READING_EXERCISES=0 is still a real opt-out --
+    a pending exercise must be completely ignored (never read, never
+    consumed) and every book comes from the LLM path instead."""
+    monkeypatch.setenv("CHITTI_ENABLE_READING_EXERCISES", "0")
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
