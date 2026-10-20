@@ -606,3 +606,36 @@ async def test_react_to_comprehension_answer_never_retries_into_an_unsafe_reply(
 
     assert result.needs_retry is False
     assert "damn" not in result.text
+
+
+async def test_generate_word_meaning_question_parses_and_returns_the_question():
+    llm = FakeLanguageModelBackend(reply="QUESTION: What jumps over the log?")
+    service = ConversationService(llm)
+
+    question = await service.generate_word_meaning_question(
+        "The frog jumps over the log.", "frog", age=6
+    )
+
+    assert question == "What jumps over the log?"
+
+
+async def test_generate_word_meaning_question_returns_none_when_unsafe():
+    llm = FakeLanguageModelBackend(reply="QUESTION: This is a damn good question, right?")
+    service = ConversationService(llm)
+
+    question = await service.generate_word_meaning_question(
+        "The frog jumps over the log.", "frog", age=6
+    )
+
+    assert question is None
+
+
+async def test_generate_word_meaning_question_returns_none_when_unparsed():
+    llm = FakeLanguageModelBackend(reply="Sorry, I don't have a question.")
+    service = ConversationService(llm)
+
+    question = await service.generate_word_meaning_question(
+        "The frog jumps over the log.", "frog", age=6
+    )
+
+    assert question is None

@@ -43,6 +43,29 @@ def build_question_prompt(story_text: str, num_questions: int, age: int | None) 
     )
 
 
+def build_word_meaning_question_prompt(sentence: str, word: str, age: int | None) -> str:
+    """Decision 0074: one short comprehension question checking
+    whether the child understood `word`'s meaning or role in
+    `sentence` -- not whether they can pronounce it (the hint ladder's
+    own mastery evidence already covers decoding; found live, in a
+    product-owner critique, that a correct read was being treated as
+    if it also proved understanding, which it doesn't). Same
+    QUESTION:-per-line convention as build_question_prompt(), so
+    parse_questions() and react_to_comprehension_answer() both work
+    unchanged against the result."""
+    age_line = f"The child is about {age} years old. " if age else ""
+    return (
+        f"{age_line}You are Chitti, a friendly companion robot. A child just "
+        f'practiced reading the word "{word}" in this sentence: "{sentence}". Write '
+        f'ONE short comprehension question that checks whether the child understood '
+        f'what "{word}" means or does in that sentence -- not whether they can say '
+        "the word, but whether they understood it. Use ONLY what's in the sentence "
+        "-- never invent details that aren't there. Keep it to one short, simple "
+        "question a young child can understand.\n\n"
+        'Reply with exactly one line, starting with "QUESTION:", nothing else.'
+    )
+
+
 @dataclass
 class ComprehensionReaction:
     """Decision 0062: the parsed reaction to one comprehension-answer

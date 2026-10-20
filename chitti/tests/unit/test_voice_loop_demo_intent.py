@@ -839,8 +839,10 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
         new_callable=AsyncMock,
         # "mat" for "sat" is a clean substitution (test_reading_alignment's
         # own precedent); the retry gets it right on the very first
-        # hint. "no thanks" declines decision 0057's post-reading word game.
-        side_effect=["a cat mat", "sat", "no thanks", "let's just chat"],
+        # hint. Decision 0074: a resolved hint word means the sentence
+        # gets reread once ("sat" again). "no thanks" declines decision
+        # 0057's post-reading word game.
+        side_effect=["a cat mat", "sat", "a cat sat", "no thanks", "let's just chat"],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -851,7 +853,14 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
     # [0] is the story intro, spoken before the read-aloud capture.
     assert tts.synthesized[1] == build_hint_line("sat", 0)
     assert tts.synthesized[2] == "There you go!"
-    assert tts.synthesized[3].startswith("Good try! Reading can be tricky sometimes.")
+    # Not asserted by fixed index from here on -- decision 0074's
+    # reread/word-meaning-check step runs a real LLM call wrapped in
+    # decision 0050's thinking-filler, whose line count depends on
+    # timing, not just content.
+    assert any(
+        line.startswith("Good try! Reading can be tricky sometimes.")
+        for line in tts.synthesized
+    )
     # The corrected retry counted as a real extra opportunity, not
     # discarded -- one wrong (from the original read) + one right
     # (from the retry) for the substituted word's first sound.
@@ -890,8 +899,12 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
         # "no thanks" declines decision 0057's post-reading word game.
+        # Decision 0074: exhausting the ladder still triggers a reread
+        # of the sentence ("a cat mat" again, unresolved -- the reread
+        # itself isn't graded).
         side_effect=[
-            "a cat mat", "nope", "nope", "nope", "nope", "no thanks", "let's just chat",
+            "a cat mat", "nope", "nope", "nope", "nope", "a cat mat", "no thanks",
+            "let's just chat",
         ],
     ):
         next_mode, carried_text = await _run_reading_partner(
@@ -906,11 +919,18 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     assert tts.synthesized[3] == build_hint_line("sat", 2)
     assert tts.synthesized[4] == build_hint_line("sat", 3)
     assert "There you go!" not in tts.synthesized
-    assert tts.synthesized[5].startswith("Good try! Reading can be tricky sometimes.")
+    # Decision 0074: exhausting the ladder still gets a reread cue.
+    # Not asserted by fixed index -- the word-meaning check in between
+    # runs a real LLM call wrapped in decision 0050's thinking-filler,
+    # whose line count depends on timing, not just content.
+    assert "Let's read that sentence again from the beginning." in tts.synthesized
+    feedback_line = next(
+        line for line in tts.synthesized if line.startswith("Good try! Reading can be tricky")
+    )
     # Decision 0055: an unresolved hint word is mentioned again in the
     # final feedback as something to revisit, instead of the old
     # unconditional phonics-sound list.
-    assert '"sat"' in tts.synthesized[5]
+    assert '"sat"' in feedback_line
     # Decision 0053: the display stayed frozen on the missed word for
     # all four stages (never cleared early just because a retry was
     # wrong), then cleared once the loop gave up (and again on the
@@ -947,6 +967,7 @@ async def test_run_reading_partner_hints_every_real_miss_not_just_the_first():
             "silly gotten hops",  # the read-aloud -- "little" and "garden" both missed
             "little",  # "little" resolved on the very first retry
             "nope", "nope", "nope", "nope",  # "garden" never resolved, exhausts all 4 stages
+            "little garden hops",  # decision 0074: the sentence reread after hint practice
             "no thanks",  # declines the word game
             "let's just chat",  # ends the session
         ],
@@ -1002,6 +1023,7 @@ async def test_run_reading_partner_final_stage_resolution_does_not_feed_mastery(
             "a cat mat",  # the read-aloud -- "sat" missed (substituted as "mat")
             "nope", "nope", "nope",  # stages 0, 1, 2 -- wrong, but still real attempts
             "sat",  # stage 3 -- only correct after being told the word outright
+            "a cat sat",  # decision 0074: the sentence reread after hint practice
             "no thanks",
             "let's just chat",
         ],
@@ -1051,6 +1073,7 @@ async def test_run_reading_partner_word_family_offered_after_independent_resolut
             "yes",  # accepts the word-family offer
             "cat",  # reads the first family word correctly
             "bat",  # reads the second family word correctly
+            "a cat sat",  # decision 0074: the sentence reread after hint practice
             "no thanks",  # declines the separate post-reading word game
             "let's just chat",
         ],
@@ -1090,7 +1113,7 @@ async def test_run_reading_partner_word_family_skipped_when_llm_gives_no_usable_
     with patch(
         "companion_robot.voice_loop_demo._capture_and_transcribe",
         new_callable=AsyncMock,
-        side_effect=["a cat mat", "sat", "no thanks", "let's just chat"],
+        side_effect=["a cat mat", "sat", "a cat sat", "no thanks", "let's just chat"],
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1099,6 +1122,107 @@ async def test_run_reading_partner_word_family_skipped_when_llm_gives_no_usable_
 
     assert next_mode == "3"
     assert not any("more words like it" in line for line in tts.synthesized)
+
+
+# -- reread + word-meaning check after a hint-ladder word (decision 0074) --
+
+
+async def test_run_reading_partner_rereads_and_checks_meaning_after_a_hint():
+    """Decision 0074, from a product-owner critique: a hint-ladder word
+    doesn't just get hinted and dropped -- the sentence is reread once
+    for fluency, then one comprehension question anchored to that word
+    checks whether the child understood its meaning/role in the
+    sentence, with decision 0062's scaffolded retry if the first
+    answer is wrong."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="The frog jumps over the log.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            # "frog" resolves on the very first hint stage, which also
+            # triggers decision 0066's word-family check before this
+            # turn's own word-meaning question -- no "WORD:" lines
+            # here means no candidates, so it's a silent no-op.
+            ("unused -- word family finds no candidates", "fake-model"),
+            ("QUESTION: What jumps over the log?", "fake-model"),  # word-meaning question
+            ("STATUS: needs_retry\nSAY: Good try! Think about what hops.", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, the frog!", "fake-model"),  # resolves on the retry
+            ("Sorry, no questions.", "fake-model"),  # book-level comprehension -- skipped
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "the dog jumps over the log",  # read-aloud -- "frog" substituted as "dog"
+            "frog",  # resolved on the very first hint stage
+            "the frog jumps over the log",  # decision 0074: the sentence reread
+            "a dog",  # wrong first answer to the word-meaning question
+            "the frog",  # correct on the retry
+            "no thanks",  # declines the word game
+            "let's just chat",  # ends the session
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert "Let's read that sentence again from the beginning." in tts.synthesized
+    assert "Nice reading!" in tts.synthesized
+    assert "What jumps over the log?" in tts.synthesized
+    assert "Good try! Think about what hops." in tts.synthesized
+    assert "Yes, the frog!" in tts.synthesized
+
+
+async def test_run_reading_partner_skips_the_word_meaning_check_on_a_clean_read():
+    """No hint-ladder word this turn -- no reread, no word-meaning
+    question at all."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert "Let's read that sentence again from the beginning." not in tts.synthesized
+    assert len(llm.calls) == 1  # only the book-level comprehension-questions call
 
 
 # -- sentence-by-sentence reading with persistent position (decision 0067) --

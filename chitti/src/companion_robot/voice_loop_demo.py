@@ -1080,31 +1080,88 @@ async def _run_comprehension_questions(
     face.set_status_led(DeviceState.SPEAKING)
     await _speak(tts, audio, intro, speed=speed)
 
-    max_attempts = 2
     for question in questions:
-        print(f"Chitti: {question}")
+        await _ask_and_react_to_question(
+            book.text, question, conversation, tts, audio, stt, face, speed, child_age
+        )
+
+
+async def _ask_and_react_to_question(
+    story_text: str,
+    question: str,
+    conversation,
+    tts,
+    audio,
+    stt,
+    face,
+    speed: float,
+    child_age: int | None,
+    max_attempts: int = 2,
+) -> None:
+    """Shared by _run_comprehension_questions() (decision 0059) and
+    _run_word_meaning_check() (decision 0074): speaks one question,
+    captures an answer, reacts with decision 0062's scaffolded
+    withhold-then-reveal pattern, and retries once if the reaction
+    says to -- extracted so both callers share one retry loop instead
+    of two copies that could drift out of sync."""
+    print(f"Chitti: {question}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, question, speed=speed)
+
+    for attempt_number in range(1, max_attempts + 1):
+        face.set_status_led(DeviceState.LISTENING)
+        answer = await _capture_and_transcribe(stt)
+        print(f"You said: {answer}")
+
+        face.set_status_led(DeviceState.PROCESSING)
+        reaction = await _generate_with_thinking_filler(
+            conversation.react_to_comprehension_answer(
+                story_text, question, answer, child_age or 6,
+                attempt_number=attempt_number, max_attempts=max_attempts,
+            ),
+            tts, audio, face, speed, "comprehension_reaction",
+        )
+        print(f"Chitti: {reaction.text}")
         face.set_status_led(DeviceState.SPEAKING)
-        await _speak(tts, audio, question, speed=speed)
+        await _speak(tts, audio, reaction.text, speed=speed)
 
-        for attempt_number in range(1, max_attempts + 1):
-            face.set_status_led(DeviceState.LISTENING)
-            answer = await _capture_and_transcribe(stt)
-            print(f"You said: {answer}")
+        if not reaction.needs_retry:
+            break
 
-            face.set_status_led(DeviceState.PROCESSING)
-            reaction = await _generate_with_thinking_filler(
-                conversation.react_to_comprehension_answer(
-                    book.text, question, answer, child_age or 6,
-                    attempt_number=attempt_number, max_attempts=max_attempts,
-                ),
-                tts, audio, face, speed, "comprehension_reaction",
-            )
-            print(f"Chitti: {reaction.text}")
-            face.set_status_led(DeviceState.SPEAKING)
-            await _speak(tts, audio, reaction.text, speed=speed)
 
-            if not reaction.needs_retry:
-                break
+async def _run_word_meaning_check(
+    sentence: str,
+    word: str,
+    conversation,
+    tts,
+    audio,
+    stt,
+    face,
+    speed: float,
+    child_age: int | None,
+) -> None:
+    """Decision 0074: after a sentence needed the hint-and-retry ladder
+    (decision 0052/0065) and was reread once for fluency, one
+    comprehension question anchored to the word that needed hinting --
+    checking whether the child understood what it MEANS or does in the
+    sentence, not just whether they can decode it (the hint ladder's
+    own mastery evidence already covers decoding; this checks the
+    other half -- found live, in a product-owner critique, that
+    reading a word correctly once was being treated as evidence of
+    understanding it, which it isn't). Reuses
+    _ask_and_react_to_question() against just this one sentence rather
+    than the whole book. Skipped gracefully if no question could be
+    generated and safety-screened."""
+    face.set_status_led(DeviceState.PROCESSING)
+    question = await _generate_with_thinking_filler(
+        conversation.generate_word_meaning_question(sentence, word, child_age),
+        tts, audio, face, speed, "word_meaning_question",
+    )
+    if question is None:
+        return
+    await _ask_and_react_to_question(
+        sentence, question, conversation, tts, audio, stt, face, speed, child_age
+    )
 
 
 async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:
@@ -1582,6 +1639,44 @@ async def _run_reading_partner(
                     # next missed word, if any.
                 if hint_words:
                     face.set_reading_spotlight(None)
+                    # Decision 0074, from a product-owner critique of a
+                    # real session: a sentence that needed hint practice
+                    # gets reread once, whole, as a fluency consolidation
+                    # step -- not graded again (the hint ladder's own
+                    # evidence above already captured the decoding work;
+                    # this is about reading it smoothly in context, the
+                    # "reread" step the critique's own proposed sequence
+                    # named as missing).
+                    reread_cue = "Let's read that sentence again from the beginning."
+                    print(f"Chitti: {reread_cue}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, reread_cue, speed=speed)
+
+                    face.set_reading_text(
+                        [sentence],
+                        wpm=reading_pace_wpm,
+                        font_size=reading_font_size,
+                        font_color=reading_font_color,
+                    )
+                    face.set_status_led(DeviceState.LISTENING)
+                    reread_attempt = await _capture_and_transcribe(stt)
+                    print(f"You read: {reread_attempt}")
+                    face.set_reading_text(None)
+                    encouragement = "Nice reading!"
+                    print(f"Chitti: {encouragement}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, encouragement, speed=speed)
+
+                    # Decision 0074: checks understanding of the first
+                    # hinted word's meaning/role in this sentence -- not
+                    # whether it was decoded (that's what the hint ladder
+                    # already evidenced) -- one question per sentence,
+                    # not one per hinted word, so a sentence with several
+                    # misses doesn't turn into a drawn-out quiz.
+                    await _run_word_meaning_check(
+                        sentence, hint_words[0], conversation, tts, audio, stt, face, speed,
+                        child_age,
+                    )
 
                 sentence_deltas.append(
                     update_from_evidence(
