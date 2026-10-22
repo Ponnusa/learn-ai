@@ -7,6 +7,7 @@ from companion_robot.intent.router import (
     SONG,
     STORY,
     TEACH,
+    classify_affirmative,
     detect_intent_phrase,
     is_affirmative,
     mentions_activity_keyword,
@@ -110,3 +111,26 @@ def test_is_affirmative_first_signal_word_wins_over_a_later_unrelated_negative()
     answer, so the first signal word -- not any negative word anywhere
     -- is what actually carries it."""
     assert is_affirmative("yes my friend is not talking to me") is True
+
+
+def test_classify_affirmative_returns_true_for_a_clear_yes():
+    assert classify_affirmative("yes") is True
+    assert classify_affirmative("sure, let's do it") is True
+
+
+def test_classify_affirmative_returns_false_for_a_clear_no():
+    assert classify_affirmative("no") is False
+    assert classify_affirmative("nope not really") is False
+
+
+def test_classify_affirmative_returns_none_when_no_signal_word_appears():
+    """Decision 0079, found live: a reply like "The little forg" (an
+    attempt to start reading a story back, not an answer to the yes/
+    no question at all) has no "yes" or "no" in it -- a caller that
+    needs to tell "declined" apart from "didn't answer at all" (so it
+    can ask again later instead of giving up a one-time offer) relies
+    on this, unlike is_affirmative()'s own flat False for the same
+    input."""
+    assert classify_affirmative("") is None
+    assert classify_affirmative("maybe later") is None
+    assert classify_affirmative("The little forg") is None

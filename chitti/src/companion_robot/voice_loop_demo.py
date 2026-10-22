@@ -56,6 +56,7 @@ from companion_robot.education.math_check import (
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.engagement.schema import EngagementMode, EngagementSession
 from companion_robot.intent.router import (
+    classify_affirmative,
     detect_intent_phrase,
     is_affirmative,
     mentions_activity_keyword,
@@ -1430,7 +1431,6 @@ async def _run_reading_partner(
                 ]
                 if previously_read:
                     most_recent = max(previously_read, key=lambda e: e.consumed_at)
-                    offered_reread = True
                     reread_offer = (
                         f'Would you like to read "{most_recent.title}" again, '
                         "or try something new?"
@@ -1442,8 +1442,24 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.LISTENING)
                     reread_reply = await _capture_and_transcribe(stt)
                     print(f"You said: {reread_reply}")
-                    if is_affirmative(reread_reply):
+                    reread_answer = classify_affirmative(reread_reply)
+                    if reread_answer is True:
+                        offered_reread = True
                         reread_exercise = most_recent
+                    elif reread_answer is False:
+                        # An explicit decline -- don't ask again this
+                        # call.
+                        offered_reread = True
+                    # Decision 0079, found live: a reply with no yes/no
+                    # signal at all (e.g. the child started reading the
+                    # story's own title back instead of answering)
+                    # must NOT silently use up the one-time offer --
+                    # it used to, permanently losing the chance to go
+                    # back to a finished story for the rest of the
+                    # session over a reply that was never actually a
+                    # "no." Leaving offered_reread False here means
+                    # it's simply asked again next time this check
+                    # runs, instead of falling through to generation.
 
             if exercise and exercise_pages:
                 book = GeneratedBook(
@@ -1613,6 +1629,14 @@ async def _run_reading_partner(
                 # retry still counts as real evidence rather than being
                 # thrown away.
                 hint_words = pick_hint_words(assessment)
+                # Decision 0079, found live: a sentence with several
+                # real misses (e.g. "hen" AND "pig" AND "had") could
+                # trigger a SEPARATE word-family detour for every one
+                # that resolved early -- up to three in a row, each
+                # four more words, before the sentence was even done.
+                # Capped at once per sentence; still offered for
+                # whichever word resolves first, just not stacked.
+                offered_word_family_this_sentence = False
                 for hint_word in hint_words:
                     # Decision 0053: the actual bug fix -- freezes the
                     # display on the missed word for the whole exchange,
@@ -1656,7 +1680,7 @@ async def _run_reading_partner(
                             # confirmed evidence the skill generalizes is
                             # worth checking with a word family; echoing
                             # a word Chitti just said outright is not.
-                            if stage < HINT_STAGES - 1:
+                            if stage < HINT_STAGES - 1 and not offered_word_family_this_sentence:
                                 # Same budget book_generation.py itself
                                 # wrote the book under (objective.mastered_levels
                                 # plus the in-progress target_level) --
@@ -1670,6 +1694,7 @@ async def _run_reading_partner(
                                     hint_word, conversation, tts, audio, stt, face, speed,
                                     child_age, family_budget,
                                 )
+                                offered_word_family_this_sentence = True
                             break
                     # No penalty for still missing it after the last stage
                     # (saying the word outright) -- just moves on to the

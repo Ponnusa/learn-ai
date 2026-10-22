@@ -85,6 +85,29 @@ _AFFIRMATIVE_WORDS = {
 _NEGATIVE_WORDS = {"no", "nope", "nah", "not"}
 
 
+def classify_affirmative(text: str) -> bool | None:
+    """The same word-order-sensitive yes/no walk `is_affirmative()`
+    uses, but returns `None` rather than a hard `False` when no
+    signal word of either kind appears at all -- decision 0079, found
+    live: a reply like "The little forg" (an attempt to start reading
+    a story back, not an answer to the yes/no question at all) has no
+    "yes" or "no" in it, and a caller that treats that silence the
+    same as an explicit decline can permanently lose a one-time offer
+    over a reply that was never actually a "no." Most callers still
+    only care about "was this a yes" (`is_affirmative()`, below); a
+    caller that needs to tell "declined" apart from "didn't answer
+    this question at all" -- so it can ask again later instead of
+    giving up -- uses this directly.
+    """
+    for raw_word in text.lower().split():
+        word = re.sub(r"[^\w']", "", raw_word)
+        if word in _NEGATIVE_WORDS:
+            return False
+        if word in _AFFIRMATIVE_WORDS:
+            return True
+    return None
+
+
 def is_affirmative(text: str) -> bool:
     """Decision 0046: deterministic yes/no parsing for the switch-
     confirmation question -- word-list based, same pure-function style
@@ -110,10 +133,4 @@ def is_affirmative(text: str) -> bool:
     genuine yes as a decline. Every word is now stripped of anything
     that isn't a letter/digit/apostrophe before matching.
     """
-    for raw_word in text.lower().split():
-        word = re.sub(r"[^\w']", "", raw_word)
-        if word in _NEGATIVE_WORDS:
-            return False
-        if word in _AFFIRMATIVE_WORDS:
-            return True
-    return False
+    return classify_affirmative(text) is True

@@ -1124,6 +1124,52 @@ async def test_run_reading_partner_word_family_skipped_when_llm_gives_no_usable_
     assert not any("more words like it" in line for line in tts.synthesized)
 
 
+async def test_run_reading_partner_word_family_offered_at_most_once_per_sentence():
+    """Decision 0079, found live: a sentence with several real misses
+    that each resolve independently (e.g. "cat" AND "sat") used to
+    trigger a SEPARATE word-family detour for every single one --
+    stacking up before the sentence was even done. Capped at one per
+    sentence now; the first word to resolve still gets the offer."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="WORD: hat\nWORD: bat\nWORD: rat\nWORD: mat")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "a dog ran",  # read-aloud -- both "cat" and "sat" substituted
+            "cat",  # resolves "cat" on the very first retry
+            "no",  # declines the word-family offer for "cat"
+            "sat",  # resolves "sat" on the very first retry too
+            "a cat sat",  # decision 0074: the sentence reread
+            "no thanks",  # declines the separate post-reading word game
+            "let's just chat",
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    offers = [line for line in tts.synthesized if "more words like it" in line]
+    assert len(offers) == 1
+
+
 # -- reread + word-meaning check after a hint-ladder word (decision 0074) --
 
 
@@ -1380,6 +1426,68 @@ async def test_run_reading_partner_offers_to_reread_a_finished_exercise_next_ses
     assert tts2.synthesized[0] == 'Would you like to read "Homework" again, or try something new?'
     # The same passage was shown again, verbatim.
     assert ["A cat sat."] in [lines for lines in face.reading_texts if lines]
+
+
+async def test_run_reading_partner_an_unclear_reply_to_the_reread_offer_asks_again_later():
+    """Decision 0079, found live: a reply with no yes/no signal at all
+    (e.g. the child started reading the story's own title back
+    instead of actually answering) used to silently count as a
+    decline and permanently lose the chance to go back to a finished
+    exercise for the rest of the session. It must not use up the
+    one-time offer -- the next book cycle asks again instead of
+    falling through to generation for good."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="TITLE: The Dog\nPAGE: A dog ran.")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", "no thanks", "let's just chat"],
+    ):
+        await _run_reading_partner(
+            conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    tts2 = _FakeTTS()
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "the little forg",  # unclear -- not a recognized yes or no
+            "a dog ran",  # falls through to a freshly generated book this turn
+            "no thanks",  # declines its word game
+            "yes please",  # wants another one -- stays in Reading Partner
+            "yes",  # the SAME offer, asked again -- this time accepted
+            "a cat sat",  # reads the original exercise again
+            "no thanks",
+            "let's just chat",
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts2, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    reread_offers = [
+        line for line in tts2.synthesized
+        if line == 'Would you like to read "Homework" again, or try something new?'
+    ]
+    assert len(reread_offers) == 2  # asked again, not given up on for the rest of the call
 
 
 async def test_run_reading_partner_declining_reread_falls_back_to_normal_generation():

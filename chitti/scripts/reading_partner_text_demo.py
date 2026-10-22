@@ -38,9 +38,19 @@ separate model/together/independent/practice flow instead -- same
 toggle voice_loop_demo.py's own mode dispatch uses, so this harness
 tests whichever version is actually configured.
 
+Decision 0079, found live: a tester read "book generation attempt
+failed: ..." (decision 0076's own diagnostic logging, printed with no
+context since nothing here configures logging) and reasonably read it
+as something being broken -- it is an internal diagnostic the real
+session always recovers from automatically (decisions 0077/0078's
+fallback chain: LLM story -> hand-written story -> guaranteed word-
+drill, never an apology). Annotated below so that's clear in the
+moment instead of needing an explanation afterwards.
+
 Usage: python scripts/reading_partner_text_demo.py
 """
 import asyncio
+import logging
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -58,6 +68,17 @@ from companion_robot.voice_loop_demo import (
     _run_reading_partner_v2,
     _select_or_create_profile,
 )
+
+
+class _AnnotatedWarningHandler(logging.Handler):
+    """Prefixes voice_loop_demo's own book-generation-attempt-failed
+    warning (decision 0076) so it reads as the harmless internal
+    diagnostic it is, instead of looking like something broke --
+    decision 0079's own "why does generation fail, it shouldn't be
+    able to" confusion, found live."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        print(f"[internal, harmless -- falling back automatically] {record.getMessage()}")
 
 
 async def _text_capture_and_transcribe(stt) -> str:
@@ -83,6 +104,9 @@ async def _text_speak(tts, audio, text: str, speed: float = 1.0) -> None:
 
 
 async def main() -> None:
+    logging.getLogger("companion_robot.voice_loop_demo").addHandler(_AnnotatedWarningHandler())
+    logging.getLogger("companion_robot.voice_loop_demo").setLevel(logging.WARNING)
+
     data_dir = Path(__file__).resolve().parent.parent / "data"
     data_dir.mkdir(exist_ok=True)
     conn = connect(data_dir / "chitti.db")  # same db the Parent Controls web UI reads from
