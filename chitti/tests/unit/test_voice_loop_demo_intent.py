@@ -901,11 +901,13 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
         new_callable=AsyncMock,
         # "no thanks" declines decision 0057's post-reading word game.
         # Decision 0074: exhausting the ladder still triggers a reread
-        # of the sentence ("a cat mat" again, unresolved -- the reread
-        # itself isn't graded).
+        # of the sentence ("a cat mat" again, unresolved). Decision
+        # 0081: an unresolved reread now gets one short correction
+        # cycle ("still nope" is that attempt, also unresolved) instead
+        # of a blanket "Nice reading!".
         side_effect=[
-            "a cat mat", "nope", "nope", "nope", "nope", "a cat mat", "no thanks",
-            "let's just chat",
+            "a cat mat", "nope", "nope", "nope", "nope", "a cat mat", "still nope",
+            "no thanks", "let's just chat",
         ],
     ):
         next_mode, carried_text = await _run_reading_partner(
@@ -925,6 +927,13 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     # runs a real LLM call wrapped in decision 0050's thinking-filler,
     # whose line count depends on timing, not just content.
     assert "Let's read that sentence again from the beginning." in tts.synthesized
+    # Decision 0081: the reread still had "mat" for "sat" -- a short
+    # correction cycle runs instead of blanket praise, and since the
+    # correction attempt is wrong too, it closes with "the word is...",
+    # never "Nice reading!" for this unresolved sentence.
+    assert "Let's look at this word again. Listen: sat." in tts.synthesized
+    assert 'Good try! The word is "sat".' in tts.synthesized
+    assert "Nice reading!" not in tts.synthesized
     feedback_line = next(
         line for line in tts.synthesized if line.startswith("Good try! Reading can be tricky")
     )
@@ -935,8 +944,10 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     # Decision 0053: the display stayed frozen on the missed word for
     # all four stages (never cleared early just because a retry was
     # wrong), then cleared once the loop gave up (and again on the
-    # mode's own exit cleanup, right after).
-    assert face.spotlights == ["sat", None, None]
+    # mode's own exit cleanup, right after). Decision 0081: the
+    # reread's own correction cycle spotlights "sat" again (then
+    # clears it) on top of that original hint-ladder spotlight.
+    assert face.spotlights == ["sat", None, "sat", None, None]
 
 
 async def test_run_reading_partner_hints_every_real_miss_not_just_the_first():
@@ -1235,6 +1246,68 @@ async def test_run_reading_partner_rereads_and_checks_meaning_after_a_hint():
     assert "What jumps over the log?" in tts.synthesized
     assert "Good try! Think about what hops." in tts.synthesized
     assert "Yes, the frog!" in tts.synthesized
+
+
+async def test_run_reading_partner_catches_a_new_miscue_introduced_during_the_reread():
+    """Decision 0081, from a product-owner critique of a real
+    transcript: a child resolved "can" via the hint ladder, then on
+    the reread swapped "big" for "bug" -- a brand new miscue in a word
+    that was never hinted. Chitti must not say "Nice reading!"
+    regardless; it should notice "big" is now wrong and run one short
+    correction cycle for that specific word."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="He can hop on the big bus.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            # "can" resolves only on the last hint stage (said outright
+            # and echoed back) -- decision 0066's word-family check is
+            # deliberately skipped for a last-stage resolution, so no
+            # word-family LLM call is expected here.
+            ("QUESTION: What can he do on the bus?", "fake-model"),  # word-meaning question
+            ("STATUS: resolved\nSAY: Yes, he can hop!", "fake-model"),  # resolves immediately
+            ("Sorry, no questions.", "fake-model"),  # book-level comprehension -- skipped
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "he cat hop on the big bus",  # read-aloud -- "can" substituted as "cat"
+            "nope", "nope", "nope",  # hint stages 0-2, still wrong
+            "can",  # resolves on the last stage (said outright, echoed back)
+            "he can hop on the bug bus",  # reread -- "big" now swapped for "bug"
+            "big",  # decision 0081's correction attempt -- resolves
+            "to hop",  # answers the word-meaning question, first try
+            "no thanks",  # declines the word game
+            "let's just chat",  # ends the session
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert "Let's read that sentence again from the beginning." in tts.synthesized
+    assert "Let's look at this word again. Listen: big." in tts.synthesized
+    assert 'Yes, "big"! Nice fixing that.' in tts.synthesized
+    # The reread introduced a real miscue -- never blanket-praised.
+    assert "Nice reading!" not in tts.synthesized
 
 
 async def test_run_reading_partner_skips_the_word_meaning_check_on_a_clean_read():

@@ -188,8 +188,49 @@ async def test_word_practice_runs_for_a_still_difficult_word_then_rereads():
     assert any("practise" in line.lower() for line in tts.synthesized)
     assert 'Listen to Chitti say the word: "sat".' in tts.synthesized
     assert "Let's read the whole sentence one more time." in tts.synthesized
+    # Decision 0081: the final reread ("a cat sat") is a clean match --
+    # checked, not just silently skipped past.
+    assert "Nice reading!" in tts.synthesized
     assert face.spotlights[0] == "sat"
     assert None in face.spotlights  # cleared after practice
+
+
+async def test_final_reread_with_a_new_miscue_is_not_silently_praised():
+    """Decision 0081: v2's final reread used to capture the attempt
+    and move straight on with no spoken reaction at all, regardless
+    of what it contained. If the reread introduces its own new
+    miscue, Chitti should say something that doesn't claim a clean
+    read."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = _make_exercise(conn, "A cat sat.")
+    llm = _FakeLLM(reply="Sorry, no questions.")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "a dog ran",  # first attempt -- way off
+            "a cat ran",  # the supported "together" read
+            "a cat mat",  # second attempt -- "sat" still missed
+            "sat",  # repeats "sat" right after Chitti models it (echo)
+            "sat",  # tries "sat" again, independently this time
+            "a cat map",  # final reread -- a brand new miscue ("sat" -> "map")
+            "let's just chat",
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner_v2(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert "Let's read the whole sentence one more time." in tts.synthesized
+    assert "Nice reading!" not in tts.synthesized
+    assert "Good effort reading that again!" in tts.synthesized
 
 
 async def test_help_request_on_first_attempt_skips_straight_to_modeling():

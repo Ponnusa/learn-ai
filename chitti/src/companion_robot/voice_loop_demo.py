@@ -78,7 +78,7 @@ from companion_robot.reading.decodability import clean_word
 from companion_robot.reading.deterministic_book import build_deterministic_book
 from companion_robot.reading.story_bank import pick_story_bank_book
 from companion_robot.reading.feedback import build_reading_feedback
-from companion_robot.reading.hints import HINT_STAGES, build_hint_line, pick_hint_words
+from companion_robot.reading.hints import HINT_STAGES, build_hint_line, pick_hint_word, pick_hint_words
 from companion_robot.reading.mastery import update_from_evidence
 from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
@@ -1737,11 +1737,15 @@ async def _run_reading_partner(
                     # Decision 0074, from a product-owner critique of a
                     # real session: a sentence that needed hint practice
                     # gets reread once, whole, as a fluency consolidation
-                    # step -- not graded again (the hint ladder's own
-                    # evidence above already captured the decoding work;
-                    # this is about reading it smoothly in context, the
-                    # "reread" step the critique's own proposed sequence
-                    # named as missing).
+                    # step. Decision 0081, from a later critique of a
+                    # real transcript: the reread was captured and then
+                    # UNCONDITIONALLY praised ("Nice reading!") with no
+                    # check at all -- a child who swapped "big" for "bug"
+                    # heard the same praise as a clean read. The hint
+                    # ladder's own evidence above still isn't re-fed into
+                    # mastery here (same "not a second scored attempt"
+                    # reasoning as before) -- but the *response* now
+                    # depends on what the reread actually contained.
                     reread_cue = "Let's read that sentence again from the beginning."
                     print(f"Chitti: {reread_cue}")
                     face.set_status_led(DeviceState.SPEAKING)
@@ -1754,13 +1758,48 @@ async def _run_reading_partner(
                         font_color=reading_font_color,
                     )
                     face.set_status_led(DeviceState.LISTENING)
+                    reread_started = time.monotonic()
                     reread_attempt = await _capture_and_transcribe(stt)
+                    reread_duration = time.monotonic() - reread_started
                     print(f"You read: {reread_attempt}")
                     face.set_reading_text(None)
-                    encouragement = "Nice reading!"
-                    print(f"Chitti: {encouragement}")
-                    face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, encouragement, speed=speed)
+
+                    reread_assessment = assess(
+                        sentence,
+                        reread_attempt,
+                        duration_seconds=reread_duration,
+                        sight_words=book.sight_words,
+                    )
+                    reread_miss = pick_hint_word(reread_assessment)
+                    if reread_miss is None:
+                        encouragement = "Nice reading!"
+                        print(f"Chitti: {encouragement}")
+                        face.set_status_led(DeviceState.SPEAKING)
+                        await _speak(tts, audio, encouragement, speed=speed)
+                    else:
+                        # One short, bounded correction cycle -- not the
+                        # full 4-stage ladder again (this is a reread,
+                        # not a fresh miss) and not looped if it's still
+                        # wrong, so this can't turn into a second
+                        # unbounded hint ladder.
+                        face.set_reading_spotlight(reread_miss)
+                        correction_cue = f'Let\'s look at this word again. Listen: {reread_miss}.'
+                        print(f"Chitti: {correction_cue}")
+                        face.set_status_led(DeviceState.SPEAKING)
+                        await _speak(tts, audio, correction_cue, speed=speed)
+
+                        face.set_status_led(DeviceState.LISTENING)
+                        correction_attempt = await _capture_and_transcribe(stt)
+                        print(f"You read: {correction_attempt}")
+                        face.set_reading_spotlight(None)
+
+                        if clean_word(correction_attempt) == clean_word(reread_miss):
+                            correction_response = f'Yes, "{reread_miss}"! Nice fixing that.'
+                        else:
+                            correction_response = f'Good try! The word is "{reread_miss}".'
+                        print(f"Chitti: {correction_response}")
+                        face.set_status_led(DeviceState.SPEAKING)
+                        await _speak(tts, audio, correction_response, speed=speed)
 
                     # Decision 0074: checks understanding of the first
                     # hinted word's meaning/role in this sentence -- not
@@ -2164,13 +2203,30 @@ async def _run_reading_partner_v2(
                             font_color=reading_font_color,
                         )
                         face.set_status_led(DeviceState.LISTENING)
+                        final_reread_started = time.monotonic()
                         final_reread_attempt = await _capture_and_transcribe(stt)
+                        final_reread_duration = time.monotonic() - final_reread_started
                         print(f"You read: {final_reread_attempt}")
                         face.set_reading_text(None)
-                        # Decision 0075: a fluency consolidation step,
-                        # not graded again -- same reasoning decision
-                        # 0074 already applied to the original flow's
-                        # own post-hint reread.
+                        # Decision 0075: not fed into mastery -- same
+                        # "not a second scored attempt" reasoning as
+                        # decision 0074's own post-hint reread. Decision
+                        # 0081: but still checked, so Chitti's reaction
+                        # reflects what the reread actually contained
+                        # instead of staying silent regardless.
+                        final_reread_assessment = assess(
+                            session.sentence,
+                            final_reread_attempt,
+                            duration_seconds=final_reread_duration,
+                            sight_words=session.sight_words,
+                        )
+                        if pick_hint_word(final_reread_assessment) is None:
+                            reread_praise = "Nice reading!"
+                        else:
+                            reread_praise = "Good effort reading that again!"
+                        print(f"Chitti: {reread_praise}")
+                        face.set_status_led(DeviceState.SPEAKING)
+                        await _speak(tts, audio, reread_praise, speed=speed)
                         session.finish_final_reread()
 
                 # COMPREHENSION -- reuses the existing whole-story
