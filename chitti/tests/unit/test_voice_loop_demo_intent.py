@@ -30,6 +30,7 @@ from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
 from companion_robot.voice_loop_demo import (
     _THINKING_FILLERS,
+    _classify_reread_reply,
     _confirm_switch,
     _detect_switch_intent,
     _generate_with_thinking_filler,
@@ -1425,6 +1426,84 @@ async def test_run_reading_partner_offers_to_reread_a_finished_exercise_next_ses
     assert any('"Homework"' in line for line in tts2.synthesized)
     assert tts2.synthesized[0] == 'Would you like to read "Homework" again, or try something new?'
     # The same passage was shown again, verbatim.
+    assert ["A cat sat."] in [lines for lines in face.reading_texts if lines]
+
+
+def test_classify_reread_reply_recognizes_the_story_title_as_a_yes():
+    """Decision 0080, found live (twice): a child answers by naming
+    the story itself, not with an actual yes/no word -- the most
+    natural way to say "that one" to this specific question."""
+    assert _classify_reread_reply("The little frog", "The little frog") is True
+    assert _classify_reread_reply("the little frog story", "The little frog") is True
+
+
+def test_classify_reread_reply_recognizes_new_as_a_no():
+    """Decision 0080: "new"/"something new" is the natural way to
+    decline THIS specific two-choice question, but isn't a generic
+    negative word classify_affirmative() alone would catch."""
+    assert _classify_reread_reply("new", "The little frog") is False
+    assert _classify_reread_reply("something new please", "The little frog") is False
+    assert _classify_reread_reply("let's do something else", "The little frog") is False
+
+
+def test_classify_reread_reply_still_recognizes_plain_yes_and_no():
+    assert _classify_reread_reply("yes", "The little frog") is True
+    assert _classify_reread_reply("no thanks", "The little frog") is False
+
+
+def test_classify_reread_reply_returns_none_for_genuinely_unclear_text():
+    assert _classify_reread_reply("let's just chat", "The little frog") is None
+    assert _classify_reread_reply("", "The little frog") is None
+
+
+async def test_run_reading_partner_naming_the_story_accepts_the_reread_offer_immediately():
+    """Decision 0080, end to end: naming the story itself -- the
+    natural way a child answers this question -- re-reads it right
+    away, on the very first try, not just "doesn't get lost" like
+    decision 0079 alone guaranteed."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["a cat sat", "no thanks", "let's just chat"],
+    ):
+        await _run_reading_partner(
+            conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    tts2 = _FakeTTS()
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=["Homework", "a cat sat", "no thanks", "let's just chat"],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts2, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    reread_offers = [
+        line for line in tts2.synthesized
+        if line == 'Would you like to read "Homework" again, or try something new?'
+    ]
+    assert len(reread_offers) == 1  # accepted on the first ask, never repeated
     assert ["A cat sat."] in [lines for lines in face.reading_texts if lines]
 
 

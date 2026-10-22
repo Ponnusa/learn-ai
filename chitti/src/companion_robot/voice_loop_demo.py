@@ -1293,6 +1293,39 @@ async def _run_word_family_practice(
         await _speak(tts, audio, response, speed=speed)
 
 
+# Decision 0080, found live (twice, same pattern both times): a child
+# answers "Would you like to read X again, or try something new?" by
+# either naming the story itself ("The little frog") or saying
+# "something new" -- neither is a generic yes/no word, so
+# classify_affirmative() alone recognizes neither side of this
+# SPECIFIC two-choice question, and each one fell through to "ask
+# again later" (decision 0079's own safe-but-incomplete fallback)
+# instead of actually being understood as an answer.
+_REREAD_DECLINE_PHRASES = ("new", "different", "another", "else", "something else")
+
+
+def _classify_reread_reply(reply: str, story_title: str) -> bool | None:
+    """True = wants to reread; False = wants something new; None =
+    genuinely unclear, so the caller should ask again later rather
+    than guess. Two checks specific to this exact two-choice question
+    run FIRST, ahead of the generic classify_affirmative(): saying
+    "new"/"something else" counts as a no, and naming the story's own
+    title (or enough of it) counts as a yes. Found live: checking
+    classify_affirmative() first let "something new please" match as
+    a yes on the word "please" alone, before "new" (the actually
+    decisive word here) was ever considered."""
+    lowered = reply.lower()
+    if any(phrase in lowered for phrase in _REREAD_DECLINE_PHRASES):
+        return False
+
+    title_tokens = {clean_word(w) for w in story_title.split() if clean_word(w)}
+    reply_tokens = {clean_word(w) for w in reply.split() if clean_word(w)}
+    if title_tokens and title_tokens <= reply_tokens:
+        return True
+
+    return classify_affirmative(reply)
+
+
 async def _run_reading_partner(
     conversation,
     tts,
@@ -1442,7 +1475,7 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.LISTENING)
                     reread_reply = await _capture_and_transcribe(stt)
                     print(f"You said: {reread_reply}")
-                    reread_answer = classify_affirmative(reread_reply)
+                    reread_answer = _classify_reread_reply(reread_reply, most_recent.title)
                     if reread_answer is True:
                         offered_reread = True
                         reread_exercise = most_recent
