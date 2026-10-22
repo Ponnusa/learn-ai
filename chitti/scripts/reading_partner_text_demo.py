@@ -20,9 +20,16 @@ sentence resume, etc.) runs exactly as it does on real hardware --
 nothing about the reading logic itself is faked, only the two literal
 audio I/O points. The screen is skipped the same way
 CHITTI_DISABLE_FACE already does on real hardware: a real, unstarted
-ScreenFaceDeviceController, whose set_status_led()/set_reading_text()/
-set_reading_spotlight() calls are harmless no-ops when its render
-thread was never started -- no separate fake-face class needed.
+ScreenFaceDeviceController, whose calls are harmless no-ops when its
+render thread was never started -- no separate fake-face class
+needed. Two of its methods are wrapped (this one instance, not the
+class) to print instead of silently no-op-ing: set_reading_spotlight()
+(found live -- the hint ladder's first stage never says the word out
+loud, relying on the screen highlight instead) and set_reading_text()
+(found live -- the sentence-by-sentence loop shows only the current
+sentence on screen, one at a time; without that, a tester typed the
+whole passage into one capture instead of reading it one sentence at
+a time, since nothing showed which single sentence was expected).
 
 Requires OPENAI_API_KEY in chitti/.env (same as voice_loop_demo.py).
 
@@ -87,25 +94,40 @@ async def main() -> None:
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
 
-    # Never started -- every set_status_led()/set_reading_text() call
+    # Never started -- every set_status_led() call
     # _run_reading_partner() makes is a harmless no-op this way, so
     # there's nothing screen-related to fake or keep in sync here.
-    # set_reading_spotlight() is the one exception: found live --
-    # the hint ladder's own first stage deliberately never says the
-    # word out loud ("Let's try that word again..."), relying
-    # entirely on the screen highlighting it instead. With no screen
-    # at all, that signal just vanished, leaving no way to tell which
-    # word was being asked about. Wrapped here (just this one
-    # instance, not the class) to print it instead.
+    # set_reading_spotlight() and set_reading_text() are the two
+    # exceptions, both found live: the hint ladder's own first stage
+    # deliberately never says the word out loud ("Let's try that word
+    # again..."), relying entirely on the screen highlighting it
+    # instead -- and decision 0067's sentence-by-sentence loop shows
+    # only the CURRENT sentence on screen, one at a time, never
+    # printing which one that is anywhere in text mode. Without
+    # either signal, a tester has no way to tell which word is being
+    # asked about, or which single sentence (out of the whole passage
+    # printed up front) is actually expected right now -- which is
+    # exactly how a real session ended up with the whole passage typed
+    # into one capture, instead of one sentence at a time. Both
+    # wrapped here (just this one instance, not the class) to print
+    # instead.
     face = ScreenFaceDeviceController()
     _print_spotlight = face.set_reading_spotlight
+    _print_reading_text = face.set_reading_text
 
     def _spotlight_and_print(word: str | None) -> None:
         if word is not None:
             print(f"[Chitti is pointing at: \"{word}\"]")
         _print_spotlight(word)
 
+    def _reading_text_and_print(lines, **kwargs) -> None:
+        if lines is not None:
+            shown = " ".join(lines)
+            print(f'[Chitti is showing: "{shown}"]')
+        _print_reading_text(lines, **kwargs)
+
     face.set_reading_spotlight = _spotlight_and_print
+    face.set_reading_text = _reading_text_and_print
 
     profile = _select_or_create_profile(profiles)
 
