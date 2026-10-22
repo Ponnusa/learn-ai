@@ -1551,11 +1551,13 @@ async def test_run_reading_partner_falls_back_to_a_plain_book_when_the_themed_on
     assert '"The Dog"' in "".join(tts.synthesized)
 
 
-async def test_run_reading_partner_falls_back_to_the_deterministic_builder_when_everything_fails():
-    """Decision 0077: when BOTH the themed attempt and the plain
+async def test_run_reading_partner_falls_back_to_the_story_bank_when_everything_fails():
+    """Decisions 0077/0078: when BOTH the themed attempt and the plain
     fallback fail, the session no longer ends in an apology at all --
-    it falls back to the guaranteed-decodable, offline builder, which
-    cannot itself fail."""
+    it falls back to a hand-written, pre-verified natural story from
+    the story bank (decision 0078) before ever reaching decision
+    0077's word-drill, since the bank has a story for every real
+    objective."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -1610,7 +1612,67 @@ async def test_run_reading_partner_falls_back_to_the_deterministic_builder_when_
 
     assert next_mode == "3"
     assert not any("having trouble coming up with a story" in line for line in tts.synthesized)
-    assert any("Word" in line for line in tts.synthesized)  # the fallback's own title shape
+    from companion_robot.reading.story_bank import _STORY_BANK
+
+    story_titles = {s.title for s in _STORY_BANK}
+    assert any(
+        any(title in line for title in story_titles) for line in tts.synthesized
+    ), "expected a story-bank title, not the word-drill or an apology"
+
+
+async def test_run_reading_partner_falls_back_to_the_word_drill_when_the_story_bank_also_has_nothing():
+    """Decision 0078's own final backstop: if the story bank somehow
+    has no match either (forced here -- in practice every real
+    objective has at least one), decision 0077's guaranteed word-
+    drill still catches it."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+
+    async def _always_fails(_messages, system_prompt):
+        if "decodable" in system_prompt.lower() and "story" in system_prompt.lower():
+            return "TITLE: Bad\nPAGE: A ship sat.", "fake-model"
+        return "Sorry, no questions.", "fake-model"
+
+    llm.generate_reply = AsyncMock(side_effect=_always_fails)
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    scripted = iter(["a cat sat", "no thanks", "yes please"])
+
+    async def _capture_side_effect(*_args, **_kwargs):
+        try:
+            return next(scripted)
+        except StopIteration:
+            return "let's just chat"
+
+    with (
+        patch(
+            "companion_robot.voice_loop_demo._capture_and_transcribe",
+            new_callable=AsyncMock,
+            side_effect=_capture_side_effect,
+        ),
+        patch("companion_robot.voice_loop_demo.pick_story_bank_book", return_value=None),
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert not any("having trouble coming up with a story" in line for line in tts.synthesized)
+    assert any("Word" in line for line in tts.synthesized)  # the word-drill's own title shape
 
 
 # -- post-reading comprehension questions (decision 0059) -----------------

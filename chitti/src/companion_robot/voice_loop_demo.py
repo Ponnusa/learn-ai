@@ -75,6 +75,7 @@ from companion_robot.reading.alignment import align, assess, attribute_evidence,
 from companion_robot.reading.book_generation import BookGenerationError
 from companion_robot.reading.decodability import clean_word
 from companion_robot.reading.deterministic_book import build_deterministic_book
+from companion_robot.reading.story_bank import pick_story_bank_book
 from companion_robot.reading.feedback import build_reading_feedback
 from companion_robot.reading.hints import HINT_STAGES, build_hint_line, pick_hint_words
 from companion_robot.reading.mastery import update_from_evidence
@@ -1512,6 +1513,20 @@ async def _run_reading_partner(
                         logger.warning("book generation attempt failed: %s", exc)
                         continue
                 if book is None:
+                    # Decision 0078: prefer a hand-written, pre-
+                    # verified NATURAL story over the word-drill when
+                    # one exists for this objective's own budget --
+                    # found live, via a product-owner critique, that
+                    # the word-drill alone ("Fin fit fix fizz a.")
+                    # reads nothing like a story. Falls through to
+                    # decision 0077's guaranteed word-drill only if
+                    # the bank has nothing (should not happen for any
+                    # real objective, but costs nothing to keep as
+                    # the final backstop).
+                    book = pick_story_bank_book(
+                        objective, session_index=profile.sessions_completed,
+                    )
+                if book is None:
                     # Decision 0077: the LLM path can still fail even
                     # with decision 0076's improved odds -- fall back
                     # to the guaranteed-decodable, offline builder
@@ -1912,9 +1927,13 @@ async def _run_reading_partner_v2(
                     # 0077: falls back to the guaranteed-decodable,
                     # offline builder (no LLM, no network, cannot
                     # raise) instead of apologizing with nothing to
-                    # read.
+                    # read. Decision 0078: prefers a hand-written,
+                    # pre-verified natural story over the word-drill
+                    # when one exists for this budget.
                     logger.warning("book generation attempt failed: %s", exc)
-                    book = build_deterministic_book(
+                    book = pick_story_bank_book(
+                        objective, session_index=profile.sessions_completed,
+                    ) or build_deterministic_book(
                         objective,
                         session_index=profile.sessions_completed,
                         interest=profile.interest,

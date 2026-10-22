@@ -311,9 +311,10 @@ async def test_v1_and_v2_use_the_same_reading_profile():
 
 
 async def test_falls_back_to_the_deterministic_builder_when_generation_fails():
-    """Decision 0077: when LLM book generation fails, v2 falls back to
-    the guaranteed-decodable, offline builder instead of apologizing
-    with nothing to read."""
+    """Decisions 0077/0078: when LLM book generation fails, v2 falls
+    back to a natural story-bank story (preferred) or the guaranteed-
+    decodable word-drill instead of apologizing with nothing to
+    read."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = _make_exercise(conn, "A cat sat.")
