@@ -87,11 +87,25 @@ async def main() -> None:
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
 
-    # Never started -- every set_status_led()/set_reading_text()/
-    # set_reading_spotlight() call _run_reading_partner() makes is a
-    # harmless no-op this way, so there's nothing screen-related to
-    # fake or keep in sync here.
+    # Never started -- every set_status_led()/set_reading_text() call
+    # _run_reading_partner() makes is a harmless no-op this way, so
+    # there's nothing screen-related to fake or keep in sync here.
+    # set_reading_spotlight() is the one exception: found live --
+    # the hint ladder's own first stage deliberately never says the
+    # word out loud ("Let's try that word again..."), relying
+    # entirely on the screen highlighting it instead. With no screen
+    # at all, that signal just vanished, leaving no way to tell which
+    # word was being asked about. Wrapped here (just this one
+    # instance, not the class) to print it instead.
     face = ScreenFaceDeviceController()
+    _print_spotlight = face.set_reading_spotlight
+
+    def _spotlight_and_print(word: str | None) -> None:
+        if word is not None:
+            print(f"[Chitti is pointing at: \"{word}\"]")
+        _print_spotlight(word)
+
+    face.set_reading_spotlight = _spotlight_and_print
 
     profile = _select_or_create_profile(profiles)
 
