@@ -1362,9 +1362,7 @@ async def _run_word_family_practice(
     # single word its own full phonics-breakdown reaction in a row --
     # four of them in a row, each with its own TTS round trip, felt
     # like it would never end. One short, warm line instead when
-    # NONE of the words were found; the per-word breakdown is kept for
-    # when at least one word was actually attempted, so real partial
-    # credit still gets real per-word feedback.
+    # NONE of the words were found.
     matched = [w for w in family_words if is_correct_answer(w, reading)]
     if not matched:
         response = f"That's okay! Those words were {', '.join(family_words)}. Let's keep going!"
@@ -1373,14 +1371,33 @@ async def _run_word_family_practice(
         await _speak(tts, audio, response, speed=speed)
         return
 
-    for family_word in family_words:
-        correct = family_word in matched
-        response = random_correct_response() if correct else incorrect_response(family_word)
+    # Decision 0096, found live: all four words read correctly from
+    # one capture still got FOUR separate "Yes!"/"You got it!" lines
+    # read back in a row, with no child input in between -- one
+    # combined line instead. A real miss still gets its own focused
+    # correction (unchanged), but only for the word(s) actually
+    # missed, not padded with per-word praise for the ones that were
+    # already right.
+    missed = [w for w in family_words if w not in matched]
+    if not missed:
+        response = f"Wow, you read all of them: {', '.join(family_words)}! Great job!"
         print(f"Chitti: {response}")
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, response, speed=speed)
-        if not correct:
-            await _play_real_phonics_sounds(audio, family_word)
+        return
+
+    if matched:
+        ack = f"Nice! You got {', '.join(matched)}."
+        print(f"Chitti: {ack}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, ack, speed=speed)
+
+    for family_word in missed:
+        response = incorrect_response(family_word)
+        print(f"Chitti: {response}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, response, speed=speed)
+        await _play_real_phonics_sounds(audio, family_word)
 
 
 # Decision 0080, found live (twice, same pattern both times): a child

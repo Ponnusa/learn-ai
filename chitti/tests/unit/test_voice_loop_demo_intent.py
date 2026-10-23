@@ -1129,7 +1129,10 @@ async def test_run_reading_partner_word_family_offered_after_independent_resolut
     assert ["cat", "bat"] in face.word_grids
     assert None in face.word_grids  # cleared after the one capture
     assert "Can you read all of these words for me?" in tts.synthesized
-    assert sum(line in _CORRECT_RESPONSES for line in tts.synthesized) == 2
+    # Decision 0096: both words correct from one capture gets one
+    # combined line, not one "Yes!"/"You got it!" per word in a row
+    # with no child input in between.
+    assert "Wow, you read all of them: cat, bat! Great job!" in tts.synthesized
     # Decision 0090, found live: the hint ladder's own spotlight for
     # "sat" was still showing when the grid was set -- the render
     # loop draws the spotlight over the grid whenever both are set,
@@ -1279,6 +1282,30 @@ async def test_word_family_practice_highlights_each_word_while_modeling_it():
         )
 
     assert face.word_grid_highlights == ["cat", "bat", None]
+
+
+async def test_word_family_practice_only_corrects_the_missed_word_not_every_word():
+    """Decision 0096, found live: all words correct from one capture
+    used to get a separate "Yes!"/"You got it!" line each, read back
+    in a row with no child input in between -- felt robotic. A
+    partial miss should name what was right once, then work only on
+    the word actually missed, not re-praise the ones already right."""
+    llm = _FakeLLM(reply="WORD: cat\nWORD: bat")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures("yes", "cat"):  # "bat" never attempted
+        await _run_word_family_practice(
+            "sat", conversation, tts, _FakeAudio(), "fake-stt", face, 1.0, 6,
+            ["short_vowels"],
+        )
+
+    assert "Nice! You got cat." in tts.synthesized
+    assert any(line.startswith('Good try! The word is "bat"') for line in tts.synthesized)
+    # Not one praise line per correct word -- just the single combined
+    # acknowledgment above.
+    assert not any(line in _CORRECT_RESPONSES for line in tts.synthesized)
 
 
 # -- reread + word-meaning check after a hint-ladder word (decision 0074) --
