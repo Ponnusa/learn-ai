@@ -32,7 +32,6 @@ import asyncio
 import contextlib
 import difflib
 import logging
-import math
 import os
 import secrets
 import subprocess
@@ -42,7 +41,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from companion_robot.audio.real import CAPTURE_DEVICE, PLAYBACK_SAMPLE_RATE, RealAudioTransport
-from companion_robot.audio.tones import generate_beep
 from companion_robot.conversation.service import ConversationResult, ConversationService
 from companion_robot.device.interfaces import DeviceState
 from companion_robot.device.screen_face import ScreenFaceDeviceController
@@ -171,74 +169,22 @@ async def _capture_and_transcribe(stt) -> str:
         return await stt.transcribe(audio_bytes, language="en")
 
 
-# Decision 0084: "press Enter to start talking" doesn't read as
-# natural conversation to a young child, and real hardware has no
-# voice-activity detection to fall back on (audio/real.py's own note
-# on why -- no ARMv6 wheel for the wake-word library). A beep cue
-# plus a fixed recording window, sized to how long the expected reply
-# should take, stands in for the keypress instead -- scoped for now to
-# the one new "I'll read it, you repeat after the beep" help step,
-# not every capture in the file.
-_MIN_CAPTURE_SECONDS = 3.0
-_CAPTURE_BUFFER_SECONDS = 2.0
-# Decision 0085: a plain yes/no to the "read it yourself, or hear it
-# first?" offer doesn't need _MIN_CAPTURE_SECONDS' full sentence-reply
-# floor -- found live that stacking that floor on top of the offer
-# question's own synthesis/playback made the whole exchange feel slow
-# before the real reading-aloud listen (and its beep) was even
-# reached. Short enough for a one-word reply, still real reaction time.
-_OFFER_REPLY_CAPTURE_SECONDS = 1.5
+# Decision 0084 tried a beep cue plus a fixed recording window in
+# place of "press Enter to start talking" (real hardware has no
+# voice-activity detection to fall back on -- audio/real.py's own
+# note on why). Decision 0087, from live hardware testing: it felt
+# bad in practice, and the beep's own supporting code
+# (_capture_and_transcribe_after_beep(), _record_clip_for_duration(),
+# _sentence_capture_seconds(), audio/tones.py's generate_beep()) was
+# removed along with it, back to "press Enter" everywhere, at least
+# for now -- see that decision's doc if reviving this later.
+#
 # How much slower than the child's own normal speech_speed Chitti
-# models a sentence at, for the same help step -- noticeably slower
-# without dragging, same spirit as reading_pace_wpm already pacing
-# the teleprompter itself.
+# models a sentence at, when it reads one aloud first (the "Would
+# you like me to read it to you first?" offer, and the post-hint
+# reread) -- noticeably slower without dragging, same spirit as
+# reading_pace_wpm already pacing the teleprompter itself.
 _MODEL_READ_SPEED_MULTIPLIER = 0.75
-# Matches _run_reading_partner()'s own reading_pace_wpm default --
-# only reached if that's somehow 0 or negative, which should never
-# happen with a real profile.
-_FALLBACK_READING_PACE_WPM = 45.0
-
-
-def _sentence_capture_seconds(sentence: str, reading_pace_wpm: float) -> float:
-    """How long to record after the beep for a child repeating
-    `sentence` back -- word count at the same age-appropriate pace
-    the teleprompter itself already paces by, plus a flat buffer
-    (reacting to the beep, a breath, a slower start) so a short
-    sentence doesn't get cut off."""
-    word_count = len(sentence.split())
-    pace = reading_pace_wpm if reading_pace_wpm > 0 else _FALLBACK_READING_PACE_WPM
-    return max(_MIN_CAPTURE_SECONDS, (word_count / pace) * 60.0 + _CAPTURE_BUFFER_SECONDS)
-
-
-def _record_clip_for_duration(path: str, duration_seconds: float) -> None:
-    """Blocking: records for a fixed duration via arecord's own -d
-    flag -- no keypress to start or stop. Same format/device as
-    _record_clip(); arecord's -d only takes whole seconds, rounded up
-    so the window is never shorter than asked for."""
-    subprocess.run(
-        [
-            "arecord", "-D", CAPTURE_DEVICE, "-f", "S16_LE", "-r", "16000", "-c", "1",
-            "-d", str(max(1, math.ceil(duration_seconds))), path,
-        ],
-        stdin=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-
-
-async def _capture_and_transcribe_after_beep(stt, audio, duration_seconds: float) -> str:
-    """Plays a short cue tone (audio/tones.py) instead of asking for
-    an Enter keypress, then records for a fixed window -- "listen for
-    about this long," not "listen until you stop talking," since
-    there's no voice-activity detection on real hardware to do the
-    latter."""
-    await audio.play(generate_beep())
-    await asyncio.get_event_loop().run_in_executor(
-        None, _record_clip_for_duration, _CAPTURE_PATH, duration_seconds
-    )
-    with open(_CAPTURE_PATH, "rb") as f:
-        audio_bytes = f.read()
-    async with _timed("stt_transcribe"):
-        return await stt.transcribe(audio_bytes, language="en")
 
 
 async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
@@ -1407,6 +1353,24 @@ def _classify_reread_reply(reply: str, story_title: str) -> bool | None:
     return classify_affirmative(reply)
 
 
+def _classify_read_first_offer_reply(reply: str) -> bool:
+    """True if the reply means "yes, read it to me first" for the
+    per-sentence "Would you like me to read it to you first?" offer.
+    Found live: a very natural reply is just "you" (as in "you read
+    it") -- not in classify_affirmative()'s generic yes/no vocabulary
+    at all, so it was wrongly read as a decline, skipping straight to
+    listening for the child's own read instead of modeling the
+    sentence as asked. Checked first, same local-to-this-one-question
+    reasoning as _classify_reread_reply() above; anything else
+    (including a genuinely unclear reply) falls back to
+    classify_affirmative(), defaulting to False -- the child reading
+    it themselves, the original, always-safe behavior."""
+    reply_tokens = {clean_word(w) for w in reply.split() if clean_word(w)}
+    if "you" in reply_tokens:
+        return True
+    return classify_affirmative(reply) is True
+
+
 async def _run_reading_partner(
     conversation,
     tts,
@@ -1737,21 +1701,28 @@ async def _run_reading_partner(
                 # one sentence at a time. Now Chitti offers to read it
                 # first; a plain yes models the sentence (paced with
                 # the same teleprompter highlight, just slower) before
-                # handing over -- either way, the actual capture is
-                # the same beep-cued, duration-sized listen below, not
-                # a keypress.
+                # handing over.
+                #
+                # Decision 0087, from live hardware testing: the beep-
+                # cued, fixed-duration capture (decisions 0084/0086)
+                # made this feel bad in practice -- back to "press
+                # Enter" for every capture here, at least for now.
                 offer = "Would you like me to read it to you first?"
                 print(f"Chitti: {offer}")
                 face.set_status_led(DeviceState.SPEAKING)
                 await _speak(tts, audio, offer, speed=speed)
 
                 face.set_status_led(DeviceState.LISTENING)
-                offer_reply = await _capture_and_transcribe_after_beep(
-                    stt, audio, _OFFER_REPLY_CAPTURE_SECONDS
-                )
+                offer_reply = await _capture_and_transcribe(stt)
                 print(f"You said: {offer_reply}")
 
-                if is_affirmative(offer_reply):
+                # Decision 0087, also found live: a child's natural
+                # reply here is often just "you" (as in "you read it")
+                # -- classify_affirmative()'s generic yes/no vocabulary
+                # doesn't recognize that at all, so it was wrongly read
+                # as a decline every time, silently skipping the model
+                # step that was just asked for.
+                if _classify_read_first_offer_reply(offer_reply):
                     # Found live: set_reading_text()'s word-highlight
                     # clock starts the moment it's called, not when
                     # anyone actually starts reading -- the earlier
@@ -1771,7 +1742,7 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
 
-                    turn_cue = "Now it's your turn! Try it after the beep."
+                    turn_cue = "Now it's your turn! Give it a try."
                     print(f"Chitti: {turn_cue}")
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, turn_cue, speed=speed)
@@ -1791,9 +1762,7 @@ async def _run_reading_partner(
                 # fallback the original project's typed-transcript CLI path
                 # needs -- Chitti's push-to-talk already has a real clock.
                 capture_started = time.monotonic()
-                spoken = await _capture_and_transcribe_after_beep(
-                    stt, audio, _sentence_capture_seconds(sentence, reading_pace_wpm)
-                )
+                spoken = await _capture_and_transcribe(stt)
                 duration_seconds = time.monotonic() - capture_started
                 print(f"You read: {spoken}")
                 face.set_reading_text(None)
@@ -1899,10 +1868,11 @@ async def _run_reading_partner(
                     # again"). Found live to be slow and a little cold
                     # after a sentence that needed real help -- now
                     # Chitti models the sentence first, at a slower
-                    # pace, before asking the child to say it back, and
-                    # a beep cue (audio/tones.py) replaces "press Enter"
-                    # for knowing when to start -- closer to natural
-                    # back-and-forth than a keypress.
+                    # pace, before asking the child to say it back.
+                    # Decision 0087: back to "press Enter" for the
+                    # actual capture -- the beep-cued, fixed-duration
+                    # version felt bad on real hardware, at least for
+                    # now.
                     model_intro = "I'll read it for you first. Listen:"
                     print(f"Chitti: {model_intro}")
                     face.set_status_led(DeviceState.SPEAKING)
@@ -1917,16 +1887,14 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
 
-                    turn_cue = "Now it's your turn! Say it after the beep."
+                    turn_cue = "Now it's your turn! Give it a try."
                     print(f"Chitti: {turn_cue}")
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, turn_cue, speed=speed)
 
                     face.set_status_led(DeviceState.LISTENING)
                     reread_started = time.monotonic()
-                    reread_attempt = await _capture_and_transcribe_after_beep(
-                        stt, audio, _sentence_capture_seconds(sentence, reading_pace_wpm)
-                    )
+                    reread_attempt = await _capture_and_transcribe(stt)
                     reread_duration = time.monotonic() - reread_started
                     print(f"You read: {reread_attempt}")
                     face.set_reading_text(None)

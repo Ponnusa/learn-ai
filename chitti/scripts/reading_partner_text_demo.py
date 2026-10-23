@@ -9,20 +9,21 @@ ReadingExerciseRepository/ChildProfileRepository, against the same
 chitti/data/chitti.db the Parent Controls web UI reads from -- before
 wiring any of this back to real audio/screen hardware.
 
-Reuses _run_reading_partner() completely unmodified: the call sites
-that normally touch real audio (voice_loop_demo._capture_and_transcribe
-/ _capture_and_transcribe_after_beep / _speak) are monkeypatched here
-to read a line from stdin / print a line to stdout instead, the same
-technique this project's own test suite already uses.
-_capture_and_transcribe_after_beep() (decision 0084) backs the new
-"I'll read it, you repeat after the beep" help step -- text mode just
-prints "[BEEP]" instead of playing the real cue tone. Every
-other decision this mode has ever shipped (BKT mastery, miscue
-alignment, the hint ladder, word-family verification, sentence-by-
-sentence resume, etc.) runs exactly as it does on real hardware --
-nothing about the reading logic itself is faked, only the two literal
-audio I/O points. The screen is skipped the same way
-CHITTI_DISABLE_FACE already does on real hardware: a real, unstarted
+Reuses _run_reading_partner() completely unmodified: the two call
+sites that normally touch real audio
+(voice_loop_demo._capture_and_transcribe / _speak) are monkeypatched
+here to read a line from stdin / print a line to stdout instead, the
+same technique this project's own test suite already uses. (Decisions
+0084-0086 briefly routed some captures through a beep-cued,
+fixed-duration variant instead of "press Enter" -- decision 0087
+removed it after real-hardware testing, so there's only ever this one
+capture function again.) Every other decision this mode has ever
+shipped (BKT mastery, miscue alignment, the hint ladder, word-family
+verification, sentence-by-sentence resume, etc.) runs exactly as it
+does on real hardware -- nothing about the reading logic itself is
+faked, only the two literal audio I/O points. The screen is skipped
+the same way CHITTI_DISABLE_FACE already does on real hardware: a
+real, unstarted
 ScreenFaceDeviceController, whose calls are harmless no-ops when its
 render thread was never started -- no separate fake-face class
 needed. Two of its methods are wrapped (this one instance, not the
@@ -88,19 +89,6 @@ async def _text_capture_and_transcribe(stt) -> str:
     """Stands in for voice_loop_demo._capture_and_transcribe() -- no
     recording, no Whisper call. Reads one line of typed text, exactly
     where a real transcript would otherwise have landed."""
-    return await asyncio.get_event_loop().run_in_executor(
-        None, input, "\nYou (type what the child says): "
-    )
-
-
-async def _text_capture_and_transcribe_after_beep(stt, audio, duration_seconds: float) -> str:
-    """Stands in for voice_loop_demo._capture_and_transcribe_after_beep()
-    (decision 0084) -- prints the cue tone instead of actually playing
-    one, then reads one line of typed text, same as
-    _text_capture_and_transcribe() above. `duration_seconds` is real
-    hardware's fixed recording window; text mode has nothing to time,
-    so it's unused here."""
-    print("[BEEP]")
     return await asyncio.get_event_loop().run_in_executor(
         None, input, "\nYou (type what the child says): "
     )
@@ -185,11 +173,6 @@ async def main() -> None:
     reading_partner_fn = _run_reading_partner_v2 if is_v2 else _run_reading_partner
     with (
         patch.object(voice_loop_demo, "_capture_and_transcribe", _text_capture_and_transcribe),
-        patch.object(
-            voice_loop_demo,
-            "_capture_and_transcribe_after_beep",
-            _text_capture_and_transcribe_after_beep,
-        ),
         patch.object(voice_loop_demo, "_speak", _text_speak),
     ):
         next_mode, _switch_trigger_text = await reading_partner_fn(

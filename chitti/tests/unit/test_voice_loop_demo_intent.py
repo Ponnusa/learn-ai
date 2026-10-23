@@ -30,8 +30,8 @@ from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
 from companion_robot.voice_loop_demo import (
-    _MIN_CAPTURE_SECONDS,
     _THINKING_FILLERS,
+    _classify_read_first_offer_reply,
     _classify_reread_reply,
     _confirm_switch,
     _detect_switch_intent,
@@ -41,7 +41,6 @@ from companion_robot.voice_loop_demo import (
     _run_everyday_companion,
     _run_reading_partner,
     _run_teachable_friend,
-    _sentence_capture_seconds,
     _speak_while_thinking,
 )
 
@@ -119,21 +118,14 @@ class _FakeFace:
 
 @contextlib.contextmanager
 def _patch_captures(*side_effect):
-    """Decision 0084: the per-sentence reread after a hint-ladder word
-    now goes through _capture_and_transcribe_after_beep() (a beep cue
-    plus a fixed-duration recording), not the original
-    _capture_and_transcribe() (press Enter to start/stop) every other
-    capture in this file still uses. Both names are patched to the
-    SAME mock here, pulling from one ordered side_effect list --
-    AsyncMock's side_effect iterator ignores call arguments entirely,
-    so whichever of the two real functions a given turn happens to
-    call just pops the next scripted reply, same as if there were
-    only ever one capture function."""
+    """Patches _capture_and_transcribe() with one ordered side_effect
+    list. (Decisions 0084-0086 briefly routed some captures through a
+    second function, _capture_and_transcribe_after_beep() -- decision
+    0087 removed it after real-hardware testing, so this only ever
+    patches the one capture function again; kept as a helper since so
+    many tests below already call it this way.)"""
     mock = AsyncMock(side_effect=list(side_effect))
-    with (
-        patch("companion_robot.voice_loop_demo._capture_and_transcribe", mock),
-        patch("companion_robot.voice_loop_demo._capture_and_transcribe_after_beep", mock),
-    ):
+    with patch("companion_robot.voice_loop_demo._capture_and_transcribe", mock):
         yield mock
 
 
@@ -620,21 +612,10 @@ async def test_run_reading_partner_never_checks_the_read_aloud_transcript_for_a_
         calls["n"] += 1
         return "tell me a story" if calls["n"] == 1 else "can we sing a song"
 
-    # Decision 0084: the per-sentence reread may go through
-    # _capture_and_transcribe_after_beep() instead -- same counter-
-    # based side_effect function patched onto both names, since
-    # either one just needs the next call to advance the shared count.
-    with (
-        patch(
-            "companion_robot.voice_loop_demo._capture_and_transcribe",
-            new_callable=AsyncMock,
-            side_effect=_capture_side_effect,
-        ),
-        patch(
-            "companion_robot.voice_loop_demo._capture_and_transcribe_after_beep",
-            new_callable=AsyncMock,
-            side_effect=_capture_side_effect,
-        ),
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=_capture_side_effect,
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
@@ -932,10 +913,8 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     # Decision 0085: the sentence's own "read it to you first?" offer,
     # declined, before the read-aloud itself. Decision 0084: exhausting
     # the ladder still triggers a reread -- now modeled by Chitti
-    # first, then captured via the beep-cued
-    # _capture_and_transcribe_after_beep(), not the original
-    # press-Enter capture. "no thanks" declines decision 0057's
-    # post-reading word game.
+    # first. "no thanks" declines decision 0057's post-reading word
+    # game.
     with _patch_captures(
         "no thanks", "a cat mat", "nope", "nope", "nope", "nope", "a cat mat", "still nope",
         "no thanks", "let's just chat",
@@ -959,7 +938,7 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     # runs a real LLM call wrapped in decision 0050's thinking-filler,
     # whose line count depends on timing, not just content.
     assert "I'll read it for you first. Listen:" in tts.synthesized
-    assert "Now it's your turn! Say it after the beep." in tts.synthesized
+    assert "Now it's your turn! Give it a try." in tts.synthesized
     # Decision 0081: the reread still had "mat" for "sat" -- a short
     # correction cycle runs instead of blanket praise, and since the
     # correction attempt is wrong too, it closes with "the word is...",
@@ -1260,7 +1239,7 @@ async def test_run_reading_partner_rereads_and_checks_meaning_after_a_hint():
 
     assert next_mode == "3"
     assert "I'll read it for you first. Listen:" in tts.synthesized
-    assert "Now it's your turn! Say it after the beep." in tts.synthesized
+    assert "Now it's your turn! Give it a try." in tts.synthesized
     assert "Nice reading!" in tts.synthesized
     assert "What jumps over the log?" in tts.synthesized
     assert "Good try! Think about what hops." in tts.synthesized
@@ -1320,7 +1299,7 @@ async def test_run_reading_partner_catches_a_new_miscue_introduced_during_the_re
 
     assert next_mode == "3"
     assert "I'll read it for you first. Listen:" in tts.synthesized
-    assert "Now it's your turn! Say it after the beep." in tts.synthesized
+    assert "Now it's your turn! Give it a try." in tts.synthesized
     assert "Let's look at this word again. Listen: big." in tts.synthesized
     assert 'Yes, "big"! Nice fixing that.' in tts.synthesized
     # The reread introduced a real miscue -- never blanket-praised.
@@ -1358,7 +1337,7 @@ async def test_run_reading_partner_skips_the_word_meaning_check_on_a_clean_read(
     # appears -- a clean read has no hint_words, so that whole block
     # never runs.
     assert "I'll read it for you first. Listen:" not in tts.synthesized
-    assert "Now it's your turn! Say it after the beep." not in tts.synthesized
+    assert "Now it's your turn! Give it a try." not in tts.synthesized
     assert len(llm.calls) == 1  # only the book-level comprehension-questions call
 
 
@@ -1612,6 +1591,32 @@ def test_classify_reread_reply_still_recognizes_plain_yes_and_no():
 def test_classify_reread_reply_returns_none_for_genuinely_unclear_text():
     assert _classify_reread_reply("let's just chat", "The little frog") is None
     assert _classify_reread_reply("", "The little frog") is None
+
+
+# -- _classify_read_first_offer_reply (decision 0087) ----------------------
+
+
+def test_classify_read_first_offer_reply_recognizes_you_as_a_yes():
+    """Found live: a real reply to "Would you like me to read it to
+    you first?" was just "you" -- not in classify_affirmative()'s
+    generic vocabulary at all, so it was wrongly read as a decline."""
+    assert _classify_read_first_offer_reply("you") is True
+    assert _classify_read_first_offer_reply("you read it") is True
+    assert _classify_read_first_offer_reply("you do it first") is True
+
+
+def test_classify_read_first_offer_reply_still_recognizes_plain_yes_and_no():
+    assert _classify_read_first_offer_reply("yes") is True
+    assert _classify_read_first_offer_reply("yes please") is True
+    assert _classify_read_first_offer_reply("no") is False
+    assert _classify_read_first_offer_reply("no thanks") is False
+
+
+def test_classify_read_first_offer_reply_defaults_to_false_when_unclear():
+    """Unclear defaults to the child reading it themselves -- the
+    original, always-safe behavior, not a guess either way."""
+    assert _classify_read_first_offer_reply("let's just chat") is False
+    assert _classify_read_first_offer_reply("") is False
 
 
 async def test_run_reading_partner_naming_the_story_accepts_the_reread_offer_immediately():
@@ -1925,20 +1930,10 @@ async def test_run_reading_partner_falls_back_to_the_story_bank_when_everything_
         except StopIteration:
             return "let's just chat"
 
-    # Decision 0084: the per-sentence reread may go through
-    # _capture_and_transcribe_after_beep() instead -- same counter-
-    # based side_effect function patched onto both names.
-    with (
-        patch(
-            "companion_robot.voice_loop_demo._capture_and_transcribe",
-            new_callable=AsyncMock,
-            side_effect=_capture_side_effect,
-        ),
-        patch(
-            "companion_robot.voice_loop_demo._capture_and_transcribe_after_beep",
-            new_callable=AsyncMock,
-            side_effect=_capture_side_effect,
-        ),
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=_capture_side_effect,
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1998,13 +1993,6 @@ async def test_run_reading_partner_falls_back_to_the_word_drill_when_the_story_b
     with (
         patch(
             "companion_robot.voice_loop_demo._capture_and_transcribe",
-            new_callable=AsyncMock,
-            side_effect=_capture_side_effect,
-        ),
-        # Decision 0084: the per-sentence reread may go through
-        # _capture_and_transcribe_after_beep() instead.
-        patch(
-            "companion_robot.voice_loop_demo._capture_and_transcribe_after_beep",
             new_callable=AsyncMock,
             side_effect=_capture_side_effect,
         ),
@@ -2344,25 +2332,3 @@ async def test_run_word_game_never_offered_when_no_word_qualifies():
     # Only the mode's own unconditional clear-on-exit cleanup -- no
     # real game round ever ran.
     assert face.spotlights == [None]
-
-
-# -- _sentence_capture_seconds (decision 0084) -----------------------------
-
-
-def test_sentence_capture_seconds_scales_with_word_count():
-    short = _sentence_capture_seconds("A cat sat.", reading_pace_wpm=60.0)
-    long = _sentence_capture_seconds("The little brown dog ran across the yard.", reading_pace_wpm=60.0)
-    assert long > short
-
-
-def test_sentence_capture_seconds_never_below_the_floor():
-    # One word at a very fast pace would compute to well under a
-    # second otherwise -- a real child still needs a moment to react.
-    assert _sentence_capture_seconds("Go.", reading_pace_wpm=200.0) == _MIN_CAPTURE_SECONDS
-
-
-def test_sentence_capture_seconds_falls_back_on_a_non_positive_pace():
-    """A corrupt/unset profile pace (0 or negative) must never produce
-    a zero or negative recording window."""
-    assert _sentence_capture_seconds("A cat sat.", reading_pace_wpm=0.0) > 0
-    assert _sentence_capture_seconds("A cat sat.", reading_pace_wpm=-5.0) > 0
