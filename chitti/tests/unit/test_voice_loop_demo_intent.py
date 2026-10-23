@@ -139,8 +139,8 @@ class _FakeFace:
     def set_word_grid_highlight(self, word: str | None) -> None:
         self.word_grid_highlights.append(word)
 
-    def set_reading_text_highlight(self, word: str | None) -> None:
-        self.reading_text_highlights.append(word)
+    def set_reading_text_highlight(self, word: str | None, sentence_index: int | None) -> None:
+        self.reading_text_highlights.append((sentence_index, word))
 
 
 @contextlib.contextmanager
@@ -1344,10 +1344,28 @@ async def test_speak_with_word_highlight_highlights_each_word_in_order():
     )
     cache: dict = {}
 
-    await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache)
+    await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache, 0)
 
-    assert face.reading_text_highlights == ["Dan", "ran", None]
+    assert face.reading_text_highlights == [(0, "Dan"), (0, "ran"), (0, None)]
     assert audio.played == [b"fake-audio"]
+
+
+async def test_speak_with_word_highlight_scopes_the_highlight_to_its_own_sentence():
+    """Found live: "Sam" repeated across sentence 1 and sentence 3 of
+    a story lit up in EVERY sentence containing it, not just the one
+    actually being modeled, because the highlight was a bare word
+    with no sentence context. sentence_index must be threaded straight
+    through to the face, unchanged, so the renderer can scope the
+    match to just the sentence actually being spoken."""
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+    face = _FakeFace()
+    stt = _FakeSTTWithTimestamps([WordTiming(word="Sam", start=0.0, end=0.01)])
+    cache: dict = {}
+
+    await _speak_with_word_highlight(tts, audio, face, stt, "Sam can nap.", 1.0, cache, 2)
+
+    assert face.reading_text_highlights == [(2, "Sam"), (2, None)]
 
 
 async def test_speak_with_word_highlight_reuses_the_cache_for_a_repeated_sentence():
@@ -1361,8 +1379,8 @@ async def test_speak_with_word_highlight_reuses_the_cache_for_a_repeated_sentenc
     stt = _FakeSTTWithTimestamps([WordTiming(word="Dan", start=0.0, end=0.01)])
     cache: dict = {}
 
-    await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache)
-    await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache)
+    await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache, 0)
+    await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache, 0)
 
     assert len(tts.synthesized) == 1
     assert stt.timestamp_calls == 1
@@ -1375,7 +1393,7 @@ async def test_speak_with_word_highlight_falls_back_when_stt_lacks_the_capabilit
     face = _FakeFace()
     cache: dict = {}
 
-    await _speak_with_word_highlight(tts, audio, face, "fake-stt", "Dan ran.", 1.0, cache)
+    await _speak_with_word_highlight(tts, audio, face, "fake-stt", "Dan ran.", 1.0, cache, 0)
 
     assert face.reading_text_highlights == []
     assert audio.played == [b"fake-audio"]
@@ -1387,7 +1405,9 @@ async def test_speak_with_word_highlight_falls_back_when_the_timestamp_lookup_fa
     face = _FakeFace()
     cache: dict = {}
 
-    await _speak_with_word_highlight(tts, audio, face, _FailingTimestampSTT(), "Dan ran.", 1.0, cache)
+    await _speak_with_word_highlight(
+        tts, audio, face, _FailingTimestampSTT(), "Dan ran.", 1.0, cache, 0,
+    )
 
     assert face.reading_text_highlights == []
     assert audio.played == [b"fake-audio"]

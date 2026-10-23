@@ -325,8 +325,8 @@ def _normalize_word(word: str) -> str:
 
 
 def _draw_reading_lines_static(
-    screen, width: int, height: int, font, lines: list[str], color, line_height: int,
-    highlight_word: str | None = None, highlight_color=_RED,
+    screen, width: int, height: int, font, lines: list[tuple[int, str]], color, line_height: int,
+    highlight: tuple[int, str] | None = None, highlight_color=_RED,
 ) -> None:
     """Decision 0088: shows the sentence as plain, static text while
     Chitti reads it -- no moving/scrolling teleprompter. Replaces the
@@ -343,28 +343,38 @@ def _draw_reading_lines_static(
     each line centered horizontally too, instead of pinned to the
     left margin.
 
-    Decision 0098: `highlight_word`, when given, renders every
-    occurrence of that one word in `highlight_color` instead of
-    `color` -- the text itself never moves or scrolls, only that
-    word's own color changes, so this stays immune to decision
-    0088's own reason the old approach was removed. The caller is
-    responsible for updating `highlight_word` in real time against
-    REAL audio timestamps (reading/word_timing.py), not a guessed
-    pace -- this function only draws whatever it's told, each frame."""
-    visible = [line for line in lines if line]
+    Decision 0098: `lines` pairs each wrapped display line with the
+    index of the original sentence ("page") it came from, and
+    `highlight`, when given, is `(sentence_index, word)` -- every
+    occurrence of that word renders in `highlight_color` instead of
+    `color`, but ONLY on lines from that one sentence. Found live:
+    without the sentence-index scoping, highlighting "Sam" while
+    reading "Sam can nap." (sentence 3 of "Sam and the Cat") also lit
+    up "Sam" in sentence 1 ("Sam has a cat.") and sentence 4, since
+    the whole story is shown on screen at once and the word alone is
+    ambiguous between sentences that reuse it. The text itself never
+    moves or scrolls, only a word's own color changes, so this stays
+    immune to decision 0088's own reason the old teleprompter was
+    removed. The caller is responsible for updating `highlight` in
+    real time against REAL audio timestamps (reading/word_timing.py),
+    not a guessed pace -- this function only draws whatever it's
+    told, each frame."""
+    visible = [(idx, line) for idx, line in lines if line]
     total_height = len(visible) * line_height
     start_y = max(0, (height - total_height) // 2)
     space_width = font.size(" ")[0]
-    target = _normalize_word(highlight_word) if highlight_word is not None else None
-    for i, line in enumerate(visible):
+    target_index, target_word = (
+        (highlight[0], _normalize_word(highlight[1])) if highlight is not None else (None, None)
+    )
+    for i, (sentence_index, line) in enumerate(visible):
         line_width = font.size(line)[0]
         x = max(_READING_MARGIN, (width - line_width) // 2)
         y = start_y + i * line_height
-        if target is None:
+        if target_word is None or sentence_index != target_index:
             screen.blit(font.render(line, True, color), (x, y))
             continue
         for word in line.split(" "):
-            word_color = highlight_color if _normalize_word(word) == target else color
+            word_color = highlight_color if _normalize_word(word) == target_word else color
             rendered = font.render(word, True, word_color)
             screen.blit(rendered, (x, y))
             x += rendered.get_width() + space_width
@@ -460,7 +470,7 @@ class ScreenFaceDeviceController(DeviceController):
         self._spotlight_word: str | None = None
         self._word_grid: list[str] | None = None
         self._word_grid_highlight: str | None = None
-        self._reading_text_highlight: str | None = None
+        self._reading_text_highlight: tuple[int, str] | None = None
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -563,17 +573,24 @@ class ScreenFaceDeviceController(DeviceController):
         with self._lock:
             self._word_grid_highlight = word
 
-    def set_reading_text_highlight(self, word: str | None) -> None:
+    def set_reading_text_highlight(self, word: str | None, sentence_index: int | None) -> None:
         """Decision 0098: marks which word in the current reading
         text Chitti is actively speaking, driven by real audio
         timestamps (reading/word_timing.py) rather than a simulated
-        pace -- see _draw_reading_lines_static()'s own docstring for
-        why that distinction matters. Independent of
-        set_reading_text() itself -- the text doesn't change or
-        move, just which word's color is picked out."""
-        logger.info("reading text highlight: %s", word if word is not None else "(cleared)")
+        pace. `sentence_index` scopes the match to one specific
+        sentence ("page") of the displayed story -- found live that
+        without it, a word repeated across sentences (e.g. "Sam" in
+        both sentence 1 and sentence 3 of a story) lit up in EVERY
+        sentence that contains it, not just the one actually being
+        spoken; see _draw_reading_lines_static()'s own docstring.
+        Independent of set_reading_text() itself -- the text doesn't
+        change or move, just which word's color is picked out."""
+        logger.info(
+            "reading text highlight: %s (sentence %s)",
+            word if word is not None else "(cleared)", sentence_index,
+        )
         with self._lock:
-            self._reading_text_highlight = word
+            self._reading_text_highlight = (sentence_index, word) if word is not None else None
 
     def emergency_stop(self) -> None:
         """Synchronous, per the ABC's requirement -- must work even if
@@ -619,7 +636,7 @@ class ScreenFaceDeviceController(DeviceController):
         with self._lock:
             return self._word_grid_highlight
 
-    def _get_reading_text_highlight(self) -> str | None:
+    def _get_reading_text_highlight(self) -> tuple[int, str] | None:
         with self._lock:
             return self._reading_text_highlight
 
@@ -711,16 +728,22 @@ class ScreenFaceDeviceController(DeviceController):
                     )
                 elif reading_lines is not None:
                     reading_font = _font_for_size(font_size)
-                    wrapped_lines: list[str] = []
-                    for page in reading_lines:
-                        wrapped_lines.extend(
-                            _wrap_text(page, reading_font, self._width - 2 * _READING_MARGIN)
-                        )
+                    # Decision 0098: each wrapped display line keeps
+                    # the index of the original sentence ("page") it
+                    # came from, so a highlight can be scoped to just
+                    # that one sentence -- see
+                    # _draw_reading_lines_static()'s own docstring.
+                    wrapped_lines: list[tuple[int, str]] = []
+                    for page_index, page in enumerate(reading_lines):
+                        for line in _wrap_text(
+                            page, reading_font, self._width - 2 * _READING_MARGIN
+                        ):
+                            wrapped_lines.append((page_index, line))
                     base_color = _READING_FONT_COLORS.get(font_color, _WHITE)
                     _draw_reading_lines_static(
                         screen, self._width, self._height, reading_font, wrapped_lines, base_color,
                         line_height=reading_font.get_linesize() + _READING_LINE_SPACING,
-                        highlight_word=reading_text_highlight,
+                        highlight=reading_text_highlight,
                     )
                 elif not _FACE_DISABLED:
                     mode = self._get_mode()

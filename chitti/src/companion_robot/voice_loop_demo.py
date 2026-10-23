@@ -202,7 +202,7 @@ async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
 
 
 async def _speak_with_word_highlight(
-    tts, audio, face, stt, text: str, speed: float, cache: dict,
+    tts, audio, face, stt, text: str, speed: float, cache: dict, sentence_index: int,
 ) -> None:
     """Decision 0098: models `text` aloud, highlighting the exact
     word Chitti is saying in sync with the real synthesized audio's
@@ -216,6 +216,13 @@ async def _speak_with_word_highlight(
     before its own reread, both at the same speed) reuses the first
     call's synthesized audio AND timestamps instead of paying for a
     fresh TTS call and a fresh Whisper timestamp call.
+
+    `sentence_index` is `text`'s own index into the whole story,
+    passed straight through to set_reading_text_highlight() so the
+    highlight only lights up THIS sentence's occurrence of a word --
+    found live that a word repeated elsewhere in the story (e.g.
+    "Sam" in both sentence 1 and sentence 3) otherwise lit up in
+    every sentence containing it, not just the one being spoken.
 
     Degrades to a plain, unhighlighted _speak() whenever there's
     nothing to highlight with -- `stt` doesn't support
@@ -253,9 +260,9 @@ async def _speak_with_word_highlight(
             delay = timing.start - (time.monotonic() - start)
             if delay > 0:
                 await asyncio.sleep(delay)
-            face.set_reading_text_highlight(timing.word)
+            face.set_reading_text_highlight(timing.word, sentence_index)
     finally:
-        face.set_reading_text_highlight(None)
+        face.set_reading_text_highlight(None, sentence_index)
     await playback_task
 
 
@@ -1847,11 +1854,12 @@ async def _run_reading_partner(
                 # caches this sentence's audio+timestamps in case it
                 # needs modeling again below (a flagged sentence's
                 # own reread-prep step, same speed).
-                for modeled_sentence in sentences:
+                for modeled_index, modeled_sentence in enumerate(sentences):
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak_with_word_highlight(
                         tts, audio, face, stt, modeled_sentence,
                         speed * _MODEL_READ_SPEED_MULTIPLIER, modeled_word_timings_cache,
+                        modeled_index,
                     )
                 turn_cue = "Now it's your turn! Read the whole story for me."
             else:
@@ -2057,6 +2065,7 @@ async def _run_reading_partner(
                 await _speak_with_word_highlight(
                     tts, audio, face, stt, sentence,
                     speed * _MODEL_READ_SPEED_MULTIPLIER, modeled_word_timings_cache,
+                    sentence_index,
                 )
 
                 turn_cue = "Now it's your turn! Give it a try."

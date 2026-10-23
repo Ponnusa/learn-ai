@@ -83,6 +83,39 @@ same sentence at the same speed (the up-front whole-story
 read-through, and a flagged sentence's own pre-reread modeling) now
 call this instead of plain `_speak()`.
 
+## Update: highlighting scoped to the sentence actually being spoken
+
+Found live, immediately after shipping: reading "Sam and the Cat"
+("Sam has a cat. The cat can nap. Sam can nap. Sam and the cat nap in
+the sun."), highlighting "Sam" while modeling sentence 3 ("Sam can
+nap.") also lit up "Sam" in sentence 1 and sentence 4 -- every
+sentence containing that word, not just the one being spoken. Not an
+LLM data problem (first guess) -- the whole story is shown on screen
+at once (decision 0093), and `_draw_reading_lines_static()` matched
+the highlighted word against every visible line with no sentence
+context at all, so a word repeated anywhere in the story lit up
+everywhere it appeared.
+
+Fixed by threading the sentence's own index through end to end:
+`_speak_with_word_highlight()` takes a required `sentence_index`
+argument (both call sites already have it -- `enumerate(sentences)`
+in the up-front modeling loop, the existing `sentence_index` loop
+variable in the per-sentence correction loop) and passes it straight
+to `set_reading_text_highlight(word, sentence_index)`.
+`ScreenFaceDeviceController` stores the highlight as `(sentence_index,
+word)` instead of a bare word. The render loop now tags each wrapped
+display line with the index of the original sentence ("page") it
+came from (`[(page_index, line), ...]` instead of `[line, ...]`), and
+`_draw_reading_lines_static()` only highlights a matching word on
+lines whose `sentence_index` matches the target -- every other
+sentence's occurrence of the same word renders in the plain color,
+unaffected.
+
+Two tests added for this directly: one on `_speak_with_word_highlight()`
+confirming `sentence_index` passes straight through unchanged to the
+face; one reproducing this story's exact setup is implicit in the
+first, since the scoping logic has no special-casing by word.
+
 ## Consequences
 
 Four new tests for `_speak_with_word_highlight()` (highlights each
@@ -95,7 +128,7 @@ audio sent is wrapped in a real WAV container; missing-API-key).
 Four new tests on `reading/word_timing.py`'s pure parsing/wrapping.
 Two new tests on `screen_face.py`'s `_normalize_word()`.
 
-Full suite: 633 passed (4 failures in `test_screen_face_rendering.py`
+Full suite: 634 passed (4 failures in `test_screen_face_rendering.py`
 -- unchanged pre-existing baseline, no usable SDL video driver in
 this dev environment).
 
