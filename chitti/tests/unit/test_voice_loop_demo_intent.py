@@ -681,10 +681,10 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
     # Found live: nothing used to tell the child Chitti was waiting on
     # them after the feedback -- it just silently started listening.
     assert any("try another one" in line for line in tts.synthesized)
-    # Decision 0067: the teleprompter shows one sentence at a time, not
-    # the whole book at once -- cleared before grading and again once
-    # the mode loop exits (the `finally`).
-    assert face.reading_texts[0] == ["A cat sat."]
+    # Decision 0093: the whole story is shown at once, set before the
+    # per-sentence loop starts -- cleared once the passage is done and
+    # again once the mode loop exits (the `finally`).
+    assert face.reading_texts[0] == ["A cat sat.", "A cat ran."]
     assert None in face.reading_texts
     # The session was actually persisted, not just held in memory.
     profile = reading.get_or_create("child-1")
@@ -1414,7 +1414,7 @@ async def test_run_reading_partner_skips_the_word_meaning_check_on_a_clean_read(
 # -- sentence-by-sentence reading with persistent position (decision 0067) --
 
 
-async def test_run_reading_partner_shows_and_captures_one_sentence_at_a_time():
+async def test_run_reading_partner_shows_the_whole_story_but_captures_one_sentence_at_a_time():
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -1441,15 +1441,11 @@ async def test_run_reading_partner_shows_and_captures_one_sentence_at_a_time():
         )
 
     assert next_mode == "3"
-    # Each sentence shown on its own, in order -- never the whole
-    # two-sentence passage in one teleprompter call. Decision 0085:
-    # each sentence is shown twice -- once while the "read it
-    # yourself, or hear it first?" offer is being asked, and once
-    # more (resetting the highlight's own clock) right as the actual
-    # capture begins.
-    assert [lines for lines in face.reading_texts if lines] == [
-        ["A cat sat."], ["A cat sat."], ["A dog ran."], ["A dog ran."],
-    ]
+    # Decision 0093: the whole two-sentence passage is shown once, set
+    # before the per-sentence capture loop starts, and only cleared
+    # once the whole passage is done -- never swapped sentence by
+    # sentence (there's room for the whole story on a TV over HDMI).
+    assert [lines for lines in face.reading_texts if lines] == [["A cat sat.", "A dog ran."]]
     # The passage finished cleanly in one sitting -- position memory
     # resets, since it only matters while something is in progress.
     profile = reading.get_or_create("child-1")
@@ -1506,15 +1502,13 @@ async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_n
         )
 
     assert next_mode == "3"
-    # Both sentences were shown and read, in order -- sentence 1's hint
-    # detour (including its own reread, shown a second time) didn't
-    # trap the loop there; sentence 2 still gets its own turn. Decision
-    # 0085: each sentence's own offer+capture shows it twice (once for
-    # the offer, once more resetting the highlight right before the
-    # real capture); sentence 1's reread adds one more on top of that.
+    # Sentence 1's hint detour (including its own reread) didn't trap
+    # the loop there -- sentence 2 still gets its own turn. Decision
+    # 0093: the whole passage is shown once, set before the loop
+    # starts, and stays up through the hint ladder/reread -- never
+    # swapped per sentence.
     assert [lines for lines in face.reading_texts if lines] == [
-        ["Dan had a dog."], ["Dan had a dog."], ["Dan had a dog."],
-        ["The dog ran."], ["The dog ran."],
+        ["Dan had a dog.", "The dog ran."],
     ]
     assert "Nice reading!" in tts.synthesized
     assert "Yes, a dog!" in tts.synthesized
@@ -1567,19 +1561,18 @@ async def test_run_reading_partner_resumes_mid_passage_after_an_interrupted_sess
         )
 
     assert next_mode == "3"
-    # Resumed with the spoken cue, and the first sentence shown this
-    # time is the SECOND one -- the first was never re-shown or re-asked.
-    # Decision 0085: each sentence is shown twice now (its offer, then
-    # once more resetting the highlight before the real capture), so
-    # the last four entries (not two) are this resumed call's own.
     assert any("pick up where we left off" in line.lower() for line in tts2.synthesized)
-    face2_shown = [lines for lines in face.reading_texts if lines]
-    assert face2_shown[-4:] == [
-        ["A cat ran."], ["A cat ran."], ["A dog ran."], ["A dog ran."],
+    # Decision 0093: the whole story -- including the already-read
+    # first sentence -- is shown again on the resumed call too; that's
+    # deliberate now (a TV has room for the whole thing, not a reason
+    # to hide the part already read), not a regression. What actually
+    # matters here is that the CAPTURE resumed at the right sentence,
+    # confirmed by the scripted replies above succeeding and the final
+    # persisted state below -- not what's on screen.
+    assert [lines for lines in face.reading_texts if lines] == [
+        ["A cat sat.", "A cat ran.", "A dog ran."],
+        ["A cat sat.", "A cat ran.", "A dog ran."],
     ]
-    # "A cat sat." only ever appears from the first (interrupted) call
-    # -- never reshown once the second call resumes past it.
-    assert face2_shown.count(["A cat sat."]) == 2
 
     finished_profile = reading.get_or_create("child-1")
     assert finished_profile.current_passage_key is None

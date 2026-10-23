@@ -331,14 +331,18 @@ def _draw_reading_lines_static(
     clock starting well before the text it was timing actually got
     read -- see decision 0086's note; removing the clock dependency
     entirely removes that whole class of bug, not just the one
-    instance of it already fixed). Centered as one block --
-    Reading Partner's sentences are short enough that this never
-    needs scroll/off-screen handling."""
+    instance of it already fixed). Centered as one block vertically,
+    and -- decision 0093, now that this runs on a TV over HDMI, with
+    enough room to show the whole story rather than cycling one
+    sentence at a time -- each line centered horizontally too,
+    instead of pinned to the left margin."""
     visible = [line for line in lines if line]
     total_height = len(visible) * line_height
     start_y = max(0, (height - total_height) // 2)
     for i, line in enumerate(visible):
-        screen.blit(font.render(line, True, color), (_READING_MARGIN, start_y + i * line_height))
+        line_width = font.size(line)[0]
+        x = max(_READING_MARGIN, (width - line_width) // 2)
+        screen.blit(font.render(line, True, color), (x, start_y + i * line_height))
 
 
 def _draw_spotlight(screen, width: int, height: int, font, word: str, color) -> None:
@@ -472,7 +476,15 @@ class ScreenFaceDeviceController(DeviceController):
         `font_color` are parent-settable (parent_controls/profiles.py's
         ChildProfile) and only take effect when `lines` is being set,
         not cleared. Independent of set_status_led()/
-        set_expression_mode(), same pattern."""
+        set_expression_mode(), same pattern.
+
+        Decision 0093: logs whatever's being shown (or that it was
+        cleared) -- found live, debugging a real session, that there
+        was no way to tell from the console/logs alone what the
+        screen actually had on it at any given moment, on real
+        hardware where watching the screen directly isn't always
+        practical while reading a log back afterward."""
+        logger.info("reading text: %s", lines if lines is not None else "(cleared)")
         with self._lock:
             self._reading_lines = lines
             self._reading_wpm = wpm
@@ -487,6 +499,7 @@ class ScreenFaceDeviceController(DeviceController):
         the child always knows which word is meant regardless of hint
         stage. Independent of set_reading_text(); None returns to
         whatever set_reading_text()/the face would otherwise show."""
+        logger.info("reading spotlight: %s", word if word is not None else "(cleared)")
         with self._lock:
             self._spotlight_word = word
 
@@ -496,6 +509,7 @@ class ScreenFaceDeviceController(DeviceController):
         teleprompter/face while set, same independent-state pattern as
         set_reading_spotlight(). None returns to whatever else would
         otherwise show."""
+        logger.info("word grid: %s", words if words is not None else "(cleared)")
         with self._lock:
             self._word_grid = words
 

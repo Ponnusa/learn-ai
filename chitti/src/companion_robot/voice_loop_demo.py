@@ -1716,24 +1716,21 @@ async def _run_reading_partner(
                 profile.current_sentence_index = 0
                 reading_repo.save(profile)
 
+            # Decision 0093, now running on a TV over HDMI with room to
+            # spare: the whole story stays on screen for the entire
+            # passage, instead of being swapped sentence by sentence
+            # (decision 0053's original reasoning for showing just one
+            # at a time -- a small screen -- no longer applies here).
+            # Cleared once the whole passage is finished, below.
+            face.set_reading_text(
+                sentences, font_size=reading_font_size, font_color=reading_font_color
+            )
+
             sentence_assessments: list[AssessmentResult] = []
             sentence_deltas: list[MasteryDelta] = []
             resolved_words: list[str] = []
             for sentence_index in range(start_index, len(sentences)):
                 sentence = sentences[sentence_index]
-
-                # Decision 0053's teleprompter, now shown one sentence
-                # at a time -- its clock starts right before this
-                # sentence's own capture, same "as close as practical
-                # to when the child actually starts" reasoning as
-                # before, just scoped to one sentence instead of the
-                # whole passage.
-                face.set_reading_text(
-                    [sentence],
-                    wpm=reading_pace_wpm,
-                    font_size=reading_font_size,
-                    font_color=reading_font_color,
-                )
 
                 # Decision 0085, from live hardware testing: jumping
                 # straight into "press Enter to start talking" with no
@@ -1741,9 +1738,8 @@ async def _run_reading_partner(
                 # (no way to see which sentence was current) kept
                 # re-reading the whole story from wherever instead of
                 # one sentence at a time. Now Chitti offers to read it
-                # first; a plain yes models the sentence (paced with
-                # the same teleprompter highlight, just slower) before
-                # handing over.
+                # first; a plain yes models the sentence at a slower
+                # pace before handing over.
                 #
                 # Decision 0087, from live hardware testing: the beep-
                 # cued, fixed-duration capture (decisions 0084/0086)
@@ -1765,22 +1761,6 @@ async def _run_reading_partner(
                 # as a decline every time, silently skipping the model
                 # step that was just asked for.
                 if _classify_read_first_offer_reply(offer_reply):
-                    # Found live: set_reading_text()'s word-highlight
-                    # clock starts the moment it's called, not when
-                    # anyone actually starts reading -- the earlier
-                    # call above (so the sentence is visible during
-                    # the offer question/capture) meant the whole
-                    # highlight animation had already silently played
-                    # out by the time Chitti got here, so it looked
-                    # frozen for the one moment it actually mattered.
-                    # Resetting it right before Chitti's own speech
-                    # starts the highlight fresh, in sync with it.
-                    face.set_reading_text(
-                        [sentence],
-                        wpm=reading_pace_wpm,
-                        font_size=reading_font_size,
-                        font_color=reading_font_color,
-                    )
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
 
@@ -1789,16 +1769,6 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, turn_cue, speed=speed)
 
-                # Same reset, same reason -- whether or not Chitti
-                # modeled it, the highlight needs to start fresh right
-                # as the child's own reading turn actually begins, not
-                # back when the offer was first asked.
-                face.set_reading_text(
-                    [sentence],
-                    wpm=reading_pace_wpm,
-                    font_size=reading_font_size,
-                    font_color=reading_font_color,
-                )
                 face.set_status_led(DeviceState.LISTENING)
                 # Real elapsed recording time, not the estimated-duration
                 # fallback the original project's typed-transcript CLI path
@@ -1807,7 +1777,6 @@ async def _run_reading_partner(
                 spoken = await _capture_and_transcribe(stt)
                 duration_seconds = time.monotonic() - capture_started
                 print(f"You read: {spoken}")
-                face.set_reading_text(None)
 
                 face.set_status_led(DeviceState.PROCESSING)
                 assessment = assess(
@@ -1934,12 +1903,6 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, model_intro, speed=speed)
 
-                    face.set_reading_text(
-                        [sentence],
-                        wpm=reading_pace_wpm,
-                        font_size=reading_font_size,
-                        font_color=reading_font_color,
-                    )
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
 
@@ -1953,7 +1916,6 @@ async def _run_reading_partner(
                     reread_attempt = await _capture_and_transcribe(stt)
                     reread_duration = time.monotonic() - reread_started
                     print(f"You read: {reread_attempt}")
-                    face.set_reading_text(None)
 
                     reread_assessment = assess(
                         sentence,
@@ -2017,10 +1979,13 @@ async def _run_reading_partner(
                 profile.current_sentence_index = sentence_index + 1
                 reading_repo.save(profile)
 
-            # The whole passage is done -- position memory only matters
-            # while a passage is in progress, so it resets clean for
+            # The whole passage is done -- clears decision 0093's
+            # whole-story display (set once, before the per-sentence
+            # loop above), and position memory, since both only matter
+            # while a passage is in progress; resets clean for
             # whatever comes next (a new book, or this same passage
             # re-read from the top if ever re-assigned).
+            face.set_reading_text(None)
             profile.current_passage_key = None
             profile.current_sentence_index = 0
             profile.sessions_completed += 1
