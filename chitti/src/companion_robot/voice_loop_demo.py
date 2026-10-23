@@ -85,6 +85,7 @@ from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
 from companion_robot.reading.schema import AssessmentResult, GeneratedBook, MasteryDelta
 from companion_robot.reading.sentences import split_into_sentences
+from companion_robot.reading.word_timing import WordTiming
 from companion_robot.reading.session_state import (
     ReadingState,
     SentenceSession,
@@ -198,6 +199,64 @@ async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
         reply_audio = await tts.synthesize(text, speed=speed)
     async with _timed("audio_playback"):
         await audio.play(reply_audio)
+
+
+async def _speak_with_word_highlight(
+    tts, audio, face, stt, text: str, speed: float, cache: dict,
+) -> None:
+    """Decision 0098: models `text` aloud, highlighting the exact
+    word Chitti is saying in sync with the real synthesized audio's
+    own timing (Whisper word timestamps), not a simulated reading
+    pace -- see reading/word_timing.py's module docstring for why
+    that distinction matters (decision 0088 removed the previous
+    teleprompter specifically because it desynced from a guessed
+    pace). `cache`, keyed by (text, speed), is scoped to one call to
+    _run_reading_partner() -- a sentence that gets modeled twice in
+    one call (the up-front whole-story read-through, then again just
+    before its own reread, both at the same speed) reuses the first
+    call's synthesized audio AND timestamps instead of paying for a
+    fresh TTS call and a fresh Whisper timestamp call.
+
+    Degrades to a plain, unhighlighted _speak() whenever there's
+    nothing to highlight with -- `stt` doesn't support
+    transcribe_with_word_timestamps() at all, or the lookup itself
+    fails -- never lets this extra feature break the read-aloud."""
+    key = (text, speed)
+    cached = cache.get(key)
+    if cached is not None:
+        reply_audio, timings = cached
+    else:
+        async with _timed("tts_synthesize"):
+            reply_audio = await tts.synthesize(text, speed=speed)
+        timings: list[WordTiming] = []
+        get_timestamps = getattr(stt, "transcribe_with_word_timestamps", None)
+        if get_timestamps is not None:
+            try:
+                async with _timed("word_timestamp_lookup"):
+                    timings = await get_timestamps(reply_audio)
+            except Exception:
+                logger.exception(
+                    "word-timestamp lookup failed -- modeling %r without highlight", text
+                )
+                timings = []
+        cache[key] = (reply_audio, timings)
+
+    if not timings:
+        async with _timed("audio_playback"):
+            await audio.play(reply_audio)
+        return
+
+    playback_task = asyncio.create_task(audio.play(reply_audio))
+    start = time.monotonic()
+    try:
+        for timing in timings:
+            delay = timing.start - (time.monotonic() - start)
+            if delay > 0:
+                await asyncio.sleep(delay)
+            face.set_reading_text_highlight(timing.word)
+    finally:
+        face.set_reading_text_highlight(None)
+    await playback_task
 
 
 # Decision 0050: escalating filler lines spoken while an AI reply is
@@ -1559,6 +1618,14 @@ async def _run_reading_partner(
     # re-asked until the next fresh call to this function. None means
     # "not decided yet this call."
     read_first_preference: bool | None = None
+    # Decision 0098: a modeled sentence's own synthesized audio +
+    # real word timestamps, keyed by (text, speed) -- the SAME
+    # sentence gets modeled twice in one call when it needed a hint
+    # (once in the up-front whole-story read-through, again just
+    # before its reread), both at the same speed; the second time
+    # reuses this instead of a fresh TTS call AND a fresh Whisper
+    # timestamp call.
+    modeled_word_timings_cache: dict[tuple[str, float], tuple[bytes, list[WordTiming]]] = {}
     try:
         while True:
             objective = select_objective(profile, session_index=profile.sessions_completed)
@@ -1775,11 +1842,16 @@ async def _run_reading_partner(
             if read_first_preference:
                 # Decision 0094/0095: models the WHOLE story in one
                 # continuous read-through, not interleaved with the
-                # child's own attempt sentence by sentence.
+                # child's own attempt sentence by sentence. Decision
+                # 0098: highlights each word as it's spoken, and
+                # caches this sentence's audio+timestamps in case it
+                # needs modeling again below (a flagged sentence's
+                # own reread-prep step, same speed).
                 for modeled_sentence in sentences:
                     face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(
-                        tts, audio, modeled_sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER
+                    await _speak_with_word_highlight(
+                        tts, audio, face, stt, modeled_sentence,
+                        speed * _MODEL_READ_SPEED_MULTIPLIER, modeled_word_timings_cache,
                     )
                 turn_cue = "Now it's your turn! Read the whole story for me."
             else:
@@ -1976,8 +2048,16 @@ async def _run_reading_partner(
                 face.set_status_led(DeviceState.SPEAKING)
                 await _speak(tts, audio, model_intro, speed=speed)
 
+                # Decision 0098: same (text, speed) as the up-front
+                # whole-story modeling above -- if this sentence was
+                # already modeled there, this reuses that audio and
+                # its real word timestamps instead of a fresh TTS
+                # call and a fresh Whisper timestamp lookup.
                 face.set_status_led(DeviceState.SPEAKING)
-                await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
+                await _speak_with_word_highlight(
+                    tts, audio, face, stt, sentence,
+                    speed * _MODEL_READ_SPEED_MULTIPLIER, modeled_word_timings_cache,
+                )
 
                 turn_cue = "Now it's your turn! Give it a try."
                 print(f"Chitti: {turn_cue}")

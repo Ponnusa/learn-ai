@@ -71,3 +71,38 @@ async def test_transcribe_raises_without_api_key(monkeypatch):
     backend = OpenAIWhisperBackend()
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         await backend.transcribe(b"fake wav bytes")
+
+
+async def test_transcribe_with_word_timestamps_sends_the_right_request_shape(monkeypatch):
+    """Decision 0098: unlike transcribe() (plain text, for the child's
+    mic input), this requests verbose_json with word-level timestamps
+    -- used to recover real, audio-grounded timing from Chitti's own
+    synthesized speech for the teleprompter-style highlight."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-123")
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "words": [{"word": "Hi", "start": 0.0, "end": 0.3}, {"word": "there", "start": 0.3, "end": 0.6}]
+    }
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.Session.post", return_value=mock_response) as mock_post:
+        backend = OpenAIWhisperBackend()
+        # Raw headerless PCM, same shape OpenAITTSBackend.synthesize()
+        # returns -- must arrive at the endpoint wrapped in a real WAV
+        # container, not as bare samples.
+        timings = await backend.transcribe_with_word_timestamps(b"\x00\x01" * 100)
+
+    assert [t.word for t in timings] == ["Hi", "there"]
+    assert timings[0].start == 0.0 and timings[0].end == 0.3
+    _, kwargs = mock_post.call_args
+    assert kwargs["data"]["response_format"] == "verbose_json"
+    assert kwargs["data"]["timestamp_granularities[]"] == "word"
+    sent_bytes = kwargs["files"]["file"][1]
+    assert sent_bytes[:4] == b"RIFF"  # wrapped in a real WAV container
+
+
+async def test_transcribe_with_word_timestamps_raises_without_api_key(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    backend = OpenAIWhisperBackend()
+    with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
+        await backend.transcribe_with_word_timestamps(b"\x00\x01" * 100)

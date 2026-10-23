@@ -16,6 +16,7 @@ from companion_robot.device.screen_face import (
     _EYE_CLOSED,
     _MOUTH_OPEN_CIRCLE,
     _DiscreteTimer,
+    _normalize_word,
     _resolve_expression,
     _wrap_text,
     ScreenFaceDeviceController,
@@ -196,3 +197,18 @@ def test_wrap_text_never_returns_empty_for_a_single_word_wider_than_max_width():
     assert _wrap_text("supercalifragilisticexpialidocious", font, max_width=1) == [
         "supercalifragilisticexpialidocious"
     ]
+
+
+# -- _normalize_word() (decision 0098) -------------------------------------
+
+
+def test_normalize_word_strips_punctuation_and_lowercases():
+    assert _normalize_word("Dan,") == "dan"
+    assert _normalize_word("RAN!") == "ran"
+    assert _normalize_word("dog.") == "dog"
+
+
+def test_normalize_word_matches_a_bare_word_against_a_punctuated_one():
+    """A Whisper word timestamp's own word ("Dan") must match its
+    punctuated occurrence in the displayed sentence ("Dan.")."""
+    assert _normalize_word("Dan") == _normalize_word("Dan.")

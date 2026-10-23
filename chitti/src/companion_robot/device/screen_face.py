@@ -45,6 +45,7 @@ controller, MockDeviceController) needs to support.
 import logging
 import os
 import random
+import string
 import threading
 import time
 
@@ -319,30 +320,54 @@ _SPOTLIGHT_FONT_SIZE_MULTIPLIER = 2
 _DEFAULT_READING_WPM = 45.0
 
 
+def _normalize_word(word: str) -> str:
+    return word.strip(string.punctuation).lower()
+
+
 def _draw_reading_lines_static(
-    screen, width: int, height: int, font, lines: list[str], color, line_height: int
+    screen, width: int, height: int, font, lines: list[str], color, line_height: int,
+    highlight_word: str | None = None, highlight_color=_RED,
 ) -> None:
     """Decision 0088: shows the sentence as plain, static text while
-    Chitti reads it -- no moving/highlighted word-by-word scroll.
-    Replaces the old timed auto-scroll (decision 0053), which tracked
-    a simulated reading pace rather than the real audio, and which a
-    product-owner report found going fully blank partway through a
-    session on real hardware (traced to set_reading_text()'s own
-    clock starting well before the text it was timing actually got
-    read -- see decision 0086's note; removing the clock dependency
-    entirely removes that whole class of bug, not just the one
-    instance of it already fixed). Centered as one block vertically,
-    and -- decision 0093, now that this runs on a TV over HDMI, with
-    enough room to show the whole story rather than cycling one
-    sentence at a time -- each line centered horizontally too,
-    instead of pinned to the left margin."""
+    Chitti reads it -- no moving/scrolling teleprompter. Replaces the
+    old timed auto-scroll (decision 0053), which tracked a simulated
+    reading pace rather than the real audio, and which a product-
+    owner report found going fully blank partway through a session on
+    real hardware (traced to set_reading_text()'s own clock starting
+    well before the text it was timing actually got read -- see
+    decision 0086's note; removing the clock dependency entirely
+    removes that whole class of bug, not just the one instance of it
+    already fixed). Centered as one block vertically, and -- decision
+    0093, now that this runs on a TV over HDMI, with enough room to
+    show the whole story rather than cycling one sentence at a time --
+    each line centered horizontally too, instead of pinned to the
+    left margin.
+
+    Decision 0098: `highlight_word`, when given, renders every
+    occurrence of that one word in `highlight_color` instead of
+    `color` -- the text itself never moves or scrolls, only that
+    word's own color changes, so this stays immune to decision
+    0088's own reason the old approach was removed. The caller is
+    responsible for updating `highlight_word` in real time against
+    REAL audio timestamps (reading/word_timing.py), not a guessed
+    pace -- this function only draws whatever it's told, each frame."""
     visible = [line for line in lines if line]
     total_height = len(visible) * line_height
     start_y = max(0, (height - total_height) // 2)
+    space_width = font.size(" ")[0]
+    target = _normalize_word(highlight_word) if highlight_word is not None else None
     for i, line in enumerate(visible):
         line_width = font.size(line)[0]
         x = max(_READING_MARGIN, (width - line_width) // 2)
-        screen.blit(font.render(line, True, color), (x, start_y + i * line_height))
+        y = start_y + i * line_height
+        if target is None:
+            screen.blit(font.render(line, True, color), (x, y))
+            continue
+        for word in line.split(" "):
+            word_color = highlight_color if _normalize_word(word) == target else color
+            rendered = font.render(word, True, word_color)
+            screen.blit(rendered, (x, y))
+            x += rendered.get_width() + space_width
 
 
 def _draw_spotlight(screen, width: int, height: int, font, word: str, color) -> None:
@@ -435,6 +460,7 @@ class ScreenFaceDeviceController(DeviceController):
         self._spotlight_word: str | None = None
         self._word_grid: list[str] | None = None
         self._word_grid_highlight: str | None = None
+        self._reading_text_highlight: str | None = None
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -537,6 +563,18 @@ class ScreenFaceDeviceController(DeviceController):
         with self._lock:
             self._word_grid_highlight = word
 
+    def set_reading_text_highlight(self, word: str | None) -> None:
+        """Decision 0098: marks which word in the current reading
+        text Chitti is actively speaking, driven by real audio
+        timestamps (reading/word_timing.py) rather than a simulated
+        pace -- see _draw_reading_lines_static()'s own docstring for
+        why that distinction matters. Independent of
+        set_reading_text() itself -- the text doesn't change or
+        move, just which word's color is picked out."""
+        logger.info("reading text highlight: %s", word if word is not None else "(cleared)")
+        with self._lock:
+            self._reading_text_highlight = word
+
     def emergency_stop(self) -> None:
         """Synchronous, per the ABC's requirement -- must work even if
         the event loop is unresponsive. Safe to be this simple today:
@@ -580,6 +618,10 @@ class ScreenFaceDeviceController(DeviceController):
     def _get_word_grid_highlight(self) -> str | None:
         with self._lock:
             return self._word_grid_highlight
+
+    def _get_reading_text_highlight(self) -> str | None:
+        with self._lock:
+            return self._reading_text_highlight
 
     def _create_screen(self):
         os.environ.setdefault("SDL_FBDEV", "/dev/fb0")
@@ -644,6 +686,7 @@ class ScreenFaceDeviceController(DeviceController):
             spotlight_word = self._get_spotlight()
             word_grid = self._get_word_grid()
             word_grid_highlight = self._get_word_grid_highlight()
+            reading_text_highlight = self._get_reading_text_highlight()
             # wpm/started_at are still stored by set_reading_text() (so
             # existing callers and parent_controls' reading_pace_wpm
             # setting don't need to change), but decision 0088's static
@@ -677,6 +720,7 @@ class ScreenFaceDeviceController(DeviceController):
                     _draw_reading_lines_static(
                         screen, self._width, self._height, reading_font, wrapped_lines, base_color,
                         line_height=reading_font.get_linesize() + _READING_LINE_SPACING,
+                        highlight_word=reading_text_highlight,
                     )
                 elif not _FACE_DISABLED:
                     mode = self._get_mode()

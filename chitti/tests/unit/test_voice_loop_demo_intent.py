@@ -21,6 +21,7 @@ from companion_robot.parent_controls.reading_exercises import (
 )
 from companion_robot.reading.hints import build_hint_line
 from companion_robot.reading.repository import ReadingRepository
+from companion_robot.reading.word_timing import WordTiming
 from companion_robot.reading.word_game import (
     _CLOSING_LINES,
     _CORRECT_RESPONSES,
@@ -42,6 +43,7 @@ from companion_robot.voice_loop_demo import (
     _run_reading_partner,
     _run_teachable_friend,
     _run_word_family_practice,
+    _speak_with_word_highlight,
     _speak_while_thinking,
 )
 
@@ -101,6 +103,7 @@ class _FakeFace:
         self.spotlights: list[str | None] = []
         self.word_grids: list[list[str] | None] = []
         self.word_grid_highlights: list[str | None] = []
+        self.reading_text_highlights: list[str | None] = []
         # Decision 0090: the three display-state setters below are
         # recorded into this one shared, real-call-order log too (as
         # well as their own per-method lists above, which most
@@ -135,6 +138,9 @@ class _FakeFace:
 
     def set_word_grid_highlight(self, word: str | None) -> None:
         self.word_grid_highlights.append(word)
+
+    def set_reading_text_highlight(self, word: str | None) -> None:
+        self.reading_text_highlights.append(word)
 
 
 @contextlib.contextmanager
@@ -1306,6 +1312,85 @@ async def test_word_family_practice_only_corrects_the_missed_word_not_every_word
     # Not one praise line per correct word -- just the single combined
     # acknowledgment above.
     assert not any(line in _CORRECT_RESPONSES for line in tts.synthesized)
+
+
+class _FakeSTTWithTimestamps:
+    """Decision 0098: a fake STT backend that also supports the
+    additive transcribe_with_word_timestamps() capability -- most
+    fakes in this file (just "fake-stt", the bare string) deliberately
+    don't, exercising _speak_with_word_highlight()'s graceful
+    degradation to a plain, unhighlighted speak()."""
+
+    def __init__(self, timings: list[WordTiming]) -> None:
+        self._timings = timings
+        self.timestamp_calls = 0
+
+    async def transcribe_with_word_timestamps(self, audio_bytes: bytes) -> list[WordTiming]:
+        self.timestamp_calls += 1
+        return self._timings
+
+
+class _FailingTimestampSTT:
+    async def transcribe_with_word_timestamps(self, audio_bytes: bytes) -> list[WordTiming]:
+        raise RuntimeError("simulated Whisper failure")
+
+
+async def test_speak_with_word_highlight_highlights_each_word_in_order():
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+    face = _FakeFace()
+    stt = _FakeSTTWithTimestamps(
+        [WordTiming(word="Dan", start=0.0, end=0.01), WordTiming(word="ran", start=0.01, end=0.02)]
+    )
+    cache: dict = {}
+
+    await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache)
+
+    assert face.reading_text_highlights == ["Dan", "ran", None]
+    assert audio.played == [b"fake-audio"]
+
+
+async def test_speak_with_word_highlight_reuses_the_cache_for_a_repeated_sentence():
+    """Decision 0098's actual point: the same (text, speed) modeled
+    twice in one call (the up-front whole-story read-through, then
+    again for a flagged sentence's own reread) must not pay for a
+    second TTS call or a second Whisper timestamp lookup."""
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+    face = _FakeFace()
+    stt = _FakeSTTWithTimestamps([WordTiming(word="Dan", start=0.0, end=0.01)])
+    cache: dict = {}
+
+    await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache)
+    await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache)
+
+    assert len(tts.synthesized) == 1
+    assert stt.timestamp_calls == 1
+    assert len(audio.played) == 2  # still actually spoken both times
+
+
+async def test_speak_with_word_highlight_falls_back_when_stt_lacks_the_capability():
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+    face = _FakeFace()
+    cache: dict = {}
+
+    await _speak_with_word_highlight(tts, audio, face, "fake-stt", "Dan ran.", 1.0, cache)
+
+    assert face.reading_text_highlights == []
+    assert audio.played == [b"fake-audio"]
+
+
+async def test_speak_with_word_highlight_falls_back_when_the_timestamp_lookup_fails():
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+    face = _FakeFace()
+    cache: dict = {}
+
+    await _speak_with_word_highlight(tts, audio, face, _FailingTimestampSTT(), "Dan ran.", 1.0, cache)
+
+    assert face.reading_text_highlights == []
+    assert audio.played == [b"fake-audio"]
 
 
 # -- reread + word-meaning check after a hint-ladder word (decision 0074) --
