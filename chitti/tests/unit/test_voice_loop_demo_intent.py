@@ -1387,6 +1387,67 @@ async def test_run_reading_partner_shows_and_captures_one_sentence_at_a_time():
     assert profile.current_sentence_index == 0
 
 
+async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_needed_the_full_hint_flow():
+    """A product-owner report of a real transcript ("Dan and the Dog")
+    worried that a multi-sentence passage stays stuck on sentence 1
+    forever once it triggers the hint ladder + reread +
+    word-meaning-check detour. Confirms the per-sentence loop
+    (`for sentence_index in range(start_index, len(sentences))`) still
+    reaches sentence 2 after all of that runs for sentence 1."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="Dan had a dog. The dog ran.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            ("unused -- word family finds no candidates", "fake-model"),  # decision 0066
+            ("QUESTION: What did Dan have?", "fake-model"),  # word-meaning question
+            ("STATUS: resolved\nSAY: Yes, a dog!", "fake-model"),  # resolves immediately
+            ("Sorry, no questions.", "fake-model"),  # book-level comprehension -- skipped
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=[
+            "dan has a dog",  # sentence 1 read-aloud -- "had" substituted as "has"
+            "had",  # resolves on the first hint stage
+            "dan had a dog",  # sentence 1's reread -- clean
+            "a dog",  # answers the word-meaning question, first try
+            "the dog ran",  # sentence 2 read-aloud -- clean, no detour
+            "no thanks",  # declines the word game
+            "let's just chat",  # ends the session
+        ],
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # Both sentences were shown and read, in order -- sentence 1's hint
+    # detour (including its own reread, shown a second time) didn't
+    # trap the loop there; sentence 2 still gets its own turn.
+    assert [lines for lines in face.reading_texts if lines] == [
+        ["Dan had a dog."], ["Dan had a dog."], ["The dog ran."],
+    ]
+    assert "Nice reading!" in tts.synthesized
+    assert "Yes, a dog!" in tts.synthesized
+
+
 async def test_run_reading_partner_resumes_mid_passage_after_an_interrupted_session():
     """Decision 0067: a session that ends partway through a longer
     passage (here, simulated by an exception during the second
