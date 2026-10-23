@@ -181,6 +181,13 @@ async def _capture_and_transcribe(stt) -> str:
 # not every capture in the file.
 _MIN_CAPTURE_SECONDS = 3.0
 _CAPTURE_BUFFER_SECONDS = 2.0
+# Decision 0085: a plain yes/no to the "read it yourself, or hear it
+# first?" offer doesn't need _MIN_CAPTURE_SECONDS' full sentence-reply
+# floor -- found live that stacking that floor on top of the offer
+# question's own synthesis/playback made the whole exchange feel slow
+# before the real reading-aloud listen (and its beep) was even
+# reached. Short enough for a one-word reply, still real reaction time.
+_OFFER_REPLY_CAPTURE_SECONDS = 1.5
 # How much slower than the child's own normal speech_speed Chitti
 # models a sentence at, for the same help step -- noticeably slower
 # without dragging, same spirit as reading_pace_wpm already pacing
@@ -1740,11 +1747,27 @@ async def _run_reading_partner(
 
                 face.set_status_led(DeviceState.LISTENING)
                 offer_reply = await _capture_and_transcribe_after_beep(
-                    stt, audio, _MIN_CAPTURE_SECONDS
+                    stt, audio, _OFFER_REPLY_CAPTURE_SECONDS
                 )
                 print(f"You said: {offer_reply}")
 
                 if is_affirmative(offer_reply):
+                    # Found live: set_reading_text()'s word-highlight
+                    # clock starts the moment it's called, not when
+                    # anyone actually starts reading -- the earlier
+                    # call above (so the sentence is visible during
+                    # the offer question/capture) meant the whole
+                    # highlight animation had already silently played
+                    # out by the time Chitti got here, so it looked
+                    # frozen for the one moment it actually mattered.
+                    # Resetting it right before Chitti's own speech
+                    # starts the highlight fresh, in sync with it.
+                    face.set_reading_text(
+                        [sentence],
+                        wpm=reading_pace_wpm,
+                        font_size=reading_font_size,
+                        font_color=reading_font_color,
+                    )
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
 
@@ -1753,6 +1776,16 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, turn_cue, speed=speed)
 
+                # Same reset, same reason -- whether or not Chitti
+                # modeled it, the highlight needs to start fresh right
+                # as the child's own reading turn actually begins, not
+                # back when the offer was first asked.
+                face.set_reading_text(
+                    [sentence],
+                    wpm=reading_pace_wpm,
+                    font_size=reading_font_size,
+                    font_color=reading_font_color,
+                )
                 face.set_status_led(DeviceState.LISTENING)
                 # Real elapsed recording time, not the estimated-duration
                 # fallback the original project's typed-transcript CLI path
