@@ -1277,6 +1277,7 @@ async def _run_word_family_practice(
     speed: float,
     age: int | None,
     mastered_levels: list[str],
+    read_first: bool = False,
 ) -> None:
     """Decision 0066: offered right after `word` resolves independently
     via the hint ladder (reading/hints.py) -- the moment there's fresh,
@@ -1289,6 +1290,11 @@ async def _run_word_family_practice(
     questions and the word game. Offered, not forced -- same
     is_affirmative() gate every other optional activity in this file
     uses.
+
+    `read_first` (decision 0094): the SAME session-wide "would you
+    like me to read it to you first?" preference established for the
+    story itself -- when true, Chitti reads every word in the family
+    aloud before asking the child to, instead of asking cold.
     """
     family_words = await conversation.generate_word_family(word, mastered_levels, age=age)
     if not family_words:
@@ -1326,7 +1332,17 @@ async def _run_word_family_practice(
     # rather than relying on every call site to remember to do it.
     face.set_reading_spotlight(None)
     face.set_word_grid(family_words)
-    prompt = "Can you read all of these words for me?"
+    if read_first:
+        intro = "Let's read these together. Listen first:"
+        print(f"Chitti: {intro}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, intro, speed=speed)
+        for family_word in family_words:
+            face.set_status_led(DeviceState.SPEAKING)
+            await _speak(tts, audio, family_word, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
+        prompt = "Now it's your turn! Can you read all of these words for me?"
+    else:
+        prompt = "Can you read all of these words for me?"
     print(f"Chitti: {prompt}")
     face.set_status_led(DeviceState.SPEAKING)
     await _speak(tts, audio, prompt, speed=speed)
@@ -1515,6 +1531,12 @@ async def _run_reading_partner(
     offered_reread = False
     consumed_this_call: set[str] = set()
     followup_source_text: str | None = None
+    # Decision 0094: once the child answers "Would you like me to
+    # read it to you first?" (anywhere below), the same answer holds
+    # for every sentence and book for the rest of THIS call -- never
+    # re-asked until the next fresh call to this function. None means
+    # "not decided yet this call."
+    read_first_preference: bool | None = None
     try:
         while True:
             objective = select_objective(profile, session_index=profile.sessions_completed)
@@ -1726,25 +1748,18 @@ async def _run_reading_partner(
                 sentences, font_size=reading_font_size, font_color=reading_font_color
             )
 
-            sentence_assessments: list[AssessmentResult] = []
-            sentence_deltas: list[MasteryDelta] = []
-            resolved_words: list[str] = []
-            for sentence_index in range(start_index, len(sentences)):
-                sentence = sentences[sentence_index]
-
-                # Decision 0085, from live hardware testing: jumping
-                # straight into "press Enter to start talking" with no
-                # choice meant a tester reading from the console alone
-                # (no way to see which sentence was current) kept
-                # re-reading the whole story from wherever instead of
-                # one sentence at a time. Now Chitti offers to read it
-                # first; a plain yes models the sentence at a slower
-                # pace before handing over.
-                #
-                # Decision 0087, from live hardware testing: the beep-
-                # cued, fixed-duration capture (decisions 0084/0086)
-                # made this feel bad in practice -- back to "press
-                # Enter" for every capture here, at least for now.
+            # Decision 0094, from live hardware testing: asking "Would
+            # you like me to read it to you first?" on every single
+            # sentence was slow and repetitive -- once a child answers
+            # it at all, that answer should hold for the rest of this
+            # session, not be re-asked every sentence. Asked once per
+            # call, the first time it's needed; `read_first_preference`
+            # (declared with the other session-scoped trackers above,
+            # outside the book loop) then carries it across every
+            # remaining sentence AND every later book in this same
+            # call -- "until the next session" means the next fresh
+            # call to this function, not the next sentence or book.
+            if read_first_preference is None:
                 offer = "Would you like me to read it to you first?"
                 print(f"Chitti: {offer}")
                 face.set_status_led(DeviceState.SPEAKING)
@@ -1753,21 +1768,38 @@ async def _run_reading_partner(
                 face.set_status_led(DeviceState.LISTENING)
                 offer_reply = await _capture_and_transcribe(stt)
                 print(f"You said: {offer_reply}")
+                # Decision 0087, found live: a child's natural reply
+                # here is often just "you" (as in "you read it") --
+                # classify_affirmative()'s generic yes/no vocabulary
+                # doesn't recognize that at all on its own.
+                read_first_preference = _classify_read_first_offer_reply(offer_reply)
 
-                # Decision 0087, also found live: a child's natural
-                # reply here is often just "you" (as in "you read it")
-                # -- classify_affirmative()'s generic yes/no vocabulary
-                # doesn't recognize that at all, so it was wrongly read
-                # as a decline every time, silently skipping the model
-                # step that was just asked for.
-                if _classify_read_first_offer_reply(offer_reply):
+            if read_first_preference:
+                # Decision 0094: models the WHOLE remaining story in
+                # one continuous read-through -- not interleaved with
+                # the child's own attempts sentence by sentence -- then
+                # hands over for the child's own pass, sentence by
+                # sentence as before (unchanged: decision 0067's own
+                # reasoning for per-sentence capture, easier for a
+                # young child to sustain and kinder to STT accuracy,
+                # still applies to listening even though modeling no
+                # longer needs it).
+                for modeled_sentence in sentences[start_index:]:
                     face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
+                    await _speak(
+                        tts, audio, modeled_sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER
+                    )
 
-                    turn_cue = "Now it's your turn! Give it a try."
-                    print(f"Chitti: {turn_cue}")
-                    face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, turn_cue, speed=speed)
+                turn_cue = "Now it's your turn! Let's read it together, one sentence at a time."
+                print(f"Chitti: {turn_cue}")
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, turn_cue, speed=speed)
+
+            sentence_assessments: list[AssessmentResult] = []
+            sentence_deltas: list[MasteryDelta] = []
+            resolved_words: list[str] = []
+            for sentence_index in range(start_index, len(sentences)):
+                sentence = sentences[sentence_index]
 
                 face.set_status_led(DeviceState.LISTENING)
                 # Real elapsed recording time, not the estimated-duration
@@ -1867,6 +1899,7 @@ async def _run_reading_partner(
                                 await _run_word_family_practice(
                                     hint_word, conversation, tts, audio, stt, face, speed,
                                     child_age, family_budget,
+                                    read_first=bool(read_first_preference),
                                 )
                                 offered_word_family_this_sentence = True
                             break

@@ -658,16 +658,16 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
         # A perfect read -- no miscue, so decision 0052's hint loop
         # never fires here and doesn't consume extra captures. Decision
         # 0067: the book's two sentences are each their own capture.
-        # Decision 0085: each sentence's capture is preceded by
-        # Chitti's own "read it to you first?" offer -- "no thanks"
-        # declines it both times, same as the original behavior.
+        # Decision 0094: Chitti's "read it to you first?" offer is now
+        # asked once per call, not once per sentence -- "no thanks"
+        # declines it, and both sentence captures follow directly.
         # "no thanks" also declines decision 0057's post-reading word
         # game (offered since "cat"/"sat"/"ran" all qualify) so it
         # never consumes further captures either. The final turn is a
         # genuine switch request (needed so the mode loop -- which
         # otherwise keeps generating books forever -- actually
         # terminates for this test).
-        "no thanks", "a cat sat", "no thanks", "a cat ran", "no thanks", "let's just chat",
+        "no thanks", "a cat sat", "a cat ran", "no thanks", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1433,7 +1433,9 @@ async def test_run_reading_partner_shows_the_whole_story_but_captures_one_senten
     tts = _FakeTTS()
 
     with _patch_captures(
-        "no thanks", "a cat sat", "no thanks", "a dog ran", "no thanks", "let's just chat",
+        # Decision 0094: the offer is asked once per call, not once
+        # per sentence.
+        "no thanks", "a cat sat", "a dog ran", "no thanks", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1486,12 +1488,13 @@ async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_n
     tts = _FakeTTS()
 
     with _patch_captures(
-        "no thanks",  # decision 0085: sentence 1's "read it to you first?" offer, declined
+        # Decision 0094: the "read it to you first?" offer is asked
+        # once per call now, not once per sentence.
+        "no thanks",  # declines the offer for the whole call
         "dan has a dog",  # sentence 1 read-aloud -- "had" substituted as "has"
         "had",  # resolves on the first hint stage
         "dan had a dog",  # sentence 1's reread -- clean
         "a dog",  # answers the word-meaning question, first try
-        "no thanks",  # sentence 2's "read it to you first?" offer, declined
         "the dog ran",  # sentence 2 read-aloud -- clean, no detour
         "no thanks",  # declines the word game
         "let's just chat",  # ends the session
@@ -1535,10 +1538,10 @@ async def test_run_reading_partner_resumes_mid_passage_after_an_interrupted_sess
     tts = _FakeTTS()
 
     with _patch_captures(
-        # Decision 0085: sentence 1's offer (declined), then its clean
-        # read-aloud; the interruption now happens on sentence 2's own
-        # offer capture instead of its read-aloud, but the effect is
-        # the same -- sentence 2 never completes.
+        # Decision 0094: the "read it to you first?" offer is asked
+        # once for the whole call, declined, then sentence 1's clean
+        # read-aloud; the interruption happens on sentence 2's own
+        # read-aloud capture, which never completes.
         "no thanks", "a cat sat", RuntimeError("simulated interruption"),
     ):
         with pytest.raises(RuntimeError, match="simulated interruption"):
@@ -1553,7 +1556,10 @@ async def test_run_reading_partner_resumes_mid_passage_after_an_interrupted_sess
 
     tts2 = _FakeTTS()
     with _patch_captures(
-        "no thanks", "a cat ran", "no thanks", "a dog ran", "no thanks", "let's just chat",
+        # Decision 0094: the offer is asked once for this (fresh) call
+        # too -- `read_first_preference` doesn't persist across
+        # separate calls to _run_reading_partner(), only within one.
+        "no thanks", "a cat ran", "a dog ran", "no thanks", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts2, _FakeAudio(), "fake-stt",
@@ -1760,13 +1766,17 @@ async def test_run_reading_partner_an_unclear_reply_to_the_reread_offer_asks_aga
     tts2 = _FakeTTS()
     with _patch_captures(
         "the little forg",  # unclear -- not a recognized yes or no
-        "no thanks",  # decision 0085: the freshly generated book's own offer, declined
+        # Decision 0094: the "read it to you first?" offer is asked
+        # once for this whole call -- right here, for the freshly
+        # generated book -- and the answer (declined) then also
+        # applies, with no further asking, to the re-read book later
+        # in this same call.
+        "no thanks",
         "a dog ran",  # falls through to a freshly generated book this turn
         "no thanks",  # declines its word game
         "yes please",  # wants another one -- stays in Reading Partner
-        "yes",  # the SAME offer, asked again -- this time accepted
-        "no thanks",  # decision 0085: the re-read exercise's own offer, declined
-        "a cat sat",  # reads the original exercise again
+        "yes",  # the SAME reread offer, asked again -- this time accepted
+        "a cat sat",  # reads the original exercise again -- no offer re-asked
         "no thanks",
         "let's just chat",
     ):
@@ -1866,11 +1876,13 @@ async def test_run_reading_partner_themes_the_followup_book_on_the_finished_exer
     tts = _FakeTTS()
 
     with _patch_captures(
-        "no thanks",  # decision 0085: the exercise's own offer, declined
+        # Decision 0094: the "read it to you first?" offer is asked
+        # once for this whole call -- declined here, then reused (no
+        # further asking) for the follow-up book later in this call.
+        "no thanks",
         "a cat sat",  # read-aloud of the exercise
         "no thanks",  # declines the word game
         "yes please",  # wants another one -- stays in Reading Partner
-        "no thanks",  # decision 0085: the follow-up book's own offer, declined
         "a cat ran",  # read-aloud of the themed follow-up book
         "no thanks",  # declines the word game again
         "let's just chat",  # ends the session
@@ -1923,11 +1935,13 @@ async def test_run_reading_partner_falls_back_to_a_plain_book_when_the_themed_on
     tts = _FakeTTS()
 
     with _patch_captures(
-        "no thanks",  # decision 0085: the exercise's own offer, declined
+        # Decision 0094: the "read it to you first?" offer is asked
+        # once for this whole call -- declined here, then reused (no
+        # further asking) for the fallback book later in this call.
+        "no thanks",
         "a cat sat",  # read-aloud of the exercise
         "no thanks",  # declines the word game
         "yes please",  # wants another one
-        "no thanks",  # decision 0085: the fallback book's own offer, declined
         "a dog ran",  # read-aloud of the FALLBACK book, not a themed one
         "no thanks",  # declines the word game again
         "let's just chat",  # ends the session
@@ -2095,9 +2109,10 @@ async def test_run_reading_partner_asks_and_reacts_to_comprehension_questions():
     tts = _FakeTTS()
 
     with _patch_captures(
-        "no thanks",  # decision 0085: sentence 1's own offer, declined
+        # Decision 0094: the "read it to you first?" offer is asked
+        # once per call, not once per sentence.
+        "no thanks",
         "a cat sat",  # decision 0067: sentence 1 of 2 (perfect, no hint)
-        "no thanks",  # decision 0085: sentence 2's own offer, declined
         "a cat ran",  # sentence 2 of 2 (perfect, no hint)
         "the cat sat down",  # answer to question 1
         "under a tree",  # answer to question 2
