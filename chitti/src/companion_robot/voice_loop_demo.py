@@ -1944,10 +1944,20 @@ async def _run_reading_partner(
                 face.set_reading_text(
                     [sentence], font_size=reading_font_size, font_color=reading_font_color
                 )
-                attention_cue = f'Let\'s work on this one: "{sentence}"'
-                print(f"Chitti: {attention_cue}")
+                attention_intro = "Let's work on this one:"
+                print(f'Chitti: {attention_intro} "{sentence}"')
                 face.set_status_led(DeviceState.SPEAKING)
-                await _speak(tts, audio, attention_cue, speed=speed)
+                await _speak(tts, audio, attention_intro, speed=speed)
+                # Decision 0098: the display was just narrowed to this
+                # ONE sentence above -- it's the only page on screen,
+                # so its own page index is always 0 here, never the
+                # original whole-story sentence_index (found live:
+                # using sentence_index here matched nothing on screen,
+                # since by then there was no other page to match
+                # against anyway).
+                await _speak_with_word_highlight(
+                    tts, audio, face, stt, sentence, speed, modeled_word_timings_cache, 0,
+                )
 
                 # Decision 0079, found live: a sentence with several
                 # real misses (e.g. "hen" AND "pig" AND "had") could
@@ -2063,16 +2073,22 @@ async def _run_reading_partner(
                 face.set_status_led(DeviceState.SPEAKING)
                 await _speak(tts, audio, model_intro, speed=speed)
 
-                # Decision 0098: same (text, speed) as the up-front
-                # whole-story modeling above -- if this sentence was
-                # already modeled there, this reuses that audio and
-                # its real word timestamps instead of a fresh TTS
-                # call and a fresh Whisper timestamp lookup.
+                # Decision 0098: same (text, speed) cache key as the
+                # up-front whole-story modeling above -- if this
+                # sentence was already modeled there, this reuses
+                # that audio and its real word timestamps instead of
+                # a fresh TTS call and a fresh Whisper timestamp
+                # lookup. The page index passed to the face is 0, not
+                # the original sentence_index -- the display was
+                # narrowed to just this one sentence earlier in this
+                # block, so it's the only page on screen (found live:
+                # passing sentence_index here matched nothing, since
+                # there was no other page to match against).
                 face.set_status_led(DeviceState.SPEAKING)
                 await _speak_with_word_highlight(
                     tts, audio, face, stt, sentence,
                     speed * _MODEL_READ_SPEED_MULTIPLIER, modeled_word_timings_cache,
-                    sentence_index,
+                    0,
                 )
 
                 turn_cue = "Now it's your turn! Give it a try."

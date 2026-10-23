@@ -145,6 +145,44 @@ Two new tests: the substitution replacing a wrong/mis-heard word by
 position while keeping Whisper's own timing, and the count-mismatch
 fallback leaving Whisper's words untouched.
 
+## Update: the narrowed single-sentence display has its own page 0
+
+Found live, from a full session log: during a flagged sentence's own
+correction, the "Let's work on this one: ..." cue read the sentence
+aloud but never highlighted anything, and the later "I'll read it
+for you first. Listen:" reread-model logged `reading text highlight:
+... (sentence 3)` calls that never actually appeared on screen
+either. Two separate problems:
+
+1. The attention cue spoke the WHOLE flagged sentence embedded
+   inside one longer phrase (`'Let\'s work on this one: "{sentence}"'`)
+   via plain `_speak()` -- never through the highlighting path at
+   all. Split into an unhighlighted intro ("Let's work on this
+   one:") followed by the sentence itself spoken through
+   `_speak_with_word_highlight()`.
+
+2. The real bug: `face.set_reading_text([sentence], ...)` (right
+   before the attention cue) narrows the display to a ONE-ITEM page
+   list for the entire rest of the correction block -- it's the
+   only page on screen until the block ends and
+   `face.set_reading_text(sentences, ...)` widens it back out. Both
+   calls to `_speak_with_word_highlight()` inside that block were
+   still passing the sentence's ORIGINAL index into the whole story
+   (e.g. `3`), which the render loop's `(page_index, line)` pairs
+   could never match -- there was only ever a page `0` to check
+   against. The `reading text highlight: ... (sentence 3)` log lines
+   were real, but nothing on screen could ever match them, so
+   nothing actually lit up. Both call sites now pass `0`, matching
+   the narrowed display, with a comment explaining why.
+
+One new integration-level test
+(`test_run_reading_partner_highlight_uses_the_narrowed_display_page_not_the_story_index`)
+drives a 2-sentence story where the SECOND sentence (story index 1)
+is the one flagged, and asserts every recorded highlight call uses
+page index 0, not 1 -- this is exactly the shape that would have
+caught the bug (a flagged sentence at index 0 wouldn't have, since 0
+looks identical whether buggy or fixed by coincidence).
+
 ## Consequences
 
 Four new tests for `_speak_with_word_highlight()` (highlights each
@@ -157,7 +195,7 @@ audio sent is wrapped in a real WAV container; missing-API-key).
 Four new tests on `reading/word_timing.py`'s pure parsing/wrapping.
 Two new tests on `screen_face.py`'s `_normalize_word()`.
 
-Full suite: 636 passed (4 failures in `test_screen_face_rendering.py`
+Full suite: 637 passed (4 failures in `test_screen_face_rendering.py`
 -- unchanged pre-existing baseline, no usable SDL video driver in
 this dev environment).
 

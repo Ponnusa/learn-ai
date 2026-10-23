@@ -893,10 +893,11 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
     assert next_mode == "3"
     # [0] story intro, [1] the "read it to you first?" offer, [2] the
     # "give it a try" turn cue, [3] decision 0095's "let's work on
-    # this one" attention cue for the one flagged sentence -- all
-    # spoken before the hint ladder itself starts.
-    assert tts.synthesized[4] == build_hint_line("sat", 0)
-    assert tts.synthesized[5] == "There you go!"
+    # this one" attention intro, [4] decision 0098's own highlighted
+    # read of the flagged sentence itself -- all spoken before the
+    # hint ladder itself starts.
+    assert tts.synthesized[5] == build_hint_line("sat", 0)
+    assert tts.synthesized[6] == "There you go!"
     # Not asserted by fixed index from here on -- decision 0074's
     # reread/word-meaning-check step runs a real LLM call wrapped in
     # decision 0050's thinking-filler, whose line count depends on
@@ -956,12 +957,13 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     assert next_mode == "3"
     # [0] story intro, [1] the "read it to you first?" offer, [2] the
     # "give it a try" turn cue, [3] decision 0095's "let's work on
-    # this one" attention cue for the one flagged sentence -- all
-    # spoken before the hint ladder itself starts.
-    assert tts.synthesized[4] == build_hint_line("sat", 0)
-    assert tts.synthesized[5] == build_hint_line("sat", 1)
-    assert tts.synthesized[6] == build_hint_line("sat", 2)
-    assert tts.synthesized[7] == build_hint_line("sat", 3)
+    # this one" attention intro, [4] decision 0098's own highlighted
+    # read of the flagged sentence itself -- all spoken before the
+    # hint ladder itself starts.
+    assert tts.synthesized[5] == build_hint_line("sat", 0)
+    assert tts.synthesized[6] == build_hint_line("sat", 1)
+    assert tts.synthesized[7] == build_hint_line("sat", 2)
+    assert tts.synthesized[8] == build_hint_line("sat", 3)
     assert "There you go!" not in tts.synthesized
     # Decision 0084: exhausting the ladder still gets the model-then-
     # repeat flow instead of a blanket "Nice reading!" below. Not
@@ -1687,6 +1689,60 @@ async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_n
     ]
     assert "Nice reading!" in tts.synthesized
     assert "Yes, a dog!" in tts.synthesized
+
+
+async def test_run_reading_partner_highlight_uses_the_narrowed_display_page_not_the_story_index():
+    """Decision 0098, found live: once a flagged sentence's own
+    correction narrows the display to just that one sentence
+    (face.set_reading_text([sentence], ...)), it's the ONLY page on
+    screen -- the highlight must be scoped to page index 0, not the
+    sentence's own index in the whole story (here, sentence 2 of 2
+    is story index 1), or the highlight never matches anything
+    actually on screen."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="Dan had a dog. The dog ran.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            ("unused -- word family finds no candidates", "fake-model"),
+            ("QUESTION: What did the dog do?", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, it ran!", "fake-model"),
+            ("Sorry, no questions.", "fake-model"),
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+    stt = _FakeSTTWithTimestamps([WordTiming(word="x", start=0.0, end=0.01)])
+
+    with _patch_captures(
+        "no thanks",  # declines the up-front read -- isolates this
+        # test to the per-sentence correction block's own highlight
+        # calls, the ones decision 0098's fix actually touches.
+        "dan had a dog the dog hopped",  # sentence 2's own miss
+        "ran",  # resolves on the first hint stage
+        "the dog ran",  # sentence 2's reread -- clean
+        "it ran",  # answers the word-meaning question
+        "no thanks",
+        "let's just chat",
+    ):
+        await _run_reading_partner(
+            conversation, tts, _FakeAudio(), stt,
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert face.reading_text_highlights
+    assert all(index == 0 for index, _word in face.reading_text_highlights)
 
 
 # Decision 0095: the old per-sentence mid-passage resume (decision
