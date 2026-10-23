@@ -32,6 +32,7 @@ import asyncio
 import contextlib
 import difflib
 import logging
+import math
 import os
 import secrets
 import subprocess
@@ -41,6 +42,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from companion_robot.audio.real import CAPTURE_DEVICE, PLAYBACK_SAMPLE_RATE, RealAudioTransport
+from companion_robot.audio.tones import generate_beep
 from companion_robot.conversation.service import ConversationResult, ConversationService
 from companion_robot.device.interfaces import DeviceState
 from companion_robot.device.screen_face import ScreenFaceDeviceController
@@ -165,6 +167,69 @@ async def _capture_and_transcribe(stt) -> str:
     # Only the transcribe() call itself is timed (decision 0046), not
     # the function above it -- recording time is paced by how long the
     # child takes to talk, not a system latency to diagnose.
+    async with _timed("stt_transcribe"):
+        return await stt.transcribe(audio_bytes, language="en")
+
+
+# Decision 0084: "press Enter to start talking" doesn't read as
+# natural conversation to a young child, and real hardware has no
+# voice-activity detection to fall back on (audio/real.py's own note
+# on why -- no ARMv6 wheel for the wake-word library). A beep cue
+# plus a fixed recording window, sized to how long the expected reply
+# should take, stands in for the keypress instead -- scoped for now to
+# the one new "I'll read it, you repeat after the beep" help step,
+# not every capture in the file.
+_MIN_CAPTURE_SECONDS = 3.0
+_CAPTURE_BUFFER_SECONDS = 2.0
+# How much slower than the child's own normal speech_speed Chitti
+# models a sentence at, for the same help step -- noticeably slower
+# without dragging, same spirit as reading_pace_wpm already pacing
+# the teleprompter itself.
+_MODEL_READ_SPEED_MULTIPLIER = 0.75
+# Matches _run_reading_partner()'s own reading_pace_wpm default --
+# only reached if that's somehow 0 or negative, which should never
+# happen with a real profile.
+_FALLBACK_READING_PACE_WPM = 45.0
+
+
+def _sentence_capture_seconds(sentence: str, reading_pace_wpm: float) -> float:
+    """How long to record after the beep for a child repeating
+    `sentence` back -- word count at the same age-appropriate pace
+    the teleprompter itself already paces by, plus a flat buffer
+    (reacting to the beep, a breath, a slower start) so a short
+    sentence doesn't get cut off."""
+    word_count = len(sentence.split())
+    pace = reading_pace_wpm if reading_pace_wpm > 0 else _FALLBACK_READING_PACE_WPM
+    return max(_MIN_CAPTURE_SECONDS, (word_count / pace) * 60.0 + _CAPTURE_BUFFER_SECONDS)
+
+
+def _record_clip_for_duration(path: str, duration_seconds: float) -> None:
+    """Blocking: records for a fixed duration via arecord's own -d
+    flag -- no keypress to start or stop. Same format/device as
+    _record_clip(); arecord's -d only takes whole seconds, rounded up
+    so the window is never shorter than asked for."""
+    subprocess.run(
+        [
+            "arecord", "-D", CAPTURE_DEVICE, "-f", "S16_LE", "-r", "16000", "-c", "1",
+            "-d", str(max(1, math.ceil(duration_seconds))), path,
+        ],
+        stdin=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+async def _capture_and_transcribe_after_beep(stt, audio, duration_seconds: float) -> str:
+    """Plays a short cue tone (audio/tones.py) instead of asking for
+    an Enter keypress, then records for a fixed window -- "listen for
+    about this long," not "listen until you stop talking," since
+    there's no voice-activity detection on real hardware to do the
+    latter."""
+    await audio.play(generate_beep())
+    await asyncio.get_event_loop().run_in_executor(
+        None, _record_clip_for_duration, _CAPTURE_PATH, duration_seconds
+    )
+    with open(_CAPTURE_PATH, "rb") as f:
+        audio_bytes = f.read()
     async with _timed("stt_transcribe"):
         return await stt.transcribe(audio_bytes, language="en")
 
@@ -1271,21 +1336,30 @@ async def _run_word_family_practice(
     if not is_affirmative(reply):
         return
 
+    # Decision 0084, found live: asking one word at a time (its own
+    # spotlight, its own capture, its own reaction) for every single
+    # candidate made this feel slow and repetitive for what's really
+    # one small reading task. All the words are shown at once now, in
+    # their own blocks (screen_face.py's set_word_grid()), and read in
+    # a single take -- one capture checked against every word
+    # (word_game.py's own is_correct_answer() is already lenient
+    # enough to find each word anywhere in that one reply), not one
+    # capture per word.
+    face.set_word_grid(family_words)
+    prompt = "Can you read all of these words for me?"
+    print(f"Chitti: {prompt}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, prompt, speed=speed)
+
+    face.set_status_led(DeviceState.LISTENING)
+    reading = await _capture_and_transcribe(stt)
+    print(f"You read: {reading}")
+    face.set_word_grid(None)
+
     for family_word in family_words:
-        face.set_reading_spotlight(family_word)
-        prompt = f'Can you read this word: "{family_word}"?'
-        print(f"Chitti: {prompt}")
-        face.set_status_led(DeviceState.SPEAKING)
-        await _speak(tts, audio, prompt, speed=speed)
-
-        face.set_status_led(DeviceState.LISTENING)
-        answer = await _capture_and_transcribe(stt)
-        print(f"You said: {answer}")
-        face.set_reading_spotlight(None)
-
         response = (
             random_correct_response()
-            if is_correct_answer(family_word, answer)
+            if is_correct_answer(family_word, reading)
             else incorrect_response(family_word)
         )
         print(f"Chitti: {response}")
@@ -1746,10 +1820,20 @@ async def _run_reading_partner(
                     # mastery here (same "not a second scored attempt"
                     # reasoning as before) -- but the *response* now
                     # depends on what the reread actually contained.
-                    reread_cue = "Let's read that sentence again from the beginning."
-                    print(f"Chitti: {reread_cue}")
+                    #
+                    # Decision 0084: this used to just ask for a blind
+                    # independent reread ("Let's read that sentence
+                    # again"). Found live to be slow and a little cold
+                    # after a sentence that needed real help -- now
+                    # Chitti models the sentence first, at a slower
+                    # pace, before asking the child to say it back, and
+                    # a beep cue (audio/tones.py) replaces "press Enter"
+                    # for knowing when to start -- closer to natural
+                    # back-and-forth than a keypress.
+                    model_intro = "I'll read it for you first. Listen:"
+                    print(f"Chitti: {model_intro}")
                     face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, reread_cue, speed=speed)
+                    await _speak(tts, audio, model_intro, speed=speed)
 
                     face.set_reading_text(
                         [sentence],
@@ -1757,9 +1841,19 @@ async def _run_reading_partner(
                         font_size=reading_font_size,
                         font_color=reading_font_color,
                     )
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
+
+                    turn_cue = "Now it's your turn! Say it after the beep."
+                    print(f"Chitti: {turn_cue}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, turn_cue, speed=speed)
+
                     face.set_status_led(DeviceState.LISTENING)
                     reread_started = time.monotonic()
-                    reread_attempt = await _capture_and_transcribe(stt)
+                    reread_attempt = await _capture_and_transcribe_after_beep(
+                        stt, audio, _sentence_capture_seconds(sentence, reading_pace_wpm)
+                    )
                     reread_duration = time.monotonic() - reread_started
                     print(f"You read: {reread_attempt}")
                     face.set_reading_text(None)

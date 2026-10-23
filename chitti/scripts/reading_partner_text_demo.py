@@ -9,11 +9,14 @@ ReadingExerciseRepository/ChildProfileRepository, against the same
 chitti/data/chitti.db the Parent Controls web UI reads from -- before
 wiring any of this back to real audio/screen hardware.
 
-Reuses _run_reading_partner() completely unmodified: the only two call
-sites that normally touch real audio
-(voice_loop_demo._capture_and_transcribe / _speak) are monkeypatched
-here to read a line from stdin / print a line to stdout instead, the
-same technique this project's own test suite already uses. Every
+Reuses _run_reading_partner() completely unmodified: the call sites
+that normally touch real audio (voice_loop_demo._capture_and_transcribe
+/ _capture_and_transcribe_after_beep / _speak) are monkeypatched here
+to read a line from stdin / print a line to stdout instead, the same
+technique this project's own test suite already uses.
+_capture_and_transcribe_after_beep() (decision 0084) backs the new
+"I'll read it, you repeat after the beep" help step -- text mode just
+prints "[BEEP]" instead of playing the real cue tone. Every
 other decision this mode has ever shipped (BKT mastery, miscue
 alignment, the hint ladder, word-family verification, sentence-by-
 sentence resume, etc.) runs exactly as it does on real hardware --
@@ -90,6 +93,19 @@ async def _text_capture_and_transcribe(stt) -> str:
     )
 
 
+async def _text_capture_and_transcribe_after_beep(stt, audio, duration_seconds: float) -> str:
+    """Stands in for voice_loop_demo._capture_and_transcribe_after_beep()
+    (decision 0084) -- prints the cue tone instead of actually playing
+    one, then reads one line of typed text, same as
+    _text_capture_and_transcribe() above. `duration_seconds` is real
+    hardware's fixed recording window; text mode has nothing to time,
+    so it's unused here."""
+    print("[BEEP]")
+    return await asyncio.get_event_loop().run_in_executor(
+        None, input, "\nYou (type what the child says): "
+    )
+
+
 async def _text_speak(tts, audio, text: str, speed: float = 1.0) -> None:
     """Stands in for voice_loop_demo._speak() -- no TTS call, no audio
     playback, and deliberately a no-op rather than printing the line
@@ -138,6 +154,7 @@ async def main() -> None:
     face = ScreenFaceDeviceController()
     _print_spotlight = face.set_reading_spotlight
     _print_reading_text = face.set_reading_text
+    _print_word_grid = face.set_word_grid
 
     def _spotlight_and_print(word: str | None) -> None:
         if word is not None:
@@ -150,8 +167,14 @@ async def main() -> None:
             print(f'[Chitti is showing: "{shown}"]')
         _print_reading_text(lines, **kwargs)
 
+    def _word_grid_and_print(words: list[str] | None) -> None:
+        if words is not None:
+            print(f"[Chitti is showing word blocks: {', '.join(words)}]")
+        _print_word_grid(words)
+
     face.set_reading_spotlight = _spotlight_and_print
     face.set_reading_text = _reading_text_and_print
+    face.set_word_grid = _word_grid_and_print
 
     profile = _select_or_create_profile(profiles)
 
@@ -162,6 +185,11 @@ async def main() -> None:
     reading_partner_fn = _run_reading_partner_v2 if is_v2 else _run_reading_partner
     with (
         patch.object(voice_loop_demo, "_capture_and_transcribe", _text_capture_and_transcribe),
+        patch.object(
+            voice_loop_demo,
+            "_capture_and_transcribe_after_beep",
+            _text_capture_and_transcribe_after_beep,
+        ),
         patch.object(voice_loop_demo, "_speak", _text_speak),
     ):
         next_mode, _switch_trigger_text = await reading_partner_fn(

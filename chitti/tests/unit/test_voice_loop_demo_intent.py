@@ -4,6 +4,7 @@ fake LLM/tts/audio/stt stand-ins, no real API calls, hardware, or
 keyboard input() needed.
 """
 import asyncio
+import contextlib
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
@@ -29,6 +30,7 @@ from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
 from companion_robot.voice_loop_demo import (
+    _MIN_CAPTURE_SECONDS,
     _THINKING_FILLERS,
     _classify_reread_reply,
     _confirm_switch,
@@ -39,6 +41,7 @@ from companion_robot.voice_loop_demo import (
     _run_everyday_companion,
     _run_reading_partner,
     _run_teachable_friend,
+    _sentence_capture_seconds,
     _speak_while_thinking,
 )
 
@@ -93,6 +96,7 @@ class _FakeFace:
         self.modes: list[str | None] = []
         self.reading_texts: list[list[str] | None] = []
         self.spotlights: list[str | None] = []
+        self.word_grids: list[list[str] | None] = []
 
     def set_status_led(self, state: DeviceState) -> None:
         self.states.append(state)
@@ -108,6 +112,29 @@ class _FakeFace:
 
     def set_reading_spotlight(self, word: str | None) -> None:
         self.spotlights.append(word)
+
+    def set_word_grid(self, words: list[str] | None) -> None:
+        self.word_grids.append(words)
+
+
+@contextlib.contextmanager
+def _patch_captures(*side_effect):
+    """Decision 0084: the per-sentence reread after a hint-ladder word
+    now goes through _capture_and_transcribe_after_beep() (a beep cue
+    plus a fixed-duration recording), not the original
+    _capture_and_transcribe() (press Enter to start/stop) every other
+    capture in this file still uses. Both names are patched to the
+    SAME mock here, pulling from one ordered side_effect list --
+    AsyncMock's side_effect iterator ignores call arguments entirely,
+    so whichever of the two real functions a given turn happens to
+    call just pops the next scripted reply, same as if there were
+    only ever one capture function."""
+    mock = AsyncMock(side_effect=list(side_effect))
+    with (
+        patch("companion_robot.voice_loop_demo._capture_and_transcribe", mock),
+        patch("companion_robot.voice_loop_demo._capture_and_transcribe_after_beep", mock),
+    ):
+        yield mock
 
 
 class _Item:
@@ -593,10 +620,21 @@ async def test_run_reading_partner_never_checks_the_read_aloud_transcript_for_a_
         calls["n"] += 1
         return "tell me a story" if calls["n"] == 1 else "can we sing a song"
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=_capture_side_effect,
+    # Decision 0084: the per-sentence reread may go through
+    # _capture_and_transcribe_after_beep() instead -- same counter-
+    # based side_effect function patched onto both names, since
+    # either one just needs the next call to advance the shared count.
+    with (
+        patch(
+            "companion_robot.voice_loop_demo._capture_and_transcribe",
+            new_callable=AsyncMock,
+            side_effect=_capture_side_effect,
+        ),
+        patch(
+            "companion_robot.voice_loop_demo._capture_and_transcribe_after_beep",
+            new_callable=AsyncMock,
+            side_effect=_capture_side_effect,
+        ),
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
@@ -835,15 +873,13 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
+    with _patch_captures(
         # "mat" for "sat" is a clean substitution (test_reading_alignment's
         # own precedent); the retry gets it right on the very first
         # hint. Decision 0074: a resolved hint word means the sentence
         # gets reread once ("sat" again). "no thanks" declines decision
         # 0057's post-reading word game.
-        side_effect=["a cat mat", "sat", "a cat sat", "no thanks", "let's just chat"],
+        "a cat mat", "sat", "a cat sat", "no thanks", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -896,19 +932,14 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        # "no thanks" declines decision 0057's post-reading word game.
-        # Decision 0074: exhausting the ladder still triggers a reread
-        # of the sentence ("a cat mat" again, unresolved). Decision
-        # 0081: an unresolved reread now gets one short correction
-        # cycle ("still nope" is that attempt, also unresolved) instead
-        # of a blanket "Nice reading!".
-        side_effect=[
-            "a cat mat", "nope", "nope", "nope", "nope", "a cat mat", "still nope",
-            "no thanks", "let's just chat",
-        ],
+    # Decision 0084: exhausting the ladder still triggers a reread --
+    # now modeled by Chitti first, then captured via the beep-cued
+    # _capture_and_transcribe_after_beep(), not the original
+    # press-Enter capture. "no thanks" declines decision 0057's
+    # post-reading word game.
+    with _patch_captures(
+        "a cat mat", "nope", "nope", "nope", "nope", "a cat mat", "still nope",
+        "no thanks", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -922,11 +953,13 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     assert tts.synthesized[3] == build_hint_line("sat", 2)
     assert tts.synthesized[4] == build_hint_line("sat", 3)
     assert "There you go!" not in tts.synthesized
-    # Decision 0074: exhausting the ladder still gets a reread cue.
-    # Not asserted by fixed index -- the word-meaning check in between
+    # Decision 0084: exhausting the ladder still gets the model-then-
+    # repeat flow instead of a blanket "Nice reading!" below. Not
+    # asserted by fixed index -- the word-meaning check in between
     # runs a real LLM call wrapped in decision 0050's thinking-filler,
     # whose line count depends on timing, not just content.
-    assert "Let's read that sentence again from the beginning." in tts.synthesized
+    assert "I'll read it for you first. Listen:" in tts.synthesized
+    assert "Now it's your turn! Say it after the beep." in tts.synthesized
     # Decision 0081: the reread still had "mat" for "sat" -- a short
     # correction cycle runs instead of blanket praise, and since the
     # correction attempt is wrong too, it closes with "the word is...",
@@ -972,17 +1005,13 @@ async def test_run_reading_partner_hints_every_real_miss_not_just_the_first():
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=[
-            "silly gotten hops",  # the read-aloud -- "little" and "garden" both missed
-            "little",  # "little" resolved on the very first retry
-            "nope", "nope", "nope", "nope",  # "garden" never resolved, exhausts all 4 stages
-            "little garden hops",  # decision 0074: the sentence reread after hint practice
-            "no thanks",  # declines the word game
-            "let's just chat",  # ends the session
-        ],
+    with _patch_captures(
+        "silly gotten hops",  # the read-aloud -- "little" and "garden" both missed
+        "little",  # "little" resolved on the very first retry
+        "nope", "nope", "nope", "nope",  # "garden" never resolved, exhausts all 4 stages
+        "little garden hops",  # decision 0074/0084: the sentence reread after hint practice
+        "no thanks",  # declines the word game
+        "let's just chat",  # ends the session
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1028,17 +1057,13 @@ async def test_run_reading_partner_final_stage_resolution_does_not_feed_mastery(
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=[
-            "a cat mat",  # the read-aloud -- "sat" missed (substituted as "mat")
-            "nope", "nope", "nope",  # stages 0, 1, 2 -- wrong, but still real attempts
-            "sat",  # stage 3 -- only correct after being told the word outright
-            "a cat sat",  # decision 0074: the sentence reread after hint practice
-            "no thanks",
-            "let's just chat",
-        ],
+    with _patch_captures(
+        "a cat mat",  # the read-aloud -- "sat" missed (substituted as "mat")
+        "nope", "nope", "nope",  # stages 0, 1, 2 -- wrong, but still real attempts
+        "sat",  # stage 3 -- only correct after being told the word outright
+        "a cat sat",  # decision 0074/0084: the sentence reread after hint practice
+        "no thanks",
+        "let's just chat",
     ):
         await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1076,19 +1101,14 @@ async def test_run_reading_partner_word_family_offered_after_independent_resolut
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=[
-            "a cat mat",  # read-aloud -- "sat" substituted as "mat"
-            "sat",  # resolved on the very first retry -- real decoding
-            "yes",  # accepts the word-family offer
-            "cat",  # reads the first family word correctly
-            "bat",  # reads the second family word correctly
-            "a cat sat",  # decision 0074: the sentence reread after hint practice
-            "no thanks",  # declines the separate post-reading word game
-            "let's just chat",
-        ],
+    with _patch_captures(
+        "a cat mat",  # read-aloud -- "sat" substituted as "mat"
+        "sat",  # resolved on the very first retry -- real decoding
+        "yes",  # accepts the word-family offer
+        "cat bat",  # decision 0084: reads every family word in one take
+        "a cat sat",  # decision 0074/0084: the sentence reread after hint practice
+        "no thanks",  # declines the separate post-reading word game
+        "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1097,8 +1117,11 @@ async def test_run_reading_partner_word_family_offered_after_independent_resolut
 
     assert next_mode == "3"
     assert any('"sat"' in line and "more words" in line for line in tts.synthesized)
-    assert any('"cat"' in line for line in tts.synthesized)
-    assert any('"bat"' in line for line in tts.synthesized)
+    # Decision 0084: both candidates shown together as one grid, read
+    # in a single capture -- not asked (or captured) one at a time.
+    assert ["cat", "bat"] in face.word_grids
+    assert None in face.word_grids  # cleared after the one capture
+    assert "Can you read all of these words for me?" in tts.synthesized
     assert sum(line in _CORRECT_RESPONSES for line in tts.synthesized) == 2
 
 
@@ -1122,11 +1145,7 @@ async def test_run_reading_partner_word_family_skipped_when_llm_gives_no_usable_
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=["a cat mat", "sat", "a cat sat", "no thanks", "let's just chat"],
-    ):
+    with _patch_captures("a cat mat", "sat", "a cat sat", "no thanks", "let's just chat"):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
             reading, reading_exercises, face, "child-1", 1.0,
@@ -1159,18 +1178,14 @@ async def test_run_reading_partner_word_family_offered_at_most_once_per_sentence
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=[
-            "a dog ran",  # read-aloud -- both "cat" and "sat" substituted
-            "cat",  # resolves "cat" on the very first retry
-            "no",  # declines the word-family offer for "cat"
-            "sat",  # resolves "sat" on the very first retry too
-            "a cat sat",  # decision 0074: the sentence reread
-            "no thanks",  # declines the separate post-reading word game
-            "let's just chat",
-        ],
+    with _patch_captures(
+        "a dog ran",  # read-aloud -- both "cat" and "sat" substituted
+        "cat",  # resolves "cat" on the very first retry
+        "no",  # declines the word-family offer for "cat"
+        "sat",  # resolves "sat" on the very first retry too
+        "a cat sat",  # decision 0074/0084: the sentence reread
+        "no thanks",  # declines the separate post-reading word game
+        "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1222,18 +1237,14 @@ async def test_run_reading_partner_rereads_and_checks_meaning_after_a_hint():
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=[
-            "the dog jumps over the log",  # read-aloud -- "frog" substituted as "dog"
-            "frog",  # resolved on the very first hint stage
-            "the frog jumps over the log",  # decision 0074: the sentence reread
-            "a dog",  # wrong first answer to the word-meaning question
-            "the frog",  # correct on the retry
-            "no thanks",  # declines the word game
-            "let's just chat",  # ends the session
-        ],
+    with _patch_captures(
+        "the dog jumps over the log",  # read-aloud -- "frog" substituted as "dog"
+        "frog",  # resolved on the very first hint stage
+        "the frog jumps over the log",  # decision 0074/0084: the sentence reread
+        "a dog",  # wrong first answer to the word-meaning question
+        "the frog",  # correct on the retry
+        "no thanks",  # declines the word game
+        "let's just chat",  # ends the session
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1241,7 +1252,8 @@ async def test_run_reading_partner_rereads_and_checks_meaning_after_a_hint():
         )
 
     assert next_mode == "3"
-    assert "Let's read that sentence again from the beginning." in tts.synthesized
+    assert "I'll read it for you first. Listen:" in tts.synthesized
+    assert "Now it's your turn! Say it after the beep." in tts.synthesized
     assert "Nice reading!" in tts.synthesized
     assert "What jumps over the log?" in tts.synthesized
     assert "Good try! Think about what hops." in tts.synthesized
@@ -1283,19 +1295,15 @@ async def test_run_reading_partner_catches_a_new_miscue_introduced_during_the_re
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=[
-            "he cat hop on the big bus",  # read-aloud -- "can" substituted as "cat"
-            "nope", "nope", "nope",  # hint stages 0-2, still wrong
-            "can",  # resolves on the last stage (said outright, echoed back)
-            "he can hop on the bug bus",  # reread -- "big" now swapped for "bug"
-            "big",  # decision 0081's correction attempt -- resolves
-            "to hop",  # answers the word-meaning question, first try
-            "no thanks",  # declines the word game
-            "let's just chat",  # ends the session
-        ],
+    with _patch_captures(
+        "he cat hop on the big bus",  # read-aloud -- "can" substituted as "cat"
+        "nope", "nope", "nope",  # hint stages 0-2, still wrong
+        "can",  # resolves on the last stage (said outright, echoed back)
+        "he can hop on the bug bus",  # reread -- "big" now swapped for "bug"
+        "big",  # decision 0081's correction attempt -- resolves
+        "to hop",  # answers the word-meaning question, first try
+        "no thanks",  # declines the word game
+        "let's just chat",  # ends the session
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1303,7 +1311,8 @@ async def test_run_reading_partner_catches_a_new_miscue_introduced_during_the_re
         )
 
     assert next_mode == "3"
-    assert "Let's read that sentence again from the beginning." in tts.synthesized
+    assert "I'll read it for you first. Listen:" in tts.synthesized
+    assert "Now it's your turn! Say it after the beep." in tts.synthesized
     assert "Let's look at this word again. Listen: big." in tts.synthesized
     assert 'Yes, "big"! Nice fixing that.' in tts.synthesized
     # The reread introduced a real miscue -- never blanket-praised.
@@ -1419,18 +1428,14 @@ async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_n
     face = _FakeFace()
     tts = _FakeTTS()
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=[
-            "dan has a dog",  # sentence 1 read-aloud -- "had" substituted as "has"
-            "had",  # resolves on the first hint stage
-            "dan had a dog",  # sentence 1's reread -- clean
-            "a dog",  # answers the word-meaning question, first try
-            "the dog ran",  # sentence 2 read-aloud -- clean, no detour
-            "no thanks",  # declines the word game
-            "let's just chat",  # ends the session
-        ],
+    with _patch_captures(
+        "dan has a dog",  # sentence 1 read-aloud -- "had" substituted as "has"
+        "had",  # resolves on the first hint stage
+        "dan had a dog",  # sentence 1's reread -- clean
+        "a dog",  # answers the word-meaning question, first try
+        "the dog ran",  # sentence 2 read-aloud -- clean, no detour
+        "no thanks",  # declines the word game
+        "let's just chat",  # ends the session
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1921,10 +1926,20 @@ async def test_run_reading_partner_falls_back_to_the_story_bank_when_everything_
         except StopIteration:
             return "let's just chat"
 
-    with patch(
-        "companion_robot.voice_loop_demo._capture_and_transcribe",
-        new_callable=AsyncMock,
-        side_effect=_capture_side_effect,
+    # Decision 0084: the per-sentence reread may go through
+    # _capture_and_transcribe_after_beep() instead -- same counter-
+    # based side_effect function patched onto both names.
+    with (
+        patch(
+            "companion_robot.voice_loop_demo._capture_and_transcribe",
+            new_callable=AsyncMock,
+            side_effect=_capture_side_effect,
+        ),
+        patch(
+            "companion_robot.voice_loop_demo._capture_and_transcribe_after_beep",
+            new_callable=AsyncMock,
+            side_effect=_capture_side_effect,
+        ),
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1981,6 +1996,13 @@ async def test_run_reading_partner_falls_back_to_the_word_drill_when_the_story_b
     with (
         patch(
             "companion_robot.voice_loop_demo._capture_and_transcribe",
+            new_callable=AsyncMock,
+            side_effect=_capture_side_effect,
+        ),
+        # Decision 0084: the per-sentence reread may go through
+        # _capture_and_transcribe_after_beep() instead.
+        patch(
+            "companion_robot.voice_loop_demo._capture_and_transcribe_after_beep",
             new_callable=AsyncMock,
             side_effect=_capture_side_effect,
         ),
@@ -2344,3 +2366,25 @@ async def test_run_word_game_never_offered_when_no_word_qualifies():
     # Only the mode's own unconditional clear-on-exit cleanup -- no
     # real game round ever ran.
     assert face.spotlights == [None]
+
+
+# -- _sentence_capture_seconds (decision 0084) -----------------------------
+
+
+def test_sentence_capture_seconds_scales_with_word_count():
+    short = _sentence_capture_seconds("A cat sat.", reading_pace_wpm=60.0)
+    long = _sentence_capture_seconds("The little brown dog ran across the yard.", reading_pace_wpm=60.0)
+    assert long > short
+
+
+def test_sentence_capture_seconds_never_below_the_floor():
+    # One word at a very fast pace would compute to well under a
+    # second otherwise -- a real child still needs a moment to react.
+    assert _sentence_capture_seconds("Go.", reading_pace_wpm=200.0) == _MIN_CAPTURE_SECONDS
+
+
+def test_sentence_capture_seconds_falls_back_on_a_non_positive_pace():
+    """A corrupt/unset profile pace (0 or negative) must never produce
+    a zero or negative recording window."""
+    assert _sentence_capture_seconds("A cat sat.", reading_pace_wpm=0.0) > 0
+    assert _sentence_capture_seconds("A cat sat.", reading_pace_wpm=-5.0) > 0

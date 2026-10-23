@@ -429,6 +429,42 @@ def _draw_spotlight(screen, width: int, height: int, font, word: str, color) -> 
     screen.blit(rendered, rect)
 
 
+# Decision 0084: word-family practice used to ask one word at a time,
+# each needing its own capture -- found slow and repetitive live. Now
+# every candidate is shown at once, in its own block, so the child can
+# read straight through them in one take (voice_loop_demo.py captures
+# once against the whole set). 1-2 words keep one column (bigger
+# boxes, nothing to wrap to); 3+ wrap to two columns, same spirit as
+# _wrap_text()'s own "simple and good enough" bar -- this never needs
+# to lay out more than word_family.py's own num_words default (4).
+_WORD_GRID_MARGIN = 20
+_WORD_GRID_GAP = 16
+_WORD_GRID_FONT_SIZE = 40
+_WORD_GRID_BOX_COLOR = _BLUE
+_WORD_GRID_BORDER_COLOR = _WHITE
+_WORD_GRID_BORDER_WIDTH = 3
+_WORD_GRID_BORDER_RADIUS = 14
+
+
+def _draw_word_grid(screen, width: int, height: int, font, words: list[str]) -> None:
+    columns = 1 if len(words) <= 2 else 2
+    rows = -(-len(words) // columns)  # ceil division
+    box_w = (width - 2 * _WORD_GRID_MARGIN - (columns - 1) * _WORD_GRID_GAP) // columns
+    box_h = (height - 2 * _WORD_GRID_MARGIN - (rows - 1) * _WORD_GRID_GAP) // rows
+    for i, word in enumerate(words):
+        row, col = divmod(i, columns)
+        x = _WORD_GRID_MARGIN + col * (box_w + _WORD_GRID_GAP)
+        y = _WORD_GRID_MARGIN + row * (box_h + _WORD_GRID_GAP)
+        rect = pygame.Rect(x, y, box_w, box_h)
+        pygame.draw.rect(screen, _WORD_GRID_BOX_COLOR, rect, border_radius=_WORD_GRID_BORDER_RADIUS)
+        pygame.draw.rect(
+            screen, _WORD_GRID_BORDER_COLOR, rect,
+            width=_WORD_GRID_BORDER_WIDTH, border_radius=_WORD_GRID_BORDER_RADIUS,
+        )
+        rendered = font.render(word, True, _WHITE)
+        screen.blit(rendered, rendered.get_rect(center=rect.center))
+
+
 def _draw_pattern(screen, cx: int, cy: int, pattern: list[str], color) -> None:
     width = len(pattern[0])
     height = len(pattern)
@@ -458,6 +494,7 @@ class ScreenFaceDeviceController(DeviceController):
         self._reading_font_color: str = "white"
         self._reading_started_at: float | None = None
         self._spotlight_word: str | None = None
+        self._word_grid: list[str] | None = None
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -525,6 +562,15 @@ class ScreenFaceDeviceController(DeviceController):
         with self._lock:
             self._spotlight_word = word
 
+    def set_word_grid(self, words: list[str] | None) -> None:
+        """Decision 0084: all of a word-family set's candidates at
+        once, each in its own block -- drawn instead of the spotlight/
+        teleprompter/face while set, same independent-state pattern as
+        set_reading_spotlight(). None returns to whatever else would
+        otherwise show."""
+        with self._lock:
+            self._word_grid = words
+
     def emergency_stop(self) -> None:
         """Synchronous, per the ABC's requirement -- must work even if
         the event loop is unresponsive. Safe to be this simple today:
@@ -560,6 +606,10 @@ class ScreenFaceDeviceController(DeviceController):
     def _get_spotlight(self) -> str | None:
         with self._lock:
             return self._spotlight_word
+
+    def _get_word_grid(self) -> list[str] | None:
+        with self._lock:
+            return self._word_grid
 
     def _create_screen(self):
         os.environ.setdefault("SDL_FBDEV", "/dev/fb0")
@@ -630,6 +680,7 @@ class ScreenFaceDeviceController(DeviceController):
                 continue
 
             spotlight_word = self._get_spotlight()
+            word_grid = self._get_word_grid()
             reading_lines, wpm, font_size, font_color, started_at = self._get_reading_display()
 
             if spotlight_word is not None:
@@ -637,6 +688,11 @@ class ScreenFaceDeviceController(DeviceController):
                 _draw_spotlight(
                     screen, self._width, self._height,
                     _font_for_size(spotlight_size), spotlight_word, _RED,
+                )
+            elif word_grid is not None:
+                _draw_word_grid(
+                    screen, self._width, self._height,
+                    _font_for_size(_WORD_GRID_FONT_SIZE), word_grid,
                 )
             elif reading_lines is not None:
                 reading_font = _font_for_size(font_size)
