@@ -74,7 +74,8 @@ from companion_robot.parent_controls.reading_exercises import ReadingExerciseRep
 from companion_robot.parent_controls.stories import StoryRepository
 from companion_robot.reading.alignment import align, assess, attribute_evidence, merge_assessments
 from companion_robot.reading.book_generation import BookGenerationError
-from companion_robot.reading.decodability import clean_word
+from companion_robot.reading.decodability import clean_word, decompose
+from companion_robot.reading.phonics_audio import get_clip_bytes
 from companion_robot.reading.deterministic_book import build_deterministic_book
 from companion_robot.reading.story_bank import pick_story_bank_book
 from companion_robot.reading.feedback import build_reading_feedback
@@ -1191,6 +1192,22 @@ async def _run_word_meaning_check(
     )
 
 
+async def _play_real_phonics_sounds(audio, word: str) -> None:
+    """Decision 0091: right after Chitti's spoken "'p' like in 'pig'"
+    breakdown (word_game.py's incorrect_response(), reusing hints.py's
+    blend_breakdown() text -- unchanged), plays each covered
+    grapheme's real recorded sound in order, as reinforcement with
+    the actual phoneme, not just a same-starting-sound proxy word.
+    Silently skips any grapheme reading/phonics_audio.py doesn't have
+    a clip for yet (its own DEFERRED_GRAPHEMES list) -- the spoken
+    breakdown already covers that case, no extra fallback needed
+    here."""
+    for grapheme in decompose(word).graphemes:
+        clip = get_clip_bytes(grapheme.grapheme)
+        if clip is not None:
+            await audio.play(clip)
+
+
 async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:
     """Decision 0057: a fun, deterministic "missing letters" bonus
     game after a book -- not part of mastery grading (reading/mastery.py
@@ -1236,14 +1253,13 @@ async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:
         print(f"You said: {answer}")
         face.set_reading_spotlight(None)
 
-        response = (
-            random_correct_response()
-            if is_correct_answer(word, answer)
-            else incorrect_response(word)
-        )
+        correct = is_correct_answer(word, answer)
+        response = random_correct_response() if correct else incorrect_response(word)
         print(f"Chitti: {response}")
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, response, speed=speed)
+        if not correct:
+            await _play_real_phonics_sounds(audio, word)
 
     closing = random_closing_line()
     print(f"Chitti: {closing}")
@@ -1337,14 +1353,13 @@ async def _run_word_family_practice(
         return
 
     for family_word in family_words:
-        response = (
-            random_correct_response()
-            if family_word in matched
-            else incorrect_response(family_word)
-        )
+        correct = family_word in matched
+        response = random_correct_response() if correct else incorrect_response(family_word)
         print(f"Chitti: {response}")
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, response, speed=speed)
+        if not correct:
+            await _play_real_phonics_sounds(audio, family_word)
 
 
 # Decision 0080, found live (twice, same pattern both times): a child
@@ -1824,6 +1839,20 @@ async def _run_reading_partner(
                         print(f"Chitti: {hint_line}")
                         face.set_status_led(DeviceState.SPEAKING)
                         await _speak(tts, audio, hint_line, speed=speed)
+                        # Decision 0091: stage 1's "like in 'pig'" and
+                        # stage 2's full breakdown are both still
+                        # spoken exactly as before (build_hint_line()
+                        # untouched) -- this plays the real recorded
+                        # sound(s) right after, as reinforcement, for
+                        # whichever grapheme(s) that stage just taught.
+                        if stage == 1:
+                            first_graphemes = decompose(hint_word).graphemes
+                            if first_graphemes:
+                                clip = get_clip_bytes(first_graphemes[0].grapheme)
+                                if clip is not None:
+                                    await audio.play(clip)
+                        elif stage == 2:
+                            await _play_real_phonics_sounds(audio, hint_word)
 
                         face.set_status_led(DeviceState.LISTENING)
                         attempt = await _capture_and_transcribe(stt)

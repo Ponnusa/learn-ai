@@ -73,8 +73,11 @@ class _FakeLLM(LanguageModelBackend):
 
 
 class _FakeAudio:
+    def __init__(self) -> None:
+        self.played: list[bytes] = []
+
     async def play(self, audio_bytes: bytes) -> None:
-        pass
+        self.played.append(audio_bytes)
 
     async def stop_playback(self) -> None:
         pass
@@ -2365,6 +2368,49 @@ async def test_run_word_game_accepted_plays_through_both_words():
     # The game always ends on a warm note, regardless of the mix of
     # right/wrong answers.
     assert any(line in _CLOSING_LINES for line in tts.synthesized)
+
+
+async def test_run_word_game_plays_real_phonics_sounds_for_a_wrong_answer():
+    """Decision 0091: a wrong answer still gets the spoken "'b' like
+    in 'bat'..." breakdown unchanged (word_game.py's own
+    incorrect_response()), but now also plays each covered grapheme's
+    real recorded sound right after it -- reinforcement with the
+    actual phoneme, not just the proxy word."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A little bunny hops.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+
+    with _patch_captures(
+        "no thanks", "a little bunny hops", "yes", "little", "nope", "let's just chat",
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, audio, "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # audio.played also captures every _speak() call's TTS playback
+    # (_FakeTTS.synthesize()'s fixed b"fake-audio" placeholder) -- real
+    # phonics clips are real WAV PCM, never that exact placeholder.
+    # "bunny" decomposes to b/u/n/y (one grapheme per sound -- "nn" is
+    # one /n/, not two); every one of those has a real clip except "y"
+    # (decision 0091's DEFERRED_GRAPHEMES) -- 3 real clips played.
+    real_clips = [clip for clip in audio.played if clip != b"fake-audio"]
+    assert len(real_clips) == 3
 
 
 async def test_run_word_game_never_offered_when_no_word_qualifies():
