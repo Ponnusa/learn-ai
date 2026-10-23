@@ -69,6 +69,14 @@ _SDL_VIDEO_DRIVER_CANDIDATES = ("kmsdrm", "RPI", "fbcon", "fbdev", "directfb")
 # import-order concerns apply here.
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
+# Decision 0092: CHITTI_DISABLE_FACE=1 suppresses only the idle
+# dot-matrix face pattern (the render loop's "else" branch below) --
+# an A/B toggle for isolating that pattern-drawing work's own cost.
+# Reading Partner's own reading-text/spotlight/word-grid display are
+# unaffected either way; they're a different branch of the same loop,
+# and the loop itself still runs regardless of this flag.
+_FACE_DISABLED = os.environ.get("CHITTI_DISABLE_FACE") == "1"
+
 _FPS = 15
 
 _BG = (10, 10, 18)
@@ -626,7 +634,7 @@ class ScreenFaceDeviceController(DeviceController):
                         screen, self._width, self._height, reading_font, wrapped_lines, base_color,
                         line_height=reading_font.get_linesize() + _READING_LINE_SPACING,
                     )
-                else:
+                elif not _FACE_DISABLED:
                     mode = self._get_mode()
                     eye_pattern, mouth_pattern = _resolve_expression(state, mode)
 

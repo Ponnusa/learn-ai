@@ -141,3 +141,33 @@ async def test_render_thread_survives_a_bad_frame(monkeypatch):
         assert calls["n"] >= 2
     finally:
         await face.shutdown()
+
+
+async def test_disabled_face_still_renders_reading_text(monkeypatch):
+    """Decision 0092, found live: CHITTI_DISABLE_FACE=1 used to skip
+    starting the render thread entirely, so Reading Partner's own
+    reading-text/spotlight/word-grid display never showed either --
+    not what was asked for ("disable only face, not the display of
+    words"). The thread must still run, and reading text must still
+    render, with the flag set -- only the idle dot-matrix pattern is
+    suppressed."""
+    import asyncio
+
+    import companion_robot.device.screen_face as screen_face_module
+
+    monkeypatch.setattr(screen_face_module, "_FACE_DISABLED", True)
+
+    face = ScreenFaceDeviceController()
+    await face.start()
+    try:
+        # No spotlight/word-grid/reading-text set yet -- this is
+        # exactly the state that used to draw the dot-matrix face;
+        # with the flag set, it must draw nothing instead, not crash.
+        await asyncio.sleep(0.2)
+        assert face.health_check() is True
+
+        face.set_reading_text(["The cat sat on a mat."], font_size=28, font_color="yellow")
+        await asyncio.sleep(0.2)
+        assert face.health_check() is True
+    finally:
+        await face.shutdown()

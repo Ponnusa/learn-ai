@@ -2540,20 +2540,18 @@ async def setup_demo() -> DemoContext:
     # not raised) if pygame isn't installed or no SDL driver works --
     # never allowed to take down a real conversation session.
     #
-    # CHITTI_DISABLE_FACE=1 (decision 0046): skips starting the render
-    # thread entirely -- an A/B toggle for comparing the timing logs
-    # above against the same kind of session with no face rendering at
-    # all, to isolate how much (if any) of the observed slowdown is
-    # the render thread contending for the Pi's single CPU core versus
-    # something else (network conditions, API-side latency). The
-    # controller object still exists either way, so every
-    # set_status_led()/set_expression_mode() call site is unaffected --
-    # they're harmless no-ops while the render thread was never started.
+    # CHITTI_DISABLE_FACE=1 (decision 0046, narrowed by decision 0092):
+    # originally skipped starting the render thread entirely -- found
+    # live that this also meant Reading Partner's own reading-text/
+    # spotlight/word-grid display never showed either, since they
+    # share that one thread. The thread now always starts; the env
+    # var only suppresses the idle dot-matrix FACE pattern itself
+    # (screen_face.py's own render loop checks it), an A/B toggle for
+    # isolating how much (if any) of a slowdown is specifically that
+    # pattern-drawing work versus something else (network conditions,
+    # API-side latency) -- not a way to turn off the screen.
     face = ScreenFaceDeviceController()
-    if os.environ.get("CHITTI_DISABLE_FACE") == "1":
-        logger.info("CHITTI_DISABLE_FACE=1 -- not starting the face render thread")
-    else:
-        await face.start()
+    await face.start()
 
     # Picks the existing profile automatically if there's exactly one
     # (the common single-child case), prompts if there are several,
