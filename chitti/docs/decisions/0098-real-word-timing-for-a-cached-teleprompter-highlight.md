@@ -116,6 +116,35 @@ confirming `sentence_index` passes straight through unchanged to the
 face; one reproducing this story's exact setup is implicit in the
 first, since the scoping logic has no special-casing by word.
 
+## Update: trusting Whisper's timing, not its re-transcribed word text
+
+Found live, immediately after the sentence-scoping fix above: in
+"Sam and the Cat," "nap" -- appearing in 3 of the 4 sentences -- never
+highlighted at all, while other words in the same sentences did.
+Whisper's `transcribe_with_word_timestamps()` re-transcribes
+Chitti's own short, synthesized audio from scratch; a short, clipped,
+closed-syllable word like "nap" is exactly the kind of thing Whisper
+can mis-hear or drop at an utterance's edge, even though we already
+know with certainty what text was actually spoken -- we asked the
+TTS backend to say it. There was never a good reason to trust
+Whisper's own transcribed word *text* over that; only its *timing*
+is genuinely unknown in advance.
+
+New `align_timings_to_expected_text(expected_text, timings)` in
+`reading/word_timing.py`: substitutes each timing's word with the
+corresponding word from `expected_text`, matched by position,
+keeping Whisper's own start/end untouched. Only substitutes when the
+word counts match exactly -- if Whisper split, merged, or dropped a
+word, position no longer lines up reliably, so it falls back to
+Whisper's own words unchanged rather than guessing a worse mapping.
+Called in `_speak_with_word_highlight()` right after the timestamp
+lookup, before caching -- the cache stores the already-corrected
+timings, so a cache hit doesn't need to re-align anything.
+
+Two new tests: the substitution replacing a wrong/mis-heard word by
+position while keeping Whisper's own timing, and the count-mismatch
+fallback leaving Whisper's words untouched.
+
 ## Consequences
 
 Four new tests for `_speak_with_word_highlight()` (highlights each
@@ -128,7 +157,7 @@ audio sent is wrapped in a real WAV container; missing-API-key).
 Four new tests on `reading/word_timing.py`'s pure parsing/wrapping.
 Two new tests on `screen_face.py`'s `_normalize_word()`.
 
-Full suite: 634 passed (4 failures in `test_screen_face_rendering.py`
+Full suite: 636 passed (4 failures in `test_screen_face_rendering.py`
 -- unchanged pre-existing baseline, no usable SDL video driver in
 this dev environment).
 

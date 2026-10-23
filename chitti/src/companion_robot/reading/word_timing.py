@@ -47,6 +47,31 @@ def parse_word_timings(response_json: dict) -> list[WordTiming]:
     return timings
 
 
+def align_timings_to_expected_text(expected_text: str, timings: list[WordTiming]) -> list[WordTiming]:
+    """Decision 0098, found live: a real story's sentence read "nap"
+    out loud via TTS, but Whisper's own re-transcription of that
+    short, clipped word never highlighted -- plausibly Whisper
+    mis-hearing or dropping it, a known weakness for short/closed-
+    syllable words, especially right at an utterance's edge. We
+    already know EXACTLY what text was spoken (we asked the TTS
+    backend to say it) -- there's no reason to trust Whisper's own
+    transcribed word *text* over that, only its *timing*, which is
+    the one thing we can't know in advance. Substitutes each
+    timing's word with the corresponding word from `expected_text`,
+    matched by position, keeping Whisper's own start/end untouched.
+    Only substitutes when the counts match exactly -- if Whisper
+    split, merged, or dropped a word, position no longer lines up
+    reliably, so this falls back to Whisper's own words unchanged
+    rather than guessing a worse mapping."""
+    expected_words = expected_text.split()
+    if len(expected_words) != len(timings):
+        return timings
+    return [
+        WordTiming(word=expected, start=timing.start, end=timing.end)
+        for expected, timing in zip(expected_words, timings)
+    ]
+
+
 def pcm_to_wav_bytes(
     pcm: bytes, *, sample_rate: int = 24000, channels: int = 1, sample_width: int = 2,
 ) -> bytes:

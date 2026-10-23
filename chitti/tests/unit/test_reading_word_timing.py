@@ -7,6 +7,7 @@ from io import BytesIO
 
 from companion_robot.reading.word_timing import (
     WordTiming,
+    align_timings_to_expected_text,
     parse_word_timings,
     pcm_to_wav_bytes,
 )
@@ -41,6 +42,39 @@ def test_parse_word_timings_skips_malformed_entries_without_raising():
     }
     timings = parse_word_timings(response)
     assert timings == [WordTiming(word="Dan", start=0.0, end=0.3)]
+
+
+# -- align_timings_to_expected_text() (decision 0098) ----------------------
+
+
+def test_align_timings_substitutes_the_known_correct_word_by_position():
+    """Found live: Whisper re-transcribing Chitti's own short,
+    synthesized "nap" never highlighted at all -- we already know
+    the exact text we asked TTS to say, so that's trusted over
+    Whisper's own (here apparently wrong) word text; only Whisper's
+    timing is kept."""
+    timings = [
+        WordTiming(word="The", start=0.0, end=0.2),
+        WordTiming(word="cat", start=0.2, end=0.4),
+        WordTiming(word="can", start=0.4, end=0.6),
+        WordTiming(word="gap", start=0.6, end=0.8),  # Whisper mis-heard "nap"
+    ]
+    aligned = align_timings_to_expected_text("The cat can nap.", timings)
+
+    assert [t.word for t in aligned] == ["The", "cat", "can", "nap."]
+    # Timing itself (the one thing we can't know in advance) is kept
+    # exactly as Whisper returned it.
+    assert aligned[3].start == 0.6 and aligned[3].end == 0.8
+
+
+def test_align_timings_falls_back_unchanged_when_counts_differ():
+    """If Whisper split, merged, or dropped a word, position no
+    longer lines up reliably -- falls back to Whisper's own words
+    rather than guessing a worse mapping."""
+    timings = [WordTiming(word="The", start=0.0, end=0.2), WordTiming(word="cat", start=0.2, end=0.4)]
+    aligned = align_timings_to_expected_text("The cat can nap.", timings)
+
+    assert aligned == timings
 
 
 def test_pcm_to_wav_bytes_produces_a_real_wav_file():

@@ -85,7 +85,7 @@ from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
 from companion_robot.reading.schema import AssessmentResult, GeneratedBook, MasteryDelta
 from companion_robot.reading.sentences import split_into_sentences
-from companion_robot.reading.word_timing import WordTiming
+from companion_robot.reading.word_timing import WordTiming, align_timings_to_expected_text
 from companion_robot.reading.session_state import (
     ReadingState,
     SentenceSession,
@@ -241,6 +241,13 @@ async def _speak_with_word_highlight(
             try:
                 async with _timed("word_timestamp_lookup"):
                     timings = await get_timestamps(reply_audio)
+                # Found live: Whisper re-transcribing Chitti's own
+                # short, synthesized "nap" never highlighted at all --
+                # we already know the exact text that was spoken, so
+                # trust that over Whisper's own (re-transcribed, and
+                # here apparently wrong) word text; only its timing
+                # is actually uncertain.
+                timings = align_timings_to_expected_text(text, timings)
             except Exception:
                 logger.exception(
                     "word-timestamp lookup failed -- modeling %r without highlight", text

@@ -1346,7 +1346,10 @@ async def test_speak_with_word_highlight_highlights_each_word_in_order():
 
     await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache, 0)
 
-    assert face.reading_text_highlights == [(0, "Dan"), (0, "ran"), (0, None)]
+    # Decision 0098's own fix: the expected text's own words ("Dan",
+    # "ran.") are substituted in by position -- same count as
+    # Whisper's two timings -- not Whisper's raw transcribed text.
+    assert face.reading_text_highlights == [(0, "Dan"), (0, "ran."), (0, None)]
     assert audio.played == [b"fake-audio"]
 
 
