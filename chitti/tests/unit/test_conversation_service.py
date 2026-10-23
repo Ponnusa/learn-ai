@@ -620,6 +620,35 @@ async def test_react_to_comprehension_answer_overrides_a_wrong_rejection_of_a_li
     assert result.text == "Yes, that's it! Great job remembering that from the story."
 
 
+async def test_react_to_comprehension_answer_overrides_a_resolved_reply_that_still_hedges():
+    """Decision 0097, found live: a different shape of the same
+    failure as decision 0083 -- the model marked STATUS "resolved"
+    (so no retry was captured) for the answer "Log." against a story
+    that literally says "A hen sat on a log," but its own SAY text
+    still read like an unresolved clue ("...but think about what
+    that something was again!"). needs_retry was already False here,
+    so decision 0083's own override (gated on needs_retry) never
+    fired -- this closes that gap by also checking whether the SAY
+    text itself still sounds like a retry invitation."""
+    llm = FakeLanguageModelBackend(
+        reply=(
+            "STATUS: resolved\n"
+            "SAY: Great job! The hen did sit on something, but think about "
+            "what that something was again!"
+        )
+    )
+    service = ConversationService(llm)
+
+    result = await service.react_to_comprehension_answer(
+        "A hen sat on a log. A pig ran to the hen.", "What did the hen sit on?",
+        "Log.", age=6,
+    )
+
+    assert result.needs_retry is False
+    assert "think about" not in result.text
+    assert result.text == "Yes, that's it! Great job remembering that from the story."
+
+
 async def test_react_to_comprehension_answer_still_retries_a_genuinely_unrelated_answer():
     """The literal-match override must not swallow every retry -- an
     answer sharing no real word with the story still gets the

@@ -9,6 +9,7 @@ from companion_robot.reading.comprehension import (
     build_word_meaning_question_prompt,
     parse_comprehension_reaction,
     parse_questions,
+    sounds_like_a_retry_invitation,
 )
 
 
@@ -111,3 +112,21 @@ def test_answer_matches_story_text_ignores_short_words_on_both_sides():
 
 def test_answer_matches_story_text_is_case_insensitive():
     assert answer_matches_story_text("RED", "Dan has a red dog.") is True
+
+
+# -- sounds_like_a_retry_invitation (decision 0097) --------------------
+
+
+def test_sounds_like_a_retry_invitation_catches_the_real_transcript_wording():
+    text = "Great job! The hen did sit on something, but think about what that something was again!"
+    assert sounds_like_a_retry_invitation(text) is True
+
+
+def test_sounds_like_a_retry_invitation_true_for_common_phrasings():
+    assert sounds_like_a_retry_invitation("Try again!") is True
+    assert sounds_like_a_retry_invitation("What do you think?") is True
+    assert sounds_like_a_retry_invitation("Can you think of the real answer?") is True
+
+
+def test_sounds_like_a_retry_invitation_false_for_a_clean_affirmation():
+    assert sounds_like_a_retry_invitation("Yes, exactly -- the bunny found a red apple!") is False

@@ -26,6 +26,7 @@ from companion_robot.reading.comprehension import (
     build_word_meaning_question_prompt,
     parse_comprehension_reaction,
     parse_questions,
+    sounds_like_a_retry_invitation,
 )
 from companion_robot.reading.schema import GeneratedBook, Objective
 from companion_robot.reading.word_family import (
@@ -248,7 +249,20 @@ class ConversationService:
         # text is a cheap, deterministic reason not to trust a
         # "needs_retry" verdict; the model's own SAY text is skipped
         # too, since it was written assuming the answer was wrong.
-        if reaction.needs_retry and answer_matches_story_text(child_answer, story_text):
+        #
+        # Decision 0097, found live: a different shape of the same
+        # failure -- the model marked it "resolved" (so no retry was
+        # asked for) but its own SAY text still read like an
+        # unresolved clue ("...but think about what that something
+        # was again!") for an answer ("Log.") that literally matches
+        # the story ("A hen sat on a log."). Same override, triggered
+        # either by the model's own needs_retry verdict OR by its
+        # text still sounding like a retry invitation despite saying
+        # resolved -- either way, a literal match means the answer
+        # shouldn't be second-guessed.
+        if answer_matches_story_text(child_answer, story_text) and (
+            reaction.needs_retry or sounds_like_a_retry_invitation(reaction.text)
+        ):
             reaction = ComprehensionReaction(text=LITERAL_MATCH_AFFIRMATION, needs_retry=False)
         screened = self._screen(reaction.text)
         if screened.blocked:

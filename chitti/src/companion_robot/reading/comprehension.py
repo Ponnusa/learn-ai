@@ -71,6 +71,35 @@ def answer_matches_story_text(answer: str, story_text: str) -> bool:
     return bool(answer_words & story_words)
 
 
+# Decision 0097, found live: the model marked a reaction "STATUS:
+# resolved" -- so the loop didn't ask for another attempt -- but its
+# own SAY text still read like an unresolved clue ("Great job! The
+# hen did sit on something, but think about what that something was
+# again!") against a story that literally says "A hen sat on a log,"
+# for the answer "Log." The literal-match override below only fired
+# for "needs_retry" verdicts (decision 0083); a "resolved" verdict
+# with contradictory, still-asking-to-reconsider text slipped
+# through both checks and reached the child as-is. This phrase list
+# is a second, narrow trigger for exactly that shape -- a "resolved"
+# response whose own wording still invites another attempt -- not
+# exhaustive, but covers the common ways a model hedges like this.
+_RETRY_INVITATION_PHRASES = (
+    "try again",
+    "try that again",
+    "try once more",
+    "one more try",
+    "think again",
+    "think about",
+    "what do you think",
+    "can you think",
+)
+
+
+def sounds_like_a_retry_invitation(text: str) -> bool:
+    lowered = text.lower()
+    return any(phrase in lowered for phrase in _RETRY_INVITATION_PHRASES)
+
+
 def build_question_prompt(story_text: str, num_questions: int, age: int | None) -> str:
     """Asks for a mix of simple factual recall and one gentle "why"/
     "how did they feel" question, grounded in the story text only."""
@@ -143,13 +172,16 @@ def build_reaction_prompt(
     if attempt_number >= max_attempts:
         guidance = (
             "This is the child's last attempt at this question. If their answer "
-            "is already right (even in different words), just celebrate it. If "
-            "it's still not right, gently explain the real detail yourself in "
+            "is already right (even in different words), clearly confirm it was "
+            "right and stop there -- do not also hedge or ask them to reconsider. "
+            "If it's still not right, gently explain the real detail yourself in "
             "one short sentence and move on -- do NOT ask them to try again."
         )
     else:
         guidance = (
-            "If their answer is right (even in different words), celebrate it. "
+            "If their answer is right (even in different words), clearly confirm "
+            "it was right and stop there -- do not also hedge, add a clue, or ask "
+            "them to reconsider; a right answer gets STATUS resolved, full stop. "
             "If it's wrong or clearly incomplete, do NOT reveal the correct "
             "detail yet -- acknowledge what they said, give ONE small clue "
             "grounded in the story, and invite them to try again."
@@ -160,7 +192,10 @@ def build_reaction_prompt(
         f'answered: "{child_answer}". {guidance} Use ONLY what\'s in the story '
         "text below for any facts you mention. Keep it to one or two sentences, "
         "simple and encouraging either way.\n\n"
-        "Reply with exactly two lines:\n"
+        "Reply with exactly two lines, and make sure they agree with each "
+        "other -- never mark it resolved while still asking the child to "
+        "reconsider or try again, and never mark it needs_retry while also "
+        "confirming or revealing the correct detail:\n"
         'STATUS: "resolved" if nothing more is needed, or "needs_retry" if you '
         "just gave a clue and are waiting on another try.\n"
         "SAY: the one short sentence to speak to the child.\n\n"
