@@ -41,6 +41,7 @@ from companion_robot.voice_loop_demo import (
     _run_everyday_companion,
     _run_reading_partner,
     _run_teachable_friend,
+    _run_word_family_practice,
     _speak_while_thinking,
 )
 
@@ -99,6 +100,7 @@ class _FakeFace:
         self.reading_texts: list[list[str] | None] = []
         self.spotlights: list[str | None] = []
         self.word_grids: list[list[str] | None] = []
+        self.word_grid_highlights: list[str | None] = []
         # Decision 0090: the three display-state setters below are
         # recorded into this one shared, real-call-order log too (as
         # well as their own per-method lists above, which most
@@ -130,6 +132,9 @@ class _FakeFace:
     def set_word_grid(self, words: list[str] | None) -> None:
         self.word_grids.append(words)
         self.display_calls.append(("word_grid", words))
+
+    def set_word_grid_highlight(self, word: str | None) -> None:
+        self.word_grid_highlights.append(word)
 
 
 @contextlib.contextmanager
@@ -655,19 +660,19 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
     tts = _FakeTTS()
 
     with _patch_captures(
-        # A perfect read -- no miscue, so decision 0052's hint loop
-        # never fires here and doesn't consume extra captures. Decision
-        # 0067: the book's two sentences are each their own capture.
-        # Decision 0094: Chitti's "read it to you first?" offer is now
-        # asked once per call, not once per sentence -- "no thanks"
-        # declines it, and both sentence captures follow directly.
-        # "no thanks" also declines decision 0057's post-reading word
-        # game (offered since "cat"/"sat"/"ran" all qualify) so it
-        # never consumes further captures either. The final turn is a
+        # Decision 0095: the child reads the WHOLE story in one take
+        # now, not one capture per sentence -- "a cat sat a cat ran"
+        # is a perfect read of both sentences at once, so no sentence
+        # gets flagged and decision 0052's hint ladder never fires.
+        # Decision 0094: Chitti's "read it to you first?" offer is
+        # asked once per call -- "no thanks" declines it. "no thanks"
+        # also declines decision 0057's post-reading word game
+        # (offered since "cat"/"sat"/"ran" all qualify) so it never
+        # consumes further captures either. The final turn is a
         # genuine switch request (needed so the mode loop -- which
         # otherwise keeps generating books forever -- actually
         # terminates for this test).
-        "no thanks", "a cat sat", "a cat ran", "no thanks", "let's just chat",
+        "no thanks", "a cat sat a cat ran", "no thanks", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -880,10 +885,12 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
         )
 
     assert next_mode == "3"
-    # [0] is the story intro, [1] is decision 0085's "read it to you
-    # first?" offer -- both spoken before the read-aloud capture.
-    assert tts.synthesized[2] == build_hint_line("sat", 0)
-    assert tts.synthesized[3] == "There you go!"
+    # [0] story intro, [1] the "read it to you first?" offer, [2] the
+    # "give it a try" turn cue, [3] decision 0095's "let's work on
+    # this one" attention cue for the one flagged sentence -- all
+    # spoken before the hint ladder itself starts.
+    assert tts.synthesized[4] == build_hint_line("sat", 0)
+    assert tts.synthesized[5] == "There you go!"
     # Not asserted by fixed index from here on -- decision 0074's
     # reread/word-meaning-check step runs a real LLM call wrapped in
     # decision 0050's thinking-filler, whose line count depends on
@@ -941,12 +948,14 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
         )
 
     assert next_mode == "3"
-    # [0] is the story intro, [1] is decision 0085's "read it to you
-    # first?" offer -- both spoken before the read-aloud capture.
-    assert tts.synthesized[2] == build_hint_line("sat", 0)
-    assert tts.synthesized[3] == build_hint_line("sat", 1)
-    assert tts.synthesized[4] == build_hint_line("sat", 2)
-    assert tts.synthesized[5] == build_hint_line("sat", 3)
+    # [0] story intro, [1] the "read it to you first?" offer, [2] the
+    # "give it a try" turn cue, [3] decision 0095's "let's work on
+    # this one" attention cue for the one flagged sentence -- all
+    # spoken before the hint ladder itself starts.
+    assert tts.synthesized[4] == build_hint_line("sat", 0)
+    assert tts.synthesized[5] == build_hint_line("sat", 1)
+    assert tts.synthesized[6] == build_hint_line("sat", 2)
+    assert tts.synthesized[7] == build_hint_line("sat", 3)
     assert "There you go!" not in tts.synthesized
     # Decision 0084: exhausting the ladder still gets the model-then-
     # repeat flow instead of a blanket "Nice reading!" below. Not
@@ -1252,6 +1261,26 @@ async def test_run_reading_partner_word_family_offered_at_most_once_per_sentence
     assert len(offers) == 1
 
 
+async def test_word_family_practice_highlights_each_word_while_modeling_it():
+    """Decision 0095: when read_first is True, Chitti models every
+    word in the family before asking the child to read them -- each
+    word gets highlighted in the grid while it's actually being
+    spoken, not just shown statically throughout, and the highlight
+    clears once modeling is done."""
+    llm = _FakeLLM(reply="WORD: cat\nWORD: bat")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures("yes", "cat bat"):
+        await _run_word_family_practice(
+            "sat", conversation, tts, _FakeAudio(), "fake-stt", face, 1.0, 6,
+            ["short_vowels"], read_first=True,
+        )
+
+    assert face.word_grid_highlights == ["cat", "bat", None]
+
+
 # -- reread + word-meaning check after a hint-ladder word (decision 0074) --
 
 
@@ -1414,7 +1443,10 @@ async def test_run_reading_partner_skips_the_word_meaning_check_on_a_clean_read(
 # -- sentence-by-sentence reading with persistent position (decision 0067) --
 
 
-async def test_run_reading_partner_shows_the_whole_story_but_captures_one_sentence_at_a_time():
+async def test_run_reading_partner_shows_and_captures_the_whole_story_in_one_take():
+    """Decision 0095: the child reads the entire passage in one
+    continuous take -- no per-sentence capture, no mid-passage resume
+    (there's no meaningful midpoint any more)."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -1433,9 +1465,11 @@ async def test_run_reading_partner_shows_the_whole_story_but_captures_one_senten
     tts = _FakeTTS()
 
     with _patch_captures(
-        # Decision 0094: the offer is asked once per call, not once
-        # per sentence.
-        "no thanks", "a cat sat", "a dog ran", "no thanks", "let's just chat",
+        # Decision 0094: the offer is asked once per call. Decision
+        # 0095: one capture for the whole two-sentence story, read
+        # cleanly -- both sentences are skipped by the correction
+        # pass below, with no further capture needed.
+        "no thanks", "a cat sat a dog ran", "no thanks", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, _FakeAudio(), "fake-stt",
@@ -1444,24 +1478,21 @@ async def test_run_reading_partner_shows_the_whole_story_but_captures_one_senten
 
     assert next_mode == "3"
     # Decision 0093: the whole two-sentence passage is shown once, set
-    # before the per-sentence capture loop starts, and only cleared
-    # once the whole passage is done -- never swapped sentence by
-    # sentence (there's room for the whole story on a TV over HDMI).
+    # before the single whole-story capture, and only cleared once
+    # the whole passage is done -- never swapped sentence by sentence
+    # (there's room for the whole story on a TV over HDMI).
     assert [lines for lines in face.reading_texts if lines] == [["A cat sat.", "A dog ran."]]
-    # The passage finished cleanly in one sitting -- position memory
-    # resets, since it only matters while something is in progress.
-    profile = reading.get_or_create("child-1")
-    assert profile.current_passage_key is None
-    assert profile.current_sentence_index == 0
 
 
 async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_needed_the_full_hint_flow():
     """A product-owner report of a real transcript ("Dan and the Dog")
     worried that a multi-sentence passage stays stuck on sentence 1
     forever once it triggers the hint ladder + reread +
-    word-meaning-check detour. Confirms the per-sentence loop
-    (`for sentence_index in range(start_index, len(sentences))`) still
-    reaches sentence 2 after all of that runs for sentence 1."""
+    word-meaning-check detour. Decision 0095: confirms the
+    correction loop over every sentence's own bucketed miscues still
+    reaches sentence 2 after all of that runs for sentence 1 -- and
+    that sentence 2, read cleanly in the one whole-story capture, is
+    simply skipped rather than re-asked."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -1489,13 +1520,15 @@ async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_n
 
     with _patch_captures(
         # Decision 0094: the "read it to you first?" offer is asked
-        # once per call now, not once per sentence.
+        # once per call now, not once per sentence. Decision 0095:
+        # one whole-story capture, not one per sentence -- "had" is
+        # substituted as "has" in sentence 1 only, so sentence 2 has
+        # no miscues and is skipped entirely by the correction pass.
         "no thanks",  # declines the offer for the whole call
-        "dan has a dog",  # sentence 1 read-aloud -- "had" substituted as "has"
+        "dan has a dog the dog ran",  # whole-story read-aloud, one miss
         "had",  # resolves on the first hint stage
         "dan had a dog",  # sentence 1's reread -- clean
         "a dog",  # answers the word-meaning question, first try
-        "the dog ran",  # sentence 2 read-aloud -- clean, no detour
         "no thanks",  # declines the word game
         "let's just chat",  # ends the session
     ):
@@ -1506,83 +1539,27 @@ async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_n
 
     assert next_mode == "3"
     # Sentence 1's hint detour (including its own reread) didn't trap
-    # the loop there -- sentence 2 still gets its own turn. Decision
-    # 0093: the whole passage is shown once, set before the loop
-    # starts, and stays up through the hint ladder/reread -- never
-    # swapped per sentence.
+    # the loop there -- sentence 2, read cleanly, is simply skipped.
+    # Decision 0093/0095: the whole passage is shown first, narrows
+    # to just the flagged sentence for its own correction, then
+    # widens back to the whole story once that correction is done --
+    # sentence 2 needs no display change of its own, since it's
+    # never revisited.
     assert [lines for lines in face.reading_texts if lines] == [
+        ["Dan had a dog.", "The dog ran."],
+        ["Dan had a dog."],
         ["Dan had a dog.", "The dog ran."],
     ]
     assert "Nice reading!" in tts.synthesized
     assert "Yes, a dog!" in tts.synthesized
 
 
-async def test_run_reading_partner_resumes_mid_passage_after_an_interrupted_session():
-    """Decision 0067: a session that ends partway through a longer
-    passage (here, simulated by an exception during the second
-    sentence's capture) picks back up at the right sentence next time
-    instead of re-reading from the top or losing progress."""
-    conn = connect(":memory:")
-    reading = ReadingRepository(conn)
-    reading_exercises = ReadingExerciseRepository(conn)
-    # No reading_exercises row -- the LLM path is used both times, with
-    # the same fixed reply both sessions so the regenerated book's text
-    # (and therefore its passage_key) is identical across the two calls.
-    # Decodable at a fresh profile's budget (short_vowels only) --
-    # unlike, say, "ate" (a silent-e long-vowel pattern), which would
-    # fail the book generator's own decodability check and never reach
-    # the capture/read-aloud step at all.
-    llm = _FakeLLM(reply="TITLE: The Cat\nPAGE: A cat sat.\nPAGE: A cat ran.\nPAGE: A dog ran.")
-    conversation = ConversationService(llm)
-    face = _FakeFace()
-    tts = _FakeTTS()
-
-    with _patch_captures(
-        # Decision 0094: the "read it to you first?" offer is asked
-        # once for the whole call, declined, then sentence 1's clean
-        # read-aloud; the interruption happens on sentence 2's own
-        # read-aloud capture, which never completes.
-        "no thanks", "a cat sat", RuntimeError("simulated interruption"),
-    ):
-        with pytest.raises(RuntimeError, match="simulated interruption"):
-            await _run_reading_partner(
-                conversation, tts, _FakeAudio(), "fake-stt",
-                reading, reading_exercises, face, "child-1", 1.0,
-            )
-
-    interrupted_profile = reading.get_or_create("child-1")
-    assert interrupted_profile.current_sentence_index == 1
-    assert interrupted_profile.current_passage_key is not None
-
-    tts2 = _FakeTTS()
-    with _patch_captures(
-        # Decision 0094: the offer is asked once for this (fresh) call
-        # too -- `read_first_preference` doesn't persist across
-        # separate calls to _run_reading_partner(), only within one.
-        "no thanks", "a cat ran", "a dog ran", "no thanks", "let's just chat",
-    ):
-        next_mode, carried_text = await _run_reading_partner(
-            conversation, tts2, _FakeAudio(), "fake-stt",
-            reading, reading_exercises, face, "child-1", 1.0,
-        )
-
-    assert next_mode == "3"
-    assert any("pick up where we left off" in line.lower() for line in tts2.synthesized)
-    # Decision 0093: the whole story -- including the already-read
-    # first sentence -- is shown again on the resumed call too; that's
-    # deliberate now (a TV has room for the whole thing, not a reason
-    # to hide the part already read), not a regression. What actually
-    # matters here is that the CAPTURE resumed at the right sentence,
-    # confirmed by the scripted replies above succeeding and the final
-    # persisted state below -- not what's on screen.
-    assert [lines for lines in face.reading_texts if lines] == [
-        ["A cat sat.", "A cat ran.", "A dog ran."],
-        ["A cat sat.", "A cat ran.", "A dog ran."],
-    ]
-
-    finished_profile = reading.get_or_create("child-1")
-    assert finished_profile.current_passage_key is None
-    assert finished_profile.current_sentence_index == 0
+# Decision 0095: the old per-sentence mid-passage resume (decision
+# 0067's `current_passage_key`/`current_sentence_index`) was removed
+# along with per-sentence capture -- one whole-story take has no
+# meaningful midpoint to resume from any more, so the test that
+# covered it (`test_run_reading_partner_resumes_mid_passage_after_an_interrupted_session`)
+# no longer applies and was deleted rather than patched.
 
 
 # -- re-reading a finished exercise + themed follow-up (decision 0068) ----
@@ -2110,10 +2087,11 @@ async def test_run_reading_partner_asks_and_reacts_to_comprehension_questions():
 
     with _patch_captures(
         # Decision 0094: the "read it to you first?" offer is asked
-        # once per call, not once per sentence.
+        # once per call, not once per sentence. Decision 0095: one
+        # whole-story capture, read perfectly -- no hint detour for
+        # either sentence.
         "no thanks",
-        "a cat sat",  # decision 0067: sentence 1 of 2 (perfect, no hint)
-        "a cat ran",  # sentence 2 of 2 (perfect, no hint)
+        "a cat sat a cat ran",  # the whole story, read perfectly
         "the cat sat down",  # answer to question 1
         "under a tree",  # answer to question 2
         "no thanks",  # declines the word game

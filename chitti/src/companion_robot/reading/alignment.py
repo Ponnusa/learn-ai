@@ -290,3 +290,33 @@ def merge_assessments(results: list[AssessmentResult]) -> AssessmentResult:
         grapheme_evidence=dict(merged_evidence),
         correct_words=[w for r in results for w in r.correct_words],
     )
+
+
+def miscues_by_sentence(sentences: list[str], miscues: list[Miscue]) -> list[list[Miscue]]:
+    """Decision 0095: buckets miscues from one assess() call against a
+    WHOLE passage (not sentence by sentence) by which sentence each
+    one actually falls in -- lets the child read the whole story in
+    one take, then only the sentences that actually had a real miss
+    get worked on, not every sentence regardless.
+
+    Each miscue's `position` is its index into tokenize(expected) from
+    the single whole-passage align() call. Sentences are tokenized in
+    the same order and their lengths summed to recover each one's own
+    index range in that same position space -- this only works
+    because split_into_sentences() never drops or reorders words, so
+    concatenating every sentence's own tokens reproduces exactly the
+    whole passage's token stream assess() worked from."""
+    boundaries: list[tuple[int, int]] = []
+    offset = 0
+    for sentence in sentences:
+        length = len(tokenize(sentence))
+        boundaries.append((offset, offset + length))
+        offset += length
+
+    buckets: list[list[Miscue]] = [[] for _ in sentences]
+    for miscue in miscues:
+        for i, (start, end) in enumerate(boundaries):
+            if start <= miscue.position < end:
+                buckets[i].append(miscue)
+                break
+    return buckets

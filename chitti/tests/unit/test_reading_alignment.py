@@ -11,6 +11,7 @@ from companion_robot.reading.alignment import (
     assess,
     attribute_evidence,
     merge_assessments,
+    miscues_by_sentence,
 )
 
 
@@ -170,3 +171,38 @@ def test_merge_assessments_combines_grapheme_evidence_from_every_sentence():
 
     assert merged.grapheme_evidence["c"] == [True, True]
     assert merged.grapheme_evidence["t"] == [True, True]
+
+
+# -- miscues_by_sentence() (decision 0095) ----------------------------------
+
+
+def test_miscues_by_sentence_buckets_a_whole_passage_read_in_one_take():
+    sentences = ["Dan had a big dog.", "The dog ran fast."]
+    text = " ".join(sentences)
+    result = assess(text, "dan has a big dog the dog ran fast", duration_seconds=5.0)
+
+    buckets = miscues_by_sentence(sentences, result.miscues)
+
+    assert [m.expected for m in buckets[0]] == ["had"]
+    assert buckets[1] == []
+
+
+def test_miscues_by_sentence_handles_a_miss_in_every_sentence():
+    sentences = ["Dan had a big dog.", "The dog ran fast."]
+    text = " ".join(sentences)
+    result = assess(text, "dan has a big dog the dog run fast", duration_seconds=5.0)
+
+    buckets = miscues_by_sentence(sentences, result.miscues)
+
+    assert [m.expected for m in buckets[0]] == ["had"]
+    assert [m.expected for m in buckets[1]] == ["ran"]
+
+
+def test_miscues_by_sentence_empty_when_the_whole_passage_is_read_perfectly():
+    sentences = ["Dan had a big dog.", "The dog ran fast."]
+    text = " ".join(sentences)
+    result = assess(text, text, duration_seconds=5.0)
+
+    buckets = miscues_by_sentence(sentences, result.miscues)
+
+    assert buckets == [[], []]

@@ -72,7 +72,7 @@ from companion_robot.memory.schema import (
 from companion_robot.parent_controls.profiles import ChildProfile, ChildProfileRepository
 from companion_robot.parent_controls.reading_exercises import ReadingExerciseRepository
 from companion_robot.parent_controls.stories import StoryRepository
-from companion_robot.reading.alignment import align, assess, attribute_evidence, merge_assessments
+from companion_robot.reading.alignment import align, assess, attribute_evidence, miscues_by_sentence, tokenize
 from companion_robot.reading.book_generation import BookGenerationError
 from companion_robot.reading.decodability import clean_word, decompose
 from companion_robot.reading.phonics_audio import get_clip_bytes
@@ -84,7 +84,7 @@ from companion_robot.reading.mastery import update_from_evidence
 from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
 from companion_robot.reading.schema import AssessmentResult, GeneratedBook, MasteryDelta
-from companion_robot.reading.sentences import passage_key, split_into_sentences
+from companion_robot.reading.sentences import split_into_sentences
 from companion_robot.reading.session_state import (
     ReadingState,
     SentenceSession,
@@ -1338,8 +1338,13 @@ async def _run_word_family_practice(
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, intro, speed=speed)
         for family_word in family_words:
+            # Decision 0095: highlights the specific word in the grid
+            # while Chitti says it, instead of leaving the whole grid
+            # static throughout the modeling pass.
+            face.set_word_grid_highlight(family_word)
             face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, family_word, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
+        face.set_word_grid_highlight(None)
         prompt = "Now it's your turn! Can you read all of these words for me?"
     else:
         prompt = "Can you read all of these words for me?"
@@ -1713,37 +1718,13 @@ async def _run_reading_partner(
             face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, intro, speed=speed)
 
-            # Decision 0067: read one sentence at a time rather than
-            # the whole passage in a single capture -- easier for a
-            # young child to sustain, kinder to STT accuracy on a
-            # longer parent-provided passage, and lets position persist
-            # across sessions. passage_key() ties current_sentence_index
-            # to this exact passage's own text, not the book/exercise
-            # row id, so a freshly-generated book (different text every
-            # time) never resumes into an unrelated passage.
             sentences = split_into_sentences(book.text)
-            key = passage_key(book.text)
-            if (
-                profile.current_passage_key == key
-                and 0 < profile.current_sentence_index < len(sentences)
-            ):
-                start_index = profile.current_sentence_index
-                resume_cue = "Let's pick up where we left off!"
-                print(f"Chitti: {resume_cue}")
-                face.set_status_led(DeviceState.SPEAKING)
-                await _speak(tts, audio, resume_cue, speed=speed)
-            else:
-                start_index = 0
-                profile.current_passage_key = key
-                profile.current_sentence_index = 0
-                reading_repo.save(profile)
 
             # Decision 0093, now running on a TV over HDMI with room to
             # spare: the whole story stays on screen for the entire
             # passage, instead of being swapped sentence by sentence
             # (decision 0053's original reasoning for showing just one
             # at a time -- a small screen -- no longer applies here).
-            # Cleared once the whole passage is finished, below.
             face.set_reading_text(
                 sentences, font_size=reading_font_size, font_color=reading_font_color
             )
@@ -1775,52 +1756,95 @@ async def _run_reading_partner(
                 read_first_preference = _classify_read_first_offer_reply(offer_reply)
 
             if read_first_preference:
-                # Decision 0094: models the WHOLE remaining story in
-                # one continuous read-through -- not interleaved with
-                # the child's own attempts sentence by sentence -- then
-                # hands over for the child's own pass, sentence by
-                # sentence as before (unchanged: decision 0067's own
-                # reasoning for per-sentence capture, easier for a
-                # young child to sustain and kinder to STT accuracy,
-                # still applies to listening even though modeling no
-                # longer needs it).
-                for modeled_sentence in sentences[start_index:]:
+                # Decision 0094/0095: models the WHOLE story in one
+                # continuous read-through, not interleaved with the
+                # child's own attempt sentence by sentence.
+                for modeled_sentence in sentences:
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(
                         tts, audio, modeled_sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER
                     )
+                turn_cue = "Now it's your turn! Read the whole story for me."
+            else:
+                turn_cue = "Give it a try -- read the whole story out loud to me."
+            print(f"Chitti: {turn_cue}")
+            face.set_status_led(DeviceState.SPEAKING)
+            await _speak(tts, audio, turn_cue, speed=speed)
 
-                turn_cue = "Now it's your turn! Let's read it together, one sentence at a time."
-                print(f"Chitti: {turn_cue}")
-                face.set_status_led(DeviceState.SPEAKING)
-                await _speak(tts, audio, turn_cue, speed=speed)
+            # Decision 0095, from live hardware testing: sentence-by-
+            # sentence capture+correction made a session feel
+            # unpredictable and easy to lose track of. The child now
+            # reads the WHOLE story in one take; every mistake across
+            # the whole thing is found from this one assess() call,
+            # and only the sentences that actually had a real miss get
+            # worked on below -- a perfectly-read sentence is simply
+            # skipped, never revisited. This trades away decision
+            # 0067's own per-sentence resume (there's only one capture
+            # now, not one per sentence, so there's no finer-grained
+            # point left to resume into) for a simpler, more
+            # predictable shape: a session either finishes a book or
+            # starts it over next time, never resumes mid-sentence.
+            face.set_status_led(DeviceState.LISTENING)
+            capture_started = time.monotonic()
+            spoken_whole = await _capture_and_transcribe(stt)
+            duration_seconds = time.monotonic() - capture_started
+            print(f"You read: {spoken_whole}")
 
-            sentence_assessments: list[AssessmentResult] = []
-            sentence_deltas: list[MasteryDelta] = []
+            face.set_status_led(DeviceState.PROCESSING)
+            assessment = assess(
+                book.text, spoken_whole, duration_seconds=duration_seconds,
+                sight_words=book.sight_words,
+            )
+            session_index = profile.sessions_completed
+            delta = update_from_evidence(
+                profile, assessment.grapheme_evidence, session_index=session_index
+            )
+
+            # Decision 0095: the complete, remembered record of every
+            # real miss (substitution/omission) in this story,
+            # bucketed by which sentence it's actually in -- computed
+            # once, from the one whole-story read above, and never
+            # re-derived or lost track of for the rest of this book.
+            sentence_miscues = miscues_by_sentence(sentences, assessment.miscues)
+
             resolved_words: list[str] = []
-            for sentence_index in range(start_index, len(sentences)):
-                sentence = sentences[sentence_index]
-
-                face.set_status_led(DeviceState.LISTENING)
-                # Real elapsed recording time, not the estimated-duration
-                # fallback the original project's typed-transcript CLI path
-                # needs -- Chitti's push-to-talk already has a real clock.
-                capture_started = time.monotonic()
-                spoken = await _capture_and_transcribe(stt)
-                duration_seconds = time.monotonic() - capture_started
-                print(f"You read: {spoken}")
-
-                face.set_status_led(DeviceState.PROCESSING)
-                assessment = assess(
-                    sentence, spoken, duration_seconds=duration_seconds, sight_words=book.sight_words
+            retry_evidence_accum: dict[str, list] = {}
+            for sentence_index, sentence in enumerate(sentences):
+                # A minimal stand-in just to reuse pick_hint_words()
+                # unchanged -- it only ever reads .miscues off whatever
+                # it's given.
+                mini_assessment = AssessmentResult(
+                    expected_text=sentence,
+                    spoken_text="",
+                    total_words=len(tokenize(sentence)),
+                    words_correct=0,
+                    errors=len(sentence_miscues[sentence_index]),
+                    miscues=sentence_miscues[sentence_index],
                 )
-
                 # Decision 0052/0065: graduated hint + retry for every
                 # real missed word in this sentence (not just the
-                # first), before the mastery update so a corrected
-                # retry still counts as real evidence rather than being
-                # thrown away.
-                hint_words = pick_hint_words(assessment)
+                # first).
+                hint_words = pick_hint_words(mini_assessment)
+                if not hint_words:
+                    # Decision 0095's whole point: read correctly the
+                    # first time means this sentence is simply skipped
+                    # -- only what was actually missed gets revisited,
+                    # not every sentence regardless.
+                    continue
+
+                # Decision 0095: the child already read the whole
+                # story -- this names which sentence needs work, then
+                # goes straight into the hint ladder below for the
+                # specific word(s) actually missed, instead of asking
+                # for a fresh cold read of it first.
+                face.set_reading_text(
+                    [sentence], font_size=reading_font_size, font_color=reading_font_color
+                )
+                attention_cue = f'Let\'s work on this one: "{sentence}"'
+                print(f"Chitti: {attention_cue}")
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, attention_cue, speed=speed)
+
                 # Decision 0079, found live: a sentence with several
                 # real misses (e.g. "hen" AND "pig" AND "had") could
                 # trigger a SEPARATE word-family detour for every one
@@ -1870,7 +1894,7 @@ async def _run_reading_partner(
                                 align(hint_word, attempt), sight_words=book.sight_words
                             )
                             for grapheme, observations in retry_evidence.items():
-                                assessment.grapheme_evidence.setdefault(grapheme, []).extend(
+                                retry_evidence_accum.setdefault(grapheme, []).extend(
                                     observations
                                 )
 
@@ -1906,135 +1930,130 @@ async def _run_reading_partner(
                     # No penalty for still missing it after the last stage
                     # (saying the word outright) -- just moves on to the
                     # next missed word, if any.
-                if hint_words:
-                    face.set_reading_spotlight(None)
-                    # Decision 0074, from a product-owner critique of a
-                    # real session: a sentence that needed hint practice
-                    # gets reread once, whole, as a fluency consolidation
-                    # step. Decision 0081, from a later critique of a
-                    # real transcript: the reread was captured and then
-                    # UNCONDITIONALLY praised ("Nice reading!") with no
-                    # check at all -- a child who swapped "big" for "bug"
-                    # heard the same praise as a clean read. The hint
-                    # ladder's own evidence above still isn't re-fed into
-                    # mastery here (same "not a second scored attempt"
-                    # reasoning as before) -- but the *response* now
-                    # depends on what the reread actually contained.
-                    #
-                    # Decision 0084: this used to just ask for a blind
-                    # independent reread ("Let's read that sentence
-                    # again"). Found live to be slow and a little cold
-                    # after a sentence that needed real help -- now
-                    # Chitti models the sentence first, at a slower
-                    # pace, before asking the child to say it back.
-                    # Decision 0087: back to "press Enter" for the
-                    # actual capture -- the beep-cued, fixed-duration
-                    # version felt bad on real hardware, at least for
-                    # now.
-                    model_intro = "I'll read it for you first. Listen:"
-                    print(f"Chitti: {model_intro}")
-                    face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, model_intro, speed=speed)
+                face.set_reading_spotlight(None)
+                # Decision 0074, from a product-owner critique of a
+                # real session: a sentence that needed hint practice
+                # gets reread once, whole, as a fluency consolidation
+                # step. Decision 0081, from a later critique of a
+                # real transcript: the reread was captured and then
+                # UNCONDITIONALLY praised ("Nice reading!") with no
+                # check at all -- a child who swapped "big" for "bug"
+                # heard the same praise as a clean read. The hint
+                # ladder's own evidence above still isn't re-fed into
+                # mastery here (same "not a second scored attempt"
+                # reasoning as before) -- but the *response* now
+                # depends on what the reread actually contained.
+                #
+                # Decision 0084: this used to just ask for a blind
+                # independent reread ("Let's read that sentence
+                # again"). Found live to be slow and a little cold
+                # after a sentence that needed real help -- now
+                # Chitti models the sentence first, at a slower
+                # pace, before asking the child to say it back.
+                # Decision 0087: back to "press Enter" for the
+                # actual capture -- the beep-cued, fixed-duration
+                # version felt bad on real hardware, at least for
+                # now.
+                model_intro = "I'll read it for you first. Listen:"
+                print(f"Chitti: {model_intro}")
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, model_intro, speed=speed)
 
-                    face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
 
-                    turn_cue = "Now it's your turn! Give it a try."
-                    print(f"Chitti: {turn_cue}")
+                turn_cue = "Now it's your turn! Give it a try."
+                print(f"Chitti: {turn_cue}")
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, turn_cue, speed=speed)
+
+                face.set_status_led(DeviceState.LISTENING)
+                reread_started = time.monotonic()
+                reread_attempt = await _capture_and_transcribe(stt)
+                reread_duration = time.monotonic() - reread_started
+                print(f"You read: {reread_attempt}")
+
+                reread_assessment = assess(
+                    sentence,
+                    reread_attempt,
+                    duration_seconds=reread_duration,
+                    sight_words=book.sight_words,
+                )
+                reread_miss = pick_hint_word(reread_assessment)
+                if reread_miss is None:
+                    encouragement = "Nice reading!"
+                    print(f"Chitti: {encouragement}")
                     face.set_status_led(DeviceState.SPEAKING)
-                    await _speak(tts, audio, turn_cue, speed=speed)
+                    await _speak(tts, audio, encouragement, speed=speed)
+                else:
+                    # One short, bounded correction cycle -- not the
+                    # full 4-stage ladder again (this is a reread,
+                    # not a fresh miss) and not looped if it's still
+                    # wrong, so this can't turn into a second
+                    # unbounded hint ladder.
+                    face.set_reading_spotlight(reread_miss)
+                    correction_cue = f'Let\'s look at this word again. Listen: {reread_miss}.'
+                    print(f"Chitti: {correction_cue}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, correction_cue, speed=speed)
 
                     face.set_status_led(DeviceState.LISTENING)
-                    reread_started = time.monotonic()
-                    reread_attempt = await _capture_and_transcribe(stt)
-                    reread_duration = time.monotonic() - reread_started
-                    print(f"You read: {reread_attempt}")
+                    correction_attempt = await _capture_and_transcribe(stt)
+                    print(f"You read: {correction_attempt}")
+                    face.set_reading_spotlight(None)
 
-                    reread_assessment = assess(
-                        sentence,
-                        reread_attempt,
-                        duration_seconds=reread_duration,
-                        sight_words=book.sight_words,
-                    )
-                    reread_miss = pick_hint_word(reread_assessment)
-                    if reread_miss is None:
-                        encouragement = "Nice reading!"
-                        print(f"Chitti: {encouragement}")
-                        face.set_status_led(DeviceState.SPEAKING)
-                        await _speak(tts, audio, encouragement, speed=speed)
+                    if clean_word(correction_attempt) == clean_word(reread_miss):
+                        correction_response = f'Yes, "{reread_miss}"! Nice fixing that.'
                     else:
-                        # One short, bounded correction cycle -- not the
-                        # full 4-stage ladder again (this is a reread,
-                        # not a fresh miss) and not looped if it's still
-                        # wrong, so this can't turn into a second
-                        # unbounded hint ladder.
-                        face.set_reading_spotlight(reread_miss)
-                        correction_cue = f'Let\'s look at this word again. Listen: {reread_miss}.'
-                        print(f"Chitti: {correction_cue}")
-                        face.set_status_led(DeviceState.SPEAKING)
-                        await _speak(tts, audio, correction_cue, speed=speed)
+                        correction_response = f'Good try! The word is "{reread_miss}".'
+                    print(f"Chitti: {correction_response}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, correction_response, speed=speed)
 
-                        face.set_status_led(DeviceState.LISTENING)
-                        correction_attempt = await _capture_and_transcribe(stt)
-                        print(f"You read: {correction_attempt}")
-                        face.set_reading_spotlight(None)
-
-                        if clean_word(correction_attempt) == clean_word(reread_miss):
-                            correction_response = f'Yes, "{reread_miss}"! Nice fixing that.'
-                        else:
-                            correction_response = f'Good try! The word is "{reread_miss}".'
-                        print(f"Chitti: {correction_response}")
-                        face.set_status_led(DeviceState.SPEAKING)
-                        await _speak(tts, audio, correction_response, speed=speed)
-
-                    # Decision 0074: checks understanding of the first
-                    # hinted word's meaning/role in this sentence -- not
-                    # whether it was decoded (that's what the hint ladder
-                    # already evidenced) -- one question per sentence,
-                    # not one per hinted word, so a sentence with several
-                    # misses doesn't turn into a drawn-out quiz.
-                    await _run_word_meaning_check(
-                        sentence, hint_words[0], conversation, tts, audio, stt, face, speed,
-                        child_age,
-                    )
-
-                sentence_deltas.append(
-                    update_from_evidence(
-                        profile, assessment.grapheme_evidence, session_index=profile.sessions_completed
-                    )
+                # Decision 0074: checks understanding of the first
+                # hinted word's meaning/role in this sentence -- not
+                # whether it was decoded (that's what the hint ladder
+                # already evidenced) -- one question per sentence,
+                # not one per hinted word, so a sentence with several
+                # misses doesn't turn into a drawn-out quiz.
+                await _run_word_meaning_check(
+                    sentence, hint_words[0], conversation, tts, audio, stt, face, speed,
+                    child_age,
                 )
-                sentence_assessments.append(assessment)
 
-                # Decision 0067: persist after EACH sentence, not just
-                # at the end -- a session interrupted partway through a
-                # longer passage picks back up here next time instead
-                # of losing progress or restarting from the top.
-                profile.current_sentence_index = sentence_index + 1
-                reading_repo.save(profile)
+                # Decision 0095: back to showing the whole story once
+                # this sentence's own correction is done, so the next
+                # flagged sentence (if any) is seen in context, not as
+                # one isolated line.
+                face.set_reading_text(
+                    sentences, font_size=reading_font_size, font_color=reading_font_color
+                )
 
             # The whole passage is done -- clears decision 0093's
-            # whole-story display (set once, before the per-sentence
-            # loop above), and position memory, since both only matter
-            # while a passage is in progress; resets clean for
-            # whatever comes next (a new book, or this same passage
-            # re-read from the top if ever re-assigned).
+            # whole-story display; resets clean for whatever comes
+            # next (a new book, or this same passage re-read from the
+            # top if ever re-assigned).
             face.set_reading_text(None)
-            profile.current_passage_key = None
-            profile.current_sentence_index = 0
             profile.sessions_completed += 1
-            reading_repo.save(profile)
 
-            # Decision 0067: one combined AssessmentResult/MasteryDelta
-            # across every sentence, so build_reading_feedback() and the
-            # activities below keep working against a single whole-
-            # passage result exactly as before -- they don't need to
-            # know reading happened sentence by sentence underneath.
-            assessment = merge_assessments(sentence_assessments)
-            delta = MasteryDelta(
-                changes=[c for d in sentence_deltas for c in d.changes],
-                newly_mastered=[g for d in sentence_deltas for g in d.newly_mastered],
-                newly_mastered_levels=[lvl for d in sentence_deltas for lvl in d.newly_mastered_levels],
-            )
+            if retry_evidence_accum:
+                # Decision 0095: the hint ladder's own retry evidence,
+                # accumulated across every flagged sentence above, fed
+                # once here -- same session_index as the cold-read
+                # evidence fed earlier, so both counts as one coherent
+                # session's worth of evidence, not two. Must happen
+                # before the save below, or this update never
+                # persists -- found live, the save used to come first.
+                retry_delta = update_from_evidence(
+                    profile, retry_evidence_accum, session_index=session_index
+                )
+                delta = MasteryDelta(
+                    changes=delta.changes + retry_delta.changes,
+                    newly_mastered=delta.newly_mastered + retry_delta.newly_mastered,
+                    newly_mastered_levels=delta.newly_mastered_levels + retry_delta.newly_mastered_levels,
+                )
+
+            reading_repo.save(profile)
 
             # Decision 0060/0065: build_reading_feedback() now surfaces
             # every real missed word itself (not just whichever ones

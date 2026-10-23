@@ -370,9 +370,17 @@ _WORD_GRID_BOX_COLOR = _BLUE
 _WORD_GRID_BORDER_COLOR = _WHITE
 _WORD_GRID_BORDER_WIDTH = 3
 _WORD_GRID_BORDER_RADIUS = 14
+# Decision 0095: the word Chitti is actively speaking during
+# word-family modeling gets a distinct box color + thicker border,
+# so it's visually obvious which word is "live" without hiding the
+# rest of the grid (set_reading_spotlight() would hide the others).
+_WORD_GRID_HIGHLIGHT_BOX_COLOR = _RED
+_WORD_GRID_HIGHLIGHT_BORDER_WIDTH = 6
 
 
-def _draw_word_grid(screen, width: int, height: int, font, words: list[str]) -> None:
+def _draw_word_grid(
+    screen, width: int, height: int, font, words: list[str], highlight: str | None = None,
+) -> None:
     columns = 1 if len(words) <= 2 else 2
     rows = -(-len(words) // columns)  # ceil division
     box_w = (width - 2 * _WORD_GRID_MARGIN - (columns - 1) * _WORD_GRID_GAP) // columns
@@ -382,10 +390,15 @@ def _draw_word_grid(screen, width: int, height: int, font, words: list[str]) -> 
         x = _WORD_GRID_MARGIN + col * (box_w + _WORD_GRID_GAP)
         y = _WORD_GRID_MARGIN + row * (box_h + _WORD_GRID_GAP)
         rect = pygame.Rect(x, y, box_w, box_h)
-        pygame.draw.rect(screen, _WORD_GRID_BOX_COLOR, rect, border_radius=_WORD_GRID_BORDER_RADIUS)
+        is_highlighted = highlight is not None and word == highlight
+        box_color = _WORD_GRID_HIGHLIGHT_BOX_COLOR if is_highlighted else _WORD_GRID_BOX_COLOR
+        border_width = (
+            _WORD_GRID_HIGHLIGHT_BORDER_WIDTH if is_highlighted else _WORD_GRID_BORDER_WIDTH
+        )
+        pygame.draw.rect(screen, box_color, rect, border_radius=_WORD_GRID_BORDER_RADIUS)
         pygame.draw.rect(
             screen, _WORD_GRID_BORDER_COLOR, rect,
-            width=_WORD_GRID_BORDER_WIDTH, border_radius=_WORD_GRID_BORDER_RADIUS,
+            width=border_width, border_radius=_WORD_GRID_BORDER_RADIUS,
         )
         rendered = font.render(word, True, _WHITE)
         screen.blit(rendered, rendered.get_rect(center=rect.center))
@@ -421,6 +434,7 @@ class ScreenFaceDeviceController(DeviceController):
         self._reading_started_at: float | None = None
         self._spotlight_word: str | None = None
         self._word_grid: list[str] | None = None
+        self._word_grid_highlight: str | None = None
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -513,6 +527,16 @@ class ScreenFaceDeviceController(DeviceController):
         with self._lock:
             self._word_grid = words
 
+    def set_word_grid_highlight(self, word: str | None) -> None:
+        """Decision 0095: marks which word in the current grid Chitti
+        is actively speaking, so modeling a word family highlights
+        each word in turn instead of leaving the whole grid static
+        throughout. Independent of set_word_grid() itself -- the
+        grid's own words don't change, just which one is picked out."""
+        logger.info("word grid highlight: %s", word if word is not None else "(cleared)")
+        with self._lock:
+            self._word_grid_highlight = word
+
     def emergency_stop(self) -> None:
         """Synchronous, per the ABC's requirement -- must work even if
         the event loop is unresponsive. Safe to be this simple today:
@@ -552,6 +576,10 @@ class ScreenFaceDeviceController(DeviceController):
     def _get_word_grid(self) -> list[str] | None:
         with self._lock:
             return self._word_grid
+
+    def _get_word_grid_highlight(self) -> str | None:
+        with self._lock:
+            return self._word_grid_highlight
 
     def _create_screen(self):
         os.environ.setdefault("SDL_FBDEV", "/dev/fb0")
@@ -615,6 +643,7 @@ class ScreenFaceDeviceController(DeviceController):
 
             spotlight_word = self._get_spotlight()
             word_grid = self._get_word_grid()
+            word_grid_highlight = self._get_word_grid_highlight()
             # wpm/started_at are still stored by set_reading_text() (so
             # existing callers and parent_controls' reading_pace_wpm
             # setting don't need to change), but decision 0088's static
@@ -635,6 +664,7 @@ class ScreenFaceDeviceController(DeviceController):
                     _draw_word_grid(
                         screen, self._width, self._height,
                         _font_for_size(_WORD_GRID_FONT_SIZE), word_grid,
+                        highlight=word_grid_highlight,
                     )
                 elif reading_lines is not None:
                     reading_font = _font_for_size(font_size)
