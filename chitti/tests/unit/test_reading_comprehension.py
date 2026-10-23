@@ -3,6 +3,7 @@ building and parsing only (decisions 0059/0062). The actual LLM call
 lives in ConversationService; see test_conversation_service.py.
 """
 from companion_robot.reading.comprehension import (
+    answer_matches_story_text,
     build_question_prompt,
     build_reaction_prompt,
     build_word_meaning_question_prompt,
@@ -85,3 +86,28 @@ def test_parse_questions_ignores_blank_lines_and_is_case_insensitive():
 
 def test_parse_questions_returns_empty_list_with_no_question_lines():
     assert parse_questions("Sorry, I don't have any questions.") == []
+
+
+# -- answer_matches_story_text (decision 0083) --
+
+
+def test_answer_matches_story_text_true_for_a_literal_word_match():
+    assert answer_matches_story_text("red", "Dan has a red dog.") is True
+
+
+def test_answer_matches_story_text_true_for_a_multi_word_answer_with_one_shared_word():
+    assert answer_matches_story_text("it was red", "Dan has a red dog.") is True
+
+
+def test_answer_matches_story_text_false_when_nothing_shared():
+    assert answer_matches_story_text("purple", "Dan has a red dog.") is False
+
+
+def test_answer_matches_story_text_ignores_short_words_on_both_sides():
+    # "a"/"is" are too short to count as a signal either way -- this
+    # must not match just because both strings contain "a".
+    assert answer_matches_story_text("a", "Dan has a red dog.") is False
+
+
+def test_answer_matches_story_text_is_case_insensitive():
+    assert answer_matches_story_text("RED", "Dan has a red dog.") is True

@@ -18,7 +18,9 @@ from companion_robot.reading.book_generation import (
     parse_story_draft,
 )
 from companion_robot.reading.comprehension import (
+    LITERAL_MATCH_AFFIRMATION,
     ComprehensionReaction,
+    answer_matches_story_text,
     build_question_prompt,
     build_reaction_prompt,
     build_word_meaning_question_prompt,
@@ -239,6 +241,15 @@ class ConversationService:
             [{"role": "user", "content": "React now."}], prompt
         )
         reaction = parse_comprehension_reaction(reply_text)
+        # Decision 0083, found live: the model rejected "red" for
+        # "What color is Dan's dog?" against a story that says "Dan
+        # has a red dog" -- then admitted on the final attempt it was
+        # right all along. A literal word match against the story
+        # text is a cheap, deterministic reason not to trust a
+        # "needs_retry" verdict; the model's own SAY text is skipped
+        # too, since it was written assuming the answer was wrong.
+        if reaction.needs_retry and answer_matches_story_text(child_answer, story_text):
+            reaction = ComprehensionReaction(text=LITERAL_MATCH_AFFIRMATION, needs_retry=False)
         screened = self._screen(reaction.text)
         if screened.blocked:
             return ComprehensionReaction(text=screened.text, needs_retry=False)

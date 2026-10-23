@@ -20,8 +20,55 @@ then-clue-then-retry step at all. build_reaction_prompt() now takes
 which attempt this is, and asks the model to withhold the answer (one
 small clue instead) unless it's the final attempt -- bounded to
 exactly one retry per question, not an open-ended dialogue.
+
+Decision 0083, found live: the model itself is the only judge of
+whether an answer is right -- there's no story-grounded check at all.
+A real transcript caught it rejecting an answer ("red," for "What
+color is Dan's dog?" against a story that says "Dan has a red dog")
+with a clue that didn't even make sense ("the dog has a color more
+commonly found in nature"), then admitting on the final attempt that
+"red" was right all along. `answer_matches_story_text()` is a cheap,
+deterministic safety net for exactly that failure shape -- it can't
+know an answer is *correct* in general (that's still the model's
+job), but a literal word-for-word match against the story text is a
+strong, checkable signal the model's own rejection shouldn't be
+trusted.
 """
+import re
 from dataclasses import dataclass
+
+from .decodability import clean_word
+
+# Decision 0083: a word has to be long enough to be a real signal, not
+# noise -- same threshold hints.py's own is_worth_practicing() uses
+# for "substantial enough to matter," so "a"/"is"/"the" (in the
+# child's answer, in the story, or both) never falsely look like a
+# match.
+_MIN_MATCH_WORD_LENGTH = 3
+
+# Decision 0083: spoken when a literal match overrides a model's own
+# "needs_retry" -- deliberately generic and never built from the
+# model's own (possibly self-contradicting) clue text, since that text
+# was written on the assumption the answer was wrong.
+LITERAL_MATCH_AFFIRMATION = "Yes, that's it! Great job remembering that from the story."
+
+
+def answer_matches_story_text(answer: str, story_text: str) -> bool:
+    """True if a substantial word (3+ letters) in `answer` appears,
+    whole, in `story_text` -- see the module docstring's decision 0083
+    note. Deliberately lenient (a shared word is treated as a signal
+    worth trusting over the model, not proof of correctness) -- the
+    failure this guards against (telling a child a story-grounded
+    answer is wrong) is worse than the one it risks (being too easy
+    on an answer that merely shares a word with the text), consistent
+    with this codebase's existing "when in doubt, don't make the
+    child feel wrong" bar elsewhere (the hint ladder's no-penalty
+    retries, the word game's always-upbeat closing)."""
+    story_words = {clean_word(w) for w in re.findall(r"[A-Za-z']+", story_text)}
+    answer_words = {
+        clean_word(w) for w in re.findall(r"[A-Za-z']+", answer) if len(w) >= _MIN_MATCH_WORD_LENGTH
+    }
+    return bool(answer_words & story_words)
 
 
 def build_question_prompt(story_text: str, num_questions: int, age: int | None) -> str:

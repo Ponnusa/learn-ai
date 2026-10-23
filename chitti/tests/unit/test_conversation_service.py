@@ -594,6 +594,49 @@ async def test_react_to_comprehension_answer_is_screened_like_any_other_reply():
     assert "damn" not in result.text
 
 
+async def test_react_to_comprehension_answer_overrides_a_wrong_rejection_of_a_literal_answer():
+    """Decision 0083, found live: the model rejected "red" for "What
+    color is Dan's dog?" against a story that literally says "Dan has
+    a red dog" -- with a clue that didn't even make sense -- then
+    admitted on the final attempt it was right all along. A literal
+    word match against the story text overrides the model's own
+    needs_retry here, and its own (misleading) SAY text is replaced,
+    not spoken."""
+    llm = FakeLanguageModelBackend(
+        reply=(
+            "STATUS: needs_retry\n"
+            "SAY: Great try! But remember, the dog has a color more commonly "
+            "found in nature. What do you think?"
+        )
+    )
+    service = ConversationService(llm)
+
+    result = await service.react_to_comprehension_answer(
+        "Dan has a red dog.", "What color is Dan's dog?", "red", age=6,
+    )
+
+    assert result.needs_retry is False
+    assert "nature" not in result.text
+    assert result.text == "Yes, that's it! Great job remembering that from the story."
+
+
+async def test_react_to_comprehension_answer_still_retries_a_genuinely_unrelated_answer():
+    """The literal-match override must not swallow every retry -- an
+    answer sharing no real word with the story still gets the
+    model's own retry handling."""
+    llm = FakeLanguageModelBackend(
+        reply="STATUS: needs_retry\nSAY: Good try! What color was it?"
+    )
+    service = ConversationService(llm)
+
+    result = await service.react_to_comprehension_answer(
+        "Dan has a red dog.", "What color is Dan's dog?", "purple", age=6,
+    )
+
+    assert result.needs_retry is True
+    assert result.text == "Good try! What color was it?"
+
+
 async def test_react_to_comprehension_answer_never_retries_into_an_unsafe_reply():
     """Even if the model itself asked for a retry, a blocked reply
     forces needs_retry=False -- never loop on an unsafe response."""
