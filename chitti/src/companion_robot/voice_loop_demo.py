@@ -1667,7 +1667,13 @@ async def _run_reading_partner(
             print(f"\n-- {book.title} --")
             for page in book.pages:
                 print(f"  {page}")
-            intro = f'Here\'s your story, "{book.title}"! Give it a try -- read it out loud to me.'
+            # Decision 0085: used to say "give it a try -- read it out
+            # loud to me" right here, presupposing the child reads
+            # first. The actual choice (read it yourself, or have
+            # Chitti model it first) now happens per sentence, right
+            # before that sentence's own capture -- this just
+            # announces the story.
+            intro = f'Here\'s your story, "{book.title}"!'
             print(f"Chitti: {intro}")
             face.set_status_led(DeviceState.SPEAKING)
             await _speak(tts, audio, intro, speed=speed)
@@ -1715,12 +1721,46 @@ async def _run_reading_partner(
                     font_size=reading_font_size,
                     font_color=reading_font_color,
                 )
+
+                # Decision 0085, from live hardware testing: jumping
+                # straight into "press Enter to start talking" with no
+                # choice meant a tester reading from the console alone
+                # (no way to see which sentence was current) kept
+                # re-reading the whole story from wherever instead of
+                # one sentence at a time. Now Chitti offers to read it
+                # first; a plain yes models the sentence (paced with
+                # the same teleprompter highlight, just slower) before
+                # handing over -- either way, the actual capture is
+                # the same beep-cued, duration-sized listen below, not
+                # a keypress.
+                offer = "Would you like me to read it to you first?"
+                print(f"Chitti: {offer}")
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, offer, speed=speed)
+
+                face.set_status_led(DeviceState.LISTENING)
+                offer_reply = await _capture_and_transcribe_after_beep(
+                    stt, audio, _MIN_CAPTURE_SECONDS
+                )
+                print(f"You said: {offer_reply}")
+
+                if is_affirmative(offer_reply):
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, sentence, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
+
+                    turn_cue = "Now it's your turn! Try it after the beep."
+                    print(f"Chitti: {turn_cue}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, turn_cue, speed=speed)
+
                 face.set_status_led(DeviceState.LISTENING)
                 # Real elapsed recording time, not the estimated-duration
                 # fallback the original project's typed-transcript CLI path
                 # needs -- Chitti's push-to-talk already has a real clock.
                 capture_started = time.monotonic()
-                spoken = await _capture_and_transcribe(stt)
+                spoken = await _capture_and_transcribe_after_beep(
+                    stt, audio, _sentence_capture_seconds(sentence, reading_pace_wpm)
+                )
                 duration_seconds = time.monotonic() - capture_started
                 print(f"You read: {spoken}")
                 face.set_reading_text(None)
