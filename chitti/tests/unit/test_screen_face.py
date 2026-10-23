@@ -16,8 +16,6 @@ from companion_robot.device.screen_face import (
     _EYE_CLOSED,
     _MOUTH_OPEN_CIRCLE,
     _DiscreteTimer,
-    _build_word_timeline,
-    _current_word_index,
     _resolve_expression,
     _wrap_text,
     ScreenFaceDeviceController,
@@ -26,9 +24,9 @@ from companion_robot.device.screen_face import (
 
 class _FakeFont:
     """Duck-typed stand-in for a pygame.font.Font -- just enough for
-    _wrap_text()/_build_word_timeline()'s own use of .size(), with no
-    pygame import needed (decision 0053's own testable-without-
-    hardware split, same as _resolve_expression())."""
+    _wrap_text()'s own use of .size(), with no pygame import needed
+    (decision 0053's own testable-without-hardware split, same as
+    _resolve_expression())."""
 
     def size(self, text: str) -> tuple[int, int]:
         return (len(text) * 10, 20)
@@ -176,72 +174,25 @@ def test_set_reading_spotlight_updates_stored_word():
     assert face._get_spotlight() is None
 
 
-# -- _build_word_timeline() / _current_word_index() (decision 0053) -------
+# -- _wrap_text() (decision 0053, kept by decision 0088's static text) ----
 
 
-def test_build_word_timeline_assigns_equal_slots_in_reading_order():
+def test_wrap_text_keeps_a_short_line_whole():
     font = _FakeFont()
-    lines, words = _build_word_timeline(["cat sat mat"], font, max_width=1000, seconds_per_word=0.5)
-
-    assert lines == ["cat sat mat"]
-    assert [w.text for w in words] == ["cat", "sat", "mat"]
-    assert [(w.start, w.end) for w in words] == [(0.0, 0.5), (0.5, 1.0), (1.0, 1.5)]
+    assert _wrap_text("cat sat mat", font, max_width=1000) == ["cat sat mat"]
 
 
-def test_build_word_timeline_tracks_char_spans_for_a_repeated_word():
-    """"the" appears twice in the same line -- char_start/char_end
-    must point at each occurrence's own position, not always the
-    first, so the right one highlights."""
-    font = _FakeFont()
-    _lines, words = _build_word_timeline(
-        ["the cat and the dog"], font, max_width=1000, seconds_per_word=0.5
-    )
-
-    the_words = [w for w in words if w.text == "the"]
-    assert len(the_words) == 2
-    assert the_words[0].char_start == 0
-    assert the_words[1].char_start == 12  # after "the cat and "
-
-
-def test_build_word_timeline_wraps_long_pages_across_multiple_lines():
+def test_wrap_text_wraps_long_text_across_multiple_lines():
     font = _FakeFont()
     # Each word is 3 chars + a space = ~40px at this fake font's 10px/char;
     # max_width=35 forces a wrap after every word.
-    lines, words = _build_word_timeline(["cat sat mat"], font, max_width=35, seconds_per_word=0.5)
-
-    assert lines == ["cat", "sat", "mat"]
-    assert [w.line_index for w in words] == [0, 1, 2]
+    assert _wrap_text("cat sat mat", font, max_width=35) == ["cat", "sat", "mat"]
 
 
-def test_build_word_timeline_inserts_a_blank_separator_between_pages():
+def test_wrap_text_never_returns_empty_for_a_single_word_wider_than_max_width():
+    """A lone word that can't fit still gets its own line -- not
+    dropped, not an infinite loop."""
     font = _FakeFont()
-    lines, words = _build_word_timeline(
-        ["cat sat", "dog ran"], font, max_width=1000, seconds_per_word=0.5
-    )
-
-    assert lines == ["cat sat", "", "dog ran"]
-    assert [w.line_index for w in words] == [0, 0, 2, 2]  # line 1 is the blank separator
-
-
-def test_current_word_index_returns_minus_one_for_no_words():
-    assert _current_word_index([], 0.0) == -1
-
-
-def test_current_word_index_picks_the_word_whose_window_contains_elapsed():
-    font = _FakeFont()
-    _lines, words = _build_word_timeline(["cat sat mat"], font, max_width=1000, seconds_per_word=0.5)
-
-    assert _current_word_index(words, 0.0) == 0
-    assert _current_word_index(words, 0.49) == 0
-    assert _current_word_index(words, 0.5) == 1
-    assert _current_word_index(words, 1.4) == 2
-
-
-def test_current_word_index_holds_on_the_last_word_past_total_duration():
-    """So every line gets its moment on screen regardless of how long
-    the child actually takes to finish reading -- never loops, never
-    goes blank."""
-    font = _FakeFont()
-    _lines, words = _build_word_timeline(["cat sat mat"], font, max_width=1000, seconds_per_word=0.5)
-
-    assert _current_word_index(words, 100.0) == 2
+    assert _wrap_text("supercalifragilisticexpialidocious", font, max_width=1) == [
+        "supercalifragilisticexpialidocious"
+    ]

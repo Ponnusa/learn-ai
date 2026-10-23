@@ -47,7 +47,6 @@ import os
 import random
 import threading
 import time
-from dataclasses import dataclass
 
 from .interfaces import DeviceController, DeviceState
 
@@ -305,118 +304,33 @@ _READING_FONT_COLORS: dict[str, tuple[int, int, int]] = {
 }
 _SPOTLIGHT_FONT_SIZE_CAP = 96
 _SPOTLIGHT_FONT_SIZE_MULTIPLIER = 2
+# No longer read by the render loop (decision 0088 removed the paced
+# auto-scroll) -- kept only as set_reading_text()'s/__init__'s default
+# for `wpm`, which parent_controls' reading_pace_wpm setting still
+# writes through unchanged, so neither needs to change.
 _DEFAULT_READING_WPM = 45.0
 
 
-@dataclass
-class TimedWord:
-    """One word's slot in the teleprompter's reading timeline (decision
-    0053). char_start/char_end are offsets within its own wrapped
-    line's text -- tracked (rather than matching by word text) so a
-    repeated word like "the" highlights the correct occurrence, not
-    always the first."""
-
-    text: str
-    line_index: int
-    char_start: int
-    char_end: int
-    start: float
-    end: float
-
-
-def _build_word_timeline(
-    pages: list[str], font, max_width: int, seconds_per_word: float
-) -> tuple[list[str], list[TimedWord]]:
-    """Wraps `pages` into screen lines (reusing _wrap_text()) and
-    assigns every word an equal-length time slot, in reading order
-    across all lines/pages -- a uniform pace, not scaled by word
-    length or punctuation (decision 0053's deferred list). Blank
-    separator lines between pages take a line slot but no word/time."""
-    lines: list[str] = []
-    words: list[TimedWord] = []
-    t = 0.0
-    for page_i, page in enumerate(pages):
-        for line in _wrap_text(page, font, max_width):
-            line_index = len(lines)
-            lines.append(line)
-            cursor = 0
-            for word in line.split():
-                char_start = line.index(word, cursor)
-                char_end = char_start + len(word)
-                cursor = char_end
-                words.append(
-                    TimedWord(
-                        text=word,
-                        line_index=line_index,
-                        char_start=char_start,
-                        char_end=char_end,
-                        start=t,
-                        end=t + seconds_per_word,
-                    )
-                )
-                t += seconds_per_word
-        if page_i != len(pages) - 1:
-            lines.append("")  # blank separator between pages
-    return lines, words
-
-
-def _current_word_index(words: list[TimedWord], elapsed: float) -> int:
-    """The word whose [start, end) contains `elapsed`; holds on the
-    last word once the passage's total duration has elapsed -- never
-    loops, never goes blank, so every line gets its moment on screen
-    regardless of how long the child takes to actually finish reading."""
-    if not words:
-        return -1
-    for i, word in enumerate(words):
-        if elapsed < word.end:
-            return i
-    return len(words) - 1
-
-
-def _draw_teleprompter(
-    screen,
-    width: int,
-    height: int,
-    font,
-    lines: list[str],
-    words: list[TimedWord],
-    elapsed: float,
-    *,
-    base_color,
-    highlight_color,
-    line_height: int,
+def _draw_reading_lines_static(
+    screen, width: int, height: int, font, lines: list[str], color, line_height: int
 ) -> None:
-    """Bottom-to-top auto-scroll: the current line is anchored at the
-    screen's vertical middle, every other line offset by its distance
-    (in lines) from it -- lines already read scroll up and off the
-    top, lines not yet reached queue in from the bottom. Unlike the
-    old static _draw_reading_text() this replaces, nothing is ever
-    silently cut off by screen height; a line simply isn't drawn while
-    it's off-screen; it gets its turn as the scroll reaches it."""
-    current_idx = _current_word_index(words, elapsed)
-    current_line = words[current_idx].line_index if current_idx >= 0 else 0
-    anchor_y = height // 2
-    for i, line in enumerate(lines):
-        y = anchor_y + (i - current_line) * line_height
-        if y + line_height < 0 or y > height:
-            continue
-        if not line:
-            continue
-        if current_idx >= 0 and words[current_idx].line_index == i:
-            word = words[current_idx]
-            prefix = line[: word.char_start]
-            highlighted = line[word.char_start : word.char_end]
-            suffix = line[word.char_end :]
-            x = _READING_MARGIN
-            if prefix:
-                screen.blit(font.render(prefix, True, base_color), (x, y))
-                x += font.size(prefix)[0]
-            screen.blit(font.render(highlighted, True, highlight_color), (x, y))
-            x += font.size(highlighted)[0]
-            if suffix:
-                screen.blit(font.render(suffix, True, base_color), (x, y))
-        else:
-            screen.blit(font.render(line, True, base_color), (_READING_MARGIN, y))
+    """Decision 0088: shows the sentence as plain, static text while
+    Chitti reads it -- no moving/highlighted word-by-word scroll.
+    Replaces the old timed auto-scroll (decision 0053), which tracked
+    a simulated reading pace rather than the real audio, and which a
+    product-owner report found going fully blank partway through a
+    session on real hardware (traced to set_reading_text()'s own
+    clock starting well before the text it was timing actually got
+    read -- see decision 0086's note; removing the clock dependency
+    entirely removes that whole class of bug, not just the one
+    instance of it already fixed). Centered as one block --
+    Reading Partner's sentences are short enough that this never
+    needs scroll/off-screen handling."""
+    visible = [line for line in lines if line]
+    total_height = len(visible) * line_height
+    start_y = max(0, (height - total_height) // 2)
+    for i, line in enumerate(visible):
+        screen.blit(font.render(line, True, color), (_READING_MARGIN, start_y + i * line_height))
 
 
 def _draw_spotlight(screen, width: int, height: int, font, word: str, color) -> None:
@@ -538,9 +452,15 @@ class ScreenFaceDeviceController(DeviceController):
         font_color: str = "white",
     ) -> None:
         """Decision 0051/0053: lines to show on screen for Reading
-        Partner -- when set, the render loop draws a word-by-word-
-        highlighted, auto-scrolling teleprompter instead of the dot-
-        matrix face; None returns to the normal face. `wpm`/`font_size`/
+        Partner -- when set, the render loop draws them as plain,
+        centered static text instead of the dot-matrix face; None
+        returns to the normal face. Decision 0088 removed the earlier
+        word-by-word-highlighted auto-scroll (it tracked a simulated
+        reading pace, not the real audio, and a bad frame anywhere in
+        it could silently kill the whole render thread for the rest of
+        a session) -- `wpm` is accepted for backward compatibility
+        with existing callers and parent_controls' reading_pace_wpm
+        setting, but no longer affects what's drawn. `font_size`/
         `font_color` are parent-settable (parent_controls/profiles.py's
         ChildProfile) and only take effect when `lines` is being set,
         not cleared. Independent of set_status_led()/
@@ -654,14 +574,6 @@ class ScreenFaceDeviceController(DeviceController):
                 font_cache[size] = pygame.font.Font(None, size)
             return font_cache[size]
 
-        # The word timeline only needs rebuilding when the lines/size/
-        # pace actually change, not every frame at _FPS -- rebuilding
-        # it 15x/second for the same unchanged passage would be wasted
-        # work for no visual difference.
-        timeline_key: tuple | None = None
-        timeline_lines: list[str] = []
-        timeline_words: list[TimedWord] = []
-
         while self._running:
             frame_start = time.monotonic()
 
@@ -681,7 +593,12 @@ class ScreenFaceDeviceController(DeviceController):
 
             spotlight_word = self._get_spotlight()
             word_grid = self._get_word_grid()
-            reading_lines, wpm, font_size, font_color, started_at = self._get_reading_display()
+            # wpm/started_at are still stored by set_reading_text() (so
+            # existing callers and parent_controls' reading_pace_wpm
+            # setting don't need to change), but decision 0088's static
+            # text no longer needs either -- nothing left to pace or
+            # time here.
+            reading_lines, _wpm, font_size, font_color, _started_at = self._get_reading_display()
 
             if spotlight_word is not None:
                 spotlight_size = min(_SPOTLIGHT_FONT_SIZE_CAP, font_size * _SPOTLIGHT_FONT_SIZE_MULTIPLIER)
@@ -696,25 +613,14 @@ class ScreenFaceDeviceController(DeviceController):
                 )
             elif reading_lines is not None:
                 reading_font = _font_for_size(font_size)
-                key = (tuple(reading_lines), font_size, wpm)
-                if key != timeline_key:
-                    seconds_per_word = 60.0 / wpm if wpm > 0 else 60.0 / _DEFAULT_READING_WPM
-                    timeline_lines, timeline_words = _build_word_timeline(
-                        reading_lines, reading_font, self._width - 2 * _READING_MARGIN,
-                        seconds_per_word,
+                wrapped_lines: list[str] = []
+                for page in reading_lines:
+                    wrapped_lines.extend(
+                        _wrap_text(page, reading_font, self._width - 2 * _READING_MARGIN)
                     )
-                    timeline_key = key
-                elapsed = time.monotonic() - started_at if started_at is not None else 0.0
                 base_color = _READING_FONT_COLORS.get(font_color, _WHITE)
-                # The highlighted "current" word always needs to stand
-                # out from the base color too, not just the background
-                # -- swaps to white in the one case (base == cyan)
-                # where cyan-on-cyan would otherwise be invisible.
-                highlight_color = _WHITE if base_color == _CYAN else _CYAN
-                _draw_teleprompter(
-                    screen, self._width, self._height, reading_font,
-                    timeline_lines, timeline_words, elapsed,
-                    base_color=base_color, highlight_color=highlight_color,
+                _draw_reading_lines_static(
+                    screen, self._width, self._height, reading_font, wrapped_lines, base_color,
                     line_height=reading_font.get_linesize() + _READING_LINE_SPACING,
                 )
             else:
