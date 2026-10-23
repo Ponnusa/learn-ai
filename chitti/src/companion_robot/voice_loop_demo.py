@@ -1309,10 +1309,26 @@ async def _run_word_family_practice(
     print(f"You read: {reading}")
     face.set_word_grid(None)
 
+    # Decision 0089, found live: a reply that doesn't attempt any of
+    # the words at all (e.g. "I don't know") used to still get every
+    # single word its own full phonics-breakdown reaction in a row --
+    # four of them in a row, each with its own TTS round trip, felt
+    # like it would never end. One short, warm line instead when
+    # NONE of the words were found; the per-word breakdown is kept for
+    # when at least one word was actually attempted, so real partial
+    # credit still gets real per-word feedback.
+    matched = [w for w in family_words if is_correct_answer(w, reading)]
+    if not matched:
+        response = f"That's okay! Those words were {', '.join(family_words)}. Let's keep going!"
+        print(f"Chitti: {response}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, response, speed=speed)
+        return
+
     for family_word in family_words:
         response = (
             random_correct_response()
-            if is_correct_answer(family_word, reading)
+            if family_word in matched
             else incorrect_response(family_word)
         )
         print(f"Chitti: {response}")

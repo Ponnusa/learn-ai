@@ -104,3 +104,40 @@ async def test_reading_text_and_spotlight_render_without_crashing_the_thread():
         assert face.health_check() is True
     finally:
         await face.shutdown()
+
+
+async def test_render_thread_survives_a_bad_frame(monkeypatch):
+    """Decision 0089, found live: an exception anywhere in the per-
+    frame drawing code used to kill the whole render thread silently
+    -- Chitti kept talking and listening fine (a separate asyncio
+    loop), but the screen froze on its last good frame for the rest
+    of the session, with nothing in the logs to say why. Now it's
+    caught, logged, and skipped -- the thread survives and keeps
+    rendering later frames."""
+    import asyncio
+
+    import companion_robot.device.screen_face as screen_face_module
+
+    calls = {"n": 0}
+    real_draw_spotlight = screen_face_module._draw_spotlight
+
+    def _flaky_draw_spotlight(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("simulated bad frame")
+        return real_draw_spotlight(*args, **kwargs)
+
+    monkeypatch.setattr(screen_face_module, "_draw_spotlight", _flaky_draw_spotlight)
+
+    face = ScreenFaceDeviceController()
+    await face.start()
+    try:
+        face.set_reading_spotlight("cat")
+        await asyncio.sleep(0.3)
+
+        assert face.health_check() is True
+        # The thread kept calling it on later frames too, not just the
+        # one that failed -- a true crash would have stopped at 1.
+        assert calls["n"] >= 2
+    finally:
+        await face.shutdown()

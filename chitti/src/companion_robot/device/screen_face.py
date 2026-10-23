@@ -600,45 +600,64 @@ class ScreenFaceDeviceController(DeviceController):
             # time here.
             reading_lines, _wpm, font_size, font_color, _started_at = self._get_reading_display()
 
-            if spotlight_word is not None:
-                spotlight_size = min(_SPOTLIGHT_FONT_SIZE_CAP, font_size * _SPOTLIGHT_FONT_SIZE_MULTIPLIER)
-                _draw_spotlight(
-                    screen, self._width, self._height,
-                    _font_for_size(spotlight_size), spotlight_word, _RED,
-                )
-            elif word_grid is not None:
-                _draw_word_grid(
-                    screen, self._width, self._height,
-                    _font_for_size(_WORD_GRID_FONT_SIZE), word_grid,
-                )
-            elif reading_lines is not None:
-                reading_font = _font_for_size(font_size)
-                wrapped_lines: list[str] = []
-                for page in reading_lines:
-                    wrapped_lines.extend(
-                        _wrap_text(page, reading_font, self._width - 2 * _READING_MARGIN)
+            try:
+                if spotlight_word is not None:
+                    spotlight_size = min(
+                        _SPOTLIGHT_FONT_SIZE_CAP, font_size * _SPOTLIGHT_FONT_SIZE_MULTIPLIER
                     )
-                base_color = _READING_FONT_COLORS.get(font_color, _WHITE)
-                _draw_reading_lines_static(
-                    screen, self._width, self._height, reading_font, wrapped_lines, base_color,
-                    line_height=reading_font.get_linesize() + _READING_LINE_SPACING,
-                )
-            else:
-                mode = self._get_mode()
-                eye_pattern, mouth_pattern = _resolve_expression(state, mode)
+                    _draw_spotlight(
+                        screen, self._width, self._height,
+                        _font_for_size(spotlight_size), spotlight_word, _RED,
+                    )
+                elif word_grid is not None:
+                    _draw_word_grid(
+                        screen, self._width, self._height,
+                        _font_for_size(_WORD_GRID_FONT_SIZE), word_grid,
+                    )
+                elif reading_lines is not None:
+                    reading_font = _font_for_size(font_size)
+                    wrapped_lines: list[str] = []
+                    for page in reading_lines:
+                        wrapped_lines.extend(
+                            _wrap_text(page, reading_font, self._width - 2 * _READING_MARGIN)
+                        )
+                    base_color = _READING_FONT_COLORS.get(font_color, _WHITE)
+                    _draw_reading_lines_static(
+                        screen, self._width, self._height, reading_font, wrapped_lines, base_color,
+                        line_height=reading_font.get_linesize() + _READING_LINE_SPACING,
+                    )
+                else:
+                    mode = self._get_mode()
+                    eye_pattern, mouth_pattern = _resolve_expression(state, mode)
 
-                # Discrete, restrained animation only -- per spec, never
-                # continuous pulsing/spinning/lip-sync.
-                if state in _BLINK_ELIGIBLE_STATES and blinker.tick(t):
-                    eye_pattern = _EYE_CLOSED
-                elif state == DeviceState.PROCESSING and thinking_shifter.tick(t):
-                    eye_pattern = _EYE_THINKING_ALT
+                    # Discrete, restrained animation only -- per spec, never
+                    # continuous pulsing/spinning/lip-sync.
+                    if state in _BLINK_ELIGIBLE_STATES and blinker.tick(t):
+                        eye_pattern = _EYE_CLOSED
+                    elif state == DeviceState.PROCESSING and thinking_shifter.tick(t):
+                        eye_pattern = _EYE_THINKING_ALT
 
-                color = _STATE_COLORS.get(state, _CYAN)
-                eye_y = cy - _EYE_OFFSET_Y
-                _draw_pattern(screen, cx - _EYE_GAP // 2, eye_y, eye_pattern, color)
-                _draw_pattern(screen, cx + _EYE_GAP // 2, eye_y, eye_pattern, color)
-                _draw_pattern(screen, cx, cy + _MOUTH_OFFSET_Y, mouth_pattern, _WHITE)
+                    color = _STATE_COLORS.get(state, _CYAN)
+                    eye_y = cy - _EYE_OFFSET_Y
+                    _draw_pattern(screen, cx - _EYE_GAP // 2, eye_y, eye_pattern, color)
+                    _draw_pattern(screen, cx + _EYE_GAP // 2, eye_y, eye_pattern, color)
+                    _draw_pattern(screen, cx, cy + _MOUTH_OFFSET_Y, mouth_pattern, _WHITE)
+            except Exception:
+                # Decision 0089, found live: an unhandled exception
+                # anywhere in this block used to kill this whole
+                # daemon thread silently -- Chitti kept talking and
+                # listening fine (a separate asyncio loop), but the
+                # screen froze on its last good frame for the rest of
+                # the session, with nothing in the logs to say why.
+                # Same "a display problem must never take down a real
+                # conversation session" principle the module docstring
+                # already states for a missing driver -- just not
+                # previously applied to a frame that's already
+                # rendering. Logged once per bad frame (cheap
+                # insurance against a log-spam loop) and the thread
+                # keeps going, so it recovers on its own as soon as
+                # the content changes to something that doesn't fail.
+                logger.exception("face render thread: frame failed, skipping it")
 
             pygame.display.flip()
 

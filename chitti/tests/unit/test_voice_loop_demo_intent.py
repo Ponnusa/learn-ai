@@ -1107,6 +1107,50 @@ async def test_run_reading_partner_word_family_offered_after_independent_resolut
     assert sum(line in _CORRECT_RESPONSES for line in tts.synthesized) == 2
 
 
+async def test_run_reading_partner_word_family_gives_one_reply_when_nothing_was_attempted():
+    """Decision 0089, found live: a reply that doesn't attempt any of
+    the words at all ("I don't know") used to still react to all four
+    candidates individually, each with its own full phonics breakdown
+    and TTS round trip -- felt like it would never end. One short,
+    combined line instead, not four."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="WORD: hat\nWORD: cat\nWORD: bat\nWORD: mat")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures(
+        "no thanks",
+        "a cat mat",
+        "sat",
+        "yes",
+        "I don't know",  # decision 0089: no family word attempted at all
+        "a cat sat",
+        "no thanks",
+        "let's just chat",
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert "That's okay! Those words were hat, cat, bat, mat. Let's keep going!" in tts.synthesized
+    # Not one individual phonics-breakdown reaction per word.
+    assert not any(line.startswith('Good try! The word is "') for line in tts.synthesized)
+
+
 async def test_run_reading_partner_word_family_skipped_when_llm_gives_no_usable_words():
     """A reply with no verifiable WORD: candidates degrades to simply
     skipping the activity -- no offer spoken, no extra capture."""
