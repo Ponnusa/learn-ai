@@ -1298,6 +1298,17 @@ async def _run_word_family_practice(
     # (word_game.py's own is_correct_answer() is already lenient
     # enough to find each word anywhere in that one reply), not one
     # capture per word.
+    #
+    # Decision 0090, found live: this is called while the hint
+    # ladder's own spotlight (the word that was just resolved) is
+    # still set -- not cleared until the whole hint_words loop
+    # finishes, which is after this call returns. The render loop
+    # checks the spotlight before the word grid, so it kept showing
+    # the frozen hint word instead of ever switching to the grid at
+    # all, every single time -- not a crash, not a timing fluke, just
+    # the wrong state left set from the caller's side. Cleared here
+    # rather than relying on every call site to remember to do it.
+    face.set_reading_spotlight(None)
     face.set_word_grid(family_words)
     prompt = "Can you read all of these words for me?"
     print(f"Chitti: {prompt}")

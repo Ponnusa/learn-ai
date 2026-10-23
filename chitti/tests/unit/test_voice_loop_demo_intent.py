@@ -96,6 +96,16 @@ class _FakeFace:
         self.reading_texts: list[list[str] | None] = []
         self.spotlights: list[str | None] = []
         self.word_grids: list[list[str] | None] = []
+        # Decision 0090: the three display-state setters below are
+        # recorded into this one shared, real-call-order log too (as
+        # well as their own per-method lists above, which most
+        # existing tests already rely on) -- the render loop only ever
+        # draws ONE of spotlight/word_grid/reading_text at a time
+        # (whichever is non-None, checked in that priority order), so
+        # a test that cares which one actually showed on screen at a
+        # given moment needs their real interleaving, not each one's
+        # own separately-indexed list.
+        self.display_calls: list[tuple[str, object]] = []
 
     def set_status_led(self, state: DeviceState) -> None:
         self.states.append(state)
@@ -108,12 +118,15 @@ class _FakeFace:
         font_color: str = "white",
     ) -> None:
         self.reading_texts.append(lines)
+        self.display_calls.append(("reading_text", lines))
 
     def set_reading_spotlight(self, word: str | None) -> None:
         self.spotlights.append(word)
+        self.display_calls.append(("spotlight", word))
 
     def set_word_grid(self, words: list[str] | None) -> None:
         self.word_grids.append(words)
+        self.display_calls.append(("word_grid", words))
 
 
 @contextlib.contextmanager
@@ -1105,6 +1118,16 @@ async def test_run_reading_partner_word_family_offered_after_independent_resolut
     assert None in face.word_grids  # cleared after the one capture
     assert "Can you read all of these words for me?" in tts.synthesized
     assert sum(line in _CORRECT_RESPONSES for line in tts.synthesized) == 2
+    # Decision 0090, found live: the hint ladder's own spotlight for
+    # "sat" was still showing when the grid was set -- the render
+    # loop draws the spotlight over the grid whenever both are set,
+    # so the grid never actually appeared. The spotlight's own
+    # clearing call must come before the grid is set, in real call
+    # order (not just "somewhere in each list"), or the fix doesn't
+    # actually help.
+    grid_call = ("word_grid", ["cat", "bat"])
+    grid_index = face.display_calls.index(grid_call)
+    assert ("spotlight", None) in face.display_calls[:grid_index]
 
 
 async def test_run_reading_partner_word_family_gives_one_reply_when_nothing_was_attempted():
