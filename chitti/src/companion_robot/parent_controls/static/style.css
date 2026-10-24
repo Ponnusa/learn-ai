@@ -238,6 +238,68 @@ button.danger:hover {
   color: #fff;
 }
 
+/* Decision 0104: the Reading Partner starting-phase picker --
+   reuses this file's existing --surface/--border/--radius/--accent
+   tokens (same card look card-list already establishes elsewhere)
+   rather than a bare <select>, since a phase's title and subtitle
+   both matter and don't fit well into one dropdown line. */
+fieldset.phase-picker {
+  border: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+fieldset.phase-picker legend {
+  padding: 0;
+  margin-bottom: 4px;
+  font-size: 0.95em;
+  color: var(--text-muted);
+}
+
+.phase-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.phase-card:hover {
+  border-color: var(--accent);
+}
+
+.phase-card:has(input:checked) {
+  border-color: var(--accent);
+  background: #eaf1f8;
+}
+
+.phase-card input[type="radio"] {
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.phase-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.phase-card-title {
+  font-weight: 600;
+}
+
+.phase-card-subtitle {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
 .transcript-line {
   padding: 2px 0;
 }

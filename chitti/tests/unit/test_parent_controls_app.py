@@ -2,6 +2,7 @@
 test client against an in-memory SQLite database, no real server, no
 real network needed.
 """
+import re
 import tempfile
 from pathlib import Path
 
@@ -662,6 +663,61 @@ def test_edit_profile_rejects_an_unlisted_reading_font_color():
         },
     )
     assert response.status_code == 400
+
+
+def _phase_radio_tag(html: bytes, value: str) -> bytes:
+    """Extracts one phase radio <input ...> tag by its own value
+    attribute, so a test can check whether "checked" appears inside
+    THAT specific tag rather than guessing from raw byte offsets."""
+    match = re.search(
+        rb'<input type="radio" name="preferred_phase" value="' + value.encode() + rb'"[^>]*>',
+        html,
+    )
+    assert match is not None, f"no radio tag found for value={value!r}"
+    return match.group(0)
+
+
+def test_edit_profile_page_shows_the_phase_picker_with_no_preference_checked_by_default():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    response = client.get(f"/profiles/{profile_id}/edit")
+
+    assert response.status_code == 200
+    assert b"Starting phase" in response.data
+    assert b"Phase 1: Foundation" in response.data
+    assert b"No preference" in response.data
+    assert b"checked" in _phase_radio_tag(response.data, "")
+    assert b"checked" not in _phase_radio_tag(response.data, "1")
+
+
+def test_edit_profile_page_checks_the_saved_phase_after_updating_it():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/edit",
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "1.0",
+            "reading_pace_wpm": "45",
+            "reading_font_size": "28",
+            "reading_font_color": "white",
+            "preferred_phase": "2",
+            "csrf_token": token,
+        },
+    )
+
+    response = client.get(f"/profiles/{profile_id}/edit")
+    assert b"checked" in _phase_radio_tag(response.data, "2")
+    assert b"checked" not in _phase_radio_tag(response.data, "")
+    assert b"checked" not in _phase_radio_tag(response.data, "1")
 
 
 def test_edit_profile_updates_preferred_phase():

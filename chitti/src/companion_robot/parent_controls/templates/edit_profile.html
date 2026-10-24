@@ -36,15 +36,27 @@
       {% endfor %}
     </select>
   </label>
-  <label>
-    Starting phase
-    <select name="preferred_phase">
-      <option value="" {{ "selected" if profile.preferred_phase is none else "" }}>No preference -- Chitti generates stories</option>
-      {% for id, title, subtitle in phases %}
-        <option value="{{ id }}" {{ "selected" if id == profile.preferred_phase else "" }}>{{ title }} ({{ subtitle }})</option>
-      {% endfor %}
-    </select>
-  </label>
+  <fieldset class="phase-picker">
+    <legend>Starting phase</legend>
+    <label class="phase-card">
+      <input type="radio" name="preferred_phase" value=""
+             {{ "checked" if profile.preferred_phase is none else "" }}>
+      <span class="phase-card-body">
+        <span class="phase-card-title">No preference</span>
+        <span class="phase-card-subtitle">Chitti generates a new story each time</span>
+      </span>
+    </label>
+    {% for id, title, subtitle in phases %}
+    <label class="phase-card">
+      <input type="radio" name="preferred_phase" value="{{ id }}"
+             {{ "checked" if id == profile.preferred_phase else "" }}>
+      <span class="phase-card-body">
+        <span class="phase-card-title">{{ title }}</span>
+        <span class="phase-card-subtitle">{{ subtitle }}</span>
+      </span>
+    </label>
+    {% endfor %}
+  </fieldset>
   <small>Picks an already-written story from Chitti's phase library instead of generating a new one each time, until that phase's stories are finished.</small>
   <button type="submit">Save</button>
 </form>
