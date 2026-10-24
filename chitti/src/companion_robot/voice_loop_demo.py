@@ -223,6 +223,11 @@ async def _speak_with_word_highlight(
     found live that a word repeated elsewhere in the story (e.g.
     "Sam" in both sentence 1 and sentence 3) otherwise lit up in
     every sentence containing it, not just the one being spoken.
+    Matched by word POSITION too (not just sentence), for the same
+    reason within one sentence -- found live that both "and"s in
+    "Pat and the pup run and run." lit up together the moment the
+    first was spoken, since text alone doesn't distinguish a word
+    from its own repeat.
 
     Degrades to a plain, unhighlighted _speak() whenever there's
     nothing to highlight with -- `stt` doesn't support
@@ -263,11 +268,23 @@ async def _speak_with_word_highlight(
     playback_task = asyncio.create_task(audio.play(reply_audio))
     start = time.monotonic()
     try:
-        for timing in timings:
+        for position, timing in enumerate(timings):
             delay = timing.start - (time.monotonic() - start)
             if delay > 0:
                 await asyncio.sleep(delay)
-            face.set_reading_text_highlight(timing.word, sentence_index)
+            face.set_reading_text_highlight(timing.word, sentence_index, position)
+        # Found live: the LAST word's highlight used to be cleared
+        # the instant it was set, with no delay at all -- nothing
+        # waited between setting it and the finally block clearing
+        # it again, so it never had any real time to actually
+        # render. Every other word's highlight naturally persists
+        # until the NEXT word's start time overwrites it; the last
+        # word has no "next" to wait for, so it's held for its own
+        # end time here instead.
+        last_timing = timings[-1]
+        remaining = last_timing.end - (time.monotonic() - start)
+        if remaining > 0:
+            await asyncio.sleep(remaining)
     finally:
         face.set_reading_text_highlight(None, sentence_index)
     await playback_task

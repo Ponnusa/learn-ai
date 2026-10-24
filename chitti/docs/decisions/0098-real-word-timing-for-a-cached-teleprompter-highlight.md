@@ -183,6 +183,46 @@ page index 0, not 1 -- this is exactly the shape that would have
 caught the bug (a flagged sentence at index 0 wouldn't have, since 0
 looks identical whether buggy or fixed by coincidence).
 
+## Update: position-based matching, and holding the last word
+
+Found live, two more bugs from the same real-hardware session:
+
+1. **The last word never highlighted at all.** Every other word's
+   highlight persists on screen until the loop advances to the NEXT
+   word's own start time, which overwrites it. The LAST word has no
+   "next" to wait for -- the old code set its highlight and then fell
+   straight through to the `finally` block's clear, with no delay in
+   between at all. The highlight was real (the log line fired) but
+   had no time to actually render before being cleared again. Fixed
+   by holding the last word for its own remaining duration
+   (`last_timing.end`) before the function returns, exactly mirroring
+   how every other word is naturally held by the next one's start.
+
+2. **A word repeated within one sentence highlighted all of its own
+   occurrences at once.** "Pat and the pup run and run." has "and"
+   twice; the moment the FIRST "and" was spoken, matching by
+   normalized word TEXT (`_normalize_word`) lit up both -- the exact
+   same ambiguity as the earlier cross-sentence "Sam" bug, just
+   within one sentence instead of across several. Fixed by switching
+   the whole highlight model from `(sentence_index, word_text)` to
+   `(sentence_index, word_position)` -- the Nth word of the Mth
+   sentence on screen, with no text comparison at all.
+   `_speak_with_word_highlight()` now enumerates `timings` and passes
+   the loop position; the render loop tracks each wrapped line's own
+   starting word offset within its sentence
+   (`[(page_index, word_offset, line), ...]`), and
+   `_draw_reading_lines_static()` matches `word_offset + j ==
+   target_position` instead of comparing text. `_normalize_word()`
+   itself is now dead code and removed, along with its tests.
+
+Four tests cover this: the last-word hold (asserts a sleep close to
+the final word's own duration happens before the highlight clears,
+via a patched `asyncio.sleep` that records delays instead of
+waiting); position-based substitution still updating the highlighted
+text correctly (unchanged in substance, just re-shaped as 3-tuples);
+and a new test with two "and"s confirming every word gets its own
+distinct position, none repeated.
+
 ## Consequences
 
 Four new tests for `_speak_with_word_highlight()` (highlights each

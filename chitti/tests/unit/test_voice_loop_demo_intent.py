@@ -139,8 +139,10 @@ class _FakeFace:
     def set_word_grid_highlight(self, word: str | None) -> None:
         self.word_grid_highlights.append(word)
 
-    def set_reading_text_highlight(self, word: str | None, sentence_index: int | None) -> None:
-        self.reading_text_highlights.append((sentence_index, word))
+    def set_reading_text_highlight(
+        self, word: str | None, sentence_index: int | None, word_position: int | None = None,
+    ) -> None:
+        self.reading_text_highlights.append((sentence_index, word_position, word))
 
 
 @contextlib.contextmanager
@@ -1351,7 +1353,10 @@ async def test_speak_with_word_highlight_highlights_each_word_in_order():
     # Decision 0098's own fix: the expected text's own words ("Dan",
     # "ran.") are substituted in by position -- same count as
     # Whisper's two timings -- not Whisper's raw transcribed text.
-    assert face.reading_text_highlights == [(0, "Dan"), (0, "ran."), (0, None)]
+    # Matched by (sentence_index, word_position), not word text.
+    assert face.reading_text_highlights == [
+        (0, 0, "Dan"), (0, 1, "ran."), (0, None, None),
+    ]
     assert audio.played == [b"fake-audio"]
 
 
@@ -1370,7 +1375,68 @@ async def test_speak_with_word_highlight_scopes_the_highlight_to_its_own_sentenc
 
     await _speak_with_word_highlight(tts, audio, face, stt, "Sam can nap.", 1.0, cache, 2)
 
-    assert face.reading_text_highlights == [(2, "Sam"), (2, None)]
+    assert face.reading_text_highlights == [(2, 0, "Sam"), (2, None, None)]
+
+
+async def test_speak_with_word_highlight_distinguishes_a_word_from_its_own_repeat():
+    """Found live: both "and"s in "Pat and the pup run and run." lit
+    up together the instant the first was spoken, since matching by
+    word text alone can't tell a repeated word apart from itself.
+    Matching by word POSITION can -- each "and" gets its own,
+    distinct position."""
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+    face = _FakeFace()
+    stt = _FakeSTTWithTimestamps(
+        [
+            WordTiming(word="Pat", start=0.0, end=0.01),
+            WordTiming(word="and", start=0.01, end=0.02),
+            WordTiming(word="the", start=0.02, end=0.03),
+            WordTiming(word="pup", start=0.03, end=0.04),
+            WordTiming(word="run", start=0.04, end=0.05),
+            WordTiming(word="and", start=0.05, end=0.06),
+            WordTiming(word="run.", start=0.06, end=0.07),
+        ]
+    )
+    cache: dict = {}
+
+    await _speak_with_word_highlight(
+        tts, audio, face, stt, "Pat and the pup run and run.", 1.0, cache, 3,
+    )
+
+    positions = [pos for _idx, pos, _word in face.reading_text_highlights if pos is not None]
+    # Two distinct positions for the two "and"s (index 1 and index
+    # 5), not the same position twice.
+    assert positions == [0, 1, 2, 3, 4, 5, 6]
+    assert len(set(positions)) == len(positions)
+
+
+async def test_speak_with_word_highlight_holds_the_last_word_before_clearing():
+    """Found live: the last word's highlight used to be cleared the
+    instant it was set -- nothing waited between setting it and the
+    finally block clearing it again, so it never had any real time
+    to actually render. Every other word's highlight naturally
+    persists until the NEXT word's start time overwrites it; the
+    last word has no "next" to wait for, so it must be held for its
+    own remaining duration instead."""
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+    face = _FakeFace()
+    stt = _FakeSTTWithTimestamps(
+        [WordTiming(word="Dan", start=0.0, end=0.01), WordTiming(word="ran.", start=0.01, end=0.05)]
+    )
+    cache: dict = {}
+    sleep_delays: list[float] = []
+
+    async def _tracking_sleep(delay):
+        sleep_delays.append(delay)
+
+    with patch("asyncio.sleep", _tracking_sleep):
+        await _speak_with_word_highlight(tts, audio, face, stt, "Dan ran.", 1.0, cache, 0)
+
+    # A delay close to the last word's own duration (0.05 - 0.01 =
+    # 0.04s) must be slept through BEFORE the highlight clears.
+    assert any(delay > 0.03 for delay in sleep_delays)
 
 
 async def test_speak_with_word_highlight_reuses_the_cache_for_a_repeated_sentence():
@@ -1742,7 +1808,7 @@ async def test_run_reading_partner_highlight_uses_the_narrowed_display_page_not_
         )
 
     assert face.reading_text_highlights
-    assert all(index == 0 for index, _word in face.reading_text_highlights)
+    assert all(index == 0 for index, _position, _word in face.reading_text_highlights)
 
 
 # Decision 0095: the old per-sentence mid-passage resume (decision
