@@ -106,3 +106,29 @@ async def test_transcribe_with_word_timestamps_raises_without_api_key(monkeypatc
     backend = OpenAIWhisperBackend()
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         await backend.transcribe_with_word_timestamps(b"\x00\x01" * 100)
+
+
+async def test_transcribe_routes_through_azure_when_enabled(monkeypatch):
+    """Decision 0110: whisper-1 maps to Azure's own "whisper" deployment
+    name (config.loader.openai_request()'s own mapping, confirmed here
+    to actually be used by this backend)."""
+    monkeypatch.setenv("USE_AZURE_OPENAI", "true")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com/")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-test-key")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"text": "Hello Chitti"}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.Session.post", return_value=mock_response) as mock_post:
+        backend = OpenAIWhisperBackend()
+        text = await backend.transcribe(b"fake wav bytes")
+
+    assert text == "Hello Chitti"
+    args, kwargs = mock_post.call_args
+    assert args[0] == (
+        "https://example.openai.azure.com/openai/deployments/whisper/"
+        "audio/transcriptions?api-version=2024-12-01-preview"
+    )
+    assert kwargs["headers"] == {"api-key": "azure-test-key"}
+    assert kwargs["data"]["model"] == "whisper"

@@ -68,3 +68,29 @@ async def test_synthesize_raises_without_api_key(monkeypatch):
     backend = OpenAITTSBackend()
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         await backend.synthesize("Hello there!")
+
+
+async def test_synthesize_routes_through_azure_when_enabled(monkeypatch):
+    """Decision 0110: tts-1 maps to Azure's own "tts" deployment name
+    (config.loader.openai_request()'s own mapping, confirmed here to
+    actually be used by this backend)."""
+    monkeypatch.setenv("USE_AZURE_OPENAI", "true")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com/")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-test-key")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+    mock_response = MagicMock()
+    mock_response.content = b"fake raw pcm audio bytes"
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.Session.post", return_value=mock_response) as mock_post:
+        backend = OpenAITTSBackend()
+        audio = await backend.synthesize("Hello there!")
+
+    assert audio == b"fake raw pcm audio bytes"
+    args, kwargs = mock_post.call_args
+    assert args[0] == (
+        "https://example.openai.azure.com/openai/deployments/tts/"
+        "audio/speech?api-version=2024-12-01-preview"
+    )
+    assert kwargs["headers"] == {"api-key": "azure-test-key"}
+    assert kwargs["json"]["model"] == "tts"

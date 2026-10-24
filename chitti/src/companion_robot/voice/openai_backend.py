@@ -38,11 +38,10 @@ import asyncio
 
 import requests
 
-from companion_robot.config.loader import require_env
+from companion_robot.config.loader import openai_request
 
 from .interfaces import LanguageModelBackend
 
-_API_URL = "https://api.openai.com/v1/chat/completions"
 _DEFAULT_MODEL = "gpt-4o-mini"
 _DEFAULT_MAX_TOKENS = 300
 
@@ -62,9 +61,9 @@ class OpenAILanguageModelBackend(LanguageModelBackend):
     async def generate_reply(
         self, messages: list[dict], system_prompt: str
     ) -> tuple[str, str]:
-        api_key = require_env("OPENAI_API_KEY")
+        url, headers, model = openai_request("chat/completions", self._model)
         payload = {
-            "model": self._model,
+            "model": model,
             "messages": [{"role": "system", "content": system_prompt}, *messages],
         }
         if self._max_tokens is not None:
@@ -76,12 +75,12 @@ class OpenAILanguageModelBackend(LanguageModelBackend):
         # executor-offloading in pixel_openai_voice_semantic.py.
         response = await asyncio.to_thread(
             self._session.post,
-            _API_URL,
-            headers={"Authorization": f"Bearer {api_key}"},
+            url,
+            headers=headers,
             json=payload,
             timeout=30,
         )
         response.raise_for_status()
         data = response.json()
         reply = data["choices"][0]["message"]["content"]
-        return reply, self._model
+        return reply, model

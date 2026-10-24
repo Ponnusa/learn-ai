@@ -12,12 +12,11 @@ import asyncio
 
 import requests
 
-from companion_robot.config.loader import require_env
+from companion_robot.config.loader import openai_request
 from companion_robot.reading.word_timing import WordTiming, parse_word_timings, pcm_to_wav_bytes
 
 from .interfaces import SpeechRecognitionBackend
 
-_API_URL = "https://api.openai.com/v1/audio/transcriptions"
 _DEFAULT_MODEL = "whisper-1"
 
 
@@ -27,15 +26,15 @@ class OpenAIWhisperBackend(SpeechRecognitionBackend):
         self._session = requests.Session()
 
     async def transcribe(self, audio: bytes, language: str | None = None) -> str:
-        api_key = require_env("OPENAI_API_KEY")
-        data = {"model": self._model}
+        url, headers, model = openai_request("audio/transcriptions", self._model)
+        data = {"model": model}
         if language is not None:
             data["language"] = language
 
         def _do_request():
             return self._session.post(
-                _API_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
+                url,
+                headers=headers,
                 files={"file": ("audio.wav", audio, "audio/wav")},
                 data=data,
                 timeout=30,
@@ -60,18 +59,18 @@ class OpenAIWhisperBackend(SpeechRecognitionBackend):
         every other "degrade gracefully if absent" feature in this
         codebase, so no other backend or test fake needs to implement
         it."""
-        api_key = require_env("OPENAI_API_KEY")
+        url, headers, model = openai_request("audio/transcriptions", self._model)
         wav_bytes = pcm_to_wav_bytes(pcm_audio)
         data = {
-            "model": self._model,
+            "model": model,
             "response_format": "verbose_json",
             "timestamp_granularities[]": "word",
         }
 
         def _do_request():
             return self._session.post(
-                _API_URL,
-                headers={"Authorization": f"Bearer {api_key}"},
+                url,
+                headers=headers,
                 files={"file": ("audio.wav", wav_bytes, "audio/wav")},
                 data=data,
                 timeout=30,

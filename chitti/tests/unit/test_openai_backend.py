@@ -127,3 +127,33 @@ async def test_generate_reply_omits_max_tokens_when_explicitly_none(monkeypatch)
 
     assert "max_tokens" not in mock_post.call_args.kwargs["json"]
     assert "temperature" not in mock_post.call_args.kwargs["json"]
+
+
+async def test_generate_reply_routes_through_azure_when_enabled(monkeypatch):
+    """Decision 0110: USE_AZURE_OPENAI switches the URL/auth/model the
+    same way config.loader.openai_request() itself is already tested
+    to -- this confirms the backend actually calls it rather than its
+    own hardcoded OpenAI URL."""
+    monkeypatch.setenv("USE_AZURE_OPENAI", "true")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://example.openai.azure.com/")
+    monkeypatch.setenv("AZURE_OPENAI_API_KEY", "azure-test-key")
+    monkeypatch.setenv("AZURE_OPENAI_API_VERSION", "2024-12-01-preview")
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.Session.post", return_value=mock_response) as mock_post:
+        backend = OpenAILanguageModelBackend(model="gpt-4o-mini")
+        reply, model = await backend.generate_reply(
+            [{"role": "user", "content": "Hi"}], "system"
+        )
+
+    assert reply == "ok"
+    assert model == "gpt-4o-mini"  # unmapped -- deployment name matches
+    args, kwargs = mock_post.call_args
+    assert args[0] == (
+        "https://example.openai.azure.com/openai/deployments/gpt-4o-mini/"
+        "chat/completions?api-version=2024-12-01-preview"
+    )
+    assert kwargs["headers"] == {"api-key": "azure-test-key"}
+    assert "Authorization" not in kwargs["headers"]

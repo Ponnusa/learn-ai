@@ -19,11 +19,10 @@ import asyncio
 
 import requests
 
-from companion_robot.config.loader import require_env
+from companion_robot.config.loader import openai_request
 
 from .interfaces import TextToSpeechBackend
 
-_API_URL = "https://api.openai.com/v1/audio/speech"
 _DEFAULT_MODEL = "tts-1"
 _DEFAULT_VOICE = "alloy"
 
@@ -35,12 +34,12 @@ class OpenAITTSBackend(TextToSpeechBackend):
         self._session = requests.Session()
 
     async def synthesize(self, text: str, speed: float = 1.0) -> bytes:
-        api_key = require_env("OPENAI_API_KEY")
+        url, headers, model = openai_request("audio/speech", self._model)
         # OpenAI's API accepts 0.25-4.0; out-of-range values are left
         # to surface as a clear API error rather than silently clamped
         # -- the Parent Controls UI constrains the input range instead.
         payload = {
-            "model": self._model,
+            "model": model,
             "voice": self._voice,
             "input": text,
             "response_format": "pcm",
@@ -48,8 +47,8 @@ class OpenAITTSBackend(TextToSpeechBackend):
         }
         response = await asyncio.to_thread(
             self._session.post,
-            _API_URL,
-            headers={"Authorization": f"Bearer {api_key}"},
+            url,
+            headers=headers,
             json=payload,
             timeout=30,
         )
