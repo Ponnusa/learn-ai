@@ -24,7 +24,7 @@ from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.lullabies.repository import LullabyRepository
 from companion_robot.lullabies.schema import LullabyRecord
 from companion_robot.memory.repository import MemoryRepository
-from companion_robot.reading.story_library import PHASES
+from companion_robot.reading.story_library import PHASES, stories_by_phase
 from companion_robot.transcripts.repository import TranscriptRepository
 
 from .auth import PinRepository, RateLimiter, load_or_create_secret_key
@@ -147,6 +147,23 @@ def create_app(
             profiles=profiles.list_all(),
             stories=stories.list_all(),
             lullabies=lullabies.list_all(),
+        )
+
+    @app.get("/reading")
+    @requires_auth
+    def reading_library_view():
+        """Decision 0106: a top-level, read-only browse of decision
+        0104's vendored story library, grouped by phase -- what
+        stories are there for each level, same spirit as the Open
+        Phonics source project's own stories-by-phase page.
+        Deliberately read-only and not profile-scoped: which child
+        gets which phase is still set per-child in Edit Profile; this
+        page only answers what's in the library, not who's assigned
+        what."""
+        return render_template(
+            "reading_library.html",
+            phases=PHASES,
+            stories_by_phase=stories_by_phase(),
         )
 
     @app.route("/profiles", methods=["GET", "POST"])

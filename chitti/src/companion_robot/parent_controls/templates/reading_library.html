@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Reading library</h1>
+<p class="hint">Chitti's vendored story library (decision 0104), organized by phase -- the same phases a child's starting phase is chosen from on their Edit Profile page. Read-only: pick which phase a child starts at from <a class="action-link" href="{{ url_for('profiles_view') }}">their own profile</a>.</p>
+
+{% for id, title, subtitle in phases %}
+<h2>{{ title }}</h2>
+<p class="hint">{{ subtitle }}</p>
+{% set phase_stories = stories_by_phase.get(id, []) %}
+{% if phase_stories %}
+<ul class="card-list">
+  {% for story in phase_stories %}
+  <li class="card">
+    <div class="card-title">{{ story.title }}</div>
+    <div class="card-meta">{{ story.pages|length }} sentence{{ "s" if story.pages|length != 1 else "" }} &middot; {{ story.comprehension|length }} comprehension question{{ "s" if story.comprehension|length != 1 else "" }}</div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty-state">No stories in this phase yet.</p>
+{% endif %}
+{% endfor %}
+{% endblock %}

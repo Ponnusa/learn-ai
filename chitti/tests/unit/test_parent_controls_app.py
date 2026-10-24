@@ -677,6 +677,32 @@ def _phase_radio_tag(html: bytes, value: str) -> bytes:
     return match.group(0)
 
 
+def test_reading_library_view_lists_phases_and_their_stories():
+    """Decision 0106: a top-level, read-only "what's in the library"
+    page -- a parent shouldn't need to open a specific child's
+    profile to see it."""
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+
+    response = client.get("/reading")
+
+    assert response.status_code == 200
+    assert b"Reading library" in response.data
+    assert b"Phase 1: Foundation" in response.data
+    assert b"Sam Sat" in response.data  # phase 1's own order=1 story
+    assert b"Phase 7: Mastery" in response.data
+    assert b"I Am a Reader" in response.data  # phase 7's own last story
+
+
+def test_reading_library_link_appears_in_the_nav():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+
+    response = client.get("/dashboard")
+
+    assert b'href="/reading"' in response.data
+
+
 def test_edit_profile_page_shows_the_phase_picker_with_no_preference_checked_by_default():
     app, conn = _make_app()
     client = _authenticated_client(app)

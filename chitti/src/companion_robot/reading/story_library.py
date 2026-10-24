@@ -303,6 +303,21 @@ _LIBRARY_STORIES: list[LibraryStory] = [
 ]
 
 
+def stories_by_phase() -> dict[int, list[LibraryStory]]:
+    """Decision 0106: every vendored story, grouped by phase and
+    sorted by its own `order` within that phase -- the read-only
+    "what's in the library" view for Parent Controls. A plain
+    accessor, not a selection function (`pick_library_book()` is the
+    only thing that reads/writes which story a child actually gets),
+    so nothing here ever needs `completed_slugs`."""
+    grouped: dict[int, list[LibraryStory]] = {phase_id: [] for phase_id, _title, _subtitle in PHASES}
+    for story in _LIBRARY_STORIES:
+        grouped.setdefault(story.phase, []).append(story)
+    for stories in grouped.values():
+        stories.sort(key=lambda s: s.order)
+    return grouped
+
+
 def pick_library_book(
     phase: int, objective: Objective, completed_slugs: set[str],
 ) -> GeneratedBook | None:

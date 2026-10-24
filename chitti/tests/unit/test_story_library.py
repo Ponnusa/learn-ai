@@ -3,7 +3,12 @@ vendored Open Phonics story library and its selection logic
 (decision 0104).
 """
 from companion_robot.reading.schema import Objective
-from companion_robot.reading.story_library import PHASES, _LIBRARY_STORIES, pick_library_book
+from companion_robot.reading.story_library import (
+    PHASES,
+    _LIBRARY_STORIES,
+    pick_library_book,
+    stories_by_phase,
+)
 
 _OBJECTIVE = Objective(target_grapheme="a", target_level="short_vowels")
 
@@ -52,3 +57,13 @@ def test_pick_library_book_carries_the_objective_through_unchanged():
     book = pick_library_book(2, _OBJECTIVE, set())
     assert book.objective is _OBJECTIVE
     assert book.target_grapheme == _OBJECTIVE.target_grapheme
+
+
+def test_stories_by_phase_groups_and_orders_every_story():
+    grouped = stories_by_phase()
+    assert set(grouped.keys()) == {p[0] for p in PHASES}
+    assert sum(len(stories) for stories in grouped.values()) == len(_LIBRARY_STORIES)
+    # Each phase's own stories come back sorted by their own order.
+    for stories in grouped.values():
+        assert [s.order for s in stories] == sorted(s.order for s in stories)
+    assert [s.slug for s in grouped[1]] == ["sam-sat", "the-cat-at-the-mat", "it-is-dim"]
