@@ -21,6 +21,7 @@ from companion_robot.parent_controls.reading_exercises import (
 )
 from companion_robot.reading.hints import build_hint_line
 from companion_robot.reading.repository import ReadingRepository
+from companion_robot.reading.schema import GraphemeMastery, Miscue, ReadingProfile
 from companion_robot.reading.word_timing import WordTiming
 from companion_robot.reading.word_game import (
     _CLOSING_LINES,
@@ -31,12 +32,14 @@ from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
 from companion_robot.voice_loop_demo import (
+    _MAX_FULL_CORRECTIONS,
     _THINKING_FILLERS,
     _classify_read_first_offer_reply,
     _classify_reread_reply,
     _confirm_switch,
     _detect_switch_intent,
     _generate_with_thinking_filler,
+    _give_brief_callout,
     _pick_item_by_voice,
     _resolve_spoken_choice,
     _run_everyday_companion,
@@ -45,6 +48,7 @@ from companion_robot.voice_loop_demo import (
     _run_word_family_practice,
     _speak_with_word_highlight,
     _speak_while_thinking,
+    _weakest_mastery_for_miscues,
 )
 
 
@@ -1494,6 +1498,62 @@ async def test_speak_with_word_highlight_reuses_the_cache_for_a_repeated_sentenc
     assert len(audio.played) == 2  # still actually spoken both times
 
 
+# -- _weakest_mastery_for_miscues() / _give_brief_callout() (decision 0103) --
+
+
+def _substitution(expected: str) -> Miscue:
+    return Miscue(kind="substitution", expected=expected, spoken="x", position=0)
+
+
+def test_weakest_mastery_for_miscues_returns_the_lowest_tracked_grapheme():
+    profile = ReadingProfile(child_profile_id="child-1")
+    profile.masteries["c"] = GraphemeMastery(grapheme="c", level="short_vowels", p_mastery=0.9)
+    profile.masteries["a"] = GraphemeMastery(grapheme="a", level="short_vowels", p_mastery=0.95)
+    profile.masteries["t"] = GraphemeMastery(grapheme="t", level="short_vowels", p_mastery=0.95)
+
+    weakest = _weakest_mastery_for_miscues([_substitution("cat")], profile)
+
+    assert weakest == 0.9  # "c" is the weakest of cat's own three graphemes
+
+
+def test_weakest_mastery_for_miscues_treats_an_untracked_grapheme_as_zero():
+    """Decision 0103: never having been observed at all is at least
+    as strong a reason to prioritize a sentence as any tracked-but-
+    weak grapheme, not a reason to skip it."""
+    profile = ReadingProfile(child_profile_id="child-1")
+    profile.masteries["i"] = GraphemeMastery(grapheme="i", level="short_vowels", p_mastery=0.95)
+    profile.masteries["g"] = GraphemeMastery(grapheme="g", level="short_vowels", p_mastery=0.95)
+    # "p" is never tracked at all.
+
+    weakest = _weakest_mastery_for_miscues([_substitution("pig")], profile)
+
+    assert weakest == 0.0
+
+
+def test_weakest_mastery_for_miscues_skips_insertions_with_no_expected_word():
+    profile = ReadingProfile(child_profile_id="child-1")
+    insertion = Miscue(kind="insertion", expected=None, spoken="really", position=1)
+
+    # Nothing to decompose, nothing tracked -- no crash, stays at the
+    # default "fully mastered" baseline since nothing pulled it down.
+    assert _weakest_mastery_for_miscues([insertion], profile) == 1.0
+
+
+async def test_give_brief_callout_names_each_word_without_a_hint_ladder():
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+    face = _FakeFace()
+
+    await _give_brief_callout(["cat", "bat"], tts, audio, face, 1.0)
+
+    assert any('"cat' in line for line in tts.synthesized)
+    assert any('"bat' in line for line in tts.synthesized)
+    # Spotlighted each word in turn, then cleared -- never the full
+    # hint-ladder/reread treatment's own lines.
+    assert face.spotlights == ["cat", "bat", None]
+    assert not any("sound it out" in line for line in tts.synthesized)
+
+
 async def test_speak_with_word_highlight_falls_back_when_stt_lacks_the_capability():
     tts = _FakeTTS()
     audio = _FakeAudio()
@@ -1851,6 +1911,87 @@ async def test_run_reading_partner_highlight_uses_the_narrowed_display_page_not_
     # same speed, so the second one reuses the first's cached audio
     # and timestamps instead of a second Whisper lookup.
     assert stt.timestamp_calls == 1
+
+
+async def test_run_reading_partner_tiers_correction_by_weakest_tracked_mastery():
+    """Decision 0103: a story with more flagged sentences than
+    _MAX_FULL_CORRECTIONS (2) tiers the response -- the two whose
+    misses touch the weakest tracked grapheme mastery get the full
+    hint-ladder/reread/word-meaning-check treatment; the rest get
+    one brief callout instead of being skipped. Here "cat" (its own
+    weakest grapheme, "c", tracked at 0.9) loses out to "bat" ("b"
+    at 0.5) and "pig" ("p", never tracked at all -- treated as 0.0,
+    the weakest of all three)."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="Dan has a cat. Sam has a bat. The pig ran fast.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    # Shared graphemes ("a", "t") tracked high so they never dominate
+    # over each word's own distinguishing letter; "p" ("pig") is left
+    # untracked entirely.
+    profile = reading.get_or_create("child-1")
+    for grapheme, p_mastery in [("a", 0.95), ("t", 0.95), ("i", 0.95), ("g", 0.95), ("c", 0.9), ("b", 0.5)]:
+        profile.masteries[grapheme] = GraphemeMastery(
+            grapheme=grapheme, level="short_vowels", p_mastery=p_mastery,
+        )
+    reading.save(profile)
+
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            ("unused -- word family finds no candidates", "fake-model"),  # "bat"
+            ("QUESTION: What did Sam have?", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, a bat!", "fake-model"),
+            ("unused -- word family finds no candidates", "fake-model"),  # "pig"
+            ("QUESTION: What did the pig do?", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, it ran!", "fake-model"),
+            ("Sorry, no questions.", "fake-model"),  # book-level comprehension -- skipped
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures(
+        "no thanks",  # declines the up-front read
+        "dan has a hat sam has a mat the wig ran fast",  # 3 misses, one per sentence
+        "bat",  # resolves "bat" on the first hint stage
+        "sam has a bat",  # sentence 1's reread -- clean
+        "a bat",  # answers the word-meaning question
+        "pig",  # resolves "pig" on the first hint stage
+        "the pig ran fast",  # sentence 2's reread -- clean
+        "it ran",  # answers the word-meaning question
+        "no thanks",  # declines the word game
+        "let's just chat",  # ends the session
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # "cat" got the brief callout, not the full treatment -- its own
+    # sentence is never spoken as a highlighted modeled read, and
+    # "Let's work on this one" (the full-correction intro) never
+    # fires for it.
+    assert any('"cat' in line for line in tts.synthesized)
+    assert "Dan has a cat." not in tts.synthesized
+    # "bat" and "pig" both got the full treatment -- their own
+    # sentences were spoken as a highlighted modeled read, and the
+    # intro line fired for each.
+    assert "Sam has a bat." in tts.synthesized
+    assert "The pig ran fast." in tts.synthesized
+    assert tts.synthesized.count("Let's work on this one:") == 2
+    assert "Yes, a bat!" in tts.synthesized
+    assert "Yes, it ran!" in tts.synthesized
 
 
 # Decision 0095: the old per-sentence mid-passage resume (decision

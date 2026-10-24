@@ -83,7 +83,7 @@ from companion_robot.reading.hints import HINT_STAGES, build_hint_line, pick_hin
 from companion_robot.reading.mastery import update_from_evidence
 from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
-from companion_robot.reading.schema import AssessmentResult, GeneratedBook, MasteryDelta
+from companion_robot.reading.schema import AssessmentResult, GeneratedBook, MasteryDelta, Miscue, ReadingProfile
 from companion_robot.reading.sentences import split_into_sentences
 from companion_robot.reading.word_timing import WordTiming, align_timings_to_expected_text
 from companion_robot.reading.session_state import (
@@ -188,6 +188,12 @@ async def _capture_and_transcribe(stt) -> str:
 # reread) -- noticeably slower without dragging, same spirit as
 # reading_pace_wpm already pacing the teleprompter itself.
 _MODEL_READ_SPEED_MULTIPLIER = 0.75
+
+# Decision 0103: a starting value to test, not a proven optimal
+# limit -- a story with more flagged sentences than this gets a
+# tiered response instead of either fully correcting every one
+# (unbounded session length) or silently ignoring the rest.
+_MAX_FULL_CORRECTIONS = 2
 
 
 async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
@@ -1327,6 +1333,43 @@ async def _play_real_phonics_sounds(audio, word: str) -> None:
             await audio.play(clip)
 
 
+def _weakest_mastery_for_miscues(miscues: list[Miscue], profile: ReadingProfile) -> float:
+    """Decision 0103: the lowest p_mastery among the graphemes a
+    sentence's own missed words touch -- used to prioritize which
+    flagged sentences get this session's limited full-correction
+    budget. A grapheme with no tracked mastery yet counts as 0.0
+    (never having been observed at all is at least as strong a
+    reason to address it as any tracked-but-weak grapheme, not a
+    reason to skip it). An insertion's `expected` is None (nothing
+    was actually expected there) -- skipped, nothing to decompose."""
+    weakest = 1.0
+    for miscue in miscues:
+        if miscue.expected is None:
+            continue
+        for grapheme in decompose(miscue.expected).graphemes:
+            mastery = profile.masteries.get(grapheme.grapheme)
+            weakest = min(weakest, mastery.p_mastery if mastery is not None else 0.0)
+    return weakest
+
+
+async def _give_brief_callout(hint_words: list[str], tts, audio, face, speed: float) -> None:
+    """Decision 0103: the brief tier for a flagged sentence that
+    didn't make this session's full-correction budget -- names each
+    missed word and plays its real phonics sound, without the full
+    hint ladder, reread, or word-meaning check those budgeted
+    sentences get. Doesn't narrow the display to one sentence the
+    way a full correction does -- the whole story stays visible
+    throughout, just briefly spotlighting each word in turn."""
+    for word in hint_words:
+        face.set_reading_spotlight(word)
+        callout = f'Here\'s a tricky one: "{word}."'
+        print(f"Chitti: {callout}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, callout, speed=speed)
+        await _play_real_phonics_sounds(audio, word)
+    face.set_reading_spotlight(None)
+
+
 async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:
     """Decision 0057: a fun, deterministic "missing letters" bonus
     game after a book -- not part of mastery grading (reading/mastery.py
@@ -1988,29 +2031,55 @@ async def _run_reading_partner(
             # re-derived or lost track of for the rest of this book.
             sentence_miscues = miscues_by_sentence(sentences, assessment.miscues)
 
+            # Decision 0103: a story with more flagged sentences than
+            # one session should fully correct gets a tiered response
+            # instead of either fully correcting every single one
+            # (unbounded session length/API cost) or silently ignoring
+            # everything past an arbitrary cutoff. Every flagged
+            # sentence is found first (one pick_hint_words() call
+            # each, reused below instead of recomputed); the
+            # _MAX_FULL_CORRECTIONS whose misses touch the WEAKEST
+            # tracked grapheme mastery get the full hint-ladder +
+            # reread + word-meaning-check treatment, in story order;
+            # the rest get one brief callout (name the word, play its
+            # real phonics sound) instead of being skipped entirely.
+            # Mastery itself already comes from whatever evidence was
+            # actually collected (the whole-story cold-read evidence
+            # above, fed in before this loop even starts) -- nothing
+            # about the budget below changes how mastery is scored.
+            sentence_hint_words: dict[int, list[str]] = {}
+            for i, candidate_sentence in enumerate(sentences):
+                mini_assessment = AssessmentResult(
+                    expected_text=candidate_sentence,
+                    spoken_text="",
+                    total_words=len(tokenize(candidate_sentence)),
+                    words_correct=0,
+                    errors=len(sentence_miscues[i]),
+                    miscues=sentence_miscues[i],
+                )
+                hint_words = pick_hint_words(mini_assessment)
+                if hint_words:
+                    sentence_hint_words[i] = hint_words
+
+            priority_order = sorted(
+                sentence_hint_words,
+                key=lambda i: _weakest_mastery_for_miscues(sentence_miscues[i], profile),
+            )
+            full_correction_indices = set(priority_order[:_MAX_FULL_CORRECTIONS])
+
             resolved_words: list[str] = []
             retry_evidence_accum: dict[str, list] = {}
             for sentence_index, sentence in enumerate(sentences):
-                # A minimal stand-in just to reuse pick_hint_words()
-                # unchanged -- it only ever reads .miscues off whatever
-                # it's given.
-                mini_assessment = AssessmentResult(
-                    expected_text=sentence,
-                    spoken_text="",
-                    total_words=len(tokenize(sentence)),
-                    words_correct=0,
-                    errors=len(sentence_miscues[sentence_index]),
-                    miscues=sentence_miscues[sentence_index],
-                )
-                # Decision 0052/0065: graduated hint + retry for every
-                # real missed word in this sentence (not just the
-                # first).
-                hint_words = pick_hint_words(mini_assessment)
+                hint_words = sentence_hint_words.get(sentence_index)
                 if not hint_words:
                     # Decision 0095's whole point: read correctly the
                     # first time means this sentence is simply skipped
                     # -- only what was actually missed gets revisited,
                     # not every sentence regardless.
+                    continue
+
+                if sentence_index not in full_correction_indices:
+                    await _give_brief_callout(hint_words, tts, audio, face, speed)
                     continue
 
                 # Decision 0095: the child already read the whole
