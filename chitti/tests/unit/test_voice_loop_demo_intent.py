@@ -5,7 +5,7 @@ keyboard input() needed.
 """
 import asyncio
 import contextlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -31,6 +31,7 @@ from companion_robot.reading.word_game import (
 from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
+import companion_robot.voice_loop_demo as voice_loop_demo
 from companion_robot.voice_loop_demo import (
     _MAX_FULL_CORRECTIONS,
     _THINKING_FILLERS,
@@ -2967,3 +2968,70 @@ async def test_run_word_game_never_offered_when_no_word_qualifies():
     # Only the mode's own unconditional clear-on-exit cleanup -- no
     # real game round ever ran.
     assert face.spotlights == [None]
+
+
+# -- decision 0109: idle-greeting nudge, wired into real mode loops -----
+
+
+async def test_run_teachable_friend_speaks_idle_greeting_before_the_real_reply(monkeypatch):
+    """Confirms the hook is actually wired into _run_teachable_friend's
+    own loop (not just unit-tested in isolation) -- fires once, before
+    the real conversational reply, when the shared idle clock already
+    shows a 60+ minute gap."""
+    monkeypatch.setattr(
+        voice_loop_demo, "_last_interaction_at", datetime.now(timezone.utc) - timedelta(minutes=90)
+    )
+    conn = connect(":memory:")
+    memories = MemoryRepository(conn)
+    engagement = EngagementRepository(conn)
+    transcripts = TranscriptRepository(conn)
+    llm = _FakeLLM(reply="Dogs are great, tell me more!")
+    conversation = ConversationService(llm, summarizer_llm=_FakeLLM(reply="NOTHING"))
+    tts = _FakeTTS()
+
+    with _patch_captures("let's just chat"):
+        await _run_teachable_friend(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            memories, engagement, transcripts, _FakeFace(), "child-1", 1.0,
+            child_name="Anna",
+        )
+
+    assert tts.synthesized[0] == (
+        "Hey Anna! I'm here if you want to read, play, or tell me something!"
+    )
+
+
+async def test_run_reading_partner_speaks_idle_greeting_at_the_top_of_its_loop(monkeypatch):
+    """Same wiring check, for the differently-shaped Reading Partner
+    loop (the idle check sits at the very top of its own outer `while
+    True`, before book/exercise selection, not beside a capture call
+    the way the chat-style modes have it)."""
+    monkeypatch.setattr(
+        voice_loop_demo, "_last_interaction_at", datetime.now(timezone.utc) - timedelta(minutes=90)
+    )
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="I am in it.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    tts = _FakeTTS()
+
+    with _patch_captures("no thanks", "i am in it", "let's just chat"):
+        await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, _FakeFace(), "child-1", 1.0,
+            child_name="Anna",
+        )
+
+    assert tts.synthesized[0] == (
+        "Hey Anna! I'm here if you want to read, play, or tell me something!"
+    )

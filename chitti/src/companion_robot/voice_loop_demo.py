@@ -828,6 +828,49 @@ async def _maybe_greet_with_recap(
     profiles.mark_greeted(profile.id, today)
 
 
+# Decision 0109: a fixed, generic nudge for when a mode's own loop is
+# about to wait for the child's next turn after a long real-world gap
+# -- distinct from _maybe_greet_with_recap() above, which only fires
+# once, at the very start of a session/day, and needs an LLM call to
+# build a personalized recap. This one has nothing to personalize
+# beyond the child's own name, so it never calls an LLM at all;
+# TTSCache (decision 0102) ends up paying to synthesize it only once
+# per child, ever, no matter how many times it's spoken after that.
+_IDLE_GREETING_AFTER = timedelta(minutes=60)
+
+# In-memory only, not persisted -- a live clock for however long THIS
+# process keeps running, not a historical record the way decision
+# 0108's last_greeted_date is (that one deliberately survives a
+# restart; this one doesn't need to -- a fresh restart already starts
+# "just interacted" via _maybe_greet_with_recap above). `None` until
+# the first mode loop actually reaches it, so the very first turn of
+# a freshly started process never triggers this (nothing to measure
+# a gap against yet).
+_last_interaction_at: datetime | None = None
+
+
+def _idle_greeting_text(child_name: str) -> str:
+    return f"Hey {child_name}! I'm here if you want to read, play, or tell me something!"
+
+
+async def _maybe_speak_idle_greeting(tts, audio, face, speed: float, child_name: str) -> None:
+    """Decision 0109: push-to-talk (decision 0016) means Chitti can
+    never truly volunteer this while nobody's pressing Enter -- the
+    earliest it can say it is the next time someone does, after a
+    gap this long since the last turn. Called from the top of every
+    mode's own loop, right before it waits for that next turn --
+    updates the shared clock either way, so a quick back-to-back
+    turn never sees a stale timestamp."""
+    global _last_interaction_at
+    now = datetime.now(timezone.utc)
+    if _last_interaction_at is not None and now - _last_interaction_at >= _IDLE_GREETING_AFTER:
+        text = _idle_greeting_text(child_name)
+        print(f"Chitti: {text}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, text, speed=speed)
+    _last_interaction_at = now
+
+
 def _resolve_math_check(
     text: str, pending_challenge: tuple[int, int] | None
 ) -> MathCheckResult | None:
@@ -928,6 +971,7 @@ async def _run_teachable_friend(
     child_profile_id: str,
     speed: float,
     initial_text: str | None = None,
+    child_name: str = "",
 ) -> tuple[str | None, str | None]:
     messages: list[dict] = []
     # Tracks an addition challenge Chitti itself posed last turn
@@ -964,6 +1008,7 @@ async def _run_teachable_friend(
                 text = pending_text
                 pending_text = None
             else:
+                await _maybe_speak_idle_greeting(tts, audio, face, speed, child_name)
                 face.set_status_led(DeviceState.LISTENING)
                 text = await _capture_and_transcribe(stt)
                 print(f"You said: {text}")
@@ -1024,6 +1069,7 @@ async def _run_everyday_companion(
     speed: float,
     child_age: int | None = None,
     initial_text: str | None = None,
+    child_name: str = "",
 ) -> tuple[str | None, str | None]:
     """Decision 0034: the third mode -- everyday chat, simple games,
     spontaneous curiosity, and emotional moments, for when the child
@@ -1047,6 +1093,7 @@ async def _run_everyday_companion(
                 text = pending_text
                 pending_text = None
             else:
+                await _maybe_speak_idle_greeting(tts, audio, face, speed, child_name)
                 face.set_status_led(DeviceState.LISTENING)
                 text = await _capture_and_transcribe(stt)
                 print(f"You said: {text}")
@@ -1106,6 +1153,7 @@ async def _run_story_companion(
     speed: float,
     child_age: int | None = None,
     initial_text: str | None = None,
+    child_name: str = "",
 ) -> tuple[str | None, str | None]:
     # initial_text (decision 0042 addendum) is deliberately unused here:
     # unlike Teachable-Friend/Just Chat, Story Companion always starts
@@ -1148,6 +1196,7 @@ async def _run_story_companion(
     switch_trigger_text: str | None = None
     try:
         while True:
+            await _maybe_speak_idle_greeting(tts, audio, face, speed, child_name)
             face.set_status_led(DeviceState.LISTENING)
             text = await _capture_and_transcribe(stt)
             print(f"You said: {text}")
@@ -1692,6 +1741,7 @@ async def _run_reading_partner(
     reading_font_color: str = "white",
     initial_text: str | None = None,
     preferred_phase: int | None = None,
+    child_name: str = "",
 ) -> tuple[str | None, str | None]:
     """Decision 0051: phonics-based reading practice -- picks the next
     phonics skill the child hasn't mastered, generates a decodable
@@ -1794,6 +1844,7 @@ async def _run_reading_partner(
     modeled_word_timings_cache: dict[tuple[str, float], tuple[bytes, list[WordTiming]]] = {}
     try:
         while True:
+            await _maybe_speak_idle_greeting(tts, audio, face, speed, child_name)
             objective = select_objective(profile, session_index=profile.sessions_completed)
             face.set_status_led(DeviceState.PROCESSING)
 
@@ -2461,6 +2512,7 @@ async def _run_reading_partner_v2(
     reading_font_color: str = "white",
     initial_text: str | None = None,
     preferred_phase: int | None = None,
+    child_name: str = "",
 ) -> tuple[str | None, str | None]:
     """Reading Partner v2 (decision 0075) -- a second, parallel reading
     flow, built directly from a product-owner critique of the original
@@ -2535,6 +2587,7 @@ async def _run_reading_partner_v2(
     switch_trigger_text: str | None = None
     try:
         while True:
+            await _maybe_speak_idle_greeting(tts, audio, face, speed, child_name)
             objective = select_objective(profile, session_index=profile.sessions_completed)
             face.set_status_led(DeviceState.PROCESSING)
 
@@ -2986,6 +3039,7 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.profile.speech_speed,
                     child_age=ctx.profile.age,
                     initial_text=carried_text,
+                    child_name=ctx.profile.name,
                 )
             elif next_mode == "3":
                 next_mode, carried_text = await _run_everyday_companion(
@@ -3001,6 +3055,7 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.profile.speech_speed,
                     child_age=ctx.profile.age,
                     initial_text=carried_text,
+                    child_name=ctx.profile.name,
                 )
             elif next_mode == "4":
                 # Lullaby time has no listening turn at all, so there's
@@ -3041,6 +3096,7 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     reading_font_color=ctx.profile.reading_font_color,
                     initial_text=carried_text,
                     preferred_phase=ctx.profile.preferred_phase,
+                    child_name=ctx.profile.name,
                 )
             else:
                 # Matches the original dispatch exactly: anything that
@@ -3059,6 +3115,7 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     ctx.profile.id,
                     ctx.profile.speech_speed,
                     initial_text=carried_text,
+                    child_name=ctx.profile.name,
                 )
     except (KeyboardInterrupt, asyncio.CancelledError):
         # CancelledError shouldn't reach here now that
