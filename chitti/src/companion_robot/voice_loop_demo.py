@@ -107,6 +107,7 @@ from companion_robot.transcripts.schema import TranscriptRecord
 from companion_robot.voice.claude_backend import ClaudeLanguageModelBackend
 from companion_robot.voice.openai_backend import OpenAILanguageModelBackend
 from companion_robot.voice.stt_openai import OpenAIWhisperBackend
+from companion_robot.voice.tts_cache import TTSCache
 from companion_robot.voice.tts_openai import OpenAITTSBackend
 
 logger = logging.getLogger(__name__)
@@ -201,33 +202,32 @@ async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
         await audio.play(reply_audio)
 
 
-async def _speak_with_word_highlight(
-    tts, audio, face, stt, text: str, speed: float, cache: dict, sentence_index: int,
+async def _speak_with_timed_highlight(
+    tts, audio, stt, text: str, speed: float, cache: dict, on_word, on_done,
 ) -> None:
-    """Decision 0098: models `text` aloud, highlighting the exact
-    word Chitti is saying in sync with the real synthesized audio's
-    own timing (Whisper word timestamps), not a simulated reading
-    pace -- see reading/word_timing.py's module docstring for why
-    that distinction matters (decision 0088 removed the previous
+    """Decision 0098/0102: models `text` aloud, calling
+    `on_word(word, position)` in real time as each word's own
+    timestamp arrives -- grounded in the real synthesized audio's own
+    timing (Whisper word timestamps), not a simulated reading pace --
+    see reading/word_timing.py's module docstring for why that
+    distinction matters (decision 0088 removed the previous
     teleprompter specifically because it desynced from a guessed
-    pace). `cache`, keyed by (text, speed), is scoped to one call to
-    _run_reading_partner() -- a sentence that gets modeled twice in
-    one call (the up-front whole-story read-through, then again just
-    before its own reread, both at the same speed) reuses the first
-    call's synthesized audio AND timestamps instead of paying for a
-    fresh TTS call and a fresh Whisper timestamp call.
+    pace). `on_done()` is called once, always, when modeling finishes
+    (even if `on_word` was never called at all) -- the caller's own
+    place to clear whatever `on_word`'s highlight was.
 
-    `sentence_index` is `text`'s own index into the whole story,
-    passed straight through to set_reading_text_highlight() so the
-    highlight only lights up THIS sentence's occurrence of a word --
-    found live that a word repeated elsewhere in the story (e.g.
-    "Sam" in both sentence 1 and sentence 3) otherwise lit up in
-    every sentence containing it, not just the one being spoken.
-    Matched by word POSITION too (not just sentence), for the same
-    reason within one sentence -- found live that both "and"s in
-    "Pat and the pup run and run." lit up together the moment the
-    first was spoken, since text alone doesn't distinguish a word
-    from its own repeat.
+    `cache`, keyed by (text, speed), is scoped to one call to
+    _run_reading_partner() -- the same text modeled twice in one call
+    at the same speed reuses the first call's synthesized audio AND
+    timestamps instead of paying for a fresh TTS call and a fresh
+    Whisper timestamp call.
+
+    Shared core behind both `_speak_with_word_highlight()` (one
+    sentence, highlighting its position within the displayed story)
+    and word-family modeling (one combined "word. word. word."
+    utterance, highlighting the word-grid) -- extracted so both get
+    the same real-audio-grounded timing and the same last-word-hold
+    fix (see below) from one place, not two copies that could drift.
 
     Degrades to a plain, unhighlighted _speak() whenever there's
     nothing to highlight with -- `stt` doesn't support
@@ -272,7 +272,7 @@ async def _speak_with_word_highlight(
             delay = timing.start - (time.monotonic() - start)
             if delay > 0:
                 await asyncio.sleep(delay)
-            face.set_reading_text_highlight(timing.word, sentence_index, position)
+            on_word(timing.word, position)
         # Found live: the LAST word's highlight used to be cleared
         # the instant it was set, with no delay at all -- nothing
         # waited between setting it and the finally block clearing
@@ -286,8 +286,33 @@ async def _speak_with_word_highlight(
         if remaining > 0:
             await asyncio.sleep(remaining)
     finally:
-        face.set_reading_text_highlight(None, sentence_index)
+        on_done()
     await playback_task
+
+
+async def _speak_with_word_highlight(
+    tts, audio, face, stt, text: str, speed: float, cache: dict, sentence_index: int,
+) -> None:
+    """Decision 0098: models one sentence aloud, highlighting the
+    exact word Chitti is saying at its own position within the
+    displayed story. `sentence_index` is `text`'s own index into the
+    whole story -- found live that a word repeated elsewhere in the
+    story (e.g. "Sam" in both sentence 1 and sentence 3) otherwise
+    lit up in every sentence containing it, not just the one being
+    spoken. Matched by word POSITION too (not just sentence), for
+    the same reason within one sentence -- found live that both
+    "and"s in "Pat and the pup run and run." lit up together the
+    moment the first was spoken, since text alone doesn't
+    distinguish a word from its own repeat. See
+    _speak_with_timed_highlight()'s own docstring for the shared
+    timing mechanics this wraps."""
+    await _speak_with_timed_highlight(
+        tts, audio, stt, text, speed, cache,
+        on_word=lambda word, position: face.set_reading_text_highlight(
+            word, sentence_index, position
+        ),
+        on_done=lambda: face.set_reading_text_highlight(None, sentence_index),
+    )
 
 
 # Decision 0050: escalating filler lines spoken while an AI reply is
@@ -325,12 +350,11 @@ async def _generate_with_thinking_filler(coro, tts, audio, face, speed: float, l
     wait was filled."""
     start = time.monotonic()
     task = asyncio.ensure_future(coro)
-    # Commented out for now, to cut OpenAI TTS call volume: every
-    # filler line was a fresh, uncached tts.synthesize() call even
-    # though the filler text never changes. The task is still run in
-    # the background and awaited below unchanged -- only the spoken
-    # filler during the wait is disabled.
-    # await _speak_while_thinking(task, tts, audio, face, speed)
+    # Decision 0101 commented this out temporarily (every filler line
+    # was a fresh, uncached tts.synthesize() call despite the text
+    # never changing). Decision 0102's TTSCache makes that a one-time
+    # cost instead of a recurring one, so this is re-enabled.
+    await _speak_while_thinking(task, tts, audio, face, speed)
     result = await task
     logger.info("timing: %s took %.2fs", label, time.monotonic() - start)
     return result
@@ -1432,14 +1456,36 @@ async def _run_word_family_practice(
         print(f"Chitti: {intro}")
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, intro, speed=speed)
-        for family_word in family_words:
-            # Decision 0095: highlights the specific word in the grid
-            # while Chitti says it, instead of leaving the whole grid
-            # static throughout the modeling pass.
-            face.set_word_grid_highlight(family_word)
-            face.set_status_led(DeviceState.SPEAKING)
-            await _speak(tts, audio, family_word, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
-        face.set_word_grid_highlight(None)
+
+        # Decision 0102: one combined utterance ("hen. pen. den.
+        # ten.") instead of a separate TTS call per word, highlighting
+        # each word in the grid in sync with its own real timestamp --
+        # same mechanism decision 0098 uses for sentence modeling
+        # (_speak_with_timed_highlight()). Falls back to the old
+        # per-word loop (its own trivially-synced highlight, no
+        # timestamps needed) when the STT backend can't provide word
+        # timestamps at all -- with everything in one combined clip,
+        # there's otherwise no way to know which word is being spoken.
+        face.set_status_led(DeviceState.SPEAKING)
+        if hasattr(stt, "transcribe_with_word_timestamps"):
+            combined_text = ". ".join(family_words) + "."
+            # set_word_grid()'s own highlight match (screen_face.py's
+            # _draw_word_grid()) is exact-string against the bare
+            # words it was given -- the combined utterance's own
+            # tokenization keeps trailing punctuation ("cat." not
+            # "cat"), so that has to be cleaned off here or the
+            # highlight would never actually match a grid box.
+            await _speak_with_timed_highlight(
+                tts, audio, stt, combined_text, speed * _MODEL_READ_SPEED_MULTIPLIER, {},
+                on_word=lambda word, position: face.set_word_grid_highlight(clean_word(word)),
+                on_done=lambda: face.set_word_grid_highlight(None),
+            )
+        else:
+            for family_word in family_words:
+                face.set_word_grid_highlight(family_word)
+                face.set_status_led(DeviceState.SPEAKING)
+                await _speak(tts, audio, family_word, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
+            face.set_word_grid_highlight(None)
         prompt = "Now it's your turn! Can you read all of these words for me?"
     else:
         prompt = "Can you read all of these words for me?"
@@ -1986,8 +2032,19 @@ async def _run_reading_partner(
                 # using sentence_index here matched nothing on screen,
                 # since by then there was no other page to match
                 # against anyway).
+                #
+                # Decision 0102: speed matches the later "I'll read it
+                # for you first" reread-prep read below -- same
+                # (text, speed) cache key, so if this sentence reaches
+                # that step too, it reuses this call's audio and
+                # timestamps instead of paying for a second TTS call
+                # and a second Whisper lookup. Means this read is at
+                # the slower modeling pace rather than conversational
+                # speed -- a deliberate tradeoff for the shared cache
+                # hit, not an oversight.
                 await _speak_with_word_highlight(
-                    tts, audio, face, stt, sentence, speed, modeled_word_timings_cache, 0,
+                    tts, audio, face, stt, sentence,
+                    speed * _MODEL_READ_SPEED_MULTIPLIER, modeled_word_timings_cache, 0,
                 )
 
                 # Decision 0079, found live: a sentence with several
@@ -2701,7 +2758,14 @@ async def setup_demo() -> DemoContext:
         llm, summarizer_llm=summarizer_llm, classifier_llm=classifier_llm
     )
     stt = OpenAIWhisperBackend()
-    tts = OpenAITTSBackend()
+    # Decision 0102: wraps the real backend in a disk-based cache --
+    # found live, many spoken lines are the exact same fixed or
+    # deterministically-templated text every time, each paying for a
+    # fresh, uncached synthesis call regardless (a real contributor
+    # to a 429 "Too Many Requests" hit during a live session). voice/
+    # model match OpenAITTSBackend()'s own defaults below -- update
+    # both together if either changes.
+    tts = TTSCache(OpenAITTSBackend(), voice="alloy", model="tts-1", cache_dir=data_dir / "tts_cache")
     audio = RealAudioTransport()
     memories = MemoryRepository(conn)
     stories = StoryRepository(conn)
@@ -2877,6 +2941,12 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
         # better a clean "Bye!" than an unhandled traceback.
         print("\nBye!")
     finally:
+        # Decision 0102: cheap visibility into how much the TTS disk
+        # cache is actually helping -- only meaningful when ctx.tts
+        # is a TTSCache (always true from setup_demo(), but a fake
+        # TTS in tests has no such attributes).
+        if hasattr(ctx.tts, "hits") and hasattr(ctx.tts, "misses"):
+            logger.info("tts cache: %d hits, %d misses", ctx.tts.hits, ctx.tts.misses)
         await ctx.face.shutdown()
 
 

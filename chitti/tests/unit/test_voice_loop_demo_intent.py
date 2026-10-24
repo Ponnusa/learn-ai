@@ -521,15 +521,17 @@ async def test_carried_over_text_gets_a_real_reply_without_another_capture():
         # Ctrl-C after the first (carried-over) turn is processed --
         # proves that turn used initial_text, since _capture_and_transcribe
         # would raise immediately if it were ever called. Decision
-        # 0050's thinking filler is currently commented out in
-        # _generate_with_thinking_filler() (cutting OpenAI TTS call
-        # volume -- every filler line was a fresh, uncached synth
-        # call), so only the real reply's own _speak call happens
-        # here now.
+        # 0050's thinking filler plays before the real reply; with
+        # every fake here fully synchronous internally (no real
+        # asyncio suspension anywhere), the background AI-call task
+        # never gets a scheduling chance to finish early, so all three
+        # fillers play in full before the real reply's own _speak call
+        # -- see test_speak_while_thinking_stops_once_the_task_is_done
+        # for the early-stop behavior with a real task.
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            side_effect=[KeyboardInterrupt],
+            side_effect=[None, None, None, KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(
@@ -582,12 +584,12 @@ async def test_fallback_tier_switch_declined_stays_in_current_mode():
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            # confirmation prompt, decline acknowledgment, then the
-            # real reply -- decision 0050's thinking filler is
-            # currently commented out (see
-            # test_carried_over_text_gets_a_real_reply_without_another_capture),
-            # so no filler calls happen in between.
-            side_effect=[None, None, KeyboardInterrupt],
+            # confirmation prompt, decline acknowledgment, all three of
+            # decision 0050's thinking fillers (see the comment in
+            # test_carried_over_text_gets_a_real_reply_without_another_capture
+            # for why all three play with fully-synchronous fakes),
+            # then the real reply
+            side_effect=[None, None, None, None, None, KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(
@@ -1292,6 +1294,34 @@ async def test_word_family_practice_highlights_each_word_while_modeling_it():
     assert face.word_grid_highlights == ["cat", "bat", None]
 
 
+async def test_word_family_practice_combines_words_into_one_utterance_when_timestamps_available():
+    """Decision 0102: when the STT backend can provide word
+    timestamps, the whole family is modeled as ONE combined TTS call
+    ("cat. bat.") instead of one call per word -- cutting N TTS calls
+    down to one TTS call plus one Whisper timestamp lookup -- with
+    the grid highlight still driven by each word's own real
+    timestamp, same as the per-word fallback path."""
+    llm = _FakeLLM(reply="WORD: cat\nWORD: bat")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+    stt = _FakeSTTWithTimestamps(
+        [WordTiming(word="cat", start=0.0, end=0.01), WordTiming(word="bat", start=0.01, end=0.02)]
+    )
+
+    with _patch_captures("yes", "cat bat"):
+        await _run_word_family_practice(
+            "sat", conversation, tts, _FakeAudio(), stt, face, 1.0, 6,
+            ["short_vowels"], read_first=True,
+        )
+
+    assert "cat. bat." in tts.synthesized
+    # Not one separate call per word.
+    assert "cat" not in tts.synthesized
+    assert "bat" not in tts.synthesized
+    assert face.word_grid_highlights == ["cat", "bat", None]
+
+
 async def test_word_family_practice_only_corrects_the_missed_word_not_every_word():
     """Decision 0096, found live: all words correct from one capture
     used to get a separate "Yes!"/"You got it!" line each, read back
@@ -1815,6 +1845,12 @@ async def test_run_reading_partner_highlight_uses_the_narrowed_display_page_not_
 
     assert face.reading_text_highlights
     assert all(index == 0 for index, _position, _word in face.reading_text_highlights)
+    # Decision 0102: this sentence gets a highlighted read twice in
+    # this one correction block -- once under "Let's work on this
+    # one", again under "I'll read it for you first" -- now at the
+    # same speed, so the second one reuses the first's cached audio
+    # and timestamps instead of a second Whisper lookup.
+    assert stt.timestamp_calls == 1
 
 
 # Decision 0095: the old per-sentence mid-passage resume (decision
