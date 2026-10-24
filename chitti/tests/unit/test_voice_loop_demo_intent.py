@@ -521,17 +521,15 @@ async def test_carried_over_text_gets_a_real_reply_without_another_capture():
         # Ctrl-C after the first (carried-over) turn is processed --
         # proves that turn used initial_text, since _capture_and_transcribe
         # would raise immediately if it were ever called. Decision
-        # 0050's thinking filler plays before the real reply; with
-        # every fake here fully synchronous internally (no real
-        # asyncio suspension anywhere), the background AI-call task
-        # never gets a scheduling chance to finish early, so all three
-        # fillers play in full before the real reply's own _speak call
-        # -- see test_speak_while_thinking_stops_once_the_task_is_done
-        # for the early-stop behavior with a real task.
+        # 0050's thinking filler is currently commented out in
+        # _generate_with_thinking_filler() (cutting OpenAI TTS call
+        # volume -- every filler line was a fresh, uncached synth
+        # call), so only the real reply's own _speak call happens
+        # here now.
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            side_effect=[None, None, None, KeyboardInterrupt],
+            side_effect=[KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(
@@ -584,12 +582,12 @@ async def test_fallback_tier_switch_declined_stays_in_current_mode():
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            # confirmation prompt, decline acknowledgment, all three of
-            # decision 0050's thinking fillers (see the comment in
-            # test_carried_over_text_gets_a_real_reply_without_another_capture
-            # for why all three play with fully-synchronous fakes),
-            # then the real reply
-            side_effect=[None, None, None, None, None, KeyboardInterrupt],
+            # confirmation prompt, decline acknowledgment, then the
+            # real reply -- decision 0050's thinking filler is
+            # currently commented out (see
+            # test_carried_over_text_gets_a_real_reply_without_another_capture),
+            # so no filler calls happen in between.
+            side_effect=[None, None, KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(

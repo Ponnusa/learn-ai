@@ -325,7 +325,12 @@ async def _generate_with_thinking_filler(coro, tts, audio, face, speed: float, l
     wait was filled."""
     start = time.monotonic()
     task = asyncio.ensure_future(coro)
-    await _speak_while_thinking(task, tts, audio, face, speed)
+    # Commented out for now, to cut OpenAI TTS call volume: every
+    # filler line was a fresh, uncached tts.synthesize() call even
+    # though the filler text never changes. The task is still run in
+    # the background and awaited below unchanged -- only the spoken
+    # filler during the wait is disabled.
+    # await _speak_while_thinking(task, tts, audio, face, speed)
     result = await task
     logger.info("timing: %s took %.2fs", label, time.monotonic() - start)
     return result
