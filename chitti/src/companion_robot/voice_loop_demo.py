@@ -37,7 +37,7 @@ import secrets
 import subprocess
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from companion_robot.audio.real import CAPTURE_DEVICE, PLAYBACK_SAMPLE_RATE, RealAudioTransport
@@ -794,12 +794,30 @@ def _save_transcript(
 
 
 async def _maybe_greet_with_recap(
-    conversation: ConversationService, tts, audio, memories: MemoryRepository, profile, speed: float
+    conversation: ConversationService,
+    tts,
+    audio,
+    memories: MemoryRepository,
+    profiles: ChildProfileRepository,
+    profile,
+    speed: float,
 ) -> None:
     """Speaks a "welcome back" greeting built from the most recent
     DAILY_SUMMARY memory for this child, the way a friend would recap
     after being away -- decision 0018. Silently does nothing on the
-    very first-ever session, when no prior summary exists yet."""
+    very first-ever session, when no prior summary exists yet.
+
+    Decision 0108: also silently does nothing if this child has
+    already heard today's recap -- found live, restarting the demo
+    several times in one day (e.g. after an SSH session) re-ran this
+    greeting's own LLM call every single time, for a recap that
+    hadn't changed since the last restart that same day. `date.today()`
+    is the Pi's own local date (this runs on the device itself, not a
+    server spanning timezones), matching the household's actual day
+    boundary rather than UTC's."""
+    today = date.today().isoformat()
+    if profile.last_greeted_date == today:
+        return
     summaries = memories.list_for_child(profile.id, category=MemoryCategory.DAILY_SUMMARY)
     if not summaries:
         return
@@ -807,6 +825,7 @@ async def _maybe_greet_with_recap(
     result = await conversation.welcome_back_greeting(profile.name, latest.content)
     print(f"Chitti: {result.text}")
     await _speak(tts, audio, result.text, speed=speed)
+    profiles.mark_greeted(profile.id, today)
 
 
 def _resolve_math_check(
@@ -2910,7 +2929,9 @@ async def setup_demo() -> DemoContext:
     # "Hello {name}!" with a casual recap of last time, built from the
     # most recent DAILY_SUMMARY -- decision 0018. Silently skipped on
     # the very first session, before any summary exists yet.
-    await _maybe_greet_with_recap(conversation, tts, audio, memories, profile, profile.speech_speed)
+    await _maybe_greet_with_recap(
+        conversation, tts, audio, memories, profiles, profile, profile.speech_speed
+    )
 
     return DemoContext(
         conversation=conversation,

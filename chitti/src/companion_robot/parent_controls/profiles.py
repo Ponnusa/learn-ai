@@ -48,6 +48,12 @@ class ChildProfile:
     # PHASES there) -- None means no preference, keeping Reading
     # Partner's existing LLM-generation-first behavior unchanged.
     preferred_phase: int | None = None
+    # Decision 0108: ISO date string (device-local, not UTC) this
+    # child last heard voice_loop_demo.py's own welcome-back recap --
+    # "" means never. Not parent-editable (no form field for it);
+    # only voice_loop_demo.py's own ChildProfileRepository.mark_greeted()
+    # ever writes it.
+    last_greeted_date: str = ""
 
 
 # Decision 0104: preferred_phase's own "no preference" value is
@@ -69,8 +75,9 @@ class ChildProfileRepository:
             INSERT INTO child_profiles (
                 id, name, age, created_at, updated_at,
                 teachable_friend_enabled, story_companion_enabled, speech_speed, interest,
-                reading_pace_wpm, reading_font_size, reading_font_color, preferred_phase
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reading_pace_wpm, reading_font_size, reading_font_color, preferred_phase,
+                last_greeted_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 profile.id,
@@ -86,6 +93,7 @@ class ChildProfileRepository:
                 profile.reading_font_size,
                 profile.reading_font_color,
                 profile.preferred_phase,
+                profile.last_greeted_date,
             ),
         )
         self._conn.commit()
@@ -171,6 +179,17 @@ class ChildProfileRepository:
         self._conn.commit()
         return cursor.rowcount > 0
 
+    def mark_greeted(self, profile_id: str, date_str: str) -> None:
+        """Decision 0108: records that this child has now heard
+        today's welcome-back recap -- a narrow, purpose-built write
+        (not routed through update()'s parent-facing field list,
+        which has nothing to do with this)."""
+        self._conn.execute(
+            "UPDATE child_profiles SET last_greeted_date = ? WHERE id = ?",
+            (date_str, profile_id),
+        )
+        self._conn.commit()
+
 
 def _row_to_profile(row: sqlite3.Row) -> ChildProfile:
     return ChildProfile(
@@ -187,4 +206,5 @@ def _row_to_profile(row: sqlite3.Row) -> ChildProfile:
         reading_font_size=row["reading_font_size"],
         reading_font_color=row["reading_font_color"],
         preferred_phase=row["preferred_phase"],
+        last_greeted_date=row["last_greeted_date"],
     )

@@ -260,4 +260,12 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     # reading/story_library.py's PHASES) -- NULL means no preference,
     # keeping today's LLM-generation-first behavior unchanged.
     _ensure_column(conn, "child_profiles", "preferred_phase", "preferred_phase INTEGER")
+    # Decision 0108: the ISO date (child's own device local date, not
+    # UTC) this child was last spoken the welcome-back recap --
+    # empty string means never. Lets voice_loop_demo.py skip
+    # regenerating/respeaking it (an LLM call every time) on every
+    # restart within the same day.
+    _ensure_column(
+        conn, "child_profiles", "last_greeted_date", "last_greeted_date TEXT NOT NULL DEFAULT ''"
+    )
     conn.commit()

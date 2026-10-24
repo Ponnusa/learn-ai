@@ -4,7 +4,7 @@ ConversationService + MemoryRepository, fake LLM/tts/audio stand-ins,
 no real API calls or hardware needed.
 """
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from companion_robot.conversation.service import ConversationService
 from companion_robot.memory.repository import MemoryRepository
@@ -14,7 +14,7 @@ from companion_robot.memory.schema import (
     MemoryRecord,
     MemorySource,
 )
-from companion_robot.parent_controls.profiles import ChildProfile
+from companion_robot.parent_controls.profiles import ChildProfile, ChildProfileRepository
 from companion_robot.storage.sqlite import connect
 from companion_robot.voice.interfaces import LanguageModelBackend
 from companion_robot.voice_loop_demo import _maybe_greet_with_recap, _summarize_and_remember_session
@@ -63,9 +63,13 @@ def _make_memories() -> MemoryRepository:
     return MemoryRepository(connect(":memory:"))
 
 
-def _make_profile(profile_id: str = "p1", name: str = "Anna") -> ChildProfile:
+def _make_profiles() -> ChildProfileRepository:
+    return ChildProfileRepository(connect(":memory:"))
+
+
+def _make_profile(profile_id: str = "p1", name: str = "Anna", **kwargs) -> ChildProfile:
     now = datetime.now(timezone.utc)
-    return ChildProfile(id=profile_id, name=name, age=7, created_at=now, updated_at=now)
+    return ChildProfile(id=profile_id, name=name, age=7, created_at=now, updated_at=now, **kwargs)
 
 
 def _make_summary_record(record_id: str, content: str, created_at: datetime) -> MemoryRecord:
@@ -175,12 +179,15 @@ async def test_summarize_and_remember_session_includes_story_title_in_transcript
 async def test_maybe_greet_with_recap_speaks_greeting_from_latest_summary():
     memories = _make_memories()
     memories.create(_make_summary_record("s1", "Learned addition.", datetime.now(timezone.utc)))
+    profiles = _make_profiles()
+    profile = _make_profile()
+    profiles.create(profile)
     summarizer = _FakeLLM(reply="Hi Anna! Last time we learned addition!")
     conversation = ConversationService(_FakeLLM(reply="unused"), summarizer_llm=summarizer)
     tts = _FakeTTS()
     audio = _FakeAudio()
 
-    await _maybe_greet_with_recap(conversation, tts, audio, memories, _make_profile(), 1.0)
+    await _maybe_greet_with_recap(conversation, tts, audio, memories, profiles, profile, 1.0)
 
     assert tts.synthesized[0][0] == "Hi Anna! Last time we learned addition!"
     assert len(audio.played) == 1
@@ -188,12 +195,15 @@ async def test_maybe_greet_with_recap_speaks_greeting_from_latest_summary():
 
 async def test_maybe_greet_with_recap_silent_on_first_session():
     memories = _make_memories()
+    profiles = _make_profiles()
+    profile = _make_profile()
+    profiles.create(profile)
     summarizer = _FakeLLM(reply="should never be called")
     conversation = ConversationService(_FakeLLM(reply="unused"), summarizer_llm=summarizer)
     tts = _FakeTTS()
     audio = _FakeAudio()
 
-    await _maybe_greet_with_recap(conversation, tts, audio, memories, _make_profile(), 1.0)
+    await _maybe_greet_with_recap(conversation, tts, audio, memories, profiles, profile, 1.0)
 
     assert tts.synthesized == []
     assert audio.played == []
@@ -205,15 +215,52 @@ async def test_maybe_greet_with_recap_uses_the_most_recent_summary():
     now = datetime.now(timezone.utc)
     memories.create(_make_summary_record("old", "Old summary.", now - timedelta(days=2)))
     memories.create(_make_summary_record("new", "New summary.", now - timedelta(days=1)))
+    profiles = _make_profiles()
+    profile = _make_profile()
+    profiles.create(profile)
     summarizer = _FakeLLM(reply="greeting")
     conversation = ConversationService(_FakeLLM(reply="unused"), summarizer_llm=summarizer)
     tts = _FakeTTS()
     audio = _FakeAudio()
 
-    await _maybe_greet_with_recap(conversation, tts, audio, memories, _make_profile(), 1.0)
+    await _maybe_greet_with_recap(conversation, tts, audio, memories, profiles, profile, 1.0)
 
     # build_welcome_back_prompt() embeds the summary in what's passed
     # as the system_prompt -- confirms the NEWER record was used.
     _, system_prompt = summarizer.calls[0]
     assert "New summary." in system_prompt
     assert "Old summary." not in system_prompt
+
+
+async def test_maybe_greet_with_recap_skips_if_already_greeted_today():
+    """Decision 0108: the actual fix -- restarting the demo again
+    the same day must not re-run the greeting's own LLM call."""
+    memories = _make_memories()
+    memories.create(_make_summary_record("s1", "Learned addition.", datetime.now(timezone.utc)))
+    profiles = _make_profiles()
+    profile = _make_profile(last_greeted_date=date.today().isoformat())
+    profiles.create(profile)
+    summarizer = _FakeLLM(reply="should never be called")
+    conversation = ConversationService(_FakeLLM(reply="unused"), summarizer_llm=summarizer)
+    tts = _FakeTTS()
+    audio = _FakeAudio()
+
+    await _maybe_greet_with_recap(conversation, tts, audio, memories, profiles, profile, 1.0)
+
+    assert tts.synthesized == []
+    assert audio.played == []
+    assert summarizer.calls == []
+
+
+async def test_maybe_greet_with_recap_marks_the_profile_greeted_today_after_speaking():
+    memories = _make_memories()
+    memories.create(_make_summary_record("s1", "Learned addition.", datetime.now(timezone.utc)))
+    profiles = _make_profiles()
+    profile = _make_profile()  # last_greeted_date="" -- never greeted
+    profiles.create(profile)
+    summarizer = _FakeLLM(reply="Hi Anna!")
+    conversation = ConversationService(_FakeLLM(reply="unused"), summarizer_llm=summarizer)
+
+    await _maybe_greet_with_recap(conversation, _FakeTTS(), _FakeAudio(), memories, profiles, profile, 1.0)
+
+    assert profiles.get(profile.id).last_greeted_date == date.today().isoformat()

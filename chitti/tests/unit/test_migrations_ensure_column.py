@@ -106,6 +106,7 @@ def test_run_migrations_is_safe_against_a_table_missing_the_new_column():
     assert "speech_speed" in columns
     assert "interest" in columns
     assert "preferred_phase" in columns  # decision 0104
+    assert "last_greeted_date" in columns  # decision 0108
 
 
 def test_run_migrations_adds_completed_library_stories_to_reading_profiles():
