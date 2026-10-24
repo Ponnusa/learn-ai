@@ -1316,6 +1316,14 @@ async def test_word_family_practice_only_corrects_the_missed_word_not_every_word
     # Not one praise line per correct word -- just the single combined
     # acknowledgment above.
     assert not any(line in _CORRECT_RESPONSES for line in tts.synthesized)
+    # Found live: nothing showed "bat" on screen during its own
+    # correction -- the grid was already cleared, so the screen just
+    # fell back to whatever was on it before. Spotlighted instead,
+    # then cleared once the correction is done.
+    # [0] is decision 0090's own clear of the hint ladder's leftover
+    # spotlight before the grid is shown; [1]/[2] are this fix's own
+    # spotlight-then-clear around "bat"'s correction.
+    assert face.spotlights == [None, "bat", None]
 
 
 class _FakeSTTWithTimestamps:

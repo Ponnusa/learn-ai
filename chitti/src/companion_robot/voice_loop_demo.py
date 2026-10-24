@@ -1483,11 +1483,20 @@ async def _run_word_family_practice(
         await _speak(tts, audio, ack, speed=speed)
 
     for family_word in missed:
+        # Found live: the grid was already cleared above (right
+        # after capturing the reading), and nothing else set any
+        # display for the missed word during its own correction --
+        # the screen just fell back to whatever was on it before
+        # (the sentence), never showing the word actually being
+        # corrected at all. Spotlights it instead, same precedent as
+        # the hint ladder's own missed-word display.
+        face.set_reading_spotlight(family_word)
         response = incorrect_response(family_word)
         print(f"Chitti: {response}")
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, response, speed=speed)
         await _play_real_phonics_sounds(audio, family_word)
+    face.set_reading_spotlight(None)
 
 
 # Decision 0080, found live (twice, same pattern both times): a child
