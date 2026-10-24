@@ -2002,6 +2002,102 @@ async def test_run_reading_partner_tiers_correction_by_weakest_tracked_mastery()
 # no longer applies and was deleted rather than patched.
 
 
+# -- library-story selection by phase (decision 0104) ----------------------
+
+
+async def test_run_reading_partner_uses_a_library_book_when_a_phase_is_preferred():
+    """Decision 0104: a parent-chosen phase is tried before any LLM
+    generation -- the fake LLM's book-generation reply is never
+    consumed at all (only its 3 comprehension-reaction replies are),
+    confirming generate_decodable_book() was skipped entirely, not
+    just that the library book happened to look similar."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    llm = _FakeLLM(reply="unused -- book generation must never be called")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            ("STATUS: resolved\nSAY: Yes, at the mat!", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, a rat!", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, mad!", "fake-model"),
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures(
+        "no thanks",  # declines the up-front "read it to you first?" offer
+        "sam sat sam sat at the mat a rat sat at the mat sam is mad at the rat",  # perfect read
+        "at the mat",  # Q1
+        "a rat",  # Q2
+        "mad",  # Q3
+        "no thanks",  # declines the word game
+        "let's just chat",  # ends the session
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+            preferred_phase=1,
+        )
+
+    assert next_mode == "3"
+    # Phase 1's own order=1 story ("Sam Sat"), not an LLM-generated one.
+    assert any("Sam Sat" in line for line in tts.synthesized)
+    # Its own pre-written questions, spoken verbatim.
+    assert "Where did Sam sit?" in tts.synthesized
+    assert "Who else sat at the mat?" in tts.synthesized
+    assert "How did Sam feel about the rat?" in tts.synthesized
+    # Exactly the 3 reaction replies were consumed -- confirms
+    # generate_comprehension_questions() (which would have been a 4th,
+    # earlier call) was never made either.
+    assert llm.generate_reply.call_count == 3
+
+    profile = reading.get_or_create("child-1")
+    assert profile.completed_library_stories == ["sam-sat"]
+
+
+async def test_run_reading_partner_serves_the_next_library_story_not_a_repeat():
+    """A second call with the same preferred phase gets the next
+    story in the phase, not the one already marked complete."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    profile = reading.get_or_create("child-1")
+    profile.completed_library_stories = ["sam-sat"]
+    reading.save(profile)
+
+    llm = _FakeLLM(reply="unused")
+    llm.generate_reply = AsyncMock(
+        side_effect=[
+            ("STATUS: resolved\nSAY: Yes, the cat!", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, mad!", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, the rat rid the mat!", "fake-model"),
+        ]
+    )
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures(
+        "no thanks",
+        "the cat is at the mat the rat is at the mat the cat is mad the rat is sad the cat sat the rat sat",
+        "the cat",
+        "mad",
+        "the rat rid the mat",
+        "no thanks",
+        "let's just chat",
+    ):
+        await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+            preferred_phase=1,
+        )
+
+    assert any("The Cat at the Mat" in line for line in tts.synthesized)
+    assert reading.get_or_create("child-1").completed_library_stories == ["sam-sat", "the-cat-at-the-mat"]
+
+
 # -- re-reading a finished exercise + themed follow-up (decision 0068) ----
 
 

@@ -78,6 +78,7 @@ from companion_robot.reading.decodability import clean_word, decompose
 from companion_robot.reading.phonics_audio import get_clip_bytes
 from companion_robot.reading.deterministic_book import build_deterministic_book
 from companion_robot.reading.story_bank import pick_story_bank_book
+from companion_robot.reading.story_library import pick_library_book
 from companion_robot.reading.feedback import build_reading_feedback
 from companion_robot.reading.hints import HINT_STAGES, build_hint_line, pick_hint_word, pick_hint_words
 from companion_robot.reading.mastery import update_from_evidence
@@ -1220,11 +1221,22 @@ async def _run_comprehension_questions(
     question; the second call's prompt guarantees it resolves either
     way, so at most one extra capture+reaction per question, never a
     loop."""
-    face.set_status_led(DeviceState.PROCESSING)
-    questions = await _generate_with_thinking_filler(
-        conversation.generate_comprehension_questions(book.text, age=child_age or 6),
-        tts, audio, face, speed, "comprehension_questions",
-    )
+    # Decision 0104: a story_library.py book already has its own
+    # author-written questions -- use them directly, skipping the LLM
+    # call entirely, same "don't waste content that's already there"
+    # reasoning as reusing its pages verbatim instead of generating
+    # new ones. Reacting to the child's answer is unchanged either
+    # way -- still grounded live in book.text, not the pre-written
+    # answer, so a child's own wording is still judged warmly rather
+    # than diffed against one fixed expected string.
+    if book.comprehension:
+        questions = [q for q, _a in book.comprehension]
+    else:
+        face.set_status_led(DeviceState.PROCESSING)
+        questions = await _generate_with_thinking_filler(
+            conversation.generate_comprehension_questions(book.text, age=child_age or 6),
+            tts, audio, face, speed, "comprehension_questions",
+        )
     if not questions:
         return
 
@@ -1660,6 +1672,7 @@ async def _run_reading_partner(
     reading_font_size: int = 28,
     reading_font_color: str = "white",
     initial_text: str | None = None,
+    preferred_phase: int | None = None,
 ) -> tuple[str | None, str | None]:
     """Decision 0051: phonics-based reading practice -- picks the next
     phonics skill the child hasn't mastered, generates a decodable
@@ -1858,41 +1871,53 @@ async def _run_reading_partner(
             else:
                 source_passage = followup_source_text
                 followup_source_text = None
-                # Decision 0071: a themed follow-up is a nice-to-have,
-                # not worth ending the whole session over -- if it
-                # fails (e.g. the passage's own vocabulary fought the
-                # decodability budget too hard even with the tightened
-                # prompt above), fall back once to the plain,
-                # untethered generator before actually giving up.
-                # Found live: a themed attempt failing used to go
-                # straight to the apology even though a normal book
-                # would very likely have succeeded.
-                attempts = [source_passage, None] if source_passage is not None else [None]
                 book = None
-                for attempt_source in attempts:
-                    try:
-                        book = await _generate_with_thinking_filler(
-                            conversation.generate_decodable_book(
-                                objective,
-                                interest=profile.interest,
-                                age=child_age or 6,
-                                source_passage=attempt_source,
-                            ),
-                            tts, audio, face, speed, "reading_book_generation",
-                        )
-                        break
-                    except BookGenerationError as exc:
-                        # Decision 0076: this used to be silently
-                        # swallowed -- the exception's own message
-                        # (target grapheme + exactly which words/why
-                        # the last attempt was rejected) is the single
-                        # most useful diagnostic for "why did this
-                        # fail," and had to be re-derived by hand
-                        # against the real backend to debug a live
-                        # report. Logged, not spoken -- never meant for
-                        # the child.
-                        logger.warning("book generation attempt failed: %s", exc)
-                        continue
+                # Decision 0104: a parent-chosen phase is a deliberate,
+                # explicit preference -- tried before any LLM
+                # generation, not after. Most parents never write
+                # their own exercise (the path above); picking a
+                # phase is far less friction than that, and the
+                # content is already vetted at its own phase, so
+                # there's nothing to generate or verify here.
+                if preferred_phase is not None:
+                    book = pick_library_book(
+                        preferred_phase, objective, set(profile.completed_library_stories),
+                    )
+                if book is None:
+                    # Decision 0071: a themed follow-up is a nice-to-have,
+                    # not worth ending the whole session over -- if it
+                    # fails (e.g. the passage's own vocabulary fought the
+                    # decodability budget too hard even with the tightened
+                    # prompt above), fall back once to the plain,
+                    # untethered generator before actually giving up.
+                    # Found live: a themed attempt failing used to go
+                    # straight to the apology even though a normal book
+                    # would very likely have succeeded.
+                    attempts = [source_passage, None] if source_passage is not None else [None]
+                    for attempt_source in attempts:
+                        try:
+                            book = await _generate_with_thinking_filler(
+                                conversation.generate_decodable_book(
+                                    objective,
+                                    interest=profile.interest,
+                                    age=child_age or 6,
+                                    source_passage=attempt_source,
+                                ),
+                                tts, audio, face, speed, "reading_book_generation",
+                            )
+                            break
+                        except BookGenerationError as exc:
+                            # Decision 0076: this used to be silently
+                            # swallowed -- the exception's own message
+                            # (target grapheme + exactly which words/why
+                            # the last attempt was rejected) is the single
+                            # most useful diagnostic for "why did this
+                            # fail," and had to be re-derived by hand
+                            # against the real backend to debug a live
+                            # report. Logged, not spoken -- never meant for
+                            # the child.
+                            logger.warning("book generation attempt failed: %s", exc)
+                            continue
                 if book is None:
                     # Decision 0078: prefer a hand-written, pre-
                     # verified NATURAL story over the word-drill when
@@ -2321,6 +2346,11 @@ async def _run_reading_partner(
             # top if ever re-assigned).
             face.set_reading_text(None)
             profile.sessions_completed += 1
+            # Decision 0104: marks a library story read so
+            # pick_library_book() serves the next one in the phase
+            # rather than repeating this one next session.
+            if book.library_slug is not None:
+                profile.completed_library_stories.append(book.library_slug)
 
             if retry_evidence_accum:
                 # Decision 0095: the hint ladder's own retry evidence,
@@ -2411,6 +2441,7 @@ async def _run_reading_partner_v2(
     reading_font_size: int = 28,
     reading_font_color: str = "white",
     initial_text: str | None = None,
+    preferred_phase: int | None = None,
 ) -> tuple[str | None, str | None]:
     """Reading Partner v2 (decision 0075) -- a second, parallel reading
     flow, built directly from a product-owner critique of the original
@@ -2437,10 +2468,15 @@ async def _run_reading_partner_v2(
     Narrower in scope than the original on purpose, for this first
     version: no word game (decision 0057), no word-family
     generalization check (decision 0066), no re-read-the-same-exercise
-    offer or themed follow-up (decision 0068) -- none of those are
-    part of the critique's own described flow. Not ruled out for v2
-    later, just not carried over automatically; "take it from here"
-    was the instruction, not "port everything first."
+    offer or themed follow-up (decision 0068), no library-phase
+    selection (decision 0104) -- none of those are part of the
+    critique's own described flow. Not ruled out for v2 later, just
+    not carried over automatically; "take it from here" was the
+    instruction, not "port everything first." `preferred_phase` is
+    accepted only so the one shared dispatch call site
+    (run_mode_dispatch_loop()) doesn't need to branch its kwargs by
+    which version is active -- same calling-convention-uniformity
+    reasoning as `initial_text` above.
 
     Book/exercise selection mirrors the original (decision 0052/0063/
     0069: a pending parent exercise if one exists and the flag isn't
@@ -2983,6 +3019,7 @@ async def run_mode_dispatch_loop(next_mode: str | None, ctx: DemoContext) -> Non
                     reading_font_size=ctx.profile.reading_font_size,
                     reading_font_color=ctx.profile.reading_font_color,
                     initial_text=carried_text,
+                    preferred_phase=ctx.profile.preferred_phase,
                 )
             else:
                 # Matches the original dispatch exactly: anything that

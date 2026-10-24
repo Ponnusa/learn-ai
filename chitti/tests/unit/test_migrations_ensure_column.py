@@ -105,3 +105,30 @@ def test_run_migrations_is_safe_against_a_table_missing_the_new_column():
     columns = {row[1] for row in conn.execute("PRAGMA table_info(child_profiles)").fetchall()}
     assert "speech_speed" in columns
     assert "interest" in columns
+    assert "preferred_phase" in columns  # decision 0104
+
+
+def test_run_migrations_adds_completed_library_stories_to_reading_profiles():
+    """Decision 0104: the same pre-existing-table scenario, for
+    reading_profiles -- a database created before the library feature
+    existed must still work after pulling code that expects the
+    column."""
+    conn = connect(":memory:")
+    conn.execute(
+        """
+        CREATE TABLE reading_profiles (
+            child_profile_id TEXT PRIMARY KEY,
+            interest TEXT NOT NULL DEFAULT '',
+            sight_words TEXT NOT NULL DEFAULT '',
+            sessions_completed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.commit()
+
+    run_migrations(conn)
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(reading_profiles)").fetchall()}
+    assert "completed_library_stories" in columns

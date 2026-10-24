@@ -53,6 +53,9 @@ class ReadingRepository:
             for r in mastery_rows
         }
         sight_words = [w for w in row["sight_words"].split(_SIGHT_WORD_SEP) if w]
+        completed_library_stories = [
+            s for s in row["completed_library_stories"].split(_SIGHT_WORD_SEP) if s
+        ]
         return ReadingProfile(
             child_profile_id=child_profile_id,
             interest=row["interest"],
@@ -63,6 +66,7 @@ class ReadingRepository:
             updated_at=datetime.fromisoformat(row["updated_at"]),
             current_passage_key=row["current_passage_key"],
             current_sentence_index=row["current_sentence_index"],
+            completed_library_stories=completed_library_stories,
         )
 
     def save(self, profile: ReadingProfile) -> None:
@@ -75,15 +79,16 @@ class ReadingRepository:
             """
             INSERT INTO reading_profiles
                 (child_profile_id, interest, sight_words, sessions_completed, created_at, updated_at,
-                 current_passage_key, current_sentence_index)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 current_passage_key, current_sentence_index, completed_library_stories)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(child_profile_id) DO UPDATE SET
                 interest = excluded.interest,
                 sight_words = excluded.sight_words,
                 sessions_completed = excluded.sessions_completed,
                 updated_at = excluded.updated_at,
                 current_passage_key = excluded.current_passage_key,
-                current_sentence_index = excluded.current_sentence_index
+                current_sentence_index = excluded.current_sentence_index,
+                completed_library_stories = excluded.completed_library_stories
             """,
             (
                 profile.child_profile_id,
@@ -94,6 +99,7 @@ class ReadingRepository:
                 now.isoformat(),
                 profile.current_passage_key,
                 profile.current_sentence_index,
+                _SIGHT_WORD_SEP.join(profile.completed_library_stories),
             ),
         )
         for mastery in profile.masteries.values():

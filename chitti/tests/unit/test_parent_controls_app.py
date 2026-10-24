@@ -664,6 +664,100 @@ def test_edit_profile_rejects_an_unlisted_reading_font_color():
     assert response.status_code == 400
 
 
+def test_edit_profile_updates_preferred_phase():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    token = _get_csrf_token(client)
+    response = client.post(
+        f"/profiles/{profile_id}/edit",
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "1.0",
+            "reading_pace_wpm": "45",
+            "reading_font_size": "28",
+            "reading_font_color": "white",
+            "preferred_phase": "3",
+            "csrf_token": token,
+        },
+    )
+    assert response.status_code == 302
+
+    from companion_robot.parent_controls.profiles import ChildProfileRepository
+
+    assert ChildProfileRepository(conn).get(profile_id).preferred_phase == 3
+
+
+def test_edit_profile_empty_preferred_phase_means_no_preference():
+    """Decision 0104: an explicitly empty selection clears the
+    preference back to None (Reading Partner's existing
+    LLM-generation-first behavior), same as never having set one."""
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/edit",
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "1.0",
+            "reading_pace_wpm": "45",
+            "reading_font_size": "28",
+            "reading_font_color": "white",
+            "preferred_phase": "3",
+            "csrf_token": token,
+        },
+    )
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/edit",
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "1.0",
+            "reading_pace_wpm": "45",
+            "reading_font_size": "28",
+            "reading_font_color": "white",
+            "preferred_phase": "",
+            "csrf_token": token,
+        },
+    )
+
+    from companion_robot.parent_controls.profiles import ChildProfileRepository
+
+    assert ChildProfileRepository(conn).get(profile_id).preferred_phase is None
+
+
+def test_edit_profile_rejects_an_out_of_range_preferred_phase():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    token = _get_csrf_token(client)
+    response = client.post(
+        f"/profiles/{profile_id}/edit",
+        data={
+            "name": "Anna",
+            "age": "7",
+            "speech_speed": "1.0",
+            "reading_pace_wpm": "45",
+            "reading_font_size": "28",
+            "reading_font_color": "white",
+            "preferred_phase": "99",  # not a real phase
+            "csrf_token": token,
+        },
+    )
+    assert response.status_code == 400
+
+
 def _create_profile_and_get_id(client, token) -> str:
     client.post("/profiles", data={"name": "Anna", "age": "7", "csrf_token": token})
     response = client.get("/profiles")

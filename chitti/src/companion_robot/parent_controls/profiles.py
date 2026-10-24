@@ -43,6 +43,19 @@ class ChildProfile:
     reading_pace_wpm: float = 45.0
     reading_font_size: int = 28
     reading_font_color: str = "white"
+    # Decision 0104: a parent-chosen starting phase for
+    # reading/story_library.py's vendored Open Phonics stories (1-7,
+    # PHASES there) -- None means no preference, keeping Reading
+    # Partner's existing LLM-generation-first behavior unchanged.
+    preferred_phase: int | None = None
+
+
+# Decision 0104: preferred_phase's own "no preference" value is
+# `None`, the same value every other update() parameter already uses
+# to mean "don't change this field" -- a distinct sentinel default
+# is needed so update() can still tell "clear it back to no
+# preference" apart from "leave it as whatever it already was."
+_UNSET = object()
 
 
 class ChildProfileRepository:
@@ -56,8 +69,8 @@ class ChildProfileRepository:
             INSERT INTO child_profiles (
                 id, name, age, created_at, updated_at,
                 teachable_friend_enabled, story_companion_enabled, speech_speed, interest,
-                reading_pace_wpm, reading_font_size, reading_font_color
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                reading_pace_wpm, reading_font_size, reading_font_color, preferred_phase
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 profile.id,
@@ -72,6 +85,7 @@ class ChildProfileRepository:
                 profile.reading_pace_wpm,
                 profile.reading_font_size,
                 profile.reading_font_color,
+                profile.preferred_phase,
             ),
         )
         self._conn.commit()
@@ -98,6 +112,7 @@ class ChildProfileRepository:
         reading_pace_wpm: float | None = None,
         reading_font_size: int | None = None,
         reading_font_color: str | None = None,
+        preferred_phase: int | None = _UNSET,
     ) -> bool:
         existing = self.get(profile_id)
         if existing is None:
@@ -125,11 +140,14 @@ class ChildProfileRepository:
         reading_font_color = (
             existing.reading_font_color if reading_font_color is None else reading_font_color
         )
+        preferred_phase = (
+            existing.preferred_phase if preferred_phase is _UNSET else preferred_phase
+        )
         self._conn.execute(
             "UPDATE child_profiles SET name = ?, age = ?, updated_at = ?, "
             "teachable_friend_enabled = ?, story_companion_enabled = ?, "
             "speech_speed = ?, interest = ?, reading_pace_wpm = ?, "
-            "reading_font_size = ?, reading_font_color = ? WHERE id = ?",
+            "reading_font_size = ?, reading_font_color = ?, preferred_phase = ? WHERE id = ?",
             (
                 name,
                 age,
@@ -141,6 +159,7 @@ class ChildProfileRepository:
                 reading_pace_wpm,
                 reading_font_size,
                 reading_font_color,
+                preferred_phase,
                 profile_id,
             ),
         )
@@ -167,4 +186,5 @@ def _row_to_profile(row: sqlite3.Row) -> ChildProfile:
         reading_pace_wpm=row["reading_pace_wpm"],
         reading_font_size=row["reading_font_size"],
         reading_font_color=row["reading_font_color"],
+        preferred_phase=row["preferred_phase"],
     )

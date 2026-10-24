@@ -24,6 +24,7 @@ from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.lullabies.repository import LullabyRepository
 from companion_robot.lullabies.schema import LullabyRecord
 from companion_robot.memory.repository import MemoryRepository
+from companion_robot.reading.story_library import PHASES
 from companion_robot.transcripts.repository import TranscriptRepository
 
 from .auth import PinRepository, RateLimiter, load_or_create_secret_key
@@ -202,6 +203,22 @@ def create_app(
             pace_raw = request.form.get("reading_pace_wpm", "").strip()
             font_size_raw = request.form.get("reading_font_size", "").strip()
             font_color = request.form.get("reading_font_color", "").strip()
+            phase_raw = request.form.get("preferred_phase", "").strip()
+            # Decision 0104: empty selection means "no preference" --
+            # a real, valid choice (today's LLM-generation-first
+            # behavior), not a parse failure, so it's handled before
+            # the try/except below rather than falling into it.
+            _valid_phase_ids = {p[0] for p in PHASES}
+            if phase_raw == "":
+                preferred_phase: int | None = None
+                phase_valid = True
+            else:
+                try:
+                    preferred_phase = int(phase_raw)
+                    phase_valid = preferred_phase in _valid_phase_ids
+                except ValueError:
+                    preferred_phase = None
+                    phase_valid = False
             try:
                 speed = float(speed_raw)
             except ValueError:
@@ -232,16 +249,19 @@ def create_app(
                 or font_size is None
                 or not (18 <= font_size <= 48)
                 or font_color not in _VALID_READING_FONT_COLORS
+                or not phase_valid
             ):
                 return (
                     render_template(
                         "edit_profile.html",
                         profile=profile,
                         valid_reading_font_colors=_VALID_READING_FONT_COLORS,
+                        phases=PHASES,
                         error=(
                             "Name, a numeric age, a speech speed between 0.25 and 4.0, a "
                             "reading pace between 20 and 120 words per minute, a reading font "
-                            "size between 18 and 48, and a valid reading font color are required."
+                            "size between 18 and 48, a valid reading font color, and a valid "
+                            "starting phase are required."
                         ),
                     ),
                     400,
@@ -255,12 +275,14 @@ def create_app(
                 reading_pace_wpm=pace,
                 reading_font_size=font_size,
                 reading_font_color=font_color,
+                preferred_phase=preferred_phase,
             )
             return redirect(url_for("profiles_view"))
         return render_template(
             "edit_profile.html",
             profile=profile,
             valid_reading_font_colors=_VALID_READING_FONT_COLORS,
+            phases=PHASES,
             error=None,
         )
 

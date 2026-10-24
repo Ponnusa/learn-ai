@@ -248,4 +248,16 @@ def run_migrations(conn: sqlite3.Connection) -> None:
         "current_sentence_index",
         "current_sentence_index INTEGER NOT NULL DEFAULT 0",
     )
+    # Decision 0104: slugs of story_library.py stories already read,
+    # so the same one isn't re-served every session.
+    _ensure_column(
+        conn,
+        "reading_profiles",
+        "completed_library_stories",
+        "completed_library_stories TEXT NOT NULL DEFAULT ''",
+    )
+    # Decision 0104: a parent-chosen starting phase (1-7,
+    # reading/story_library.py's PHASES) -- NULL means no preference,
+    # keeping today's LLM-generation-first behavior unchanged.
+    _ensure_column(conn, "child_profiles", "preferred_phase", "preferred_phase INTEGER")
     conn.commit()

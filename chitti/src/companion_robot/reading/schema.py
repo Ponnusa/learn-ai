@@ -55,6 +55,10 @@ class ReadingProfile:
     # only meaningful while one is actually in progress.
     current_passage_key: str | None = None
     current_sentence_index: int = 0
+    # Decision 0104: slugs of story_library.py stories this child has
+    # already read, so pick_library_book() serves the next one in a
+    # phase rather than repeating the same story every session.
+    completed_library_stories: list[str] = field(default_factory=list)
 
     @classmethod
     def new(
@@ -168,6 +172,13 @@ class GeneratedBook:
     objective: Objective
     sight_words: set[str] = field(default_factory=set)
     generation_source: str = "llm"
+    # Decision 0104: set only for a story_library.py book --
+    # pick_library_book()'s own slug, so _run_reading_partner() can
+    # record it as read once the session finishes, and pre-written
+    # comprehension Q&A (word-author-written, not LLM-generated) to
+    # use instead of a fresh generate_comprehension_questions() call.
+    library_slug: str | None = None
+    comprehension: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def text(self) -> str:
