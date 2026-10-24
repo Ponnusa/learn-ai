@@ -170,7 +170,25 @@ async def _capture_and_transcribe(stt) -> str:
     # the function above it -- recording time is paced by how long the
     # child takes to talk, not a system latency to diagnose.
     async with _timed("stt_transcribe"):
-        return await stt.transcribe(audio_bytes, language="en")
+        try:
+            return await stt.transcribe(audio_bytes, language="en")
+        except Exception:
+            # Decision 0111: found live -- a transient STT failure
+            # (seen for real as a 429 from an Azure OpenAI deployment
+            # mid-quota) was a completely unhandled exception here,
+            # propagating all the way up through main() and crashing
+            # the entire session -- the whole companion robot went
+            # down over one bad turn. Every one of this function's
+            # ~20 call sites already treats an empty transcript as
+            # "nothing heard, try again" and loops back to prompt
+            # again (decision 0003's original dead-air handling);
+            # returning "" here reuses that exact, already-correct
+            # recovery path for free, rather than inventing a second
+            # kind of error handling. Same degrade-gracefully
+            # principle _speak_with_timed_highlight() already applies
+            # to this same API's word-timestamp lookup.
+            logger.exception("stt.transcribe() failed -- treating as nothing heard")
+            return ""
 
 
 # Decision 0084 tried a beep cue plus a fixed recording window in

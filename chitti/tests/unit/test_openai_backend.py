@@ -7,6 +7,20 @@ import pytest
 from companion_robot.voice.openai_backend import OpenAILanguageModelBackend
 
 
+@pytest.fixture(autouse=True)
+def _default_to_direct_openai(monkeypatch):
+    """Decision 0111: the real chitti/.env (loaded at process import
+    time by config.loader's own load_dotenv() call) sets
+    USE_AZURE_OPENAI=true on this dev machine and the Pi -- without
+    this, every test below that doesn't explicitly opt into Azure
+    routing would silently inherit that real setting instead of
+    testing the direct-OpenAI behavior it says it's testing. Found
+    live: this is exactly what broke these tests the first time the
+    full suite ran after chitti/.env picked up real Azure
+    credentials (decision 0110)."""
+    monkeypatch.delenv("USE_AZURE_OPENAI", raising=False)
+
+
 async def test_reuses_the_same_session_across_multiple_calls(monkeypatch):
     """Decision 0049: a persistent Session (TCP/TLS connection reuse)
     is the whole point of the fix -- a fresh Session per call would

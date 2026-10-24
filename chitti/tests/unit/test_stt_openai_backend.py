@@ -7,6 +7,15 @@ import pytest
 from companion_robot.voice.stt_openai import OpenAIWhisperBackend
 
 
+@pytest.fixture(autouse=True)
+def _default_to_direct_openai(monkeypatch):
+    """Decision 0111: see test_openai_backend.py's own copy of this
+    fixture for why -- the real chitti/.env's USE_AZURE_OPENAI=true
+    (decision 0110) otherwise leaks into every test here via
+    config.loader's import-time load_dotenv()."""
+    monkeypatch.delenv("USE_AZURE_OPENAI", raising=False)
+
+
 async def test_reuses_the_same_session_across_multiple_calls(monkeypatch):
     """Decision 0049: a persistent Session (TCP/TLS connection reuse)
     is the whole point of the fix -- a fresh Session per call would
