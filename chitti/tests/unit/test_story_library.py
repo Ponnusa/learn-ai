@@ -2,10 +2,12 @@
 vendored Open Phonics story library and its selection logic
 (decision 0104).
 """
-from companion_robot.reading.schema import Objective
+from companion_robot.reading.schema import GraphemeMastery, Objective, ReadingProfile
 from companion_robot.reading.story_library import (
     PHASES,
     _LIBRARY_STORIES,
+    get_story,
+    mastery_color_for_story,
     pick_library_book,
     stories_by_phase,
 )
@@ -67,3 +69,59 @@ def test_stories_by_phase_groups_and_orders_every_story():
     for stories in grouped.values():
         assert [s.order for s in stories] == sorted(s.order for s in stories)
     assert [s.slug for s in grouped[1]] == ["sam-sat", "the-cat-at-the-mat", "it-is-dim"]
+
+
+def test_all_vendored_stories_have_a_description_and_target_words():
+    """Decision 0107's own fields -- vendored alongside the rest of
+    the content in decision 0104's conversion, not reinvented."""
+    for story in _LIBRARY_STORIES:
+        assert story.description
+        assert story.words
+        assert all(isinstance(word, str) and isinstance(lesson, int) for word, lesson in story.words)
+
+
+def test_library_story_text_property_joins_its_own_pages():
+    story = get_story("sam-sat")
+    assert story.text == "Sam sat. Sam sat at the mat. A rat sat at the mat. Sam is mad at the rat."
+
+
+def test_get_story_finds_a_known_slug():
+    story = get_story("sam-sat")
+    assert story is not None
+    assert story.title == "Sam Sat"
+
+
+def test_get_story_returns_none_for_an_unknown_slug():
+    assert get_story("does-not-exist") is None
+
+
+def _profile_with_masteries(graphemes: dict[str, float]) -> ReadingProfile:
+    profile = ReadingProfile.new("child-1")
+    for grapheme, p_mastery in graphemes.items():
+        profile.masteries[grapheme] = GraphemeMastery(
+            grapheme=grapheme, level="short_vowels", p_mastery=p_mastery,
+        )
+    return profile
+
+
+def test_mastery_color_for_story_is_green_when_every_grapheme_is_mastered():
+    story = get_story("sam-sat")
+    profile = _profile_with_masteries(
+        {g: 0.99 for g in ["a", "d", "e", "i", "m", "r", "s", "t", "th"]}
+    )
+    assert mastery_color_for_story(story, profile) == "green"
+
+
+def test_mastery_color_for_story_is_red_for_a_fresh_untracked_profile():
+    story = get_story("sam-sat")
+    profile = ReadingProfile.new("child-1")  # every grapheme at its low BKT prior
+    assert mastery_color_for_story(story, profile) == "red"
+
+
+def test_mastery_color_for_story_is_yellow_for_one_weak_but_tracked_grapheme():
+    story = get_story("sam-sat")
+    profile = _profile_with_masteries(
+        {g: 0.99 for g in ["a", "d", "e", "i", "m", "r", "s", "t", "th"]}
+    )
+    profile.masteries["th"].p_mastery = 0.7
+    assert mastery_color_for_story(story, profile) == "yellow"

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block body %}
+<p><a class="action-link" href="{{ url_for('reading_library_view') }}">&larr; Back to Reading library</a></p>
+<h1>{{ story.title }}</h1>
+<p class="hint">{{ phase_title }}{% if story.description %} &middot; {{ story.description }}{% endif %}</p>
+
+<div class="card">
+  {% for page in story.pages %}
+  <p>{{ page }}</p>
+  {% endfor %}
+</div>
+
+{% if story.words %}
+<h2>Words in this story</h2>
+<div class="story-words">
+  {% for word, lesson in story.words %}
+  <span class="story-word">{{ word }} <span class="story-word__lesson">L{{ lesson }}</span></span>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if story.comprehension %}
+<h2>Comprehension</h2>
+<ul class="card-list">
+  {% for question, answer in story.comprehension %}
+  <li class="card">
+    <div class="card-title">{{ question }}</div>
+    <div class="card-content">{{ answer }}</div>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}

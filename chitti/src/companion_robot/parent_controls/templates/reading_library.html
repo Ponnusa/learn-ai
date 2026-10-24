@@ -11,7 +11,7 @@
 <ul class="card-list">
   {% for story in phase_stories %}
   <li class="card">
-    <div class="card-title">{{ story.title }}</div>
+    <a class="card-title" href="{{ url_for('reading_library_story_view', slug=story.slug) }}">{{ story.title }}</a>
     <div class="card-meta">{{ story.pages|length }} sentence{{ "s" if story.pages|length != 1 else "" }} &middot; {{ story.comprehension|length }} comprehension question{{ "s" if story.comprehension|length != 1 else "" }}</div>
   </li>
   {% endfor %}

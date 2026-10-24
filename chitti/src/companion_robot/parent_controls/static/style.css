@@ -300,6 +300,52 @@ fieldset.phase-picker legend {
   font-size: 0.85em;
 }
 
+/* Decision 0107: the per-child mastery roadmap's traffic-light
+   dots, and the story detail page's per-word "which lesson teaches
+   this" badges -- plain colors, no new palette system. */
+.mastery-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mastery-dot--green {
+  background: #2e7d46;
+}
+
+.mastery-dot--yellow {
+  background: #b98900;
+}
+
+.mastery-dot--red {
+  background: var(--danger);
+}
+
+.story-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.story-word {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 0.95em;
+}
+
+.story-word__lesson {
+  color: var(--text-muted);
+  font-size: 0.8em;
+}
+
 .transcript-line {
   padding: 2px 0;
 }

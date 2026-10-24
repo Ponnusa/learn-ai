@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Reading progress</h1>
+<p class="hint">How this child is doing against Chitti's phase library (decision 0104) -- green means every sound in a story is mastered, yellow means it's getting there, red means it's not there yet (including a story not read at all, same as a weak one, for now).</p>
+
+{% for phase_id, title, subtitle, story_colors in phase_progress %}
+<h2>{{ title }}</h2>
+<p class="hint">{{ subtitle }}</p>
+{% if story_colors %}
+<ul class="card-list">
+  {% for story, color in story_colors %}
+  <li class="card">
+    <div class="card-actions">
+      <span class="mastery-dot mastery-dot--{{ color }}" aria-hidden="true"></span>
+      <a class="card-title" style="flex:1" href="{{ url_for('reading_library_story_view', slug=story.slug) }}">{{ story.title }}</a>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="empty-state">No stories in this phase yet.</p>
+{% endif %}
+{% endfor %}
+
+<p><a class="action-link" href="{{ url_for('profiles_view') }}">Back</a></p>
+{% endblock %}

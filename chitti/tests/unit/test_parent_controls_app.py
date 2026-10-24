@@ -934,3 +934,90 @@ def test_reading_exercises_are_scoped_per_child():
 
     response = client.get(f"/profiles/{ben_id}/reading-exercises")
     assert b"Anna's homework" not in response.data
+
+
+def test_reading_library_story_view_shows_a_known_story():
+    """Decision 0107: the per-story detail page -- mirrors the Open
+    Phonics source app's own /stories/{slug}/ page."""
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+
+    response = client.get("/reading/sam-sat")
+
+    assert response.status_code == 200
+    assert b"Sam Sat" in response.data
+    assert b"Phase 1: Foundation" in response.data
+    assert b"The very first story." in response.data  # story's own description
+    assert b"L6" in response.data  # "sam" is introduced at lesson 6
+    assert b"Where did Sam sit?" in response.data
+    assert b"Sam sat at the mat." in response.data  # the answer, shown alongside the question
+
+
+def test_reading_library_story_view_404s_for_an_unknown_slug():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+
+    response = client.get("/reading/does-not-exist")
+
+    assert response.status_code == 404
+
+
+def test_reading_library_view_links_to_each_story_detail_page():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+
+    response = client.get("/reading")
+
+    assert b'href="/reading/sam-sat"' in response.data
+
+
+def test_profile_progress_link_appears_on_profiles_page():
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    response = client.get("/profiles")
+
+    assert f'/profiles/{profile_id}/progress'.encode() in response.data
+
+
+def test_profile_progress_view_lists_every_phase_for_a_fresh_profile():
+    """A child who has never done Reading Partner still gets a page --
+    every story shows red, since nothing is tracked yet."""
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    response = client.get(f"/profiles/{profile_id}/progress")
+
+    assert response.status_code == 200
+    assert b"Phase 1: Foundation" in response.data
+    assert b"Phase 7: Mastery" in response.data
+    assert b"Sam Sat" in response.data
+    assert b"mastery-dot--red" in response.data
+    assert b"mastery-dot--green" not in response.data
+
+
+def test_profile_progress_view_shows_green_once_a_story_is_fully_mastered():
+    from companion_robot.reading.repository import ReadingRepository
+    from companion_robot.reading.schema import GraphemeMastery
+
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    reading = ReadingRepository(conn)
+    profile = reading.get_or_create(profile_id)
+    for grapheme in ["a", "d", "e", "i", "m", "r", "s", "t", "th"]:
+        profile.masteries[grapheme] = GraphemeMastery(
+            grapheme=grapheme, level="short_vowels", p_mastery=0.99,
+        )
+    reading.save(profile)
+
+    response = client.get(f"/profiles/{profile_id}/progress")
+
+    assert response.status_code == 200
+    assert b"mastery-dot--green" in response.data

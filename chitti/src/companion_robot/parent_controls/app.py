@@ -18,13 +18,19 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, abort, redirect, render_template, request, session, url_for
 
 from companion_robot.engagement.repository import EngagementRepository
 from companion_robot.lullabies.repository import LullabyRepository
 from companion_robot.lullabies.schema import LullabyRecord
 from companion_robot.memory.repository import MemoryRepository
-from companion_robot.reading.story_library import PHASES, stories_by_phase
+from companion_robot.reading.repository import ReadingRepository
+from companion_robot.reading.story_library import (
+    PHASES,
+    get_story,
+    mastery_color_for_story,
+    stories_by_phase,
+)
 from companion_robot.transcripts.repository import TranscriptRepository
 
 from .auth import PinRepository, RateLimiter, load_or_create_secret_key
@@ -63,6 +69,10 @@ def create_app(
     transcripts = TranscriptRepository(conn)
     lullabies = LullabyRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
+    # Decision 0107: not previously instantiated here at all -- only
+    # the reading-exercises (upload-a-passage) repo was. Needed to
+    # load a child's own mastery for the progress/roadmap page.
+    reading = ReadingRepository(conn)
     lullabies_dir = Path(lullabies_dir) if lullabies_dir is not None else Path("data/lullabies")
     lullabies_dir.mkdir(parents=True, exist_ok=True)
     limiter = rate_limiter or RateLimiter()
@@ -164,6 +174,26 @@ def create_app(
             "reading_library.html",
             phases=PHASES,
             stories_by_phase=stories_by_phase(),
+        )
+
+    @app.get("/reading/<slug>")
+    @requires_auth
+    def reading_library_story_view(slug):
+        """Decision 0107: one story's own page -- title, phase,
+        description, the full text, its target words (each tagged
+        with the lesson that introduces it, straight from the source
+        project's own frontmatter), and comprehension Q&A shown
+        together (parent-facing, not child-facing, so no reveal
+        toggle the way the source app's own page has one). Mirrors
+        that source app's `/stories/{slug}/` page."""
+        story = get_story(slug)
+        if story is None:
+            abort(404)
+        phase_title = next((title for id, title, _subtitle in PHASES if id == story.phase), "")
+        return render_template(
+            "reading_library_story.html",
+            story=story,
+            phase_title=phase_title,
         )
 
     @app.route("/profiles", methods=["GET", "POST"])
@@ -417,6 +447,32 @@ def create_app(
             "transcripts.html",
             profile_id=profile_id,
             records=transcripts.list_for_child(profile_id),
+        )
+
+    @app.get("/profiles/<profile_id>/progress")
+    @requires_auth
+    def profile_progress_view(profile_id):
+        """Decision 0107: per-child reading mastery roadmap --
+        mirrors the Open Phonics source app's own `/roadmap/` page,
+        scoped to one child and colored by their own tracked
+        mastery (green/yellow/red) instead of a bare lesson track,
+        since mastery is inherently per-child. Deliberately separate
+        from the existing "Reading" link on the profiles list (that
+        one is decision 0052's upload-an-exercise page, a different
+        feature)."""
+        profile = reading.get_or_create(profile_id)
+        grouped = stories_by_phase()
+        phase_progress = []
+        for phase_id, title, subtitle in PHASES:
+            story_colors = [
+                (story, mastery_color_for_story(story, profile))
+                for story in grouped.get(phase_id, [])
+            ]
+            phase_progress.append((phase_id, title, subtitle, story_colors))
+        return render_template(
+            "profile_progress.html",
+            profile_id=profile_id,
+            phase_progress=phase_progress,
         )
 
     @app.post("/profiles/<profile_id>/transcripts/<transcript_id>/delete")
