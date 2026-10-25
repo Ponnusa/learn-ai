@@ -35,6 +35,7 @@ from companion_robot.reading.word_family import (
     parse_family_words,
     verify_family_word,
 )
+from companion_robot.reading.word_game import build_word_game_reaction_prompt
 from companion_robot.safety.checks import SafetyCategory, check_speech, decline_message
 from companion_robot.voice.interfaces import LanguageModelBackend
 
@@ -268,6 +269,24 @@ class ConversationService:
         if screened.blocked:
             return ComprehensionReaction(text=screened.text, needs_retry=False)
         return ComprehensionReaction(text=screened.text, needs_retry=reaction.needs_retry)
+
+    async def react_to_word_game_answer(
+        self, story_text: str, results: list[tuple[str, bool]], age: int | None = None
+    ) -> ConversationResult:
+        """Decision 0112: ONE warm, combined reaction to every missing
+        word in the "missing letters" bonus game, replacing the old
+        fixed 3-line "correct" pool / single incorrect template --
+        found live, those never actually engaged with what the child
+        said at all. `results` ([(word, was_correct), ...]) is already
+        decided deterministically (word_game.is_correct_answer()) --
+        the model's job is phrasing one combined reply, not judging
+        correctness. Screened like every other spoken output in this
+        class."""
+        prompt = build_word_game_reaction_prompt(story_text, results, age)
+        reply_text, _model = await self._llm.generate_reply(
+            [{"role": "user", "content": "React now."}], prompt
+        )
+        return self._screen(reply_text)
 
     async def generate_word_meaning_question(
         self, sentence: str, word: str, age: int | None = None

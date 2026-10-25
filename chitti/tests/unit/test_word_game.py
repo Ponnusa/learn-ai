@@ -1,14 +1,18 @@
 """Unit tests for companion_robot.reading.word_game -- the post-
-reading "missing letters" bonus game (decision 0057). Pure, no LLM,
-not part of the mastery-grading pipeline.
+reading "missing letters" bonus game (decision 0057). Not part of the
+mastery-grading pipeline; correctness itself is still decided here,
+deterministically -- decision 0112 only moved the REACTION's phrasing
+to one combined LLM call (ConversationService.react_to_word_game_answer(),
+tested in test_conversation_service.py).
 """
 from companion_robot.reading.word_game import (
     blank_vowels,
+    build_word_game_reaction_prompt,
+    find_word_occurrence,
     incorrect_response,
     is_correct_answer,
     pick_game_words,
     random_closing_line,
-    random_correct_response,
     spell_out_blanked,
 )
 
@@ -40,6 +44,15 @@ def test_blank_vowels_matches_the_japan_example():
     assert blank_vowels("japan") == "j_p_n"
 
 
+def test_blank_vowels_preserves_the_original_casing():
+    """Decision 0112: found live -- a story word's real capitalization
+    (e.g. "Sam" starting a sentence) was lost because pick_game_words()
+    only ever had the already-lowercased clean_word() copy to blank;
+    the fix is blanking the word's own original-case text directly."""
+    assert blank_vowels("Japan") == "J_p_n"
+    assert blank_vowels("Sam") == "S_m"
+
+
 def test_blank_vowels_keeps_a_doubled_consonant_intact():
     # "apple": a(V) pp(C, doubled) l(C) e(V) -- only the vowels blank.
     assert blank_vowels("apple") == "_ppl_"
@@ -68,23 +81,54 @@ def test_is_correct_answer_is_false_when_the_word_is_never_said():
     assert is_correct_answer("japan", "ummm not sure") is False
 
 
-def test_random_correct_response_is_never_empty():
-    assert random_correct_response()
+def test_random_closing_line_is_never_empty():
+    assert random_closing_line()
 
 
 def test_incorrect_response_names_the_word():
+    """Decision 0112: incorrect_response() itself stays -- still used
+    by voice_loop_demo.py's own _run_word_family_practice() (a
+    different feature); only the missing-letters game above stopped
+    calling it, in favor of build_word_game_reaction_prompt()."""
     assert '"sat"' in incorrect_response("sat")
 
 
 def test_incorrect_response_includes_a_phonics_breakdown():
-    """Decision 0070: found live -- a missed word in this game got
-    nothing but the answer handed over, with zero phonics explanation,
-    unlike the hint ladder's own graduated breakdown. A wrong guess now
-    gets the same sound-by-sound teaching moment."""
     response = incorrect_response("frog")
     assert "'f' like in 'fish'" in response
     assert "'o' like in 'dog'" in response
 
 
-def test_random_closing_line_is_never_empty():
-    assert random_closing_line()
+def test_find_word_occurrence_locates_the_right_page_and_word_index():
+    pages = ["Sam sat.", "Sam sat at the mat."]
+    # The FIRST occurrence (page 0, not page 1) -- page_index=0,
+    # word_index=1 (0-indexed: "Sam"=0, "sat."=1), original text
+    # (with its trailing period) kept as-is.
+    assert find_word_occurrence(pages, "sat") == (0, 1, "sat.")
+
+
+def test_find_word_occurrence_preserves_original_casing():
+    pages = ["Sam sat."]
+    assert find_word_occurrence(pages, "sam") == (0, 0, "Sam")
+
+
+def test_find_word_occurrence_returns_none_for_a_word_not_on_any_page():
+    assert find_word_occurrence(["Sam sat."], "bunny") is None
+
+
+def test_build_word_game_reaction_prompt_states_correctness_as_given_fact():
+    """Decision 0112: correctness is decided by is_correct_answer()
+    before this prompt is ever built -- the model is told, not asked,
+    which words were right or wrong."""
+    prompt = build_word_game_reaction_prompt(
+        "Sam sat at the mat.", [("sam", True), ("sat", False)], age=6
+    )
+    assert '"sam": correct.' in prompt
+    assert '"sat": incorrect.' in prompt
+    assert "'s' like in" in prompt  # the real phonics breakdown for "sat"
+    assert "Sam sat at the mat." in prompt
+
+
+def test_build_word_game_reaction_prompt_uses_singular_phrasing_for_one_word():
+    prompt = build_word_game_reaction_prompt("Sam sat.", [("sam", True)], age=6)
+    assert "a word hidden" in prompt

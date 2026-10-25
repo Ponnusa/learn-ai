@@ -106,6 +106,61 @@ async def test_reading_text_and_spotlight_render_without_crashing_the_thread():
         await face.shutdown()
 
 
+async def test_set_reading_text_highlight_wraps_a_single_position_into_a_set():
+    """Decision 0112 generalized the stored highlight from one
+    (sentence, word) pair to a set, for the word game's own "light up
+    several words at once" case -- this proves the existing, widely-
+    used single-word live-speech setter still works unchanged,
+    wrapping its one position into a 1-item set."""
+    face = ScreenFaceDeviceController()
+    await face.start()
+    try:
+        face.set_reading_text_highlight("Sam", sentence_index=0, word_position=1)
+        assert face._get_reading_text_highlight() == {(0, 1)}
+
+        face.set_reading_text_highlight(None, sentence_index=0, word_position=1)
+        assert face._get_reading_text_highlight() is None
+    finally:
+        await face.shutdown()
+
+
+async def test_reading_text_with_multiple_highlights_renders_without_crashing_the_thread():
+    """Decision 0112: a smoke test, not a pixel check -- same spirit
+    as test_reading_text_and_spotlight_render_without_crashing_the_thread
+    above, for the word game's own multi-position highlight case."""
+    import asyncio
+
+    face = ScreenFaceDeviceController()
+    await face.start()
+    try:
+        face.set_reading_text(["S_m sat.", "A rat s_t at the mat."])
+        face.set_reading_text_highlights({(0, 0), (1, 2)})
+        await asyncio.sleep(0.2)
+        assert face.health_check() is True
+
+        face.set_reading_text_highlights(None)
+        face.set_reading_text(None)
+        await asyncio.sleep(0.2)
+        assert face.health_check() is True
+    finally:
+        await face.shutdown()
+
+
+async def test_set_reading_text_highlights_sets_multiple_positions_at_once():
+    """Decision 0112: the word game's own case -- both blanked words
+    highlighted in the story at the same time, not one after another."""
+    face = ScreenFaceDeviceController()
+    await face.start()
+    try:
+        face.set_reading_text_highlights({(0, 0), (1, 2)})
+        assert face._get_reading_text_highlight() == {(0, 0), (1, 2)}
+
+        face.set_reading_text_highlights(None)
+        assert face._get_reading_text_highlight() is None
+    finally:
+        await face.shutdown()
+
+
 async def test_render_thread_survives_a_bad_frame(monkeypatch):
     """Decision 0089, found live: an exception anywhere in the per-
     frame drawing code used to kill the whole render thread silently

@@ -711,3 +711,32 @@ async def test_generate_word_meaning_question_returns_none_when_unparsed():
     )
 
     assert question is None
+
+
+async def test_react_to_word_game_answer_returns_the_combined_reaction():
+    """Decision 0112: replaces the old fixed canned-response pools --
+    ONE reply covering every missing word, not a separate reply per
+    word."""
+    llm = FakeLanguageModelBackend(
+        reply="Great job on Sam -- and sat is spelled s-a-t. You're doing great!"
+    )
+    service = ConversationService(llm)
+
+    result = await service.react_to_word_game_answer(
+        "Sam sat at the mat.", [("sam", True), ("sat", False)], age=6
+    )
+
+    assert result.blocked is False
+    assert result.text == "Great job on Sam -- and sat is spelled s-a-t. You're doing great!"
+    assert len(llm.calls) == 1
+
+
+async def test_react_to_word_game_answer_is_screened_for_safety():
+    llm = FakeLanguageModelBackend(reply="damn right you got it")
+    service = ConversationService(llm)
+
+    result = await service.react_to_word_game_answer(
+        "Sam sat.", [("sam", True)], age=6
+    )
+
+    assert result.blocked is True

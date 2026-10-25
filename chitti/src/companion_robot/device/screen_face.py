@@ -314,7 +314,7 @@ _DEFAULT_READING_WPM = 45.0
 
 def _draw_reading_lines_static(
     screen, width: int, height: int, font, lines: list[tuple[int, int, str]], color, line_height: int,
-    highlight: tuple[int, int] | None = None, highlight_color=_RED,
+    highlight: set[tuple[int, int]] | None = None, highlight_color=_RED,
 ) -> None:
     """Decision 0088: shows the sentence as plain, static text while
     Chitti reads it -- no moving/scrolling teleprompter. Replaces the
@@ -334,8 +334,10 @@ def _draw_reading_lines_static(
     Decision 0098: `lines` triples each wrapped display line with
     the index of the original sentence ("page") it came from and
     that line's own starting word position within that sentence, and
-    `highlight`, when given, is `(sentence_index, word_position)` --
-    matched by POSITION, not word text. Found live, twice: (1)
+    `highlight`, when given, is a SET of `(sentence_index,
+    word_position)` pairs (decision 0112 generalized this from a
+    single pair, for the word game's own "highlight several words at
+    once" case) -- matched by POSITION, not word text. Found live, twice: (1)
     without the sentence-index scoping, highlighting "Sam" while
     reading "Sam can nap." (sentence 3 of "Sam and the Cat") also lit
     up "Sam" in sentence 1 and sentence 4, since the whole story is
@@ -357,16 +359,21 @@ def _draw_reading_lines_static(
     total_height = len(visible) * line_height
     start_y = max(0, (height - total_height) // 2)
     space_width = font.size(" ")[0]
-    target_sentence, target_position = highlight if highlight is not None else (None, None)
+    highlight_positions = highlight or set()
+    highlighted_sentences = {sentence for sentence, _word in highlight_positions}
     for i, (sentence_index, word_offset, line) in enumerate(visible):
         line_width = font.size(line)[0]
         x = max(_READING_MARGIN, (width - line_width) // 2)
         y = start_y + i * line_height
-        if target_sentence is None or sentence_index != target_sentence:
+        if sentence_index not in highlighted_sentences:
             screen.blit(font.render(line, True, color), (x, y))
             continue
         for j, word in enumerate(line.split(" ")):
-            word_color = highlight_color if word_offset + j == target_position else color
+            word_color = (
+                highlight_color
+                if (sentence_index, word_offset + j) in highlight_positions
+                else color
+            )
             rendered = font.render(word, True, word_color)
             screen.blit(rendered, (x, y))
             x += rendered.get_width() + space_width
@@ -462,7 +469,13 @@ class ScreenFaceDeviceController(DeviceController):
         self._spotlight_word: str | None = None
         self._word_grid: list[str] | None = None
         self._word_grid_highlight: str | None = None
-        self._reading_text_highlight: tuple[int, int] | None = None
+        # Decision 0112: a SET of (sentence_index, word_position)
+        # pairs, not just one -- set_reading_text_highlight() (one
+        # word at a time, live speech) wraps its single position into
+        # a 1-item set; set_reading_text_highlights() (plural, the
+        # word game's own static multi-word case) sets the set
+        # directly. Same stored state, same render-loop branch.
+        self._reading_text_highlight: set[tuple[int, int]] | None = None
         self._lock = threading.Lock()
         self._running = False
         self._thread: threading.Thread | None = None
@@ -590,8 +603,22 @@ class ScreenFaceDeviceController(DeviceController):
         )
         with self._lock:
             self._reading_text_highlight = (
-                (sentence_index, word_position) if word is not None else None
+                {(sentence_index, word_position)} if word is not None else None
             )
+
+    def set_reading_text_highlights(self, positions: set[tuple[int, int]] | None) -> None:
+        """Decision 0112: lights up several words in the current
+        reading text at once -- each `(sentence_index, word_position)`
+        pair, same matching scheme set_reading_text_highlight() already
+        uses. For the word game's own static "show every blanked word
+        at once" case, as opposed to that method's one-word-at-a-time
+        live-speech case; both feed the same stored state."""
+        logger.info(
+            "reading text highlights: %s",
+            positions if positions is not None else "(cleared)",
+        )
+        with self._lock:
+            self._reading_text_highlight = positions
 
     def emergency_stop(self) -> None:
         """Synchronous, per the ABC's requirement -- must work even if
@@ -637,7 +664,7 @@ class ScreenFaceDeviceController(DeviceController):
         with self._lock:
             return self._word_grid_highlight
 
-    def _get_reading_text_highlight(self) -> tuple[int, int] | None:
+    def _get_reading_text_highlight(self) -> set[tuple[int, int]] | None:
         with self._lock:
             return self._reading_text_highlight
 

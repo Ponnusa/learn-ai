@@ -95,11 +95,11 @@ from companion_robot.reading.session_state import (
 )
 from companion_robot.reading.word_game import (
     blank_vowels,
+    find_word_occurrence,
     incorrect_response,
     is_correct_answer,
     pick_game_words,
     random_closing_line,
-    random_correct_response,
     spell_out_blanked,
 )
 from companion_robot.storage.sqlite import connect
@@ -1468,24 +1468,56 @@ async def _give_brief_callout(hint_words: list[str], tts, audio, face, speed: fl
     face.set_reading_spotlight(None)
 
 
-async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:
-    """Decision 0057: a fun, deterministic "missing letters" bonus
-    game after a book -- not part of mastery grading (reading/mastery.py
-    is never touched here), just encouragement and engagement. Offered,
-    not forced: explains itself, checks the child wants to play via
-    the same is_affirmative() gate _confirm_switch() uses, and a
-    decline/unclear reply skips the whole thing gracefully. Reuses
-    decision 0053's set_reading_spotlight() for the blanked-word
-    display -- no new rendering needed.
+async def _run_word_game(
+    book,
+    conversation,
+    tts,
+    audio,
+    stt,
+    face,
+    speed: float,
+    child_age: int | None = None,
+    reading_font_size: int = 28,
+    reading_font_color: str = "white",
+) -> None:
+    """Decision 0057: a fun "missing letters" bonus game after a book
+    -- not part of mastery grading (reading/mastery.py is never
+    touched here), just encouragement and engagement. Offered, not
+    forced: explains itself, checks the child wants to play via the
+    same is_affirmative() gate _confirm_switch() uses, and a decline/
+    unclear reply skips the whole thing gracefully.
+
+    Decision 0112, found live from a real session: the old version
+    blanked a word via set_reading_spotlight(), which (screen_face.py's
+    own render-loop priority) completely hid the full story while
+    active -- a separate, context-less view. It also ran one full
+    ask-capture-react exchange PER word, and reacted from two tiny
+    fixed pools (never an LLM call at all, despite looking like a
+    conversation). Now: every picked word is blanked IN PLACE within
+    the full story (which stays visible the whole time, same as the
+    rest of this function since decision 0112), all of them
+    highlighted together via set_reading_text_highlights(), asked
+    about in ONE combined turn, and reacted to with ONE warm,
+    story-grounded LLM reply (ConversationService.react_to_word_game_answer())
+    -- correctness itself stays deterministic (is_correct_answer()),
+    only the phrasing is the model's job.
     """
-    game_words = pick_game_words(book.words)
-    if not game_words:
+    clean_targets = pick_game_words(book.words)
+    if not clean_targets:
         return
 
+    occurrences = [
+        occ for occ in (find_word_occurrence(book.pages, target) for target in clean_targets)
+        if occ is not None
+    ]
+    if not occurrences:
+        return
+
+    words_phrase = "a couple of words" if len(occurrences) > 1 else "a word"
     intro = (
-        "Want to play a quick word game? I'll show you a word from the "
-        "story with some letters missing, and you tell me the missing "
-        "letters and say the whole word. Ready to play?"
+        "Want to play a quick word game? I've hidden some letters in "
+        f"{words_phrase} from the story -- you tell me what letters "
+        "are missing and say the whole word. Ready to play?"
     )
     print(f"Chitti: {intro}")
     face.set_status_led(DeviceState.SPEAKING)
@@ -1497,29 +1529,53 @@ async def _run_word_game(book, tts, audio, stt, face, speed: float) -> None:
     if not is_affirmative(reply):
         return
 
-    for word in game_words:
-        blanked = blank_vowels(word)
-        face.set_reading_spotlight(blanked)
-        prompt = (
-            f"Here's your word: {spell_out_blanked(blanked)}. "
-            "What letters are missing, and can you say the whole word?"
-        )
-        print(f"Chitti: {prompt}")
-        face.set_status_led(DeviceState.SPEAKING)
-        await _speak(tts, audio, prompt, speed=speed)
+    blanked_pages = list(book.pages)
+    highlight_positions: set[tuple[int, int]] = set()
+    for page_index, word_index, original_text in occurrences:
+        words = blanked_pages[page_index].split()
+        words[word_index] = blank_vowels(original_text)
+        blanked_pages[page_index] = " ".join(words)
+        highlight_positions.add((page_index, word_index))
 
-        face.set_status_led(DeviceState.LISTENING)
-        answer = await _capture_and_transcribe(stt)
-        print(f"You said: {answer}")
-        face.set_reading_spotlight(None)
+    face.set_reading_text(
+        blanked_pages, font_size=reading_font_size, font_color=reading_font_color
+    )
+    face.set_reading_text_highlights(highlight_positions)
 
-        correct = is_correct_answer(word, answer)
-        response = random_correct_response() if correct else incorrect_response(word)
-        print(f"Chitti: {response}")
-        face.set_status_led(DeviceState.SPEAKING)
-        await _speak(tts, audio, response, speed=speed)
+    targets = [original_text for _p, _w, original_text in occurrences]
+    plural = len(targets) > 1
+    spelled_out = "; ".join(spell_out_blanked(blank_vowels(t)) for t in targets)
+    prompt = (
+        f"Here {'are your words' if plural else 'is your word'}, highlighted in red "
+        f"in the story: {spelled_out}. What letters are missing, and can you say the "
+        f"whole word{'s' if plural else ''}?"
+    )
+    print(f"Chitti: {prompt}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, prompt, speed=speed)
+
+    face.set_status_led(DeviceState.LISTENING)
+    answer = await _capture_and_transcribe(stt)
+    print(f"You said: {answer}")
+
+    results = [(clean_word(t), is_correct_answer(t, answer)) for t in targets]
+
+    face.set_status_led(DeviceState.PROCESSING)
+    reaction = await _generate_with_thinking_filler(
+        conversation.react_to_word_game_answer(book.text, results, child_age),
+        tts, audio, face, speed, "word_game_reaction",
+    )
+    print(f"Chitti: {reaction.text}")
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, reaction.text, speed=speed)
+    for target, (_clean, correct) in zip(targets, results):
         if not correct:
-            await _play_real_phonics_sounds(audio, word)
+            await _play_real_phonics_sounds(audio, target)
+
+    face.set_reading_text_highlights(None)
+    face.set_reading_text(
+        book.pages, font_size=reading_font_size, font_color=reading_font_color
+    )
 
     closing = random_closing_line()
     print(f"Chitti: {closing}")
@@ -2428,11 +2484,13 @@ async def _run_reading_partner(
                     sentences, font_size=reading_font_size, font_color=reading_font_color
                 )
 
-            # The whole passage is done -- clears decision 0093's
-            # whole-story display; resets clean for whatever comes
-            # next (a new book, or this same passage re-read from the
-            # top if ever re-assigned).
-            face.set_reading_text(None)
+            # Decision 0112: the whole passage is done, but the story
+            # stays on screen -- found live, it used to be cleared
+            # right here, before comprehension questions and the word
+            # game ran, so the child answered both completely blind.
+            # It's cleared for real in this function's own `finally:`
+            # below, once leaving Reading Partner (or moving to a new
+            # book next iteration) actually calls for a clean slate.
             profile.sessions_completed += 1
             # Decision 0104: marks a library story read so
             # pick_library_book() serves the next one in the phase
@@ -2481,7 +2539,10 @@ async def _run_reading_partner(
 
             # Decision 0057: a fun, optional bonus game using words
             # from the story -- separate from the grading above.
-            await _run_word_game(book, tts, audio, stt, face, speed)
+            await _run_word_game(
+                book, conversation, tts, audio, stt, face, speed, child_age,
+                reading_font_size, reading_font_color,
+            )
 
             # Found live: nothing ever told the child Chitti was now
             # waiting on them -- it just silently started listening

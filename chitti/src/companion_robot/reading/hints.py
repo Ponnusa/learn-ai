@@ -158,10 +158,11 @@ def blend_breakdown(word: str) -> str:
     """"frog" -> "'f' like in 'fish', 'r' like in 'run', 'o' like in
     'dog', 'g' like in 'goat'" -- every grapheme in reading order,
     each tied to a reliably-pronounced example word. Public (not
-    underscore-prefixed): decision 0070 reuses this exact breakdown in
-    word_game.py's incorrect_response(), so the bonus game explains a
-    missed word's sounds the same way the hint ladder does, rather
-    than a second phonics explanation that could drift out of sync."""
+    underscore-prefixed): decision 0070 (now 0112's
+    build_word_game_reaction_prompt()) reuses this exact breakdown in
+    word_game.py, so the bonus game explains a missed word's sounds
+    the same way the hint ladder does, rather than a second phonics
+    explanation that could drift out of sync."""
     graphemes = decompose(word).graphemes
     if not graphemes:
         return word

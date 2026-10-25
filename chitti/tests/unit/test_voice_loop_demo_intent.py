@@ -23,11 +23,7 @@ from companion_robot.reading.hints import build_hint_line
 from companion_robot.reading.repository import ReadingRepository
 from companion_robot.reading.schema import GraphemeMastery, Miscue, ReadingProfile
 from companion_robot.reading.word_timing import WordTiming
-from companion_robot.reading.word_game import (
-    _CLOSING_LINES,
-    _CORRECT_RESPONSES,
-    blank_vowels,
-)
+from companion_robot.reading.word_game import _CLOSING_LINES, blank_vowels
 from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
@@ -109,6 +105,7 @@ class _FakeFace:
         self.word_grids: list[list[str] | None] = []
         self.word_grid_highlights: list[str | None] = []
         self.reading_text_highlights: list[str | None] = []
+        self.reading_text_highlight_sets: list[set[tuple[int, int]] | None] = []
         # Decision 0090: the three display-state setters below are
         # recorded into this one shared, real-call-order log too (as
         # well as their own per-method lists above, which most
@@ -148,6 +145,9 @@ class _FakeFace:
         self, word: str | None, sentence_index: int | None, word_position: int | None = None,
     ) -> None:
         self.reading_text_highlights.append((sentence_index, word_position, word))
+
+    def set_reading_text_highlights(self, positions: set[tuple[int, int]] | None) -> None:
+        self.reading_text_highlight_sets.append(positions)
 
 
 @contextlib.contextmanager
@@ -700,8 +700,10 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
     # them after the feedback -- it just silently started listening.
     assert any("try another one" in line for line in tts.synthesized)
     # Decision 0093: the whole story is shown at once, set before the
-    # per-sentence loop starts -- cleared once the passage is done and
-    # again once the mode loop exits (the `finally`).
+    # per-sentence loop starts. Decision 0112: no longer cleared once
+    # the passage itself is done (the child needs to keep seeing it
+    # through comprehension questions/the word game) -- only cleared
+    # once the mode loop actually exits (the `finally`).
     assert face.reading_texts[0] == ["A cat sat.", "A cat ran."]
     assert None in face.reading_texts
     # The session was actually persisted, not just held in memory.
@@ -1346,9 +1348,6 @@ async def test_word_family_practice_only_corrects_the_missed_word_not_every_word
 
     assert "Nice! You got cat." in tts.synthesized
     assert any(line.startswith('Good try! The word is "bat"') for line in tts.synthesized)
-    # Not one praise line per correct word -- just the single combined
-    # acknowledgment above.
-    assert not any(line in _CORRECT_RESPONSES for line in tts.synthesized)
     # Found live: nothing showed "bat" on screen during its own
     # correction -- the grid was already cleared, so the screen just
     # fell back to whatever was on it before. Spotlighted instead,
@@ -1782,6 +1781,49 @@ async def test_run_reading_partner_shows_and_captures_the_whole_story_in_one_tak
     # the whole passage is done -- never swapped sentence by sentence
     # (there's room for the whole story on a TV over HDMI).
     assert [lines for lines in face.reading_texts if lines] == [["A cat sat.", "A dog ran."]]
+
+
+async def test_run_reading_partner_keeps_the_story_on_screen_through_comprehension_and_word_game():
+    """Decision 0112: found live -- the story used to be cleared right
+    after the read-aloud/correction finished, before comprehension
+    questions and the word game ran, so the child answered both
+    completely blind. It must stay visible (not cleared) all the way
+    through both -- only the mode's own final clear-on-exit may clear
+    it, and that happens exactly once, at the very end."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A little bunny hops.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures(
+        "no thanks",  # decline the "read it to you first?" offer
+        "a little bunny hops",  # perfect read-aloud
+        "no thanks",  # decline the word game -- nothing more to capture
+        "let's just chat",  # ends the session
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # set_reading_text(None) is called exactly once in this whole
+    # session -- the mode's own final clear-on-exit -- not once right
+    # after the read-aloud finished and again at the very end.
+    assert face.reading_texts.count(None) == 1
+    assert face.reading_texts[-1] is None
 
 
 async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_needed_the_full_hint_flow():
@@ -2837,16 +2879,19 @@ async def test_run_word_game_declined_plays_no_rounds():
     assert next_mode == "3"
     # The game was offered (a question was asked)...
     assert any("word game" in line.lower() for line in tts.synthesized)
-    # ...but declining it means no word was ever shown or revealed --
-    # the only spotlight call is the mode's own unconditional
-    # clear-on-exit cleanup, not a real round.
-    assert face.spotlights == [None]
-    assert not any(line in _CORRECT_RESPONSES for line in tts.synthesized)
+    # ...but declining it means no word was ever blanked/highlighted or
+    # revealed.
+    assert face.reading_text_highlight_sets == []
     assert not any('"bunny"' in line for line in tts.synthesized)  # never revealed/graded
     assert not any(line in _CLOSING_LINES for line in tts.synthesized)
 
 
 async def test_run_word_game_accepted_plays_through_both_words():
+    """Decision 0112: both missing words are shown, blanked, IN the
+    full story at once (not a separate isolated view, one word at a
+    time), asked about in ONE combined turn, and reacted to with one
+    LLM-generated reply -- not the old two-separate-rounds, no-LLM
+    shape."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -2859,7 +2904,9 @@ async def test_run_word_game_accepted_plays_through_both_words():
             created_at=datetime.now(timezone.utc),
         )
     )
-    llm = _FakeLLM(reply="unused")
+    llm = _FakeLLM(
+        reply="You got little! And the missing word was bunny -- nice try!"
+    )
     conversation = ConversationService(llm)
     face = _FakeFace()
     tts = _FakeTTS()
@@ -2868,8 +2915,7 @@ async def test_run_word_game_accepted_plays_through_both_words():
         "no thanks",  # decision 0085: the sentence's own offer, declined
         "a little bunny hops",  # the read-aloud (perfect, no hint)
         "yes",  # accepts the game
-        "little",  # round 1 ("little"): correct
-        "nope",  # round 2 ("bunny"): incorrect
+        "little",  # one combined answer -- only "little" said, "bunny" missed
         "let's just chat",  # ends the session
     ):
         next_mode, carried_text = await _run_reading_partner(
@@ -2879,25 +2925,30 @@ async def test_run_word_game_accepted_plays_through_both_words():
 
     assert next_mode == "3"
     # Both picked words (longest-first: "little" then "bunny") were
-    # shown, blanked, on screen -- and cleared again after each round
-    # (plus once more from the mode's own clear-on-exit cleanup).
-    assert face.spotlights == [
-        blank_vowels("little"), None, blank_vowels("bunny"), None, None,
-    ]
-    # Round 1's correct answer got one of the fixed celebratory replies.
-    assert any(line in _CORRECT_RESPONSES for line in tts.synthesized)
-    # Round 2's wrong answer still named the real word, gently.
-    assert any('"bunny"' in line for line in tts.synthesized)
+    # blanked IN the full story and highlighted together, not in a
+    # separate spotlight-only view.
+    blanked_page = f"A {blank_vowels('little')} {blank_vowels('bunny')} hops."
+    assert [blanked_page] in face.reading_texts
+    # Highlighted together (one combined set, not one-at-a-time), then
+    # cleared once the reaction's spoken -- exactly these two calls,
+    # nothing else touches reading_text_highlights in this session.
+    assert face.reading_text_highlight_sets == [{(0, 1), (0, 2)}, None]
+    # The story is restored (unblanked) right after the game, one step
+    # before the session's own final clear-on-exit (mode switch).
+    assert face.reading_texts[-2] == ["A little bunny hops."]
+    assert face.reading_texts[-1] is None
+    # The LLM's own combined reaction was actually spoken, grounded in
+    # the real per-word results -- not a fixed canned pool.
+    assert "You got little! And the missing word was bunny -- nice try!" in tts.synthesized
     # The game always ends on a warm note, regardless of the mix of
     # right/wrong answers.
     assert any(line in _CLOSING_LINES for line in tts.synthesized)
 
 
 async def test_run_word_game_plays_real_phonics_sounds_for_a_wrong_answer():
-    """Decision 0091: a wrong answer still gets the spoken "'b' like
-    in 'bat'..." breakdown unchanged (word_game.py's own
-    incorrect_response()), but now also plays each covered grapheme's
-    real recorded sound right after it -- reinforcement with the
+    """Decision 0091 (now reinforced by 0112's combined-turn reaction):
+    a wrong word still plays each covered grapheme's real recorded
+    sound right after the LLM's own reaction -- reinforcement with the
     actual phoneme, not just the proxy word."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
@@ -2911,14 +2962,14 @@ async def test_run_word_game_plays_real_phonics_sounds_for_a_wrong_answer():
             created_at=datetime.now(timezone.utc),
         )
     )
-    llm = _FakeLLM(reply="unused")
+    llm = _FakeLLM(reply="You got little! The other word was bunny -- nice try!")
     conversation = ConversationService(llm)
     face = _FakeFace()
     tts = _FakeTTS()
     audio = _FakeAudio()
 
     with _patch_captures(
-        "no thanks", "a little bunny hops", "yes", "little", "nope", "let's just chat",
+        "no thanks", "a little bunny hops", "yes", "little", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
             conversation, tts, audio, "fake-stt",
