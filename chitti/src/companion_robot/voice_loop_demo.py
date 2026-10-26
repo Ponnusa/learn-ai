@@ -1880,11 +1880,12 @@ async def _run_reading_partner(
     limitation as above. `face.set_reading_text()` is called right
     before the read-aloud capture (not before the spoken intro), so
     its internal clock starts close to when the child is actually
-    expected to begin reading. During the hint loop, `face.
-    set_reading_spotlight(hint_word)` freezes the display on just the
-    missed word for the whole hint-and-retry exchange -- the actual
-    fix for a confirmed bug where the child had no way to know which
-    word a hint was even about.
+    expected to begin reading. Decision 0113: during the hint loop,
+    `face.set_reading_text_highlight(hint_word, sentence_index,
+    word_position)` highlights the missed word IN the still-visible
+    full story (not an isolated view) for the whole hint-and-retry
+    exchange, so the child always knows which word a hint is about
+    without losing the rest of the story for context.
     """
     face.set_expression_mode("learning")  # decision 0044
     profile = reading_repo.get_or_create(child_profile_id, interest=child_interest)
@@ -2256,20 +2257,21 @@ async def _run_reading_partner(
                 # goes straight into the hint ladder below for the
                 # specific word(s) actually missed, instead of asking
                 # for a fresh cold read of it first.
-                face.set_reading_text(
-                    [sentence], font_size=reading_font_size, font_color=reading_font_color
-                )
+                #
+                # Decision 0113: no longer narrows the display to just
+                # this one sentence (found live, that hid the rest of
+                # the story while it was being worked on) -- the whole
+                # story (set once, above the outer loop) stays on
+                # screen; only the highlight below moves.
                 attention_intro = "Let's work on this one:"
                 print(f'Chitti: {attention_intro} "{sentence}"')
                 face.set_status_led(DeviceState.SPEAKING)
                 await _speak(tts, audio, attention_intro, speed=speed)
-                # Decision 0098: the display was just narrowed to this
-                # ONE sentence above -- it's the only page on screen,
-                # so its own page index is always 0 here, never the
-                # original whole-story sentence_index (found live:
-                # using sentence_index here matched nothing on screen,
-                # since by then there was no other page to match
-                # against anyway).
+                # Decision 0113: the real sentence_index, not the
+                # hardcoded 0 decision 0098 needed back when the
+                # display was narrowed to just this one sentence (a
+                # fix for a problem that no longer exists, now that
+                # the whole story is what's actually on screen).
                 #
                 # Decision 0102: speed matches the later "I'll read it
                 # for you first" reread-prep read below -- same
@@ -2282,7 +2284,8 @@ async def _run_reading_partner(
                 # hit, not an oversight.
                 await _speak_with_word_highlight(
                     tts, audio, face, stt, sentence,
-                    speed * _MODEL_READ_SPEED_MULTIPLIER, modeled_word_timings_cache, 0,
+                    speed * _MODEL_READ_SPEED_MULTIPLIER, modeled_word_timings_cache,
+                    sentence_index,
                 )
 
                 # Decision 0079, found live: a sentence with several
@@ -2297,8 +2300,19 @@ async def _run_reading_partner(
                     # Decision 0053: the actual bug fix -- freezes the
                     # display on the missed word for the whole exchange,
                     # so the child always knows which word is meant,
-                    # regardless of hint stage.
-                    face.set_reading_spotlight(hint_word)
+                    # regardless of hint stage. Decision 0113: now
+                    # highlighted IN the full story (still on screen)
+                    # rather than replacing it with an isolated
+                    # spotlight view -- `find_word_occurrence()` is
+                    # scoped to just THIS one sentence (not the whole
+                    # story) so a word that also appears in an earlier
+                    # sentence can't be matched there instead.
+                    hint_word_occurrence = find_word_occurrence([sentence], clean_word(hint_word))
+                    if hint_word_occurrence is not None:
+                        _page, hint_word_position, _text = hint_word_occurrence
+                        face.set_reading_text_highlight(
+                            hint_word, sentence_index, hint_word_position
+                        )
                     for stage in range(HINT_STAGES):
                         hint_line = build_hint_line(hint_word, stage)
                         print(f"Chitti: {hint_line}")
@@ -2370,7 +2384,7 @@ async def _run_reading_partner(
                     # No penalty for still missing it after the last stage
                     # (saying the word outright) -- just moves on to the
                     # next missed word, if any.
-                face.set_reading_spotlight(None)
+                face.set_reading_text_highlight(None, sentence_index)
                 # Decision 0074, from a product-owner critique of a
                 # real session: a sentence that needed hint practice
                 # gets reread once, whole, as a fluency consolidation
@@ -2404,17 +2418,15 @@ async def _run_reading_partner(
                 # sentence was already modeled there, this reuses
                 # that audio and its real word timestamps instead of
                 # a fresh TTS call and a fresh Whisper timestamp
-                # lookup. The page index passed to the face is 0, not
-                # the original sentence_index -- the display was
-                # narrowed to just this one sentence earlier in this
-                # block, so it's the only page on screen (found live:
-                # passing sentence_index here matched nothing, since
-                # there was no other page to match against).
+                # lookup. Decision 0113: the real sentence_index, same
+                # as the up-front modeling above -- the story is no
+                # longer narrowed to just this one sentence, so its
+                # own real page index is what's actually on screen.
                 face.set_status_led(DeviceState.SPEAKING)
                 await _speak_with_word_highlight(
                     tts, audio, face, stt, sentence,
                     speed * _MODEL_READ_SPEED_MULTIPLIER, modeled_word_timings_cache,
-                    0,
+                    sentence_index,
                 )
 
                 turn_cue = "Now it's your turn! Give it a try."
@@ -2445,8 +2457,18 @@ async def _run_reading_partner(
                     # full 4-stage ladder again (this is a reread,
                     # not a fresh miss) and not looped if it's still
                     # wrong, so this can't turn into a second
-                    # unbounded hint ladder.
-                    face.set_reading_spotlight(reread_miss)
+                    # unbounded hint ladder. Decision 0113: highlighted
+                    # in the full story, same as the hint ladder's own
+                    # per-word highlight above, not an isolated
+                    # spotlight view.
+                    reread_miss_occurrence = find_word_occurrence(
+                        [sentence], clean_word(reread_miss)
+                    )
+                    if reread_miss_occurrence is not None:
+                        _page, reread_miss_position, _text = reread_miss_occurrence
+                        face.set_reading_text_highlight(
+                            reread_miss, sentence_index, reread_miss_position
+                        )
                     correction_cue = f'Let\'s look at this word again. Listen: {reread_miss}.'
                     print(f"Chitti: {correction_cue}")
                     face.set_status_led(DeviceState.SPEAKING)
@@ -2455,7 +2477,7 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.LISTENING)
                     correction_attempt = await _capture_and_transcribe(stt)
                     print(f"You read: {correction_attempt}")
-                    face.set_reading_spotlight(None)
+                    face.set_reading_text_highlight(None, sentence_index)
 
                     if clean_word(correction_attempt) == clean_word(reread_miss):
                         correction_response = f'Yes, "{reread_miss}"! Nice fixing that.'
@@ -2474,14 +2496,6 @@ async def _run_reading_partner(
                 await _run_word_meaning_check(
                     sentence, hint_words[0], conversation, tts, audio, stt, face, speed,
                     child_age,
-                )
-
-                # Decision 0095: back to showing the whole story once
-                # this sentence's own correction is done, so the next
-                # flagged sentence (if any) is seen in context, not as
-                # one isolated line.
-                face.set_reading_text(
-                    sentences, font_size=reading_font_size, font_color=reading_font_color
                 )
 
             # Decision 0112: the whole passage is done, but the story

@@ -923,9 +923,10 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
     # Decision 0053: the actual bug fix -- the display froze on the
     # missed word for the whole hint exchange, then cleared once the
     # loop ended, rather than leaving the child with no idea what was
-    # being asked. (A second clear comes from the mode's own cleanup
-    # when it exits right after, via the switch to Just Chat.)
-    assert face.spotlights == ["sat", None, None]
+    # being asked. Decision 0113: now a highlight within the full
+    # story (still on screen the whole time), not an isolated
+    # spotlight view -- "sat" is story word index 2 ("A cat sat.").
+    assert face.reading_text_highlights == [(0, 2, "sat"), (0, None, None)]
 
 
 async def test_run_reading_partner_hint_retry_continues_without_penalty_after_four_misses():
@@ -995,13 +996,16 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     # final feedback as something to revisit, instead of the old
     # unconditional phonics-sound list.
     assert '"sat"' in feedback_line
-    # Decision 0053: the display stayed frozen on the missed word for
-    # all four stages (never cleared early just because a retry was
-    # wrong), then cleared once the loop gave up (and again on the
-    # mode's own exit cleanup, right after). Decision 0081: the
-    # reread's own correction cycle spotlights "sat" again (then
-    # clears it) on top of that original hint-ladder spotlight.
-    assert face.spotlights == ["sat", None, "sat", None, None]
+    # Decision 0053: the display stayed frozen (highlighted, within
+    # the full story -- decision 0113) on the missed word for all four
+    # stages (never cleared early just because a retry was wrong),
+    # then cleared once the loop gave up. Decision 0081: the reread's
+    # own correction cycle highlights "sat" again (then clears it) on
+    # top of that original hint-ladder highlight -- "sat" is story
+    # word index 2 ("A cat sat.").
+    assert face.reading_text_highlights == [
+        (0, 2, "sat"), (0, None, None), (0, 2, "sat"), (0, None, None),
+    ]
 
 
 async def test_run_reading_partner_hints_every_real_miss_not_just_the_first():
@@ -1882,28 +1886,29 @@ async def test_run_reading_partner_reaches_the_second_sentence_after_the_first_n
     assert next_mode == "3"
     # Sentence 1's hint detour (including its own reread) didn't trap
     # the loop there -- sentence 2, read cleanly, is simply skipped.
-    # Decision 0093/0095: the whole passage is shown first, narrows
-    # to just the flagged sentence for its own correction, then
-    # widens back to the whole story once that correction is done --
-    # sentence 2 needs no display change of its own, since it's
-    # never revisited.
+    # Decision 0093/0113: the whole passage is shown once and stays up
+    # the entire time -- no narrowing to just the flagged sentence for
+    # its own correction any more -- sentence 2 needs no display
+    # change of its own, since it's never revisited.
     assert [lines for lines in face.reading_texts if lines] == [
         ["Dan had a dog.", "The dog ran."],
-        ["Dan had a dog."],
-        ["Dan had a dog.", "The dog ran."],
     ]
+    # "had" is sentence 1's own word index 1 ("Dan had a dog.") --
+    # highlighted in place, in the (still fully visible) story.
+    assert (0, 1, "had") in face.reading_text_highlights
     assert "Nice reading!" in tts.synthesized
     assert "Yes, a dog!" in tts.synthesized
 
 
-async def test_run_reading_partner_highlight_uses_the_narrowed_display_page_not_the_story_index():
-    """Decision 0098, found live: once a flagged sentence's own
-    correction narrows the display to just that one sentence
-    (face.set_reading_text([sentence], ...)), it's the ONLY page on
-    screen -- the highlight must be scoped to page index 0, not the
-    sentence's own index in the whole story (here, sentence 2 of 2
-    is story index 1), or the highlight never matches anything
-    actually on screen."""
+async def test_run_reading_partner_highlight_uses_the_real_story_index():
+    """Decision 0113: the story is no longer narrowed to just the
+    flagged sentence during its own correction (decision 0112's own
+    "keep the story visible" fix, extended here) -- the highlight
+    must use the sentence's own REAL index in the whole story (here,
+    sentence 2 of 2 is story index 1), or it would light up the wrong
+    page (or nothing) now that every page is actually on screen.
+    (Decision 0098 originally hardcoded this to 0 for the opposite
+    reason -- back when the display WAS narrowed to one page.)"""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -1947,7 +1952,7 @@ async def test_run_reading_partner_highlight_uses_the_narrowed_display_page_not_
         )
 
     assert face.reading_text_highlights
-    assert all(index == 0 for index, _position, _word in face.reading_text_highlights)
+    assert all(index == 1 for index, _position, _word in face.reading_text_highlights)
     # Decision 0102: this sentence gets a highlighted read twice in
     # this one correction block -- once under "Let's work on this
     # one", again under "I'll read it for you first" -- now at the

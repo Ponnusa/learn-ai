@@ -52,6 +52,11 @@ from .prompts import (
 
 _KNOWN_INTENT_LABELS = {"STORY", "READ", "SONG", "CHAT", "TEACH"}
 
+# Decision 0113: generate_word_family() asks for this many times the
+# number of words it actually needs, since verify_family_word()'s own
+# strict filter routinely drops some of what the LLM proposes.
+_FAMILY_OVERREQUEST_FACTOR = 2
+
 
 @dataclass
 class ConversationResult:
@@ -320,12 +325,21 @@ class ConversationService:
         generate_comprehension_questions(), since there's no single
         "fix" for a bad rhyme. Returns [] if `word` has only one
         grapheme (nothing to vary) or if every candidate fails
-        verification -- the caller skips the activity gracefully."""
+        verification -- the caller skips the activity gracefully.
+
+        Decision 0113, found live: asking for exactly `num_words`
+        candidates routinely delivered fewer -- the verifier's three
+        checks (real word, exact rime, decodable) are strict enough
+        that losing half of 4 requested candidates to a miss on any
+        one of them is common, and nothing backfilled the gap. Asking
+        the LLM for more than `num_words` up front (still one call,
+        no retry round-trip) absorbs that drop rate; the result is
+        still capped to `num_words` below, same as before."""
         rime = extract_rime(word)
         if rime is None:
             return []
         rime_spelling, rime_graphemes = rime
-        prompt = build_family_prompt(word, rime_spelling, num_words)
+        prompt = build_family_prompt(word, rime_spelling, num_words * _FAMILY_OVERREQUEST_FACTOR)
         reply_text, _model = await self._llm.generate_reply(
             [{"role": "user", "content": "Write the words now."}], prompt
         )

@@ -548,6 +548,36 @@ async def test_generate_word_family_returns_empty_when_every_candidate_fails():
     assert words == []
 
 
+async def test_generate_word_family_over_requests_to_absorb_the_verifier_drop_rate():
+    """Decision 0113: found live -- asking the LLM for exactly 4 words
+    routinely delivered fewer once verify_family_word()'s own strict
+    filter dropped some of them, with nothing backfilling the gap.
+    The prompt itself now asks for more than num_words up front (one
+    call, no retry round-trip)."""
+    llm = FakeLanguageModelBackend(reply="WORD: cat\nWORD: sat\nWORD: bat\nWORD: rat")
+    service = ConversationService(llm)
+
+    await service.generate_word_family("mat", mastered_levels=["short_vowels"], age=6, num_words=4)
+
+    _messages, prompt = llm.calls[0]
+    assert "Write 8 other" in prompt  # 4 requested * the over-request factor
+
+
+async def test_generate_word_family_still_caps_the_result_at_num_words():
+    """Even though more are requested from the LLM, a caller asking
+    for 4 words never gets more than 4 back, same as before."""
+    llm = FakeLanguageModelBackend(
+        reply="WORD: cat\nWORD: sat\nWORD: bat\nWORD: rat\nWORD: hat\nWORD: pat"
+    )
+    service = ConversationService(llm)
+
+    words = await service.generate_word_family(
+        "mat", mastered_levels=["short_vowels"], age=6, num_words=4
+    )
+
+    assert len(words) == 4
+
+
 async def test_react_to_comprehension_answer_grounds_in_the_story():
     llm = FakeLanguageModelBackend(
         reply="STATUS: resolved\nSAY: Yes, exactly -- the bunny found a red apple!"
