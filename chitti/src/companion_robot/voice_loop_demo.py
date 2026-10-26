@@ -541,6 +541,32 @@ async def _confirm_switch(mode_code: str, tts, audio, stt, face, speed: float) -
     return confirmed
 
 
+async def _maybe_switch_mode(
+    text: str,
+    conversation: ConversationService,
+    current_mode: str,
+    tts,
+    audio,
+    stt,
+    face,
+    speed: float,
+) -> str | None:
+    """Decision 0127: the exact same "detect, then confirm if the
+    detection wasn't confident" reaction to _detect_switch_intent()'s
+    result was copy-pasted at all 5 of this file's own mode loops.
+    Returns the mode to switch to, or None to keep going in the
+    current mode -- the caller still owns breaking its own loop and
+    recording switch_trigger_text, since only it knows its own
+    equivalent of "the triggering text" (`text` itself at most call
+    sites, `next_text` at the two "want another one?" ones)."""
+    candidate_mode, confident = await _detect_switch_intent(text, conversation, current_mode)
+    if candidate_mode is not None and (
+        confident or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
+    ):
+        return candidate_mode
+    return None
+
+
 _ORDINAL_WORDS = {
     "first": 0, "1st": 0, "one": 0,
     "second": 1, "2nd": 1, "two": 1,
@@ -1069,11 +1095,10 @@ async def _run_teachable_friend(
                 if not text.strip():
                     print("(nothing heard, try again)")
                     continue
-                candidate_mode, confident = await _detect_switch_intent(text, conversation, "1")
-                if candidate_mode is not None and (
-                    confident
-                    or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
-                ):
+                candidate_mode = await _maybe_switch_mode(
+                    text, conversation, "1", tts, audio, stt, face, speed
+                )
+                if candidate_mode is not None:
                     next_mode = candidate_mode
                     switch_trigger_text = text
                     break
@@ -1154,11 +1179,10 @@ async def _run_everyday_companion(
                 if not text.strip():
                     print("(nothing heard, try again)")
                     continue
-                candidate_mode, confident = await _detect_switch_intent(text, conversation, "3")
-                if candidate_mode is not None and (
-                    confident
-                    or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
-                ):
+                candidate_mode = await _maybe_switch_mode(
+                    text, conversation, "3", tts, audio, stt, face, speed
+                )
+                if candidate_mode is not None:
                     next_mode = candidate_mode
                     switch_trigger_text = text
                     break
@@ -1257,10 +1281,10 @@ async def _run_story_companion(
             if not text.strip():
                 print("(nothing heard, try again)")
                 continue
-            candidate_mode, confident = await _detect_switch_intent(text, conversation, "2")
-            if candidate_mode is not None and (
-                confident or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
-            ):
+            candidate_mode = await _maybe_switch_mode(
+                text, conversation, "2", tts, audio, stt, face, speed
+            )
+            if candidate_mode is not None:
                 next_mode = candidate_mode
                 switch_trigger_text = text
                 break
@@ -2629,10 +2653,10 @@ async def _run_reading_partner(
             print(f"You said: {next_text}")
             if not next_text.strip():
                 continue
-            candidate_mode, confident = await _detect_switch_intent(next_text, conversation, "5")
-            if candidate_mode is not None and (
-                confident or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
-            ):
+            candidate_mode = await _maybe_switch_mode(
+                next_text, conversation, "5", tts, audio, stt, face, speed
+            )
+            if candidate_mode is not None:
                 next_mode = candidate_mode
                 switch_trigger_text = next_text
                 break
@@ -3017,10 +3041,10 @@ async def _run_reading_partner_v2(
             print(f"You said: {next_text}")
             if not next_text.strip():
                 continue
-            candidate_mode, confident = await _detect_switch_intent(next_text, conversation, "5")
-            if candidate_mode is not None and (
-                confident or await _confirm_switch(candidate_mode, tts, audio, stt, face, speed)
-            ):
+            candidate_mode = await _maybe_switch_mode(
+                next_text, conversation, "5", tts, audio, stt, face, speed
+            )
+            if candidate_mode is not None:
                 next_mode = candidate_mode
                 switch_trigger_text = next_text
                 break

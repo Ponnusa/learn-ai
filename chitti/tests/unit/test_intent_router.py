@@ -60,6 +60,22 @@ def test_returns_none_for_ordinary_conversation():
     assert detect_intent_phrase("") is None
 
 
+def test_detect_intent_phrase_ignores_a_negated_request():
+    """Decision 0127, found live: a plain phrase search matches "tell
+    me a story" anywhere in the text, with no way to tell a request
+    apart from a refusal of the same phrasing."""
+    assert detect_intent_phrase("Don't tell me a story.") is None
+    assert detect_intent_phrase("Let's not sing a song.") is None
+
+
+def test_detect_intent_phrase_negation_guard_does_not_catch_unrelated_stop_requests():
+    """The negation guard is a narrow lookback right before the
+    matched phrase -- "stop reading" (a different activity, not a
+    negation of the one actually requested) must not suppress the
+    real request that follows it."""
+    assert detect_intent_phrase("Stop reading and tell me a story.") == STORY
+
+
 def test_mentions_activity_keyword_true_cases():
     assert mentions_activity_keyword("I don't want a story, let's chat instead") is True
     assert mentions_activity_keyword("can we sing something") is True
@@ -69,6 +85,15 @@ def test_mentions_activity_keyword_true_cases():
 def test_mentions_activity_keyword_false_for_ordinary_turns():
     assert mentions_activity_keyword("the cat has four legs") is False
     assert mentions_activity_keyword("two plus two is four") is False
+
+
+def test_mentions_activity_keyword_ignores_substring_false_positives():
+    """Decision 0127, found live: a plain substring check matched
+    "read" inside "already" and "sing" inside "using" -- real,
+    unrelated phrases that wrongly paid for an LLM classification
+    call. Whole-word matching only."""
+    assert mentions_activity_keyword("I already finished my homework") is False
+    assert mentions_activity_keyword("I'm using the bathroom") is False
 
 
 def test_is_affirmative_clear_yes():
@@ -121,6 +146,25 @@ def test_classify_affirmative_returns_true_for_a_clear_yes():
 def test_classify_affirmative_returns_false_for_a_clear_no():
     assert classify_affirmative("no") is False
     assert classify_affirmative("nope not really") is False
+
+
+def test_classify_affirmative_respects_a_self_correction():
+    """Decision 0127, found live: "first signal word wins" (the
+    decision 0046 addendum below) reads "Okay, actually no." as a
+    yes -- "okay" is the first signal word, and the self-correction
+    right after it was never considered. A correction marker means
+    only the signal words after it count."""
+    assert classify_affirmative("Okay, actually no.") is False
+    assert classify_affirmative("Yes-- wait, no.") is False
+    assert classify_affirmative("No, I mean yes, let's do it.") is True
+
+
+def test_classify_affirmative_self_correction_fix_does_not_regress_the_original_addendum():
+    """The fix above must not reintroduce the failure decision 0046's
+    own addendum already fixed -- this has no correction marker at
+    all, so the existing first-signal-word-wins behavior must still
+    apply unchanged."""
+    assert classify_affirmative("yes my friend is not talking to me") is True
 
 
 def test_classify_affirmative_returns_none_when_no_signal_word_appears():
