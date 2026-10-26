@@ -21,7 +21,6 @@ import random
 
 from .alignment import tokenize
 from .decodability import clean_word, decompose
-from .hints import blend_breakdown
 
 _MIN_WORD_LENGTH = 3
 _MAX_WORDS = 2
@@ -31,21 +30,6 @@ _CLOSING_LINES = [
     "Wow, your word-detective skills are amazing!",
     "That was a blast -- let's do it again sometime!",
 ]
-
-# Decision 0070: found live -- a wrong guess (e.g. "frog" blanked to
-# "fr_g", child says just the letter "o") got nothing but the answer
-# handed over, no phonics explanation at all, unlike the hint ladder's
-# own graduated breakdown (decision 0064). Reusing hints.py's
-# blend_breakdown() here gives a wrong guess the same phoneme-accurate
-# teaching moment, without turning it into a second, duplicate hint
-# ladder -- still one line, still moves on right after. Decision 0112
-# kept this deterministic template for voice_loop_demo.py's own
-# word-FAMILY practice mode (_run_word_family_practice(), a different
-# feature) -- this missing-letters game's own reaction is now the LLM
-# call above instead.
-_INCORRECT_TEMPLATE = (
-    'Good try! The word is "{word}" -- {breakdown}. Let\'s keep going!'
-)
 
 
 def pick_game_words(words: list[str], max_words: int = _MAX_WORDS) -> list[str]:
@@ -115,10 +99,6 @@ def is_correct_answer(word: str, spoken: str) -> bool:
     "don't penalize extra talk" spirit reading/hints.py's own matching
     already follows."""
     return clean_word(word) in tokenize(spoken)
-
-
-def incorrect_response(word: str) -> str:
-    return _INCORRECT_TEMPLATE.format(word=word, breakdown=blend_breakdown(word))
 
 
 def random_closing_line() -> str:

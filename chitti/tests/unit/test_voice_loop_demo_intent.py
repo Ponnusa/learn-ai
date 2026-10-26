@@ -1326,15 +1326,24 @@ async def test_word_family_practice_only_corrects_the_missed_word_not_every_word
     conversation = ConversationService(llm)
     face = _FakeFace()
     tts = _FakeTTS()
+    audio = _FakeAudio()
 
     with _patch_captures("yes", "cat"):  # "bat" never attempted
         await _run_word_family_practice(
-            "sat", conversation, tts, _FakeAudio(), "fake-stt", face, 1.0, 6,
+            "sat", conversation, tts, audio, "fake-stt", face, 1.0, 6,
             ["short_vowels"],
         )
 
     assert "Nice! You got cat." in tts.synthesized
-    assert any(line.startswith('Good try! The word is "bat"') for line in tts.synthesized)
+    # Decision 0120: no more phonics breakdown here either -- just
+    # names the real word, same simplified style decisions 0116/0118
+    # already established everywhere else in the reading flow.
+    assert 'That\'s okay! The word is "bat". Let\'s keep going!' in tts.synthesized
+    assert not any("like in" in line for line in tts.synthesized)
+    # No real recorded phonics clip plays for the missed word either --
+    # _FakeTTS.synthesize()'s fixed b"fake-audio" placeholder is the
+    # only thing ever played now.
+    assert all(clip == b"fake-audio" for clip in audio.played)
     # Found live: nothing showed "bat" on screen during its own
     # correction -- the grid was already cleared, so the screen just
     # fell back to whatever was on it before. Spotlighted instead,

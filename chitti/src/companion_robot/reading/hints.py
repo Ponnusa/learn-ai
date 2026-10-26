@@ -11,9 +11,14 @@ missed word slow, medium, then fast, and checks whether the child can
 say it back. pick_hint_word()/pick_hint_words() below (which word(s)
 need that) are unaffected -- still the same miscue-based selection,
 only the TEACHING step built on top of their answer changed.
-blend_breakdown()/_SOUND_EXAMPLES below are also unaffected -- still
-used by reading/word_game.py's own wrong-answer explanation, a
-separate feature this decision didn't touch.
+
+Decision 0120: blend_breakdown() (built on _SOUND_EXAMPLES below) is
+gone too -- its last caller, word_game.py's own wrong-answer
+explanation for word-family practice, was the final place in the
+reading flow still teaching phonics, and got simplified the same way
+decisions 0116/0118 simplified everywhere else. _SOUND_EXAMPLES
+itself stays: reading/phonics_audio.py's own clip inventory is still
+validated against it in tests, independent of blend_breakdown().
 
 Deliberately post-hoc, not live: Chitti's audio capture
 (voice_loop_demo._capture_and_transcribe) is push-to-talk -- record
@@ -135,25 +140,3 @@ def pick_hint_word(assessment: AssessmentResult) -> str | None:
     return words[0] if words else None
 
 
-
-
-def _sound_example(grapheme: str) -> str:
-    return _SOUND_EXAMPLES.get(grapheme, grapheme)
-
-
-def blend_breakdown(word: str) -> str:
-    """"frog" -> "'f' like in 'fish', 'r' like in 'run', 'o' like in
-    'dog', 'g' like in 'goat'" -- every grapheme in reading order,
-    each tied to a reliably-pronounced example word. Public (not
-    underscore-prefixed): decision 0070 (now 0112's
-    build_word_game_reaction_prompt()) reuses this exact breakdown in
-    word_game.py, so the bonus game explains a missed word's sounds
-    the same way the hint ladder does, rather than a second phonics
-    explanation that could drift out of sync."""
-    graphemes = decompose(word).graphemes
-    if not graphemes:
-        return word
-    parts = [
-        f"'{g.grapheme}' like in '{_sound_example(g.grapheme)}'" for g in graphemes
-    ]
-    return ", ".join(parts)

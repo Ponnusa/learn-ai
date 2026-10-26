@@ -76,7 +76,6 @@ from companion_robot.parent_controls.stories import StoryRepository
 from companion_robot.reading.alignment import align, assess, attribute_evidence, miscues_by_sentence, tokenize
 from companion_robot.reading.book_generation import BookGenerationError
 from companion_robot.reading.decodability import clean_word, decompose
-from companion_robot.reading.phonics_audio import get_clip_bytes
 from companion_robot.reading.deterministic_book import build_deterministic_book
 from companion_robot.reading.story_bank import pick_story_bank_book
 from companion_robot.reading.story_library import pick_library_book
@@ -97,7 +96,6 @@ from companion_robot.reading.session_state import (
 from companion_robot.reading.word_game import (
     blank_vowels,
     find_word_occurrence,
-    incorrect_response,
     is_correct_answer,
     pick_game_words,
     random_closing_line,
@@ -1456,22 +1454,6 @@ async def _run_word_meaning_check(
     )
 
 
-async def _play_real_phonics_sounds(audio, word: str) -> None:
-    """Decision 0091: right after Chitti's spoken "'p' like in 'pig'"
-    breakdown (word_game.py's incorrect_response(), reusing hints.py's
-    blend_breakdown() text -- unchanged), plays each covered
-    grapheme's real recorded sound in order, as reinforcement with
-    the actual phoneme, not just a same-starting-sound proxy word.
-    Silently skips any grapheme reading/phonics_audio.py doesn't have
-    a clip for yet (its own DEFERRED_GRAPHEMES list) -- the spoken
-    breakdown already covers that case, no extra fallback needed
-    here."""
-    for grapheme in decompose(word).graphemes:
-        clip = get_clip_bytes(grapheme.grapheme)
-        if clip is not None:
-            await audio.play(clip)
-
-
 def _weakest_mastery_for_miscues(miscues: list[Miscue], profile: ReadingProfile) -> float:
     """Decision 0103: the lowest p_mastery among the graphemes a
     sentence's own missed words touch -- used to prioritize which
@@ -1834,11 +1816,10 @@ async def _run_word_family_practice(
         # corrected at all. Spotlights it instead, same precedent as
         # the hint ladder's own missed-word display.
         face.set_reading_spotlight(family_word)
-        response = incorrect_response(family_word)
+        response = f'That\'s okay! The word is "{family_word}". Let\'s keep going!'
         print(f"Chitti: {response}")
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, response, speed=speed)
-        await _play_real_phonics_sounds(audio, family_word)
     face.set_reading_spotlight(None)
 
 

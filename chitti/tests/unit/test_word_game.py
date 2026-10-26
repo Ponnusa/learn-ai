@@ -9,7 +9,6 @@ from companion_robot.reading.word_game import (
     blank_vowels,
     build_word_game_reaction_prompt,
     find_word_occurrence,
-    incorrect_response,
     is_correct_answer,
     pick_game_words,
     random_closing_line,
@@ -78,20 +77,6 @@ def test_is_correct_answer_is_false_when_the_word_is_never_said():
 
 def test_random_closing_line_is_never_empty():
     assert random_closing_line()
-
-
-def test_incorrect_response_names_the_word():
-    """Decision 0112: incorrect_response() itself stays -- still used
-    by voice_loop_demo.py's own _run_word_family_practice() (a
-    different feature); only the missing-letters game above stopped
-    calling it, in favor of build_word_game_reaction_prompt()."""
-    assert '"sat"' in incorrect_response("sat")
-
-
-def test_incorrect_response_includes_a_phonics_breakdown():
-    response = incorrect_response("frog")
-    assert "'f' like in 'fish'" in response
-    assert "'o' like in 'dog'" in response
 
 
 def test_find_word_occurrence_locates_the_right_page_and_word_index():
