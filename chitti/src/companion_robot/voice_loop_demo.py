@@ -368,41 +368,31 @@ async def _speak_with_word_highlight(
 # once the list is exhausted -- a long tail of silence is preferable
 # to an awkward repeated filler.
 _THINKING_FILLERS = [
-    "Hmm, let me think about that...",
-    "Okay, just a little longer...",
-    "Almost got it...",
-    "Just a moment...",
-    "Let me see...",
-    "One second...",
+    "Hmm, let me think about that one for a moment...",
+    "Okay, give me just a little bit longer to figure this out...",
+    "Let me see what I can come up with here...",
+    "Just a moment, I'm working on it...",
+    "One second, let me put this together...",
+    "Hang on, I'm thinking this through...",
 ]
-
-# Decision 0117: still caps how many play during any ONE wait (same
-# cap decision 0050 originally used, back when the pool itself was
-# exactly this size) -- a long tail of silence for a genuinely slow
-# call is preferable to droning through the whole pool. The pool
-# above is now bigger than this cap specifically so a *different*
-# random subset gets picked each call.
-_MAX_FILLERS_PER_WAIT = 3
 
 
 async def _speak_while_thinking(task: "asyncio.Task", tts, audio, face, speed: float) -> None:
-    """Decision 0117, found live: this used to walk `_THINKING_FILLERS`
-    in the same fixed order every single call -- across a session
-    with many LLM waits, that meant the child heard the exact same
-    opening line ("Hmm, let me think about that...") over and over,
-    which gets repetitive fast. A random subset/order each call means
-    a short wait (by far the common case -- most calls need at most
-    one filler) gets a different line each time instead of always
-    the same one; still escalates through up to `_MAX_FILLERS_PER_WAIT`
-    for an unusually long wait, and still never repeats one within a
-    single wait."""
-    fillers = random.sample(_THINKING_FILLERS, min(_MAX_FILLERS_PER_WAIT, len(_THINKING_FILLERS)))
-    for filler in fillers:
-        if task.done():
-            return
-        face.set_status_led(DeviceState.SPEAKING)
-        await _speak(tts, audio, filler, speed=speed)
-        face.set_status_led(DeviceState.PROCESSING)
+    """Decision 0121, found live: decision 0117 still escalated
+    through up to 3 filler lines back-to-back for a single wait,
+    which read as stalling rather than thinking once the real LLM
+    reply came back quickly after anyway. Speaks exactly ONE filler,
+    picked at random from the pool so a session with many waits
+    doesn't hear the same line every time (still decision 0117's own
+    fix for that) -- then just waits silently for the real reply.
+    Each line is a bit longer than decision 0117's own pool so one
+    filler alone comfortably bridges a typical LLM round trip."""
+    if task.done():
+        return
+    filler = random.choice(_THINKING_FILLERS)
+    face.set_status_led(DeviceState.SPEAKING)
+    await _speak(tts, audio, filler, speed=speed)
+    face.set_status_led(DeviceState.PROCESSING)
 
 
 async def _generate_with_thinking_filler(coro, tts, audio, face, speed: float, label: str):

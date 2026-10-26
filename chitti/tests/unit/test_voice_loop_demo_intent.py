@@ -28,7 +28,6 @@ from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
 import companion_robot.voice_loop_demo as voice_loop_demo
 from companion_robot.voice_loop_demo import (
-    _MAX_FILLERS_PER_WAIT,
     _MAX_FULL_CORRECTIONS,
     _THINKING_FILLERS,
     _classify_read_first_offer_reply,
@@ -351,23 +350,20 @@ async def test_speak_while_thinking_stops_once_the_task_is_done():
     assert tts.synthesized[0] in _THINKING_FILLERS
 
 
-async def test_speak_while_thinking_stops_after_the_last_filler_when_still_not_done():
-    """A Future that's never resolved guarantees task.done() stays
-    False for the whole loop -- no real sleep/timing needed to prove
-    the function speaks up to the per-wait cap and then simply stops
-    rather than looping back or repeating one."""
+async def test_speak_while_thinking_never_speaks_more_than_one_filler():
+    """Decision 0121, found live: a genuinely slow call used to
+    escalate through up to 3 filler lines back-to-back, which read as
+    stalling. A Future that's never resolved guarantees task.done()
+    stays False for as long as this runs -- proves the function
+    speaks exactly one filler and then stops, rather than looping."""
     tts = _FakeTTS()
     face = _FakeFace()
     never_done = asyncio.get_running_loop().create_future()
 
     await _speak_while_thinking(never_done, tts, _FakeAudio(), face, 1.0)
 
-    # Decision 0117: the pool is bigger than one wait's own cap now
-    # (so different calls can draw a different subset) -- exactly
-    # _MAX_FILLERS_PER_WAIT spoken, each a real filler, no repeats.
-    assert len(tts.synthesized) == _MAX_FILLERS_PER_WAIT
-    assert len(set(tts.synthesized)) == _MAX_FILLERS_PER_WAIT
-    assert all(filler in _THINKING_FILLERS for filler in tts.synthesized)
+    assert len(tts.synthesized) == 1
+    assert tts.synthesized[0] in _THINKING_FILLERS
 
 
 async def test_speak_while_thinking_varies_which_filler_comes_first():
@@ -552,17 +548,12 @@ async def test_carried_over_text_gets_a_real_reply_without_another_capture():
         # Ctrl-C after the first (carried-over) turn is processed --
         # proves that turn used initial_text, since _capture_and_transcribe
         # would raise immediately if it were ever called. Decision
-        # 0050's thinking filler plays before the real reply; with
-        # every fake here fully synchronous internally (no real
-        # asyncio suspension anywhere), the background AI-call task
-        # never gets a scheduling chance to finish early, so all three
-        # fillers play in full before the real reply's own _speak call
-        # -- see test_speak_while_thinking_stops_once_the_task_is_done
-        # for the early-stop behavior with a real task.
+        # 0121: exactly one thinking filler plays before the real
+        # reply's own _speak call now (down from up to three).
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            side_effect=[None, None, None, KeyboardInterrupt],
+            side_effect=[None, KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(
@@ -615,12 +606,9 @@ async def test_fallback_tier_switch_declined_stays_in_current_mode():
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            # confirmation prompt, decline acknowledgment, all three of
-            # decision 0050's thinking fillers (see the comment in
-            # test_carried_over_text_gets_a_real_reply_without_another_capture
-            # for why all three play with fully-synchronous fakes),
-            # then the real reply
-            side_effect=[None, None, None, None, None, KeyboardInterrupt],
+            # confirmation prompt, decline acknowledgment, decision
+            # 0121's one thinking filler, then the real reply
+            side_effect=[None, None, None, KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(
