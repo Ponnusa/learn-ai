@@ -1,7 +1,12 @@
-"""Unit tests for companion_robot.reading.hints -- the deterministic,
-no-LLM graduated hint ladder (decision 0052)."""
+"""Unit tests for companion_robot.reading.hints -- deterministic,
+no-LLM selection of which missed word(s) in a sentence need
+attention (decision 0052). The graduated hint-ladder TEXT this module
+used to build (build_hint_line()/HINT_STAGES) is gone as of decision
+0116 -- voice_loop_demo.py's own correction flow no longer teaches
+phonics or plays any sound clip; it just re-speaks the missed word
+slow/medium/fast and checks the child's attempt."""
 from companion_robot.reading.alignment import assess
-from companion_robot.reading.hints import build_hint_line, pick_hint_word, pick_hint_words
+from companion_robot.reading.hints import pick_hint_word, pick_hint_words
 
 
 def test_pick_hint_word_returns_none_on_a_clean_read():
@@ -61,39 +66,6 @@ def test_pick_hint_word_skips_a_sight_word():
 def test_pick_hint_word_returns_none_when_every_miscue_is_a_sight_word():
     result = assess("the was said", "a is told", duration_seconds=3.0)
     assert pick_hint_word(result) is None
-
-
-def test_build_hint_line_stage_0_is_encouragement():
-    line = build_hint_line("sat", 0)
-    assert "take your time" in line.lower()
-    assert "sat" not in line  # not given away yet
-
-
-def test_build_hint_line_stage_1_gives_the_first_sound_as_an_example_word():
-    """Decision 0064: the hint must say an actual, reliably-pronounced
-    example word ("the same sound as 'sun'"), not the bare letter --
-    TTS reading a lone grapheme character like "f" would very likely
-    say the letter name ("eff"), not the phoneme."""
-    line = build_hint_line("sat", 1)
-    assert "sun" in line  # the example word for 's', sat's first grapheme
-    assert "'s'" not in line  # not the bare letter
-    assert "sat" not in line  # still not the whole word
-
-
-def test_build_hint_line_stage_2_breaks_the_word_down_sound_by_sound():
-    """Decision 0064: a new stage between the first-sound hint and
-    saying the whole word -- walks every grapheme with its own
-    example word, then invites blending."""
-    line = build_hint_line("sat", 2)
-    assert "sun" in line  # 's'
-    assert "cat" in line  # 'a'
-    assert "top" in line  # 't'
-    assert "sat" in line  # the word itself, to blend into
-
-
-def test_build_hint_line_stage_3_says_the_word():
-    line = build_hint_line("sat", 3)
-    assert "sat" in line
 
 
 def test_every_inventory_grapheme_has_a_sound_example():

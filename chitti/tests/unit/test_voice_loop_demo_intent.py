@@ -19,7 +19,6 @@ from companion_robot.parent_controls.reading_exercises import (
     ReadingExerciseRecord,
     ReadingExerciseRepository,
 )
-from companion_robot.reading.hints import build_hint_line
 from companion_robot.reading.repository import ReadingRepository
 from companion_robot.reading.schema import GraphemeMastery, Miscue, ReadingProfile
 from companion_robot.reading.word_timing import WordTiming
@@ -864,9 +863,10 @@ async def test_run_reading_partner_feedback_cites_a_specific_word_from_the_read(
     assert any('"little"' in line for line in tts.synthesized)  # the longest word read
 
 
-async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
-    """Decision 0052: a missed word gets a graduated hint; a corrected
-    retry is merged into the grading evidence rather than thrown away."""
+async def test_run_reading_partner_hint_retry_succeeds():
+    """Decision 0116: a missed word is re-exposed slow/medium/fast
+    (no more graduated phonics hint ladder), then checked once -- a
+    correct retry gets simple praise."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -888,10 +888,10 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
         # Decision 0085: the sentence's own "read it to you first?"
         # offer, declined, before the read-aloud itself. "mat" for
         # "sat" is a clean substitution (test_reading_alignment's own
-        # precedent); the retry gets it right on the very first hint.
-        # Decision 0074: a resolved hint word means the sentence gets
-        # reread once ("sat" again). "no thanks" declines decision
-        # 0057's post-reading word game.
+        # precedent); the retry gets it right. Decision 0074: a
+        # resolved word still means the sentence gets reread once
+        # ("sat" again). "no thanks" declines decision 0057's
+        # post-reading word game.
         "no thanks", "a cat mat", "sat", "a cat sat", "no thanks", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
@@ -903,10 +903,11 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
     # [0] story intro, [1] the "read it to you first?" offer, [2] the
     # "give it a try" turn cue, [3] decision 0095's "let's work on
     # this one" attention intro, [4] decision 0098's own highlighted
-    # read of the flagged sentence itself -- all spoken before the
-    # hint ladder itself starts.
-    assert tts.synthesized[5] == build_hint_line("sat", 0)
-    assert tts.synthesized[6] == "There you go!"
+    # read of the flagged sentence itself, [5]-[7] the missed word
+    # itself spoken three times (slow/medium/fast -- decision 0116),
+    # [8] simple praise for the correct retry.
+    assert tts.synthesized[5:8] == ["sat", "sat", "sat"]
+    assert tts.synthesized[8] == "There you go!"
     # Not asserted by fixed index from here on -- decision 0074's
     # reread/word-meaning-check step runs a real LLM call wrapped in
     # decision 0050's thinking-filler, whose line count depends on
@@ -915,24 +916,27 @@ async def test_run_reading_partner_hint_retry_succeeds_and_feeds_mastery():
         line.startswith("Good try! Reading can be tricky sometimes.")
         for line in tts.synthesized
     )
-    # The corrected retry counted as a real extra opportunity, not
-    # discarded -- one wrong (from the original read) + one right
-    # (from the retry) for the substituted word's first sound.
+    # Decision 0116: the retry is an echo (the child heard the word
+    # said in full three times right before attempting it) -- it no
+    # longer feeds mastery evidence the way the old graduated hint
+    # ladder's own early stages did. Only the original cold-read miss
+    # counts.
     profile = reading.get_or_create("child-1")
-    assert profile.masteries["s"].opportunities == 2
+    assert profile.masteries["s"].opportunities == 1
     # Decision 0053: the actual bug fix -- the display froze on the
-    # missed word for the whole hint exchange, then cleared once the
-    # loop ended, rather than leaving the child with no idea what was
-    # being asked. Decision 0113: now a highlight within the full
-    # story (still on screen the whole time), not an isolated
-    # spotlight view -- "sat" is story word index 2 ("A cat sat.").
+    # missed word for the whole exchange, then cleared once it ended,
+    # rather than leaving the child with no idea what was being
+    # asked. Decision 0113: now a highlight within the full story
+    # (still on screen the whole time), not an isolated spotlight
+    # view -- "sat" is story word index 2 ("A cat sat.").
     assert face.reading_text_highlights == [(0, 2, "sat"), (0, None, None)]
 
 
-async def test_run_reading_partner_hint_retry_continues_without_penalty_after_four_misses():
-    """Decision 0052/0064: even if the child never gets the hinted
-    word right across all four graduated stages, the session
-    continues to normal feedback -- no penalty, no infinite loop."""
+async def test_run_reading_partner_hint_retry_continues_without_penalty_when_still_wrong():
+    """Decision 0116: even if the child still doesn't get the missed
+    word right after hearing it slow/medium/fast, the session
+    continues to normal feedback -- no penalty, no infinite loop (and
+    no more graduated escalation -- one exposure, one check)."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -951,12 +955,11 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     tts = _FakeTTS()
 
     # Decision 0085: the sentence's own "read it to you first?" offer,
-    # declined, before the read-aloud itself. Decision 0084: exhausting
-    # the ladder still triggers a reread -- now modeled by Chitti
-    # first. "no thanks" declines decision 0057's post-reading word
-    # game.
+    # declined, before the read-aloud itself. Decision 0084: a still-
+    # wrong word still triggers a reread -- modeled by Chitti first.
+    # "no thanks" declines decision 0057's post-reading word game.
     with _patch_captures(
-        "no thanks", "a cat mat", "nope", "nope", "nope", "nope", "a cat mat", "still nope",
+        "no thanks", "a cat mat", "nope", "a cat mat", "still nope",
         "no thanks", "let's just chat",
     ):
         next_mode, carried_text = await _run_reading_partner(
@@ -968,14 +971,13 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     # [0] story intro, [1] the "read it to you first?" offer, [2] the
     # "give it a try" turn cue, [3] decision 0095's "let's work on
     # this one" attention intro, [4] decision 0098's own highlighted
-    # read of the flagged sentence itself -- all spoken before the
-    # hint ladder itself starts.
-    assert tts.synthesized[5] == build_hint_line("sat", 0)
-    assert tts.synthesized[6] == build_hint_line("sat", 1)
-    assert tts.synthesized[7] == build_hint_line("sat", 2)
-    assert tts.synthesized[8] == build_hint_line("sat", 3)
+    # read of the flagged sentence itself, [5]-[7] the missed word
+    # spoken three times (slow/medium/fast -- decision 0116), [8] the
+    # gentle reveal since the retry was still wrong.
+    assert tts.synthesized[5:8] == ["sat", "sat", "sat"]
+    assert tts.synthesized[8] == 'That\'s okay! The word is "sat". Let\'s keep going!'
     assert "There you go!" not in tts.synthesized
-    # Decision 0084: exhausting the ladder still gets the model-then-
+    # Decision 0084: a still-wrong word still gets the model-then-
     # repeat flow instead of a blanket "Nice reading!" below. Not
     # asserted by fixed index -- the word-meaning check in between
     # runs a real LLM call wrapped in decision 0050's thinking-filler,
@@ -992,27 +994,24 @@ async def test_run_reading_partner_hint_retry_continues_without_penalty_after_fo
     feedback_line = next(
         line for line in tts.synthesized if line.startswith("Good try! Reading can be tricky")
     )
-    # Decision 0055: an unresolved hint word is mentioned again in the
-    # final feedback as something to revisit, instead of the old
-    # unconditional phonics-sound list.
+    # Decision 0055: an unresolved word is mentioned again in the
+    # final feedback as something to revisit.
     assert '"sat"' in feedback_line
     # Decision 0053: the display stayed frozen (highlighted, within
-    # the full story -- decision 0113) on the missed word for all four
-    # stages (never cleared early just because a retry was wrong),
-    # then cleared once the loop gave up. Decision 0081: the reread's
-    # own correction cycle highlights "sat" again (then clears it) on
-    # top of that original hint-ladder highlight -- "sat" is story
+    # the full story -- decision 0113) on the missed word for the
+    # whole exposure-and-check exchange, then cleared. Decision 0081:
+    # the reread's own correction cycle highlights "sat" again (then
+    # clears it) on top of that original highlight -- "sat" is story
     # word index 2 ("A cat sat.").
     assert face.reading_text_highlights == [
         (0, 2, "sat"), (0, None, None), (0, 2, "sat"), (0, None, None),
     ]
 
 
-async def test_run_reading_partner_hints_every_real_miss_not_just_the_first():
-    """Decision 0065: a read with two real misses gets both hinted in
-    turn, not just the first -- and the final stage's evidence
-    (where the word was said outright) must not count toward mastery
-    the way an earlier, self-sounded-out stage does."""
+async def test_run_reading_partner_handles_every_real_miss_not_just_the_first():
+    """Decision 0065/0116: a read with two real misses gets both
+    re-exposed (slow/medium/fast) and checked in turn, not just the
+    first -- one gets it right, the other doesn't, independently."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -1033,9 +1032,9 @@ async def test_run_reading_partner_hints_every_real_miss_not_just_the_first():
     with _patch_captures(
         "no thanks",  # decision 0085: declines Chitti's "read it to you first?" offer
         "silly gotten hops",  # the read-aloud -- "little" and "garden" both missed
-        "little",  # "little" resolved on the very first retry
-        "nope", "nope", "nope", "nope",  # "garden" never resolved, exhausts all 4 stages
-        "little garden hops",  # decision 0074/0084: the sentence reread after hint practice
+        "little",  # "little" resolved
+        "nope",  # "garden" still wrong
+        "little garden hops",  # decision 0074/0084: the sentence reread after retrying
         "no thanks",  # declines the word game
         "let's just chat",  # ends the session
     ):
@@ -1045,12 +1044,12 @@ async def test_run_reading_partner_hints_every_real_miss_not_just_the_first():
         )
 
     assert next_mode == "3"
-    # Both missed words got their own hint sequence, "little" first
-    # (reading order).
-    assert build_hint_line("little", 0) in tts.synthesized
+    # Both missed words got their own slow/medium/fast exposure,
+    # "little" first (reading order).
+    assert tts.synthesized.count("little") >= 3
     assert "There you go!" in tts.synthesized  # "little" resolved
-    assert build_hint_line("garden", 0) in tts.synthesized
-    assert build_hint_line("garden", 3) in tts.synthesized  # "garden" exhausted the ladder
+    assert tts.synthesized.count("garden") >= 3
+    assert 'That\'s okay! The word is "garden". Let\'s keep going!' in tts.synthesized
     # "little" is excluded from the final practice-words mention
     # (resolved live); "garden" still surfaces since it never was.
     feedback_line = next(
@@ -1058,53 +1057,6 @@ async def test_run_reading_partner_hints_every_real_miss_not_just_the_first():
     )
     assert '"garden"' in feedback_line
     assert '"little"' not in feedback_line
-
-
-async def test_run_reading_partner_final_stage_resolution_does_not_feed_mastery():
-    """Decision 0065, Gap B: resolving a word only at the final hint
-    stage -- where Chitti has already said the word outright -- is an
-    echo, not independent decoding. Its evidence must not be fed into
-    mastery the way the three earlier stages' attempts (sounded out
-    themselves after a sound/blend cue, even if wrong) still are."""
-    conn = connect(":memory:")
-    reading = ReadingRepository(conn)
-    reading_exercises = ReadingExerciseRepository(conn)
-    reading_exercises.create(
-        ReadingExerciseRecord(
-            id="ex1",
-            child_profile_id="child-1",
-            title="Homework",
-            content="A cat sat.",
-            created_at=datetime.now(timezone.utc),
-        )
-    )
-    llm = _FakeLLM(reply="unused")
-    conversation = ConversationService(llm)
-    face = _FakeFace()
-    tts = _FakeTTS()
-
-    with _patch_captures(
-        "no thanks",  # decision 0085: declines Chitti's "read it to you first?" offer
-        "a cat mat",  # the read-aloud -- "sat" missed (substituted as "mat")
-        "nope", "nope", "nope",  # stages 0, 1, 2 -- wrong, but still real attempts
-        "sat",  # stage 3 -- only correct after being told the word outright
-        "a cat sat",  # decision 0074/0084: the sentence reread after hint practice
-        "no thanks",
-        "let's just chat",
-    ):
-        await _run_reading_partner(
-            conversation, tts, _FakeAudio(), "fake-stt",
-            reading, reading_exercises, face, "child-1", 1.0,
-        )
-
-    # "There you go!" is still spoken (the attempt did match), but
-    # the grapheme "s" (sat's first sound) only gets 4 opportunities --
-    # the original miscue plus the three *earlier* stages' attempts --
-    # not 5, which would mean the final, told-the-answer attempt was
-    # wrongly counted as a fifth independent opportunity.
-    assert "There you go!" in tts.synthesized
-    profile = reading.get_or_create("child-1")
-    assert profile.masteries["s"].opportunities == 4
 
 
 async def test_run_reading_partner_word_family_offered_after_independent_resolution():
@@ -1661,11 +1613,11 @@ async def test_run_reading_partner_rereads_and_checks_meaning_after_a_hint():
 
 async def test_run_reading_partner_catches_a_new_miscue_introduced_during_the_reread():
     """Decision 0081, from a product-owner critique of a real
-    transcript: a child resolved "can" via the hint ladder, then on
-    the reread swapped "big" for "bug" -- a brand new miscue in a word
-    that was never hinted. Chitti must not say "Nice reading!"
-    regardless; it should notice "big" is now wrong and run one short
-    correction cycle for that specific word."""
+    transcript: a child's missed word still didn't resolve on the
+    retry, then on the reread they swapped "big" for "bug" -- a brand
+    new miscue in a word that was never missed before. Chitti must
+    not say "Nice reading!" regardless; it should notice "big" is now
+    wrong and run one short correction cycle for that specific word."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -1681,10 +1633,6 @@ async def test_run_reading_partner_catches_a_new_miscue_introduced_during_the_re
     llm = _FakeLLM(reply="unused")
     llm.generate_reply = AsyncMock(
         side_effect=[
-            # "can" resolves only on the last hint stage (said outright
-            # and echoed back) -- decision 0066's word-family check is
-            # deliberately skipped for a last-stage resolution, so no
-            # word-family LLM call is expected here.
             ("QUESTION: What can he do on the bus?", "fake-model"),  # word-meaning question
             ("STATUS: resolved\nSAY: Yes, he can hop!", "fake-model"),  # resolves immediately
             ("Sorry, no questions.", "fake-model"),  # book-level comprehension -- skipped
@@ -1697,8 +1645,7 @@ async def test_run_reading_partner_catches_a_new_miscue_introduced_during_the_re
     with _patch_captures(
         "no thanks",  # decision 0085: declines Chitti's "read it to you first?" offer
         "he cat hop on the big bus",  # read-aloud -- "can" substituted as "cat"
-        "nope", "nope", "nope",  # hint stages 0-2, still wrong
-        "can",  # resolves on the last stage (said outright, echoed back)
+        "nope",  # decision 0116: the one retry for "can" -- still wrong
         "he can hop on the bug bus",  # reread -- "big" now swapped for "bug"
         "big",  # decision 0081's correction attempt -- resolves
         "to hop",  # answers the word-meaning question, first try

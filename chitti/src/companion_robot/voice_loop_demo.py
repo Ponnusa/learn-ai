@@ -80,11 +80,11 @@ from companion_robot.reading.deterministic_book import build_deterministic_book
 from companion_robot.reading.story_bank import pick_story_bank_book
 from companion_robot.reading.story_library import pick_library_book
 from companion_robot.reading.feedback import build_reading_feedback
-from companion_robot.reading.hints import HINT_STAGES, build_hint_line, pick_hint_word, pick_hint_words
+from companion_robot.reading.hints import pick_hint_word, pick_hint_words
 from companion_robot.reading.mastery import update_from_evidence
 from companion_robot.reading.planner import select_objective
 from companion_robot.reading.repository import ReadingRepository
-from companion_robot.reading.schema import AssessmentResult, GeneratedBook, MasteryDelta, Miscue, ReadingProfile
+from companion_robot.reading.schema import AssessmentResult, GeneratedBook, Miscue, ReadingProfile
 from companion_robot.reading.sentences import split_into_sentences
 from companion_robot.reading.word_timing import WordTiming, align_timings_to_expected_text
 from companion_robot.reading.session_state import (
@@ -206,6 +206,15 @@ async def _capture_and_transcribe(stt) -> str:
 # reread) -- noticeably slower without dragging, same spirit as
 # reading_pace_wpm already pacing the teleprompter itself.
 _MODEL_READ_SPEED_MULTIPLIER = 0.75
+
+# Decision 0116: a missed word is now re-exposed at three speeds in a
+# row, slow to fast, instead of a graduated phonics hint ladder --
+# "let's see if the child understands" by hearing it clearly paced
+# out and then at normal conversational speed, not by sounding it out
+# grapheme by grapheme. Medium is the child's own ordinary speed
+# (speed * 1.0), so only slow/fast need their own multiplier here.
+_WORD_SLOW_SPEED_MULTIPLIER = 0.6
+_WORD_FAST_SPEED_MULTIPLIER = 1.3
 
 # Decision 0103: a starting value to test, not a proven optimal
 # limit -- a story with more flagged sentences than this gets a
@@ -1467,7 +1476,13 @@ async def _give_brief_callout(
     exact same isolated-view bug decisions 0112/0113 already fixed
     for the word game and the full hint ladder -- just missed here.
     Highlights the word in place within the full story instead, same
-    `find_word_occurrence()` approach, scoped to this one sentence."""
+    `find_word_occurrence()` approach, scoped to this one sentence.
+
+    Decision 0116: no longer plays a real recorded phonics sound clip
+    after naming the word -- the hint ladder this tier is the lighter
+    sibling of no longer teaches phonics or plays any sound clip
+    either, so this stays consistent with it rather than being the
+    one place in the correction flow still doing so."""
     for word in hint_words:
         occurrence = find_word_occurrence([sentence], clean_word(word))
         if occurrence is not None:
@@ -1477,7 +1492,6 @@ async def _give_brief_callout(
         print(f"Chitti: {callout}")
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, callout, speed=speed)
-        await _play_real_phonics_sounds(audio, word)
     face.set_reading_text_highlight(None, sentence_index)
 
 
@@ -2258,7 +2272,6 @@ async def _run_reading_partner(
             full_correction_indices = set(priority_order[:_MAX_FULL_CORRECTIONS])
 
             resolved_words: list[str] = []
-            retry_evidence_accum: dict[str, list] = {}
             for sentence_index, sentence in enumerate(sentences):
                 hint_words = sentence_hint_words.get(sentence_index)
                 if not hint_words:
@@ -2321,91 +2334,80 @@ async def _run_reading_partner(
                 for hint_word in hint_words:
                     # Decision 0053: the actual bug fix -- freezes the
                     # display on the missed word for the whole exchange,
-                    # so the child always knows which word is meant,
-                    # regardless of hint stage. Decision 0113: now
-                    # highlighted IN the full story (still on screen)
-                    # rather than replacing it with an isolated
-                    # spotlight view -- `find_word_occurrence()` is
-                    # scoped to just THIS one sentence (not the whole
-                    # story) so a word that also appears in an earlier
-                    # sentence can't be matched there instead.
+                    # so the child always knows which word is meant.
+                    # Decision 0113: now highlighted IN the full story
+                    # (still on screen) rather than replacing it with
+                    # an isolated spotlight view -- `find_word_occurrence()`
+                    # is scoped to just THIS one sentence (not the
+                    # whole story) so a word that also appears in an
+                    # earlier sentence can't be matched there instead.
                     hint_word_occurrence = find_word_occurrence([sentence], clean_word(hint_word))
                     if hint_word_occurrence is not None:
                         _page, hint_word_position, _text = hint_word_occurrence
                         face.set_reading_text_highlight(
                             hint_word, sentence_index, hint_word_position
                         )
-                    for stage in range(HINT_STAGES):
-                        hint_line = build_hint_line(hint_word, stage)
-                        print(f"Chitti: {hint_line}")
-                        face.set_status_led(DeviceState.SPEAKING)
-                        await _speak(tts, audio, hint_line, speed=speed)
-                        # Decision 0091: stage 1's "like in 'pig'" and
-                        # stage 2's full breakdown are both still
-                        # spoken exactly as before (build_hint_line()
-                        # untouched) -- this plays the real recorded
-                        # sound(s) right after, as reinforcement, for
-                        # whichever grapheme(s) that stage just taught.
-                        if stage == 1:
-                            first_graphemes = decompose(hint_word).graphemes
-                            if first_graphemes:
-                                clip = get_clip_bytes(first_graphemes[0].grapheme)
-                                if clip is not None:
-                                    await audio.play(clip)
-                        elif stage == 2:
-                            await _play_real_phonics_sounds(audio, hint_word)
 
-                        face.set_status_led(DeviceState.LISTENING)
-                        attempt = await _capture_and_transcribe(stt)
-                        print(f"You said: {attempt}")
+                    # Decision 0116: no more phonics hint ladder (no
+                    # sound-it-out breakdown, no recorded sound clips)
+                    # -- just re-exposes the missed word slow, then at
+                    # the child's own normal speed, then fast, and
+                    # checks whether they can say it back. Every
+                    # attempt here happens right after hearing Chitti
+                    # say the word in full, so (same "echo isn't
+                    # evidence" principle decisions 0065/0066 already
+                    # established for the old graduated ladder's own
+                    # final, told-outright stage) it never feeds
+                    # mastery evidence -- there's no independent-
+                    # decoding moment left to measure. Word-family
+                    # practice below is still offered on a correct
+                    # retry, though -- explicitly fine with that being
+                    # an echo now, not gated on decoding independence
+                    # the way it used to be.
+                    print(f"Chitti: {hint_word}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    for word_speed in (
+                        speed * _WORD_SLOW_SPEED_MULTIPLIER,
+                        speed,
+                        speed * _WORD_FAST_SPEED_MULTIPLIER,
+                    ):
+                        await _speak(tts, audio, hint_word, speed=word_speed)
 
-                        # Decision 0065: the final stage has already told
-                        # the child the word outright ("That word is
-                        # 'X'..."), so a correct repeat there is an echo,
-                        # not independent decoding -- it must not feed
-                        # mastery the same way sounding it out themselves
-                        # (every earlier stage) does.
-                        if stage < HINT_STAGES - 1:
-                            retry_evidence = attribute_evidence(
-                                align(hint_word, attempt), sight_words=book.sight_words
-                            )
-                            for grapheme, observations in retry_evidence.items():
-                                retry_evidence_accum.setdefault(grapheme, []).extend(
-                                    observations
-                                )
+                    face.set_status_led(DeviceState.LISTENING)
+                    attempt = await _capture_and_transcribe(stt)
+                    print(f"You said: {attempt}")
 
-                        if clean_word(attempt) == clean_word(hint_word):
-                            resolved_words.append(hint_word)
-                            praise = "There you go!"
-                            print(f"Chitti: {praise}")
-                            face.set_status_led(DeviceState.SPEAKING)
-                            await _speak(tts, audio, praise, speed=speed)
-                            # Decision 0066: only a stage before the last
-                            # counts as independent decoding (decision
-                            # 0065's own Gap B distinction) -- fresh,
-                            # confirmed evidence the skill generalizes is
-                            # worth checking with a word family; echoing
-                            # a word Chitti just said outright is not.
-                            if stage < HINT_STAGES - 1 and not offered_word_family_this_sentence:
-                                # Same budget book_generation.py itself
-                                # wrote the book under (objective.mastered_levels
-                                # plus the in-progress target_level) --
-                                # using the bare mastered_levels would
-                                # reject family words built on the very
-                                # grapheme this book was teaching.
-                                family_budget = list(objective.mastered_levels)
-                                if objective.target_level not in family_budget:
-                                    family_budget.append(objective.target_level)
-                                await _run_word_family_practice(
-                                    hint_word, conversation, tts, audio, stt, face, speed,
-                                    child_age, family_budget,
-                                    read_first=bool(read_first_preference),
-                                )
-                                offered_word_family_this_sentence = True
-                            break
-                    # No penalty for still missing it after the last stage
-                    # (saying the word outright) -- just moves on to the
-                    # next missed word, if any.
+                    if clean_word(attempt) == clean_word(hint_word):
+                        resolved_words.append(hint_word)
+                        reaction = "There you go!"
+                    else:
+                        # No penalty for still missing it -- just names
+                        # the real word and moves on to the next one,
+                        # if any.
+                        reaction = f'That\'s okay! The word is "{hint_word}". Let\'s keep going!'
+                    print(f"Chitti: {reaction}")
+                    face.set_status_led(DeviceState.SPEAKING)
+                    await _speak(tts, audio, reaction, speed=speed)
+
+                    if (
+                        clean_word(attempt) == clean_word(hint_word)
+                        and not offered_word_family_this_sentence
+                    ):
+                        # Same budget book_generation.py itself wrote
+                        # the book under (objective.mastered_levels
+                        # plus the in-progress target_level) -- using
+                        # the bare mastered_levels would reject family
+                        # words built on the very grapheme this book
+                        # was teaching.
+                        family_budget = list(objective.mastered_levels)
+                        if objective.target_level not in family_budget:
+                            family_budget.append(objective.target_level)
+                        await _run_word_family_practice(
+                            hint_word, conversation, tts, audio, stt, face, speed,
+                            child_age, family_budget,
+                            read_first=bool(read_first_preference),
+                        )
+                        offered_word_family_this_sentence = True
                 face.set_reading_text_highlight(None, sentence_index)
                 # Decision 0074, from a product-owner critique of a
                 # real session: a sentence that needed hint practice
@@ -2534,23 +2536,13 @@ async def _run_reading_partner(
             if book.library_slug is not None:
                 profile.completed_library_stories.append(book.library_slug)
 
-            if retry_evidence_accum:
-                # Decision 0095: the hint ladder's own retry evidence,
-                # accumulated across every flagged sentence above, fed
-                # once here -- same session_index as the cold-read
-                # evidence fed earlier, so both counts as one coherent
-                # session's worth of evidence, not two. Must happen
-                # before the save below, or this update never
-                # persists -- found live, the save used to come first.
-                retry_delta = update_from_evidence(
-                    profile, retry_evidence_accum, session_index=session_index
-                )
-                delta = MasteryDelta(
-                    changes=delta.changes + retry_delta.changes,
-                    newly_mastered=delta.newly_mastered + retry_delta.newly_mastered,
-                    newly_mastered_levels=delta.newly_mastered_levels + retry_delta.newly_mastered_levels,
-                )
-
+            # Decision 0116: the hint ladder's own retry-evidence feed
+            # (decision 0095) is gone along with the hint ladder
+            # itself -- the simplified slow/medium/fast re-exposure
+            # that replaced it never produces independent-decoding
+            # evidence to feed (see the loop above's own comment).
+            # `delta` here is still whatever the whole-story cold read
+            # already produced, further up this function, unchanged.
             reading_repo.save(profile)
 
             # Decision 0060/0065: build_reading_feedback() now surfaces

@@ -1,5 +1,19 @@
-"""Graduated hint ladder for a struggling word (decision 0052) -- no
-LLM call, by design, same instinct as feedback.py.
+"""Identifies which word(s) in a struggling sentence need attention
+(decision 0052) -- no LLM call, by design, same instinct as
+feedback.py.
+
+Decision 0116: the graduated, 4-stage phonics hint ladder this module
+used to build the text for (build_hint_line()/HINT_STAGES, sound-it-
+out hints escalating to a full grapheme-by-grapheme breakdown) is
+gone -- voice_loop_demo.py's own correction flow no longer teaches
+phonics or plays any recorded sound clip at all; it just speaks the
+missed word slow, medium, then fast, and checks whether the child can
+say it back. pick_hint_word()/pick_hint_words() below (which word(s)
+need that) are unaffected -- still the same miscue-based selection,
+only the TEACHING step built on top of their answer changed.
+blend_breakdown()/_SOUND_EXAMPLES below are also unaffected -- still
+used by reading/word_game.py's own wrong-answer explanation, a
+separate feature this decision didn't touch.
 
 Deliberately post-hoc, not live: Chitti's audio capture
 (voice_loop_demo._capture_and_transcribe) is push-to-talk -- record
@@ -7,19 +21,13 @@ until Enter, then transcribe once. There's no streaming/partial
 transcription or voice-activity detection, so there's no way to notice
 a child pausing mid-sentence and jump in. The feasible shape is: let
 the child finish the whole passage, grade it, then -- if grading
-surfaced a real miss -- offer a short hint-and-retry exchange for that
-one word before the normal feedback. One hint-word per book in V1.
+surfaced a real miss -- offer a short retry exchange for that one
+word before the normal feedback.
 """
 from .alignment import OMISSION, SUBSTITUTION
 from .curriculum import DEFAULT_SIGHT_WORDS
 from .decodability import clean_word, decompose
 from .schema import AssessmentResult
-
-# Public (not underscore-prefixed): voice_loop_demo.py's orchestration
-# loop needs this count to stay in sync with build_hint_line()'s own
-# stage count, rather than a second hardcoded "4" living in a
-# different file that could silently drift out of sync.
-HINT_STAGES = 4
 
 # Decision 0064: a hint needs to say the actual phonics *sound*, not
 # a letter name -- "that word starts with the 'f' sound" handed to
@@ -127,27 +135,6 @@ def pick_hint_word(assessment: AssessmentResult) -> str | None:
     return words[0] if words else None
 
 
-def build_hint_line(word: str, stage: int) -> str:
-    """stage 0: encourage + sound-it-out. stage 1: first-sound hint
-    (an example word, not a letter name or a guessed-at respelling).
-    stage 2 (decision 0064, new): the full sound-by-sound breakdown,
-    then blended -- the "f-r-o-g, now blend it: frog" step the
-    original 3-stage ladder never had. stage 3: say the word and
-    invite one more try. Mirrors the source product's own graduated-
-    hint content, applied after the read instead of during it."""
-    if stage == 0:
-        return "Let's try that word again -- take your time and sound it out."
-    if stage == 1:
-        first_example = _sound_example(_first_grapheme(word))
-        return f"Here's a hint: that word starts with the same sound as '{first_example}'."
-    if stage == 2:
-        return f"Let's sound it out together: {blend_breakdown(word)}. Now blend it: {word}."
-    return f'That word is "{word}" -- can you say it back to me?'
-
-
-def _first_grapheme(word: str) -> str:
-    graphemes = decompose(word).graphemes
-    return graphemes[0].grapheme if graphemes else word[0]
 
 
 def _sound_example(grapheme: str) -> str:
