@@ -2409,7 +2409,19 @@ async def _run_reading_partner(
                     attempt = await _capture_and_transcribe(stt)
                     print(f"You said: {attempt}")
 
-                    if clean_word(attempt) == clean_word(hint_word):
+                    # Decision 0122, found live: a child who repeats the
+                    # whole sentence back ("Sam can nap.") instead of
+                    # just the bare word said the right word, but the
+                    # strict clean_word(attempt) == clean_word(hint_word)
+                    # equality this used to use only ever matches a
+                    # bare single-word reply -- clean_word() doesn't
+                    # tokenize, so "Sam can nap." cleans to "sam can
+                    # nap", never equal to "nap" alone. is_correct_answer()
+                    # (word_game.py's own lenient membership check,
+                    # already proven for exactly this "don't penalize
+                    # extra talk" shape) fixes it the same way here.
+                    got_it = is_correct_answer(hint_word, attempt)
+                    if got_it:
                         resolved_words.append(hint_word)
                         reaction = "There you go!"
                     else:
@@ -2421,10 +2433,7 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, reaction, speed=speed)
 
-                    if (
-                        clean_word(attempt) == clean_word(hint_word)
-                        and not offered_word_family_this_sentence
-                    ):
+                    if got_it and not offered_word_family_this_sentence:
                         # Same budget book_generation.py itself wrote
                         # the book under (objective.mastered_levels
                         # plus the in-progress target_level) -- using

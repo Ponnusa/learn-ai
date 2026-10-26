@@ -878,6 +878,44 @@ async def test_run_reading_partner_feedback_cites_a_specific_word_from_the_read(
     assert any('"little"' in line for line in tts.synthesized)  # the longest word read
 
 
+async def test_run_reading_partner_hint_retry_succeeds_when_echoed_back_in_a_full_sentence():
+    """Decision 0122, found live: a child retrying the missed word
+    often says the whole sentence back ("Sam can nap.") rather than
+    the bare word -- clean_word() doesn't tokenize, so a strict
+    clean_word(attempt) == clean_word(hint_word) equality marked that
+    wrong even though the child clearly said the right word. Must use
+    the same lenient "word appears anywhere in the reply" check
+    word_game.py's is_correct_answer() already established."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures(
+        "no thanks", "a cat mat", "a cat sat", "a cat sat", "no thanks", "let's just chat",
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    assert "There you go!" in tts.synthesized
+    assert not any(line.startswith('That\'s okay! The word is "sat"') for line in tts.synthesized)
+
+
 async def test_run_reading_partner_hint_retry_succeeds():
     """Decision 0116: a missed word is re-exposed slow/medium/fast
     (no more graduated phonics hint ladder), then checked once -- a
