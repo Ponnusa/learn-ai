@@ -21,8 +21,8 @@ import random
 
 from .alignment import tokenize
 from .decodability import clean_word, decompose
+from .hints import is_worth_practicing
 
-_MIN_WORD_LENGTH = 3
 _MAX_WORDS = 2
 
 _CLOSING_LINES = [
@@ -35,14 +35,21 @@ _CLOSING_LINES = [
 def pick_game_words(words: list[str], max_words: int = _MAX_WORDS) -> list[str]:
     """Picks up to `max_words` distinct, substantial words from a
     book's text to play the game with -- the longest qualifying
-    words, since a longer word makes a more interesting puzzle. Skips
-    anything shorter than _MIN_WORD_LENGTH or with no vowel-kind
-    grapheme to blank at all."""
+    words, since a longer word makes a more interesting puzzle.
+
+    Decision 0125, found live: "the" got picked and blanked to "th_"
+    -- a sight word is meant to be recognized whole, not sounded out
+    letter by letter, so blanking its vowel makes for a nonsensical
+    puzzle (the same exact word hints.py's own is_worth_practicing()
+    was written to exclude, decision 0058, for the identical reason
+    in a different activity). Reuses that same bar here instead of
+    this module's own plain length check, so both activities agree on
+    what counts as a real word worth practicing."""
     seen: set[str] = set()
     candidates: list[str] = []
     for raw in words:
         word = clean_word(raw)
-        if not word or len(word) < _MIN_WORD_LENGTH or word in seen:
+        if not word or word in seen or not is_worth_practicing(word):
             continue
         if not any(g.kind == "V" for g in decompose(word).graphemes):
             continue

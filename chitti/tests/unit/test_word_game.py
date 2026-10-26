@@ -38,6 +38,18 @@ def test_pick_game_words_returns_empty_when_nothing_qualifies():
     assert pick_game_words(["a", "I", "in", "is"]) == []
 
 
+def test_pick_game_words_skips_sight_words_even_when_long_enough():
+    """Decision 0125, found live: "the" passed the old plain length
+    check (3 letters, has a vowel to blank) and got picked, blanking
+    to "th_" -- a nonsensical puzzle for a word meant to be recognized
+    whole, not sounded out. Same bar hints.py's own
+    is_worth_practicing() already applies for the hint ladder
+    (decision 0058, the exact same word found live there too)."""
+    words = ["pat", "has", "pup", "the", "can", "run", "and"]
+    picked = pick_game_words(words, max_words=5)
+    assert "the" not in picked
+
+
 def test_blank_vowels_matches_the_japan_example():
     assert blank_vowels("japan") == "j_p_n"
 
