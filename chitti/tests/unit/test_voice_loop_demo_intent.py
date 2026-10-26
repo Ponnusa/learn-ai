@@ -1548,17 +1548,24 @@ def test_weakest_mastery_for_miscues_skips_insertions_with_no_expected_word():
 
 
 async def test_give_brief_callout_names_each_word_without_a_hint_ladder():
+    """Decision 0115, found live: this used set_reading_spotlight(),
+    which (despite the function's own docstring already claiming
+    "the whole story stays visible") replaces the whole view -- the
+    same isolated-view bug decisions 0112/0113 already fixed
+    elsewhere, just missed here. Now highlights each word in place
+    within the sentence instead."""
     tts = _FakeTTS()
     audio = _FakeAudio()
     face = _FakeFace()
 
-    await _give_brief_callout(["cat", "bat"], tts, audio, face, 1.0)
+    await _give_brief_callout(["cat", "bat"], 2, "The cat and the bat flew.", tts, audio, face, 1.0)
 
     assert any('"cat' in line for line in tts.synthesized)
     assert any('"bat' in line for line in tts.synthesized)
-    # Spotlighted each word in turn, then cleared -- never the full
+    # Highlighted in place within sentence 2 ("cat" is word index 1,
+    # "bat" is word index 4), then cleared -- never the full
     # hint-ladder/reread treatment's own lines.
-    assert face.spotlights == ["cat", "bat", None]
+    assert face.reading_text_highlights == [(2, 1, "cat"), (2, 4, "bat"), (2, None, None)]
     assert not any("sound it out" in line for line in tts.synthesized)
 
 

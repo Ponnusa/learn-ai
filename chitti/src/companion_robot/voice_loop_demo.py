@@ -1449,22 +1449,36 @@ def _weakest_mastery_for_miscues(miscues: list[Miscue], profile: ReadingProfile)
     return weakest
 
 
-async def _give_brief_callout(hint_words: list[str], tts, audio, face, speed: float) -> None:
+async def _give_brief_callout(
+    hint_words: list[str], sentence_index: int, sentence: str, tts, audio, face, speed: float
+) -> None:
     """Decision 0103: the brief tier for a flagged sentence that
     didn't make this session's full-correction budget -- names each
     missed word and plays its real phonics sound, without the full
     hint ladder, reread, or word-meaning check those budgeted
     sentences get. Doesn't narrow the display to one sentence the
     way a full correction does -- the whole story stays visible
-    throughout, just briefly spotlighting each word in turn."""
+    throughout.
+
+    Decision 0115, found live: the docstring above already said "the
+    whole story stays visible" -- true of `set_reading_text()`, but
+    this used `set_reading_spotlight()` anyway, which (screen_face.py's
+    own render-loop priority) replaces the WHOLE view regardless, the
+    exact same isolated-view bug decisions 0112/0113 already fixed
+    for the word game and the full hint ladder -- just missed here.
+    Highlights the word in place within the full story instead, same
+    `find_word_occurrence()` approach, scoped to this one sentence."""
     for word in hint_words:
-        face.set_reading_spotlight(word)
+        occurrence = find_word_occurrence([sentence], clean_word(word))
+        if occurrence is not None:
+            _page, word_position, _text = occurrence
+            face.set_reading_text_highlight(word, sentence_index, word_position)
         callout = f'Here\'s a tricky one: "{word}."'
         print(f"Chitti: {callout}")
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, callout, speed=speed)
         await _play_real_phonics_sounds(audio, word)
-    face.set_reading_spotlight(None)
+    face.set_reading_text_highlight(None, sentence_index)
 
 
 async def _run_word_game(
@@ -2255,7 +2269,9 @@ async def _run_reading_partner(
                     continue
 
                 if sentence_index not in full_correction_indices:
-                    await _give_brief_callout(hint_words, tts, audio, face, speed)
+                    await _give_brief_callout(
+                        hint_words, sentence_index, sentence, tts, audio, face, speed
+                    )
                     continue
 
                 # Decision 0095: the child already read the whole
