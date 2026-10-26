@@ -6,7 +6,6 @@ from companion_robot.reading.comprehension import (
     answer_matches_story_text,
     build_question_prompt,
     build_reaction_prompt,
-    build_word_meaning_question_prompt,
     parse_comprehension_reaction,
     parse_questions,
     sounds_like_a_retry_invitation,
@@ -17,16 +16,6 @@ def test_build_question_prompt_embeds_the_story_and_grounding_instruction():
     prompt = build_question_prompt("A little bunny hops in the garden.", 2, 6)
     assert "A little bunny hops in the garden." in prompt
     assert "ONLY what's in the story text" in prompt
-    assert "QUESTION:" in prompt
-
-
-def test_build_word_meaning_question_prompt_embeds_the_sentence_and_word():
-    """Decision 0074: checks understanding of a word's meaning/role in
-    the sentence it was just hinted in, not whether it was decoded."""
-    prompt = build_word_meaning_question_prompt("The frog jumps over the log.", "frog", 6)
-    assert "The frog jumps over the log." in prompt
-    assert '"frog"' in prompt
-    assert "ONLY what's in the sentence" in prompt
     assert "QUESTION:" in prompt
 
 

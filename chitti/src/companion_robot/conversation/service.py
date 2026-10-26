@@ -23,7 +23,6 @@ from companion_robot.reading.comprehension import (
     answer_matches_story_text,
     build_question_prompt,
     build_reaction_prompt,
-    build_word_meaning_question_prompt,
     parse_comprehension_reaction,
     parse_questions,
     sounds_like_a_retry_invitation,
@@ -292,25 +291,6 @@ class ConversationService:
             [{"role": "user", "content": "React now."}], prompt
         )
         return self._screen(reply_text)
-
-    async def generate_word_meaning_question(
-        self, sentence: str, word: str, age: int | None = None
-    ) -> str | None:
-        """Decision 0074: one comprehension question anchored to a
-        specific word just practiced via the hint ladder, checking
-        whether the child understood its meaning/role in `sentence` --
-        not just whether it was decoded correctly. Screened like any
-        other candidate question (same shape as
-        generate_comprehension_questions()); returns None if nothing
-        parses or the one candidate fails screening, so the caller
-        skips the check gracefully rather than blocking the session."""
-        prompt = build_word_meaning_question_prompt(sentence, word, age)
-        reply_text, _model = await self._llm.generate_reply(
-            [{"role": "user", "content": "Write the question now."}], prompt
-        )
-        questions = parse_questions(reply_text)
-        safe_questions = [q for q in questions if check_speech(q).allowed]
-        return safe_questions[0] if safe_questions else None
 
     async def generate_word_family(
         self, word: str, mastered_levels: list[str], age: int | None = None, num_words: int = 4

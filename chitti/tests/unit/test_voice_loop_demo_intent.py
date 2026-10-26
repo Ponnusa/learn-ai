@@ -961,10 +961,11 @@ async def test_run_reading_partner_hint_retry_succeeds():
     # [8] simple praise for the correct retry.
     assert tts.synthesized[5:8] == ["sat", "sat", "sat"]
     assert tts.synthesized[8] == "There you go!"
-    # Not asserted by fixed index from here on -- decision 0074's
-    # reread/word-meaning-check step runs a real LLM call wrapped in
-    # decision 0050's thinking-filler, whose line count depends on
-    # timing, not just content.
+    # Not asserted by fixed index from here on -- the reread step is
+    # followed by decision 0059's comprehension-questions call (a
+    # real LLM call wrapped in decision 0050's thinking-filler, whose
+    # line count depends on timing, not just content) before
+    # feedback.py's own deterministic summary line below.
     assert any(
         line.startswith("Good try! Reading can be tricky sometimes.")
         for line in tts.synthesized
@@ -1985,11 +1986,11 @@ async def test_run_reading_partner_tiers_correction_by_weakest_tracked_mastery()
     """Decision 0103: a story with more flagged sentences than
     _MAX_FULL_CORRECTIONS (2) tiers the response -- the two whose
     misses touch the weakest tracked grapheme mastery get the full
-    hint-ladder/reread/word-meaning-check treatment; the rest get
-    one brief callout instead of being skipped. Here "cat" (its own
-    weakest grapheme, "c", tracked at 0.9) loses out to "bat" ("b"
-    at 0.5) and "pig" ("p", never tracked at all -- treated as 0.0,
-    the weakest of all three)."""
+    hint-ladder/reread treatment; the rest get one brief callout
+    instead of being skipped. Here "cat" (its own weakest grapheme,
+    "c", tracked at 0.9) loses out to "bat" ("b" at 0.5) and "pig"
+    ("p", never tracked at all -- treated as 0.0, the weakest of all
+    three)."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -2016,12 +2017,13 @@ async def test_run_reading_partner_tiers_correction_by_weakest_tracked_mastery()
     llm.generate_reply = AsyncMock(
         side_effect=[
             ("unused -- word family finds no candidates", "fake-model"),  # "bat"
-            ("QUESTION: What did Sam have?", "fake-model"),
-            ("STATUS: resolved\nSAY: Yes, a bat!", "fake-model"),
             ("unused -- word family finds no candidates", "fake-model"),  # "pig"
-            ("QUESTION: What did the pig do?", "fake-model"),
+            # Decision 0123: the per-sentence word-meaning check is
+            # gone -- only the book-level comprehension questions run
+            # now, once, after both sentences' own hint/reread steps.
+            ("QUESTION: What did Sam have?\nQUESTION: What did the pig do?", "fake-model"),
+            ("STATUS: resolved\nSAY: Yes, a bat!", "fake-model"),
             ("STATUS: resolved\nSAY: Yes, it ran!", "fake-model"),
-            ("Sorry, no questions.", "fake-model"),  # book-level comprehension -- skipped
         ]
     )
     conversation = ConversationService(llm)
@@ -2033,10 +2035,10 @@ async def test_run_reading_partner_tiers_correction_by_weakest_tracked_mastery()
         "dan has a hat sam has a mat the wig ran fast",  # 3 misses, one per sentence
         "bat",  # resolves "bat" on the first hint stage
         "sam has a bat",  # sentence 1's reread -- clean
-        "a bat",  # answers the word-meaning question
         "pig",  # resolves "pig" on the first hint stage
         "the pig ran fast",  # sentence 2's reread -- clean
-        "it ran",  # answers the word-meaning question
+        "a bat",  # answers the first comprehension question
+        "it ran",  # answers the second comprehension question
         "no thanks",  # declines the word game
         "let's just chat",  # ends the session
     ):

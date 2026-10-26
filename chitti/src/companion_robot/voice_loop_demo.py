@@ -1378,12 +1378,15 @@ async def _ask_and_react_to_question(
     child_age: int | None,
     max_attempts: int = 2,
 ) -> None:
-    """Shared by _run_comprehension_questions() (decision 0059) and
-    _run_word_meaning_check() (decision 0074): speaks one question,
-    captures an answer, reacts with decision 0062's scaffolded
-    withhold-then-reveal pattern, and retries once if the reaction
-    says to -- extracted so both callers share one retry loop instead
-    of two copies that could drift out of sync."""
+    """Used by _run_comprehension_questions() (decision 0059): speaks
+    one question, captures an answer, reacts with decision 0062's
+    scaffolded withhold-then-reveal pattern, and retries once if the
+    reaction says to. Decision 0123 removed this function's other
+    caller (_run_word_meaning_check(), decision 0074) -- its own
+    per-sentence question was dropped as redundant with this same
+    function's own end-of-story comprehension questions, which run
+    for every book regardless; kept as its own helper anyway in case
+    a second caller shows up again."""
     print(f"Chitti: {question}")
     face.set_status_led(DeviceState.SPEAKING)
     await _speak(tts, audio, question, speed=speed)
@@ -1407,41 +1410,6 @@ async def _ask_and_react_to_question(
 
         if not reaction.needs_retry:
             break
-
-
-async def _run_word_meaning_check(
-    sentence: str,
-    word: str,
-    conversation,
-    tts,
-    audio,
-    stt,
-    face,
-    speed: float,
-    child_age: int | None,
-) -> None:
-    """Decision 0074: after a sentence needed the hint-and-retry ladder
-    (decision 0052/0065) and was reread once for fluency, one
-    comprehension question anchored to the word that needed hinting --
-    checking whether the child understood what it MEANS or does in the
-    sentence, not just whether they can decode it (the hint ladder's
-    own mastery evidence already covers decoding; this checks the
-    other half -- found live, in a product-owner critique, that
-    reading a word correctly once was being treated as evidence of
-    understanding it, which it isn't). Reuses
-    _ask_and_react_to_question() against just this one sentence rather
-    than the whole book. Skipped gracefully if no question could be
-    generated and safety-screened."""
-    face.set_status_led(DeviceState.PROCESSING)
-    question = await _generate_with_thinking_filler(
-        conversation.generate_word_meaning_question(sentence, word, child_age),
-        tts, audio, face, speed, "word_meaning_question",
-    )
-    if question is None:
-        return
-    await _ask_and_react_to_question(
-        sentence, question, conversation, tts, audio, stt, face, speed, child_age
-    )
 
 
 def _weakest_mastery_for_miscues(miscues: list[Miscue], profile: ReadingProfile) -> float:
@@ -2544,24 +2512,13 @@ async def _run_reading_partner(
                     print(f"You read: {correction_attempt}")
                     face.set_reading_text_highlight(None, sentence_index)
 
-                    if clean_word(correction_attempt) == clean_word(reread_miss):
+                    if is_correct_answer(reread_miss, correction_attempt):
                         correction_response = f'Yes, "{reread_miss}"! Nice fixing that.'
                     else:
                         correction_response = f'Good try! The word is "{reread_miss}".'
                     print(f"Chitti: {correction_response}")
                     face.set_status_led(DeviceState.SPEAKING)
                     await _speak(tts, audio, correction_response, speed=speed)
-
-                # Decision 0074: checks understanding of the first
-                # hinted word's meaning/role in this sentence -- not
-                # whether it was decoded (that's what the hint ladder
-                # already evidenced) -- one question per sentence,
-                # not one per hinted word, so a sentence with several
-                # misses doesn't turn into a drawn-out quiz.
-                await _run_word_meaning_check(
-                    sentence, hint_words[0], conversation, tts, audio, stt, face, speed,
-                    child_age,
-                )
 
             # Decision 0112: the whole passage is done, but the story
             # stays on screen -- found live, it used to be cleared
