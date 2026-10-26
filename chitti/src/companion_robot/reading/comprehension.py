@@ -138,14 +138,35 @@ def build_reaction_prompt(
     *,
     attempt_number: int = 1,
     max_attempts: int = 2,
+    evidence_sentence: str | None = None,
 ) -> str:
     """Asks for ONE short, warm reaction to what the child said --
     explicitly not a grade, grounded in the story text only. On any
     attempt before the last, withholds the correct detail in favor of
     one small clue and a retry invitation; on the last attempt,
     explains the real detail itself and moves on -- never asks for
-    another try."""
+    another try.
+
+    Decision 0126: `evidence_sentence` (story_library.py's own
+    pre-written question/evidence pairs, decision 0104) is the one
+    story line that directly answers this question, when known --
+    passed through so a correct answer's confirmation can point at
+    that real line ("the story tells us...") instead of a generic
+    "nice work," and so the model can tell a plain factual-recall
+    question apart from an open-ended inference one (e.g. "how do
+    they feel?") with no single line like that -- those get
+    encouraged as good thinking, not confirmed as if the story said
+    so outright."""
     age_line = f"The child is about {age} years old. " if age else ""
+    evidence_line = (
+        f'The one line in the story that directly answers this is: "{evidence_sentence}". '
+        "When their answer is right, point to that as where it comes from in the story. "
+        if evidence_sentence
+        else "This question has no single right line in the story -- it's asking for "
+        "the child's own reasonable idea, not a fact to confirm. When they give a "
+        "sensible answer, encourage it as good thinking rather than confirming it as "
+        "something the story states outright. "
+    )
     if attempt_number >= max_attempts:
         guidance = (
             "This is the child's last attempt at this question. If their answer "
@@ -170,9 +191,9 @@ def build_reaction_prompt(
     return (
         f"{age_line}You are Chitti, a friendly companion robot. You just asked "
         f'a child this question about a story they read: "{question}". They '
-        f'answered: "{child_answer}". {guidance} Use ONLY what\'s in the story '
-        "text below for any facts you mention. Keep it to one or two sentences, "
-        "simple and encouraging either way.\n\n"
+        f'answered: "{child_answer}". {evidence_line}{guidance} Use ONLY what\'s '
+        "in the story text below for any facts you mention. Keep it to one or "
+        "two sentences, simple and encouraging either way.\n\n"
         "Reply with exactly two lines, and make sure they agree with each "
         "other -- never mark it resolved while still asking the child to "
         "reconsider or try again, and never mark it needs_retry while also "

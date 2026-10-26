@@ -1352,14 +1352,22 @@ async def _run_comprehension_questions(
     # answer, so a child's own wording is still judged warmly rather
     # than diffed against one fixed expected string.
     if book.comprehension:
-        questions = [q for q, _a in book.comprehension]
+        # Decision 0126: keeps the author's own evidence sentence
+        # alongside each question now, instead of discarding it --
+        # see _ask_and_react_to_question()'s own evidence_sentence
+        # param.
+        qa_pairs: list[tuple[str, str | None]] = list(book.comprehension)
     else:
         face.set_status_led(DeviceState.PROCESSING)
         questions = await _generate_with_thinking_filler(
             conversation.generate_comprehension_questions(book.text, age=child_age or 6),
             tts, audio, face, speed, "comprehension_questions",
         )
-    if not questions:
+        # LLM-generated questions don't carry a known evidence line
+        # (generate_comprehension_questions() doesn't produce one) --
+        # treated as open-ended, same as before this decision.
+        qa_pairs = [(q, None) for q in questions]
+    if not qa_pairs:
         return
 
     intro = "Let's talk about the story for a moment!"
@@ -1367,9 +1375,10 @@ async def _run_comprehension_questions(
     face.set_status_led(DeviceState.SPEAKING)
     await _speak(tts, audio, intro, speed=speed)
 
-    for question in questions:
+    for question, evidence_sentence in qa_pairs:
         await _ask_and_react_to_question(
-            book.text, question, conversation, tts, audio, stt, face, speed, child_age
+            book.text, question, conversation, tts, audio, stt, face, speed, child_age,
+            evidence_sentence=evidence_sentence,
         )
 
 
@@ -1384,6 +1393,7 @@ async def _ask_and_react_to_question(
     speed: float,
     child_age: int | None,
     max_attempts: int = 2,
+    evidence_sentence: str | None = None,
 ) -> None:
     """Used by _run_comprehension_questions() (decision 0059): speaks
     one question, captures an answer, reacts with decision 0062's
@@ -1393,7 +1403,13 @@ async def _ask_and_react_to_question(
     per-sentence question was dropped as redundant with this same
     function's own end-of-story comprehension questions, which run
     for every book regardless; kept as its own helper anyway in case
-    a second caller shows up again."""
+    a second caller shows up again.
+
+    Decision 0126: `evidence_sentence`, when the caller has one
+    (story_library.py's own pre-written question/evidence pairs),
+    is passed straight through to the reaction so it can point at
+    the real story line, or flag this as an open-ended question with
+    no single right line -- see build_reaction_prompt()."""
     print(f"Chitti: {question}")
     face.set_status_led(DeviceState.SPEAKING)
     await _speak(tts, audio, question, speed=speed)
@@ -1408,6 +1424,7 @@ async def _ask_and_react_to_question(
             conversation.react_to_comprehension_answer(
                 story_text, question, answer, child_age or 6,
                 attempt_number=attempt_number, max_attempts=max_attempts,
+                evidence_sentence=evidence_sentence,
             ),
             tts, audio, face, speed, "comprehension_reaction",
         )
@@ -1615,14 +1632,32 @@ async def _run_word_game(
 
     results = [(clean_word(t), is_correct_answer(t, answer)) for t in targets]
 
-    face.set_status_led(DeviceState.PROCESSING)
-    reaction = await _generate_with_thinking_filler(
-        conversation.react_to_word_game_answer(book.text, results, child_age),
-        tts, audio, face, speed, "word_game_reaction",
-    )
-    print(f"Chitti: {reaction.text}")
+    if any(correct for _word, correct in results):
+        face.set_status_led(DeviceState.PROCESSING)
+        reaction = await _generate_with_thinking_filler(
+            conversation.react_to_word_game_answer(book.text, results, child_age),
+            tts, audio, face, speed, "word_game_reaction",
+        )
+        reaction_text = reaction.text
+    else:
+        # Decision 0126, found live: asking the model to react when
+        # NOTHING matched produced confusing, garbled phrasing (it had
+        # nothing genuinely right to anchor a warm reaction to, e.g.
+        # "You found the word 'pat,' but it was a little tricky..."
+        # for an answer that matched neither target word). Same
+        # deterministic "nothing matched" precedent
+        # _run_word_family_practice() already established below --
+        # skip the LLM call entirely and just name the real words.
+        words_said = [f'"{word}"' for word, _correct in results]
+        words_phrase = (
+            f"The words were {', '.join(words_said[:-1])} and {words_said[-1]}"
+            if len(words_said) > 1
+            else f"The word was {words_said[0]}"
+        )
+        reaction_text = f"That's okay! {words_phrase}. Let's keep going!"
+    print(f"Chitti: {reaction_text}")
     face.set_status_led(DeviceState.SPEAKING)
-    await _speak(tts, audio, reaction.text, speed=speed)
+    await _speak(tts, audio, reaction_text, speed=speed)
 
     face.set_reading_text_highlights(None)
     face.set_reading_text(

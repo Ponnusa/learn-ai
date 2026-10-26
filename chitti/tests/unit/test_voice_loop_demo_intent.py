@@ -20,7 +20,13 @@ from companion_robot.parent_controls.reading_exercises import (
     ReadingExerciseRepository,
 )
 from companion_robot.reading.repository import ReadingRepository
-from companion_robot.reading.schema import GraphemeMastery, Miscue, ReadingProfile
+from companion_robot.reading.schema import (
+    GeneratedBook,
+    GraphemeMastery,
+    Miscue,
+    Objective,
+    ReadingProfile,
+)
 from companion_robot.reading.word_timing import WordTiming
 from companion_robot.reading.word_game import _CLOSING_LINES, blank_vowels
 from companion_robot.storage.sqlite import connect
@@ -38,6 +44,7 @@ from companion_robot.voice_loop_demo import (
     _give_brief_callout,
     _pick_item_by_voice,
     _resolve_spoken_choice,
+    _run_comprehension_questions,
     _run_everyday_companion,
     _run_reading_partner,
     _run_teachable_friend,
@@ -1779,6 +1786,33 @@ async def test_run_reading_partner_skips_the_word_meaning_check_on_a_clean_read(
     assert len(llm.calls) == 1  # only the book-level comprehension-questions call
 
 
+async def test_run_comprehension_questions_grounds_a_library_books_evidence_sentence():
+    """Decision 0126, found live: a story_library.py book's own
+    pre-written question/evidence pairs used to have the evidence
+    sentence discarded (only the bare question survived) -- now
+    passed through to the reaction so a correct answer can be
+    confirmed by pointing at the real story line."""
+    book = GeneratedBook(
+        title="Sam and the Mat",
+        pages=["Sam sat at the mat."],
+        target_grapheme="a",
+        objective=Objective(target_grapheme="a", target_level="short_vowels"),
+        library_slug="sam-and-the-mat",
+        comprehension=[("Where did Sam sit?", "Sam sat at the mat.")],
+    )
+    llm = _FakeLLM(reply="STATUS: resolved\nSAY: Yes, the mat!")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures("the mat"):
+        await _run_comprehension_questions(
+            book, conversation, tts, _FakeAudio(), "fake-stt", face, 1.0, 6,
+        )
+
+    assert "point to that as where it comes from in the story" in llm.calls[0][1]
+
+
 # -- sentence-by-sentence reading with persistent position (decision 0067) --
 
 
@@ -2985,6 +3019,49 @@ async def test_run_word_game_accepted_plays_through_both_words():
     # The game always ends on a warm note, regardless of the mix of
     # right/wrong answers.
     assert any(line in _CLOSING_LINES for line in tts.synthesized)
+
+
+async def test_run_word_game_uses_a_deterministic_reaction_when_nothing_matched():
+    """Decision 0126, found live: when the child's answer matched
+    NEITHER target word, asking the model to react anyway produced
+    confusing, garbled phrasing (nothing genuinely right to anchor a
+    warm reaction to). Skips the LLM call entirely in that case --
+    same deterministic "nothing matched" precedent
+    _run_word_family_practice() already established -- and speaks a
+    fixed line naming the real words instead."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A little bunny hops.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused -- the LLM must never be called here")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures(
+        "no thanks", "a little bunny hops", "yes",
+        "debat",  # matches neither "little" nor "bunny"
+        "let's just chat",
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # The LLM's own single programmed reply would show up verbatim if
+    # the word-game reaction path called it -- it never does, so this
+    # never appears, and the deterministic fallback line does instead.
+    assert "unused -- the LLM must never be called here" not in tts.synthesized
+    assert 'That\'s okay! The words were "little" and "bunny". Let\'s keep going!' in tts.synthesized
 
 
 async def test_run_word_game_matches_the_sentence_split_already_on_screen():

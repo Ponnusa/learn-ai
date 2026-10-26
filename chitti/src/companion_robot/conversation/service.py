@@ -228,6 +228,7 @@ class ConversationService:
         *,
         attempt_number: int = 1,
         max_attempts: int = 2,
+        evidence_sentence: str | None = None,
     ) -> ComprehensionReaction:
         """One short, warm, story-grounded reaction to what the child
         said. Decision 0062: before the last attempt, the prompt
@@ -238,10 +239,17 @@ class ConversationService:
         default). Screened like any other spoken output in this class;
         if the screened text is blocked, needs_retry is forced False
         -- never retry into an unsafe-reply loop, just move on with
-        the safe decline message."""
+        the safe decline message.
+
+        Decision 0126: `evidence_sentence`, when known (story_library.py's
+        own pre-written question/evidence pairs), lets a correct
+        answer's confirmation point at the real story line it comes
+        from, and lets an open-ended question (no known evidence line)
+        be encouraged as good thinking rather than confirmed as fact."""
         prompt = build_reaction_prompt(
             story_text, question, child_answer, age,
             attempt_number=attempt_number, max_attempts=max_attempts,
+            evidence_sentence=evidence_sentence,
         )
         reply_text, _model = await self._llm.generate_reply(
             [{"role": "user", "content": "React now."}], prompt

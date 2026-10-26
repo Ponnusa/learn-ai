@@ -44,6 +44,29 @@ def test_build_reaction_prompt_resolves_on_the_last_attempt():
     assert "do NOT ask them to try again" in prompt
 
 
+def test_build_reaction_prompt_includes_the_evidence_sentence_when_given():
+    """Decision 0126: a known evidence line (story_library.py's own
+    question/evidence pairs) lets the model point a correct answer
+    back at the real story line it comes from."""
+    prompt = build_reaction_prompt(
+        "Sam sat at the mat.", "Where did Sam sit?", "the mat", 6,
+        evidence_sentence="Sam sat at the mat.",
+    )
+    assert '"Sam sat at the mat."' in prompt
+    assert "point to that as where it comes from in the story" in prompt
+
+
+def test_build_reaction_prompt_flags_open_ended_questions_with_no_evidence():
+    """Decision 0126: without a known evidence line, the question is
+    treated as open-ended inference -- encouraged as good thinking,
+    not confirmed as a fact the story states outright."""
+    prompt = build_reaction_prompt(
+        "Sam sat at the mat.", "How did Sam feel?", "happy", 6,
+    )
+    assert "no single right line in the story" in prompt
+    assert "encourage it as good thinking" in prompt
+
+
 def test_parse_comprehension_reaction_reads_needs_retry():
     reaction = parse_comprehension_reaction("STATUS: needs_retry\nSAY: Try once more!")
     assert reaction.needs_retry is True

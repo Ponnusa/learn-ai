@@ -595,6 +595,22 @@ async def test_react_to_comprehension_answer_grounds_in_the_story():
     assert "A bunny sees a red apple." in llm.calls[0][1]
 
 
+async def test_react_to_comprehension_answer_passes_the_evidence_sentence_through():
+    """Decision 0126: a known evidence line reaches the actual prompt
+    sent to the model, not just a parameter that's silently dropped."""
+    llm = FakeLanguageModelBackend(
+        reply="STATUS: resolved\nSAY: Yes! The story tells us that."
+    )
+    service = ConversationService(llm)
+
+    await service.react_to_comprehension_answer(
+        "Sam sat at the mat.", "Where did Sam sit?", "the mat", age=6,
+        evidence_sentence="Sam sat at the mat.",
+    )
+
+    assert "point to that as where it comes from in the story" in llm.calls[0][1]
+
+
 async def test_react_to_comprehension_answer_requests_a_retry():
     """Decision 0062: before the last attempt, a wrong/incomplete
     answer asks for one retry instead of revealing the answer."""
