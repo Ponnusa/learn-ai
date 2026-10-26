@@ -108,13 +108,6 @@ def find_word_occurrence(pages: list[str], clean_target: str) -> tuple[int, int,
     return None
 
 
-def spell_out_blanked(blanked: str) -> str:
-    """"j_p_n" -> "J, blank, P, blank, N" -- a speakable version for
-    TTS, since underscores mean nothing read aloud."""
-    parts = [ch.upper() if ch != "_" else "blank" for ch in blanked]
-    return ", ".join(parts)
-
-
 def is_correct_answer(word: str, spoken: str) -> bool:
     """Lenient on purpose: true if the target word appears anywhere in
     the child's reply, so a child who spells the missing letters out

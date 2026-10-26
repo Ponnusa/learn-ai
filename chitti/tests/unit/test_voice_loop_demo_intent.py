@@ -1305,13 +1305,17 @@ async def test_word_family_practice_highlights_each_word_while_modeling_it():
     assert face.word_grid_highlights == ["cat", "bat", None]
 
 
-async def test_word_family_practice_combines_words_into_one_utterance_when_timestamps_available():
-    """Decision 0102: when the STT backend can provide word
-    timestamps, the whole family is modeled as ONE combined TTS call
-    ("cat. bat.") instead of one call per word -- cutting N TTS calls
-    down to one TTS call plus one Whisper timestamp lookup -- with
-    the grid highlight still driven by each word's own real
-    timestamp, same as the per-word fallback path."""
+async def test_word_family_practice_models_each_word_with_its_own_tts_call_even_with_timestamps():
+    """Decision 0102 originally combined the whole family into one
+    TTS call ("cat. bat."), re-transcribed via Whisper to sync the
+    grid highlight word-by-word, whenever the STT backend supported
+    timestamps. Decision 0114, found live: for a fast string of short
+    rhyming words, Whisper's own re-transcription routinely didn't
+    produce one timing per word, leaving most of them never clearly
+    spoken or highlighted. Always uses one TTS call per word now --
+    reliable, trivially synced -- regardless of what the STT backend
+    can do; the "with timestamps available" STT fake is used here to
+    prove that doesn't change this path's behavior any more."""
     llm = _FakeLLM(reply="WORD: cat\nWORD: bat")
     conversation = ConversationService(llm)
     face = _FakeFace()
@@ -1326,10 +1330,10 @@ async def test_word_family_practice_combines_words_into_one_utterance_when_times
             ["short_vowels"], read_first=True,
         )
 
-    assert "cat. bat." in tts.synthesized
-    # Not one separate call per word.
-    assert "cat" not in tts.synthesized
-    assert "bat" not in tts.synthesized
+    assert "cat. bat." not in tts.synthesized
+    # One separate call per word instead.
+    assert "cat" in tts.synthesized
+    assert "bat" in tts.synthesized
     assert face.word_grid_highlights == ["cat", "bat", None]
 
 
@@ -2948,6 +2952,64 @@ async def test_run_word_game_accepted_plays_through_both_words():
     # The game always ends on a warm note, regardless of the mix of
     # right/wrong answers.
     assert any(line in _CLOSING_LINES for line in tts.synthesized)
+
+
+async def test_run_word_game_matches_the_sentence_split_already_on_screen():
+    """Decision 0114, found live: a real story's own page can bundle
+    more than one sentence ("Sam is sad. That is it." as ONE page) --
+    different from `sentences` (split_into_sentences(book.text)), what
+    the rest of this call actually displays throughout. The word game
+    used to blank/restore `book.pages` instead, so finishing it
+    visibly re-laid-out the story (5 lines collapsing to 4, two
+    sentences merging onto one line) even though nothing about the
+    story's own content changed. It must blank and restore the exact
+    same `sentences` list already on screen."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            # One single LINE (so exercise_pages, split on "\n", is
+            # ONE page) holding two sentences -- the exact shape that
+            # broke live.
+            title="Homework",
+            content="Sam is sad. That is it.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="Nice try on both words!")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    with _patch_captures(
+        "no thanks",  # declines the "read it to you first?" offer
+        "sam is sad that is it",  # perfect read-aloud, no hint ladder
+        "yes",  # accepts the word game
+        "that",  # one combined answer -- only "that" said, "sam" missed
+        "let's just chat",  # ends the session
+    ):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "3"
+    # The initial display is the SENTENCE split (two lines), not the
+    # one-page exercise content.
+    assert face.reading_texts[0] == ["Sam is sad.", "That is it."]
+    # The word game's own blanked display keeps that same two-line
+    # shape -- "that" is sentence 1 word 0, "sam" is sentence 0 word 0.
+    blanked = [f"{blank_vowels('Sam')} is sad.", f"{blank_vowels('That')} is it."]
+    assert blanked in face.reading_texts
+    assert {(0, 0), (1, 0)} in face.reading_text_highlight_sets
+    # Restored to the SAME two-line shape afterward -- never collapsed
+    # back into a single-page/exercise-content shape.
+    assert face.reading_texts[-2] == ["Sam is sad.", "That is it."]
+    assert face.reading_texts[-1] is None
+    assert "Nice try on both words!" in tts.synthesized
 
 
 async def test_run_word_game_plays_real_phonics_sounds_for_a_wrong_answer():

@@ -13,7 +13,6 @@ from companion_robot.reading.word_game import (
     is_correct_answer,
     pick_game_words,
     random_closing_line,
-    spell_out_blanked,
 )
 
 
@@ -63,10 +62,6 @@ def test_blank_vowels_treats_a_vowel_team_as_one_unit():
     blank together, not independently, the phonics-correct
     granularity for this curriculum."""
     assert blank_vowels("boat") == "b__t"
-
-
-def test_spell_out_blanked_is_speakable():
-    assert spell_out_blanked("j_p_n") == "J, blank, P, blank, N"
 
 
 def test_is_correct_answer_matches_the_word_alone():

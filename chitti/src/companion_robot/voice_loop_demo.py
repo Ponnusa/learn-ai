@@ -100,7 +100,6 @@ from companion_robot.reading.word_game import (
     is_correct_answer,
     pick_game_words,
     random_closing_line,
-    spell_out_blanked,
 )
 from companion_robot.storage.sqlite import connect
 from companion_robot.transcripts.repository import TranscriptRepository
@@ -1470,6 +1469,7 @@ async def _give_brief_callout(hint_words: list[str], tts, audio, face, speed: fl
 
 async def _run_word_game(
     book,
+    sentences: list[str],
     conversation,
     tts,
     audio,
@@ -1501,13 +1501,31 @@ async def _run_word_game(
     story-grounded LLM reply (ConversationService.react_to_word_game_answer())
     -- correctness itself stays deterministic (is_correct_answer()),
     only the phrasing is the model's job.
+
+    Decision 0114, found live: this used to blank/display `book.pages`
+    -- for a story whose own pages don't line up 1:1 with sentences
+    (e.g. one page holding two short sentences), that's a DIFFERENT
+    shape than `sentences` (what the rest of this call's own read-
+    aloud/correction actually displays), so finishing the game
+    visibly re-laid-out the story mid-session. Takes `sentences`
+    instead -- the same list already on screen the whole time -- so
+    there's nothing to reconcile.
+
+    Decision 0114 also found live: speaking the blanked word's own
+    letters out loud ("M, blank, S, T...") was both redundant with
+    the intro (which already explains the task) and, for a word
+    ending the sentence, included the sentence's own trailing
+    punctuation in that spoken spelling -- a period has no business
+    being "spelled out." The blanks are already visible, highlighted
+    in red, on screen; Chitti just needs to point at them and ask for
+    a read, not narrate every letter.
     """
     clean_targets = pick_game_words(book.words)
     if not clean_targets:
         return
 
     occurrences = [
-        occ for occ in (find_word_occurrence(book.pages, target) for target in clean_targets)
+        occ for occ in (find_word_occurrence(sentences, target) for target in clean_targets)
         if occ is not None
     ]
     if not occurrences:
@@ -1529,26 +1547,24 @@ async def _run_word_game(
     if not is_affirmative(reply):
         return
 
-    blanked_pages = list(book.pages)
+    blanked_sentences = list(sentences)
     highlight_positions: set[tuple[int, int]] = set()
-    for page_index, word_index, original_text in occurrences:
-        words = blanked_pages[page_index].split()
+    for sentence_index, word_index, original_text in occurrences:
+        words = blanked_sentences[sentence_index].split()
         words[word_index] = blank_vowels(original_text)
-        blanked_pages[page_index] = " ".join(words)
-        highlight_positions.add((page_index, word_index))
+        blanked_sentences[sentence_index] = " ".join(words)
+        highlight_positions.add((sentence_index, word_index))
 
     face.set_reading_text(
-        blanked_pages, font_size=reading_font_size, font_color=reading_font_color
+        blanked_sentences, font_size=reading_font_size, font_color=reading_font_color
     )
     face.set_reading_text_highlights(highlight_positions)
 
-    targets = [original_text for _p, _w, original_text in occurrences]
+    targets = [original_text for _s, _w, original_text in occurrences]
     plural = len(targets) > 1
-    spelled_out = "; ".join(spell_out_blanked(blank_vowels(t)) for t in targets)
     prompt = (
-        f"Here {'are your words' if plural else 'is your word'}, highlighted in red "
-        f"in the story: {spelled_out}. What letters are missing, and can you say the "
-        f"whole word{'s' if plural else ''}?"
+        f"{'They are' if plural else 'It is'} highlighted in red in the story -- "
+        f"go ahead and read {'them' if plural else 'it'} for me."
     )
     print(f"Chitti: {prompt}")
     face.set_status_led(DeviceState.SPEAKING)
@@ -1574,7 +1590,7 @@ async def _run_word_game(
 
     face.set_reading_text_highlights(None)
     face.set_reading_text(
-        book.pages, font_size=reading_font_size, font_color=reading_font_color
+        sentences, font_size=reading_font_size, font_color=reading_font_color
     )
 
     closing = random_closing_line()
@@ -1654,35 +1670,25 @@ async def _run_word_family_practice(
         face.set_status_led(DeviceState.SPEAKING)
         await _speak(tts, audio, intro, speed=speed)
 
-        # Decision 0102: one combined utterance ("hen. pen. den.
-        # ten.") instead of a separate TTS call per word, highlighting
-        # each word in the grid in sync with its own real timestamp --
-        # same mechanism decision 0098 uses for sentence modeling
-        # (_speak_with_timed_highlight()). Falls back to the old
-        # per-word loop (its own trivially-synced highlight, no
-        # timestamps needed) when the STT backend can't provide word
-        # timestamps at all -- with everything in one combined clip,
-        # there's otherwise no way to know which word is being spoken.
+        # Decision 0102 originally combined all the words into one
+        # utterance ("hen. pen. den. ten.") and re-transcribed it via
+        # Whisper to sync the grid highlight word-by-word. Decision
+        # 0114, found live: for a fast string of short rhyming words,
+        # Whisper's own re-transcription routinely didn't produce one
+        # timing per word -- the same failure mode that merges two
+        # story words into one garbled highlight during sentence
+        # modeling, but worse here since it could leave 3 of 4 words
+        # never clearly spoken or highlighted at all. Always uses the
+        # simple per-word loop instead -- one TTS call per word,
+        # trivially synced (no Whisper re-transcription involved, so
+        # nothing to merge or mismatch), the cost being one extra TTS
+        # round trip per word instead of a single combined call.
         face.set_status_led(DeviceState.SPEAKING)
-        if hasattr(stt, "transcribe_with_word_timestamps"):
-            combined_text = ". ".join(family_words) + "."
-            # set_word_grid()'s own highlight match (screen_face.py's
-            # _draw_word_grid()) is exact-string against the bare
-            # words it was given -- the combined utterance's own
-            # tokenization keeps trailing punctuation ("cat." not
-            # "cat"), so that has to be cleaned off here or the
-            # highlight would never actually match a grid box.
-            await _speak_with_timed_highlight(
-                tts, audio, stt, combined_text, speed * _MODEL_READ_SPEED_MULTIPLIER, {},
-                on_word=lambda word, position: face.set_word_grid_highlight(clean_word(word)),
-                on_done=lambda: face.set_word_grid_highlight(None),
-            )
-        else:
-            for family_word in family_words:
-                face.set_word_grid_highlight(family_word)
-                face.set_status_led(DeviceState.SPEAKING)
-                await _speak(tts, audio, family_word, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
-            face.set_word_grid_highlight(None)
+        for family_word in family_words:
+            face.set_word_grid_highlight(family_word)
+            face.set_status_led(DeviceState.SPEAKING)
+            await _speak(tts, audio, family_word, speed=speed * _MODEL_READ_SPEED_MULTIPLIER)
+        face.set_word_grid_highlight(None)
         prompt = "Now it's your turn! Can you read all of these words for me?"
     else:
         prompt = "Can you read all of these words for me?"
@@ -2554,7 +2560,7 @@ async def _run_reading_partner(
             # Decision 0057: a fun, optional bonus game using words
             # from the story -- separate from the grading above.
             await _run_word_game(
-                book, conversation, tts, audio, stt, face, speed, child_age,
+                book, sentences, conversation, tts, audio, stt, face, speed, child_age,
                 reading_font_size, reading_font_color,
             )
 
