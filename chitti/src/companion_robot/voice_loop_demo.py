@@ -223,6 +223,16 @@ _WORD_FAST_SPEED_MULTIPLIER = 1.3
 # (unbounded session length) or silently ignoring the rest.
 _MAX_FULL_CORRECTIONS = 2
 
+# Decision 0119: the missing-letters word game's own picked words came
+# straight off pick_game_words()'s top-N longest list with no regard
+# for where they land in the story -- found live, both game words
+# often sat right next to each other in the same sentence. A larger
+# candidate pool to filter from, so the game can skip past a second
+# longest-word candidate that happens to share a sentence with the
+# first one already picked.
+_WORD_GAME_CANDIDATE_POOL = 8
+_MAX_GAME_WORDS = 2
+
 
 async def _speak(tts, audio, text: str, speed: float = 1.0) -> None:
     # Split (decision 0046): synthesis latency is what feels like lag
@@ -1576,15 +1586,40 @@ async def _run_word_game(
     was the one place in the reading flow still teaching phonics
     after decision 0116 removed it everywhere else. The LLM reaction
     (react_to_word_game_answer()) just names the real word now.
+
+    Decision 0119, found live: pick_game_words() just returns the
+    longest words in the whole story, with no idea which sentence
+    each one lands in -- for a short story, its top 2 often sat right
+    next to each other in the same sentence, which felt cramped and
+    repetitive rather than a game spanning the story. Pulls a bigger
+    candidate pool and keeps at most one word per sentence, so the
+    two (when there are two) come from different parts of the story.
     """
-    clean_targets = pick_game_words(book.words)
+    clean_targets = pick_game_words(book.words, max_words=_WORD_GAME_CANDIDATE_POOL)
     if not clean_targets:
         return
 
-    occurrences = [
-        occ for occ in (find_word_occurrence(sentences, target) for target in clean_targets)
-        if occ is not None
-    ]
+    occurrences: list[tuple[int, int, str]] = []
+    same_sentence_leftovers: list[tuple[int, int, str]] = []
+    seen_sentences: set[int] = set()
+    for target in clean_targets:
+        occ = find_word_occurrence(sentences, target)
+        if occ is None:
+            continue
+        if occ[0] in seen_sentences:
+            same_sentence_leftovers.append(occ)
+            continue
+        seen_sentences.add(occ[0])
+        occurrences.append(occ)
+        if len(occurrences) >= _MAX_GAME_WORDS:
+            break
+    # Only fall back to a same-sentence word (e.g. a one-sentence
+    # story, where spreading across sentences isn't possible) if
+    # there still aren't enough picked.
+    for occ in same_sentence_leftovers:
+        if len(occurrences) >= _MAX_GAME_WORDS:
+            break
+        occurrences.append(occ)
     if not occurrences:
         return
 

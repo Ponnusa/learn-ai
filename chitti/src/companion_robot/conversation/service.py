@@ -247,7 +247,7 @@ class ConversationService:
         reply_text, _model = await self._llm.generate_reply(
             [{"role": "user", "content": "React now."}], prompt
         )
-        reaction = parse_comprehension_reaction(reply_text)
+        reaction = parse_comprehension_reaction(reply_text, child_answer)
         # Decision 0083, found live: the model rejected "red" for
         # "What color is Dan's dog?" against a story that says "Dan
         # has a red dog" -- then admitted on the final attempt it was

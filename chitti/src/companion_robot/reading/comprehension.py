@@ -173,18 +173,22 @@ def build_reaction_prompt(
         guidance = (
             "This is the child's last attempt at this question. If their answer "
             "is already right (even in different words), clearly confirm it was "
-            "right and stop there -- do not also hedge or ask them to reconsider. "
-            "If it's still not right, gently explain the real detail yourself in "
-            "one short sentence and move on -- do NOT ask them to try again."
+            "right -- name the actual detail they got right (don't just say "
+            "something generic like \"thanks for sharing that\") -- and stop "
+            "there; do not also hedge or ask them to reconsider. If it's still "
+            "not right, gently explain the real detail yourself in one short "
+            "sentence and move on -- do NOT ask them to try again."
         )
     else:
         guidance = (
             "If their answer is right (even in different words), clearly confirm "
-            "it was right and stop there -- do not also hedge, add a clue, or ask "
-            "them to reconsider; a right answer gets STATUS resolved, full stop. "
-            "If it's wrong or clearly incomplete, do NOT reveal the correct "
-            "detail yet -- acknowledge what they said, give ONE small clue "
-            "grounded in the story, and invite them to try again."
+            "it was right -- name the actual detail they got right (don't just say "
+            "something generic like \"thanks for sharing that\") -- and stop there; "
+            "do not also hedge, add a clue, or ask them to reconsider; a right "
+            "answer gets STATUS resolved, full stop. If it's wrong or clearly "
+            "incomplete, do NOT reveal the correct detail yet -- acknowledge what "
+            "they said, give ONE small clue grounded in the story, and invite them "
+            "to try again."
         )
     return (
         f"{age_line}You are Chitti, a friendly companion robot. You just asked "
@@ -220,13 +224,21 @@ def parse_questions(reply_text: str) -> list[str]:
     return questions
 
 
-def parse_comprehension_reaction(reply_text: str) -> ComprehensionReaction:
+def parse_comprehension_reaction(
+    reply_text: str, child_answer: str = ""
+) -> ComprehensionReaction:
     """Parses the STATUS:/SAY: format build_reaction_prompt() asks
     for. Same strict-but-forgiving style as parse_questions() --
     case-insensitive labels, blank lines ignored. Defaults to
     resolved=True (needs_retry=False) if the status line is missing
     or doesn't say "needs_retry" -- a parse hiccup must never get the
-    child stuck in a retry loop; it just moves on instead."""
+    child stuck in a retry loop; it just moves on instead.
+
+    `child_answer` (passed by react_to_comprehension_answer(), which
+    has it on hand) shapes the malformed-reply fallback below --
+    found live, a bare "Thanks for sharing that!" with no mention of
+    what the child actually said reads as flat and disengaged next to
+    every other reaction in this flow, which names the real detail."""
     needs_retry = False
     say = ""
     for line in reply_text.splitlines():
@@ -242,5 +254,10 @@ def parse_comprehension_reaction(reply_text: str) -> ComprehensionReaction:
         # Same "never leave the child with silence" instinct as
         # safety/checks.py's decline_message() -- a malformed reply
         # must never mean nothing gets said.
-        return ComprehensionReaction(text="Thanks for sharing that!", needs_retry=False)
+        fallback = (
+            f'Great job, you said "{child_answer}" -- nice work!'
+            if child_answer
+            else "Great job answering that!"
+        )
+        return ComprehensionReaction(text=fallback, needs_retry=False)
     return ComprehensionReaction(text=say, needs_retry=needs_retry)
