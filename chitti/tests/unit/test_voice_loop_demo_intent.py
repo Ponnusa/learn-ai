@@ -28,6 +28,7 @@ from companion_robot.transcripts.repository import TranscriptRepository
 from companion_robot.voice.interfaces import LanguageModelBackend
 import companion_robot.voice_loop_demo as voice_loop_demo
 from companion_robot.voice_loop_demo import (
+    _MAX_FILLERS_PER_WAIT,
     _MAX_FULL_CORRECTIONS,
     _THINKING_FILLERS,
     _classify_read_first_offer_reply,
@@ -343,21 +344,47 @@ async def test_speak_while_thinking_stops_once_the_task_is_done():
 
     await _speak_while_thinking(fake_task, tts, _FakeAudio(), face, 1.0)
 
-    assert tts.synthesized == [_THINKING_FILLERS[0]]
+    # Decision 0117: which filler is picked first is now random (so a
+    # session's many short waits don't all start with the exact same
+    # line) -- just the one real filler, from the real pool.
+    assert len(tts.synthesized) == 1
+    assert tts.synthesized[0] in _THINKING_FILLERS
 
 
 async def test_speak_while_thinking_stops_after_the_last_filler_when_still_not_done():
     """A Future that's never resolved guarantees task.done() stays
     False for the whole loop -- no real sleep/timing needed to prove
-    the function speaks each filler once, in order, and then simply
-    stops rather than looping back or repeating one."""
+    the function speaks up to the per-wait cap and then simply stops
+    rather than looping back or repeating one."""
     tts = _FakeTTS()
     face = _FakeFace()
     never_done = asyncio.get_running_loop().create_future()
 
     await _speak_while_thinking(never_done, tts, _FakeAudio(), face, 1.0)
 
-    assert tts.synthesized == _THINKING_FILLERS  # each spoken once, in order, no repeats
+    # Decision 0117: the pool is bigger than one wait's own cap now
+    # (so different calls can draw a different subset) -- exactly
+    # _MAX_FILLERS_PER_WAIT spoken, each a real filler, no repeats.
+    assert len(tts.synthesized) == _MAX_FILLERS_PER_WAIT
+    assert len(set(tts.synthesized)) == _MAX_FILLERS_PER_WAIT
+    assert all(filler in _THINKING_FILLERS for filler in tts.synthesized)
+
+
+async def test_speak_while_thinking_varies_which_filler_comes_first():
+    """Decision 0117, found live: this used to always start with the
+    exact same line ("Hmm, let me think about that...") on every
+    single call -- across a session with many LLM waits, the child
+    heard that same opening line over and over. Across enough calls,
+    the first filler spoken should vary, not always be the same one."""
+    first_fillers = set()
+    for _ in range(20):
+        tts = _FakeTTS()
+        face = _FakeFace()
+        fake_task = _FakeTask(done_after=1)
+        await _speak_while_thinking(fake_task, tts, _FakeAudio(), face, 1.0)
+        first_fillers.add(tts.synthesized[0])
+
+    assert len(first_fillers) > 1
 
 
 async def test_generate_with_thinking_filler_returns_the_real_result():

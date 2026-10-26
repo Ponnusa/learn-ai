@@ -33,6 +33,7 @@ import contextlib
 import difflib
 import logging
 import os
+import random
 import secrets
 import subprocess
 import time
@@ -362,11 +363,33 @@ _THINKING_FILLERS = [
     "Hmm, let me think about that...",
     "Okay, just a little longer...",
     "Almost got it...",
+    "Just a moment...",
+    "Let me see...",
+    "One second...",
 ]
+
+# Decision 0117: still caps how many play during any ONE wait (same
+# cap decision 0050 originally used, back when the pool itself was
+# exactly this size) -- a long tail of silence for a genuinely slow
+# call is preferable to droning through the whole pool. The pool
+# above is now bigger than this cap specifically so a *different*
+# random subset gets picked each call.
+_MAX_FILLERS_PER_WAIT = 3
 
 
 async def _speak_while_thinking(task: "asyncio.Task", tts, audio, face, speed: float) -> None:
-    for filler in _THINKING_FILLERS:
+    """Decision 0117, found live: this used to walk `_THINKING_FILLERS`
+    in the same fixed order every single call -- across a session
+    with many LLM waits, that meant the child heard the exact same
+    opening line ("Hmm, let me think about that...") over and over,
+    which gets repetitive fast. A random subset/order each call means
+    a short wait (by far the common case -- most calls need at most
+    one filler) gets a different line each time instead of always
+    the same one; still escalates through up to `_MAX_FILLERS_PER_WAIT`
+    for an unusually long wait, and still never repeats one within a
+    single wait."""
+    fillers = random.sample(_THINKING_FILLERS, min(_MAX_FILLERS_PER_WAIT, len(_THINKING_FILLERS)))
+    for filler in fillers:
         if task.done():
             return
         face.set_status_led(DeviceState.SPEAKING)
