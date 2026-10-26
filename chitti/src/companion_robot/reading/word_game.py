@@ -136,17 +136,21 @@ def build_word_game_reaction_prompt(
     same reasoning reading/comprehension.py's build_reaction_prompt()
     already established (decisions 0083/0097): a cheap, exact check
     beats trusting a model's own correctness judgment when one is
-    available. For any wrong word, hints.py's own blend_breakdown()
-    text is handed over as a given fact to state, not invented by the
-    model, so the phonics explanation stays accurate -- the model's
-    only job is warm, natural, combined phrasing."""
+    available.
+
+    Decision 0118: no longer hands over hints.py's own blend_breakdown()
+    text for a wrong word -- the whole point of decision 0116 was no
+    more phonics teaching anywhere in this flow, and this was the one
+    place still doing it. For anything wrong, the model just names the
+    real word and moves on warmly, same spirit as the simplified hint-
+    ladder replacement's own "That's okay! The word is 'X'." reaction."""
     age_line = f"The child is about {age} years old. " if age else ""
     word_lines = []
     for word, correct in results:
         if correct:
             word_lines.append(f'- "{word}": correct.')
         else:
-            word_lines.append(f'- "{word}": incorrect. The real breakdown: {blend_breakdown(word)}.')
+            word_lines.append(f'- "{word}": incorrect. The real word is "{word}".')
     words_phrase = "words hidden" if len(results) > 1 else "a word hidden"
     return (
         f"{age_line}You are Chitti, a friendly companion robot. You just played a "
@@ -155,9 +159,10 @@ def build_word_game_reaction_prompt(
         "do not re-judge correctness yourself:\n"
         + "\n".join(word_lines)
         + "\n\nWrite ONE short, warm, combined reaction covering every word above -- "
-        "celebrate what was right, and for anything wrong, gently state the real word "
-        "and its breakdown exactly as given, then encourage them. Use ONLY the facts "
-        "given above and the story text below -- never invent new details. Keep it to "
-        "two or three short sentences, simple and encouraging either way.\n\n"
+        "celebrate what was right, and for anything wrong, gently name the real word "
+        "and encourage them -- no phonics breakdown, no sounding it out, just the word "
+        "itself. Use ONLY the facts given above and the story text below -- never "
+        "invent new details. Keep it to two or three short sentences, simple and "
+        "encouraging either way.\n\n"
         f"STORY:\n{story_text}"
     )

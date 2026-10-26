@@ -2993,11 +2993,11 @@ async def test_run_word_game_matches_the_sentence_split_already_on_screen():
     assert "Nice try on both words!" in tts.synthesized
 
 
-async def test_run_word_game_plays_real_phonics_sounds_for_a_wrong_answer():
-    """Decision 0091 (now reinforced by 0112's combined-turn reaction):
-    a wrong word still plays each covered grapheme's real recorded
-    sound right after the LLM's own reaction -- reinforcement with the
-    actual phoneme, not just the proxy word."""
+async def test_run_word_game_no_longer_plays_phonics_sounds_for_a_wrong_answer():
+    """Decision 0118: the word game's old reinforcement (decision 0091)
+    -- playing each covered grapheme's real recorded sound after a
+    wrong word -- is gone, the last place in the reading flow still
+    teaching phonics after decision 0116 removed it everywhere else."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -3028,11 +3028,11 @@ async def test_run_word_game_plays_real_phonics_sounds_for_a_wrong_answer():
     # audio.played also captures every _speak() call's TTS playback
     # (_FakeTTS.synthesize()'s fixed b"fake-audio" placeholder) -- real
     # phonics clips are real WAV PCM, never that exact placeholder.
-    # "bunny" decomposes to b/u/n/y (one grapheme per sound -- "nn" is
-    # one /n/, not two); every one of those has a real clip except "y"
-    # (decision 0091's DEFERRED_GRAPHEMES) -- 3 real clips played.
+    # "bunny" (the word missed) decomposes to real-clip-covered
+    # graphemes (b/u/n/y) that decision 0091 used to play here --
+    # none of that happens any more.
     real_clips = [clip for clip in audio.played if clip != b"fake-audio"]
-    assert len(real_clips) == 3
+    assert real_clips == []
 
 
 async def test_run_word_game_never_offered_when_no_word_qualifies():

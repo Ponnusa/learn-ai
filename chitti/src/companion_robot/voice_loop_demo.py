@@ -1570,6 +1570,12 @@ async def _run_word_game(
     being "spelled out." The blanks are already visible, highlighted
     in red, on screen; Chitti just needs to point at them and ask for
     a read, not narrate every letter.
+
+    Decision 0118: a wrong word no longer gets a real phonics-sound-
+    clip playback or a spoken grapheme breakdown afterward -- this
+    was the one place in the reading flow still teaching phonics
+    after decision 0116 removed it everywhere else. The LLM reaction
+    (react_to_word_game_answer()) just names the real word now.
     """
     clean_targets = pick_game_words(book.words)
     if not clean_targets:
@@ -1635,9 +1641,6 @@ async def _run_word_game(
     print(f"Chitti: {reaction.text}")
     face.set_status_led(DeviceState.SPEAKING)
     await _speak(tts, audio, reaction.text, speed=speed)
-    for target, (_clean, correct) in zip(targets, results):
-        if not correct:
-            await _play_real_phonics_sounds(audio, target)
 
     face.set_reading_text_highlights(None)
     face.set_reading_text(

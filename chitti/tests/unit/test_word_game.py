@@ -114,13 +114,16 @@ def test_find_word_occurrence_returns_none_for_a_word_not_on_any_page():
 def test_build_word_game_reaction_prompt_states_correctness_as_given_fact():
     """Decision 0112: correctness is decided by is_correct_answer()
     before this prompt is ever built -- the model is told, not asked,
-    which words were right or wrong."""
+    which words were right or wrong. Decision 0118: no phonics
+    breakdown handed over for a wrong word any more -- just the real
+    word itself, same as everywhere else in the reading flow since
+    decision 0116."""
     prompt = build_word_game_reaction_prompt(
         "Sam sat at the mat.", [("sam", True), ("sat", False)], age=6
     )
     assert '"sam": correct.' in prompt
-    assert '"sat": incorrect.' in prompt
-    assert "'s' like in" in prompt  # the real phonics breakdown for "sat"
+    assert '"sat": incorrect. The real word is "sat".' in prompt
+    assert "like in" not in prompt  # no phonics breakdown
     assert "Sam sat at the mat." in prompt
 
 
