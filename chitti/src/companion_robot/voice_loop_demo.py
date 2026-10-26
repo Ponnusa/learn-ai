@@ -386,10 +386,17 @@ async def _speak_while_thinking(task: "asyncio.Task", tts, audio, face, speed: f
     doesn't hear the same line every time (still decision 0117's own
     fix for that) -- then just waits silently for the real reply.
     Each line is a bit longer than decision 0117's own pool so one
-    filler alone comfortably bridges a typical LLM round trip."""
+    filler alone comfortably bridges a typical LLM round trip.
+
+    Decision 0124, found live: this was the one _speak() call site in
+    the whole file that never printed "Chitti: ..." first -- every
+    other line Chitti says shows up in the console/session log, but a
+    filler played invisibly, making it impossible to tell from the
+    log alone which filler played or whether one played at all."""
     if task.done():
         return
     filler = random.choice(_THINKING_FILLERS)
+    print(f"Chitti: {filler}")
     face.set_status_led(DeviceState.SPEAKING)
     await _speak(tts, audio, filler, speed=speed)
     face.set_status_led(DeviceState.PROCESSING)

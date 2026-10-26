@@ -350,6 +350,21 @@ async def test_speak_while_thinking_stops_once_the_task_is_done():
     assert tts.synthesized[0] in _THINKING_FILLERS
 
 
+async def test_speak_while_thinking_prints_the_filler_it_speaks(capsys):
+    """Decision 0124, found live: this was the one _speak() call site
+    that never printed "Chitti: ..." first -- a filler played
+    invisibly, so the console/session log gave no way to tell which
+    one played or whether one played at all."""
+    tts = _FakeTTS()
+    face = _FakeFace()
+    fake_task = _FakeTask(done_after=1)
+
+    await _speak_while_thinking(fake_task, tts, _FakeAudio(), face, 1.0)
+
+    printed = capsys.readouterr().out
+    assert f"Chitti: {tts.synthesized[0]}" in printed
+
+
 async def test_speak_while_thinking_never_speaks_more_than_one_filler():
     """Decision 0121, found live: a genuinely slow call used to
     escalate through up to 3 filler lines back-to-back, which read as
