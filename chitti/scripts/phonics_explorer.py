@@ -1,7 +1,11 @@
 #!/usr/bin/env python
 """Standalone phonics-sound explorer -- type a word, see it split into
 its real graphemes on screen, and hear each one's real recorded sound
-in order, with the grapheme currently playing highlighted.
+in order, with the grapheme currently playing highlighted. Two passes
+per word: slow and segmented first (each grapheme named: "c... a...
+t..."), then a quicker blended pass with hyphens between the letters
+("c-a-t") so the word visibly comes together, the way phonics
+instruction actually teaches segment-then-blend.
 
 Not part of the companion_robot app or voice loop at all -- this is a
 throwaway tool for manually checking the repo's own phonics assets
@@ -28,11 +32,14 @@ _WIDTH, _HEIGHT = 900, 300
 _BG = (20, 20, 30)
 _IDLE_COLOR = (230, 230, 230)
 _HIGHLIGHT_COLOR = (255, 80, 80)
+_SEPARATOR_COLOR = (110, 110, 120)
 _NOTE_COLOR = (150, 150, 160)
 _FONT_SIZE = 72
 _NOTE_FONT_SIZE = 22
 _GAP = 24
-_STEP_PAUSE_SECONDS = 0.4  # breathing room between graphemes, after the clip finishes
+_SLOW_PAUSE_SECONDS = 0.4  # breathing room between graphemes, segmented pass
+_BLEND_PAUSE_SECONDS = 0.08  # quick, so the word visibly blends together
+_DEFERRED_NOTE_SECONDS = 1.0
 
 
 def _pump_events() -> bool:
@@ -56,22 +63,68 @@ def _wait(seconds: float) -> bool:
     return True
 
 
-def _draw(screen, font, note_font, graphemes: list[str], highlight_index: int | None, note: str) -> None:
+def _draw(
+    screen, font, note_font, graphemes: list[str], highlight_index: int | None, note: str,
+    separator: str = "",
+) -> None:
     screen.fill(_BG)
+    sep_width = font.size(separator)[0] if separator else 0
     widths = [font.size(g)[0] for g in graphemes]
-    total_width = sum(widths) + _GAP * (len(graphemes) - 1)
+    total_width = sum(widths) + (sep_width + _GAP) * (len(graphemes) - 1)
     x = (_WIDTH - total_width) // 2
     y = _HEIGHT // 2 - _FONT_SIZE // 2
     for i, grapheme in enumerate(graphemes):
         color = _HIGHLIGHT_COLOR if i == highlight_index else _IDLE_COLOR
         rendered = font.render(grapheme, True, color)
         screen.blit(rendered, (x, y))
-        x += widths[i] + _GAP
+        x += widths[i]
+        if i < len(graphemes) - 1:
+            if separator:
+                sep_rendered = font.render(separator, True, _SEPARATOR_COLOR)
+                screen.blit(sep_rendered, (x + _GAP // 2, y))
+            x += sep_width + _GAP
     if note:
         note_rendered = note_font.render(note, True, _NOTE_COLOR)
         note_rect = note_rendered.get_rect(center=(_WIDTH // 2, _HEIGHT - 40))
         screen.blit(note_rendered, note_rect)
     pygame.display.flip()
+
+
+def _play_pass(
+    screen, font, note_font, graphemes: list[str], grapheme_hits, pause_seconds: float,
+    separator: str,
+) -> bool:
+    """One full pass over every grapheme: highlight it, play its real
+    clip (or show why there isn't one), pause, move on. `pause_seconds`
+    and `separator` are what tell the slow segmented pass and the
+    quick blended pass apart -- same mechanics otherwise."""
+    _draw(screen, font, note_font, graphemes, None, "", separator)
+    if not _wait(pause_seconds):
+        return False
+
+    for i, grapheme_hit in enumerate(grapheme_hits):
+        grapheme = grapheme_hit.grapheme
+        clip = get_clip_bytes(grapheme)
+        if clip is None:
+            reason = DEFERRED_GRAPHEMES.get(grapheme, "no clip for this one yet")
+            _draw(
+                screen, font, note_font, graphemes, i,
+                f'no real clip for "{grapheme}" -- {reason}', separator,
+            )
+            if not _wait(_DEFERRED_NOTE_SECONDS):
+                return False
+            continue
+
+        _draw(screen, font, note_font, graphemes, i, "", separator)
+        sound = pygame.mixer.Sound(io.BytesIO(pcm_to_wav_bytes(clip)))
+        sound.play()
+        if not _wait(sound.get_length()):
+            return False
+        if not _wait(pause_seconds):
+            return False
+
+    _draw(screen, font, note_font, graphemes, None, "", separator)
+    return True
 
 
 def explore_word(screen, font, note_font, word: str) -> bool:
@@ -82,30 +135,20 @@ def explore_word(screen, font, note_font, word: str) -> bool:
         return _wait(1.5)
 
     graphemes = [g.grapheme for g in decomposition.graphemes]
-    _draw(screen, font, note_font, graphemes, None, "")
-    if not _wait(0.4):
+
+    # Pass 1: slow and segmented -- "c... a... t...", no separator, a
+    # real breath between each sound.
+    if not _play_pass(screen, font, note_font, graphemes, decomposition.graphemes, _SLOW_PAUSE_SECONDS, ""):
+        return False
+    if not _wait(0.6):
         return False
 
-    for i, grapheme_hit in enumerate(decomposition.graphemes):
-        grapheme = grapheme_hit.grapheme
-        clip = get_clip_bytes(grapheme)
-        if clip is None:
-            reason = DEFERRED_GRAPHEMES.get(grapheme, "no clip for this one yet")
-            _draw(screen, font, note_font, graphemes, i, f'no real clip for "{grapheme}" -- {reason}')
-            if not _wait(1.0):
-                return False
-            continue
+    # Pass 2: quick and blended -- "c-a-t", hyphens between the
+    # letters, barely any pause -- the word visibly coming together.
+    if not _play_pass(screen, font, note_font, graphemes, decomposition.graphemes, _BLEND_PAUSE_SECONDS, "-"):
+        return False
 
-        _draw(screen, font, note_font, graphemes, i, "")
-        sound = pygame.mixer.Sound(io.BytesIO(pcm_to_wav_bytes(clip)))
-        sound.play()
-        if not _wait(sound.get_length()):
-            return False
-        if not _wait(_STEP_PAUSE_SECONDS):
-            return False
-
-    _draw(screen, font, note_font, graphemes, None, "")
-    return _wait(0.5)
+    return _wait(0.6)
 
 
 def main() -> None:
