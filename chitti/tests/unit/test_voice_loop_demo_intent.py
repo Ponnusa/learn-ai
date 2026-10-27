@@ -654,14 +654,15 @@ async def test_fallback_tier_switch_declined_stays_in_current_mode():
 async def test_run_reading_partner_never_checks_the_read_aloud_transcript_for_a_switch():
     """The mode's one genuinely different rule, called out explicitly
     in its own docstring: intent-switch detection must run on the
-    short "want another one?" reply between books, never on the
-    child's read-aloud transcript -- that transcript *is* the story's
-    own text, so running phrase detection on it would be a false-
-    positive source. The read-aloud text below ("tell me a story")
-    would itself resolve to a strict-phrase STORY match if it were
-    (incorrectly) checked -- if that happened, the loop would break
-    after the FIRST capture and the second, real "what next" turn
-    would never be reached."""
+    short yes/no sub-prompts (the "read it to you first?" offer, the
+    "want another one?" reply between books), never on the child's
+    read-aloud transcript -- that transcript *is* the story's own
+    text, so running phrase detection on it would be a false-positive
+    source. The read-aloud text below ("can we sing a song") would
+    itself resolve to a strict-phrase SONG match if it were
+    (incorrectly) checked at THAT capture -- if that happened, the
+    loop would break right after the read-aloud and the real "what
+    next" turn would never be reached."""
     conn = connect(":memory:")
     reading = ReadingRepository(conn)
     reading_exercises = ReadingExerciseRepository(conn)
@@ -669,18 +670,19 @@ async def test_run_reading_partner_never_checks_the_read_aloud_transcript_for_a_
     conversation = ConversationService(llm)
     face = _FakeFace()
 
-    # A function, not a static list: the read-aloud text ("tell me a
-    # story") is totally unrelated to the generated book, so decision
-    # 0052's hint-and-retry loop will very likely fire for a missed
-    # word before the real "what next" turn is ever reached -- every
-    # call after the first (whichever turn it ends up being) returns
-    # the same switch phrase, so the test doesn't need to predict
-    # exactly how many hint-stage captures happen in between.
+    # A function, not a static list: the read-aloud text ("can we
+    # sing a song") is totally unrelated to the generated book, so
+    # decision 0052's hint-and-retry loop will very likely fire for a
+    # missed word before the real "what next" turn is ever reached --
+    # every call after the first (which declines the "read it to you
+    # first?" offer) returns the same switch phrase, so the test
+    # doesn't need to predict exactly how many hint-stage captures
+    # happen in between.
     calls = {"n": 0}
 
     async def _capture_side_effect(*_args, **_kwargs):
         calls["n"] += 1
-        return "tell me a story" if calls["n"] == 1 else "can we sing a song"
+        return "no thanks" if calls["n"] == 1 else "can we sing a song"
 
     with patch(
         "companion_robot.voice_loop_demo._capture_and_transcribe",
@@ -2265,6 +2267,69 @@ async def test_run_reading_partner_offers_to_reread_a_finished_exercise_next_ses
     assert tts2.synthesized[0] == 'Would you like to read "Homework" again, or try something new?'
     # The same passage was shown again, verbatim.
     assert ["A cat sat."] in [lines for lines in face.reading_texts if lines]
+
+
+async def test_run_reading_partner_switches_mode_from_the_reread_offer():
+    """Found live: a child answering the "read X again, or something
+    new?" offer with a genuine mode-switch request ("I want to teach
+    you something") was never checked against _maybe_switch_mode() at
+    all -- only _classify_reread_reply()'s own narrow yes/no logic saw
+    it, so the switch request was silently dropped and a brand new
+    book got generated instead. The switch check now runs first."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="A cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+
+    with _patch_captures("no thanks", "a cat sat", "no thanks", "let's just chat"):
+        await _run_reading_partner(
+            conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    tts2 = _FakeTTS()
+    with _patch_captures("I want to teach you something"):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, tts2, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "1"
+    assert carried_text == "I want to teach you something"
+
+
+async def test_run_reading_partner_switches_mode_from_the_read_first_offer():
+    """Found live: _classify_read_first_offer_reply()'s own "you"
+    heuristic (decision 0087) matched the word "you" inside "teach YOU
+    something" and wrongly treated a genuine mode-switch request as
+    "yes, read it to me first." The switch check now runs before that
+    heuristic."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    llm = _FakeLLM(reply="unused")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+
+    with _patch_captures("I want to teach you something"):
+        next_mode, carried_text = await _run_reading_partner(
+            conversation, _FakeTTS(), _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert next_mode == "1"
+    assert carried_text == "I want to teach you something"
 
 
 def test_classify_reread_reply_recognizes_the_story_title_as_a_yes():

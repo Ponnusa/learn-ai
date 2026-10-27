@@ -2065,6 +2065,22 @@ async def _run_reading_partner(
                     face.set_status_led(DeviceState.LISTENING)
                     reread_reply = await _capture_and_transcribe(stt)
                     print(f"You said: {reread_reply}")
+                    # Found live: a mode-switch request ("I want to teach
+                    # you something") said in answer to this specific
+                    # reread/new-story question was never checked against
+                    # _maybe_switch_mode() at all -- only this question's
+                    # own narrow yes/no classifier saw it, so it either
+                    # fell through as "unclear" or, worse, got matched by
+                    # _REREAD_DECLINE_PHRASES/title-token heuristics never
+                    # meant for it. Checked first, same precedent as the
+                    # "want another?" capture below.
+                    candidate_mode = await _maybe_switch_mode(
+                        reread_reply, conversation, "5", tts, audio, stt, face, speed
+                    )
+                    if candidate_mode is not None:
+                        next_mode = candidate_mode
+                        switch_trigger_text = reread_reply
+                        break
                     reread_answer = _classify_reread_reply(reread_reply, most_recent.title)
                     if reread_answer is True:
                         offered_reread = True
@@ -2237,6 +2253,19 @@ async def _run_reading_partner(
                 face.set_status_led(DeviceState.LISTENING)
                 offer_reply = await _capture_and_transcribe(stt)
                 print(f"You said: {offer_reply}")
+                # Found live: a mode-switch request said here ("I want to
+                # teach you something") was never checked at all -- worse,
+                # _classify_read_first_offer_reply()'s own "you" heuristic
+                # (below) matched the word "you" inside "teach YOU
+                # something" and wrongly read it as "yes, read it to me."
+                # Checked first, same precedent as the reread offer above.
+                candidate_mode = await _maybe_switch_mode(
+                    offer_reply, conversation, "5", tts, audio, stt, face, speed
+                )
+                if candidate_mode is not None:
+                    next_mode = candidate_mode
+                    switch_trigger_text = offer_reply
+                    break
                 # Decision 0087, found live: a child's natural reply
                 # here is often just "you" (as in "you read it") --
                 # classify_affirmative()'s generic yes/no vocabulary
