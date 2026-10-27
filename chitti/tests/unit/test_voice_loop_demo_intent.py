@@ -42,6 +42,7 @@ from companion_robot.voice_loop_demo import (
     _detect_switch_intent,
     _generate_with_thinking_filler,
     _give_brief_callout,
+    _match_spoken_choice,
     _pick_item_by_voice,
     _resolve_spoken_choice,
     _run_comprehension_questions,
@@ -440,6 +441,16 @@ def test_resolve_spoken_choice_defaults_to_first_on_no_match():
     assert _resolve_spoken_choice("completely unrelated gibberish", items) is items[0]
 
 
+def test_match_spoken_choice_returns_none_when_nothing_matches():
+    """Decision 0129: unlike _resolve_spoken_choice() (which always
+    returns an item), the underlying matcher must distinguish "really
+    didn't match" from "matched index 0" -- _pick_item_by_voice() uses
+    this to decide whether to acknowledge the miss out loud."""
+    items = [_Item("The Fox"), _Item("Hush Little Baby")]
+    assert _match_spoken_choice("I want to read a story", items) is None
+    assert _match_spoken_choice("the fox one", items) == 0
+
+
 # -- _pick_item_by_voice ---------------------------------------------------
 
 
@@ -468,6 +479,29 @@ async def test_pick_item_by_voice_multiple_items_speaks_and_listens():
     assert "The Fox" in tts.synthesized[0] and "Hush Little Baby" in tts.synthesized[0]
     assert DeviceState.SPEAKING in face.states
     assert DeviceState.LISTENING in face.states
+
+
+async def test_pick_item_by_voice_acknowledges_an_unmatched_reply_before_defaulting():
+    """Found live (decision 0129): a reply that didn't name any of
+    the titles just offered ("I want to read a story", said right
+    after "Which one would you like?") used to default to the first
+    item with zero acknowledgment -- identical, from the child's
+    perspective, to Chitti not having heard anything at all. Now it
+    says so, same spoken fallback already used when nothing was heard."""
+    items = [_Item("The Fox"), _Item("Hush Little Baby")]
+    tts = _FakeTTS()
+    face = _FakeFace()
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        return_value="I want to read a story",
+    ):
+        item = await _pick_item_by_voice(items, "stories", tts, "fake-stt", _FakeAudio(), face, 1.0)
+
+    assert item is items[0]
+    assert len(tts.synthesized) == 2  # the "which one?" question, then this
+    assert "The Fox" in tts.synthesized[1]
 
 
 # -- a mode loop actually switching, end to end ----------------------------

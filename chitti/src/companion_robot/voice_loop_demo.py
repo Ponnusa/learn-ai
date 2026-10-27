@@ -574,26 +574,41 @@ _ORDINAL_WORDS = {
 }
 
 
-def _resolve_spoken_choice(spoken: str, items: list) -> object:
-    """Resolves a spoken answer to one of `items` (each with a
-    `.title`) -- exact title substring match first (the common case:
-    the child repeats part of the title), then an ordinal word
-    ("first"/"1st"/"one" -> index 0), then a fuzzy title match, then
-    defaults to the first item rather than failing outright. Same
-    "deterministic, returns a sane default rather than guessing
-    wildly" spirit as education/math_check.py."""
+def _match_spoken_choice(spoken: str, items: list) -> int | None:
+    """The actual matching logic behind _resolve_spoken_choice() --
+    split out so _pick_item_by_voice() can tell a REAL match (the
+    child named a title, an ordinal, or something close enough) apart
+    from the "nothing matched at all" fallback, instead of both cases
+    looking identical to the caller. Exact title substring match first
+    (the common case: the child repeats part of the title), then an
+    ordinal word ("first"/"1st"/"one" -> index 0), then a fuzzy title
+    match. Returns None when nothing matched -- the caller decides
+    what to do about that, this function never guesses."""
     lowered = spoken.lower()
     titles = [item.title for item in items]
     for i, title in enumerate(titles):
         if title.lower() in lowered:
-            return items[i]
+            return i
     for word in lowered.split():
         if word in _ORDINAL_WORDS and _ORDINAL_WORDS[word] < len(items):
-            return items[_ORDINAL_WORDS[word]]
+            return _ORDINAL_WORDS[word]
     close = difflib.get_close_matches(lowered, [t.lower() for t in titles], n=1, cutoff=0.4)
     if close:
-        return items[[t.lower() for t in titles].index(close[0])]
-    return items[0]
+        return [t.lower() for t in titles].index(close[0])
+    return None
+
+
+def _resolve_spoken_choice(spoken: str, items: list) -> object:
+    """Resolves a spoken answer to one of `items` (each with a
+    `.title`), defaulting to the first item rather than failing
+    outright when nothing matches. Same "deterministic, returns a
+    sane default rather than guessing wildly" spirit as
+    education/math_check.py. Found live: when NOTHING matches,
+    _pick_item_by_voice() needs to know that too (to say so out loud,
+    decision 0129) -- use _match_spoken_choice() directly there
+    instead of this wrapper."""
+    index = _match_spoken_choice(spoken, items)
+    return items[index if index is not None else 0]
 
 
 async def _pick_item_by_voice(
@@ -619,7 +634,25 @@ async def _pick_item_by_voice(
     text = await _capture_and_transcribe(stt)
     print(f"You said: {text}")
     if text.strip():
-        return _resolve_spoken_choice(text, items)
+        index = _match_spoken_choice(text, items)
+        if index is not None:
+            return items[index]
+        # Found live (decision 0129): the child said something real
+        # ("I want to read a story") that just didn't name any of the
+        # titles just offered -- before this, that silently defaulted
+        # to the first title with zero acknowledgment, identical to
+        # genuinely not hearing anything at all. That read as Chitti
+        # not listening: it asked "which one?" and then ignored
+        # whatever the answer was. Now it says so, same spoken
+        # fallback as the "didn't catch that" case below.
+        retry_text = (
+            f"I didn't quite catch which one you meant -- let's start with "
+            f'"{items[0].title}"!'
+        )
+        print(f"Chitti: {retry_text}")
+        face.set_status_led(DeviceState.SPEAKING)
+        await _speak(tts, audio, retry_text, speed=speed)
+        return items[0]
     retry_text = "Sorry, I didn't catch that -- let's go with the first one."
     print(f"Chitti: {retry_text}")
     face.set_status_led(DeviceState.SPEAKING)
