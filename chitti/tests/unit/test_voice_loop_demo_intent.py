@@ -344,7 +344,24 @@ class _FakeTask:
         return self._checks > self._done_after
 
 
-async def test_speak_while_thinking_stops_once_the_task_is_done():
+async def test_speak_while_thinking_says_nothing_while_fillers_are_disabled():
+    """Decision 0130, found live: the fixed filler pool is content-
+    blind -- said right after "I am sad.", "Let me see what I can
+    come up with here..." reads as flippant, not attentive. Disabled
+    by default (_THINKING_FILLERS_ENABLED = False) until there's a
+    context-aware or genuinely neutral replacement; this is what every
+    _generate_with_thinking_filler() caller gets today."""
+    tts = _FakeTTS()
+    face = _FakeFace()
+    fake_task = _FakeTask(done_after=1)
+
+    await _speak_while_thinking(fake_task, tts, _FakeAudio(), face, 1.0)
+
+    assert tts.synthesized == []
+
+
+async def test_speak_while_thinking_stops_once_the_task_is_done(monkeypatch):
+    monkeypatch.setattr(voice_loop_demo, "_THINKING_FILLERS_ENABLED", True)
     tts = _FakeTTS()
     face = _FakeFace()
     fake_task = _FakeTask(done_after=1)  # "done" starting from the 2nd check
@@ -358,11 +375,12 @@ async def test_speak_while_thinking_stops_once_the_task_is_done():
     assert tts.synthesized[0] in _THINKING_FILLERS
 
 
-async def test_speak_while_thinking_prints_the_filler_it_speaks(capsys):
+async def test_speak_while_thinking_prints_the_filler_it_speaks(capsys, monkeypatch):
     """Decision 0124, found live: this was the one _speak() call site
     that never printed "Chitti: ..." first -- a filler played
     invisibly, so the console/session log gave no way to tell which
     one played or whether one played at all."""
+    monkeypatch.setattr(voice_loop_demo, "_THINKING_FILLERS_ENABLED", True)
     tts = _FakeTTS()
     face = _FakeFace()
     fake_task = _FakeTask(done_after=1)
@@ -373,12 +391,13 @@ async def test_speak_while_thinking_prints_the_filler_it_speaks(capsys):
     assert f"Chitti: {tts.synthesized[0]}" in printed
 
 
-async def test_speak_while_thinking_never_speaks_more_than_one_filler():
+async def test_speak_while_thinking_never_speaks_more_than_one_filler(monkeypatch):
     """Decision 0121, found live: a genuinely slow call used to
     escalate through up to 3 filler lines back-to-back, which read as
     stalling. A Future that's never resolved guarantees task.done()
     stays False for as long as this runs -- proves the function
     speaks exactly one filler and then stops, rather than looping."""
+    monkeypatch.setattr(voice_loop_demo, "_THINKING_FILLERS_ENABLED", True)
     tts = _FakeTTS()
     face = _FakeFace()
     never_done = asyncio.get_running_loop().create_future()
@@ -389,12 +408,13 @@ async def test_speak_while_thinking_never_speaks_more_than_one_filler():
     assert tts.synthesized[0] in _THINKING_FILLERS
 
 
-async def test_speak_while_thinking_varies_which_filler_comes_first():
+async def test_speak_while_thinking_varies_which_filler_comes_first(monkeypatch):
     """Decision 0117, found live: this used to always start with the
     exact same line ("Hmm, let me think about that...") on every
     single call -- across a session with many LLM waits, the child
     heard that same opening line over and over. Across enough calls,
     the first filler spoken should vary, not always be the same one."""
+    monkeypatch.setattr(voice_loop_demo, "_THINKING_FILLERS_ENABLED", True)
     first_fillers = set()
     for _ in range(20):
         tts = _FakeTTS()
@@ -603,13 +623,13 @@ async def test_carried_over_text_gets_a_real_reply_without_another_capture():
     ):
         # Ctrl-C after the first (carried-over) turn is processed --
         # proves that turn used initial_text, since _capture_and_transcribe
-        # would raise immediately if it were ever called. Decision
-        # 0121: exactly one thinking filler plays before the real
-        # reply's own _speak call now (down from up to three).
+        # would raise immediately if it were ever called. Decision 0130:
+        # the thinking filler is disabled by default, so this is the
+        # real reply's own _speak call, not a filler's.
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            side_effect=[None, KeyboardInterrupt],
+            side_effect=[KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(
@@ -662,9 +682,10 @@ async def test_fallback_tier_switch_declined_stays_in_current_mode():
         with patch(
             "companion_robot.voice_loop_demo._speak",
             new_callable=AsyncMock,
-            # confirmation prompt, decline acknowledgment, decision
-            # 0121's one thinking filler, then the real reply
-            side_effect=[None, None, None, KeyboardInterrupt],
+            # confirmation prompt, decline acknowledgment, then the real
+            # reply -- decision 0130: the thinking filler is disabled by
+            # default, so it no longer consumes a _speak() call here.
+            side_effect=[None, None, KeyboardInterrupt],
         ):
             try:
                 await _run_everyday_companion(

@@ -376,6 +376,18 @@ _THINKING_FILLERS = [
     "Hang on, I'm thinking this through...",
 ]
 
+# Decision 0130, found live: these are fixed, context-blind lines --
+# said after "I am sad." it's "Let me see what I can come up with
+# here...", which reads as flippant, not attentive. Same problem for
+# any other emotionally-loaded turn; there's no content-aware way to
+# pick a "safe" one from this pool. Disabled for now rather than
+# deleted -- the escalating-filler mechanism itself (decision 0050)
+# is still the right idea for masking real LLM latency, it just needs
+# either a neutral, content-blind line (e.g. plain silence/a thinking
+# sound) or genuinely context-aware phrasing before it's safe to
+# re-enable. Flip back to True once that's decided.
+_THINKING_FILLERS_ENABLED = False
+
 
 async def _speak_while_thinking(task: "asyncio.Task", tts, audio, face, speed: float) -> None:
     """Decision 0121, found live: decision 0117 still escalated
@@ -393,7 +405,7 @@ async def _speak_while_thinking(task: "asyncio.Task", tts, audio, face, speed: f
     other line Chitti says shows up in the console/session log, but a
     filler played invisibly, making it impossible to tell from the
     log alone which filler played or whether one played at all."""
-    if task.done():
+    if task.done() or not _THINKING_FILLERS_ENABLED:
         return
     filler = random.choice(_THINKING_FILLERS)
     print(f"Chitti: {filler}")
