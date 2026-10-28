@@ -526,6 +526,34 @@ def create_app(
         reading_exercises.delete(exercise_id)
         return redirect(url_for("profile_reading_exercises", profile_id=profile_id))
 
+    # Decision 0131: comprehension questions are generated ahead of
+    # time by a separate headless worker (comprehension_worker.py,
+    # the only process here that holds an LLM key) and land in this
+    # repository as "generated" -- a parent reviews/edits them here
+    # and explicitly approves before Reading Partner will ever use
+    # them with the child. This route itself makes no LLM call.
+    @app.post("/profiles/<profile_id>/reading-exercises/<exercise_id>/approve-questions")
+    @requires_auth
+    def approve_reading_exercise_questions(profile_id, exercise_id):
+        if not _csrf_valid():
+            return "Invalid request.", 400
+        questions = [
+            line.strip()
+            for line in request.form.get("questions", "").splitlines()
+            if line.strip()
+        ]
+        if questions:
+            reading_exercises.approve_questions(exercise_id, questions)
+        return redirect(url_for("profile_reading_exercises", profile_id=profile_id))
+
+    @app.post("/profiles/<profile_id>/reading-exercises/<exercise_id>/regenerate-questions")
+    @requires_auth
+    def regenerate_reading_exercise_questions(profile_id, exercise_id):
+        if not _csrf_valid():
+            return "Invalid request.", 400
+        reading_exercises.request_regeneration(exercise_id)
+        return redirect(url_for("profile_reading_exercises", profile_id=profile_id))
+
     return app
 
 

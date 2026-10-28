@@ -804,6 +804,80 @@ async def test_run_reading_partner_grades_the_read_and_persists_mastery():
     assert profile.sessions_completed == 1
 
 
+async def test_run_reading_partner_uses_pre_approved_comprehension_questions():
+    """Decision 0131: an exercise with parent-approved comprehension
+    questions (generated ahead of time by the separate
+    comprehension_worker.py, never live) must skip
+    generate_comprehension_questions() entirely -- same "don't waste
+    content that's already there" precedent story_library.py's own
+    pre-written questions already established (decision 0104)."""
+    conn = connect(":memory:")
+    reading = ReadingRepository(conn)
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1",
+            child_profile_id="child-1",
+            title="Homework",
+            content="The cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    reading_exercises.approve_questions("ex1", ["Where did the cat sit?"])
+    llm = _FakeLLM(reply="STATUS: resolved\nSAY: Yes, the mat!")
+    conversation = ConversationService(llm)
+    face = _FakeFace()
+    tts = _FakeTTS()
+
+    answers = ["no thanks", "the cat sat", "the mat"]
+    calls = {"n": 0}
+
+    async def _capture_side_effect(*_args, **_kwargs):
+        index = calls["n"]
+        calls["n"] += 1
+        return answers[index] if index < len(answers) else "let's just chat"
+
+    with patch(
+        "companion_robot.voice_loop_demo._capture_and_transcribe",
+        new_callable=AsyncMock,
+        side_effect=_capture_side_effect,
+    ):
+        await _run_reading_partner(
+            conversation, tts, _FakeAudio(), "fake-stt",
+            reading, reading_exercises, face, "child-1", 1.0,
+        )
+
+    assert "Where did the cat sit?" in tts.synthesized
+    assert not any(
+        call[0][0]["content"] == "Write the questions now." for call in llm.calls
+    )
+
+
+async def test_approved_comprehension_pairs_is_empty_until_a_parent_approves():
+    """Decision 0131: "generated" (awaiting review) and "failed" must
+    NOT be used with the child -- only "approved" is good enough."""
+    conn = connect(":memory:")
+    reading_exercises = ReadingExerciseRepository(conn)
+    reading_exercises.create(
+        ReadingExerciseRecord(
+            id="ex1", child_profile_id="child-1", title="Homework", content="The cat sat.",
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    pending = reading_exercises.list_for_child("child-1")[0]
+    assert voice_loop_demo._approved_comprehension_pairs(pending) == []
+
+    reading_exercises.save_generated_questions("ex1", ["Where did the cat sit?"])
+    generated = reading_exercises.list_for_child("child-1")[0]
+    assert voice_loop_demo._approved_comprehension_pairs(generated) == []
+
+    reading_exercises.approve_questions("ex1", ["Where did the cat sit?"])
+    approved = reading_exercises.list_for_child("child-1")[0]
+    assert voice_loop_demo._approved_comprehension_pairs(approved) == [
+        ("Where did the cat sit?", None),
+    ]
+
+
 async def test_run_reading_partner_uses_a_pending_exercise_instead_of_generating():
     """Decision 0052: a parent-assigned exercise is read verbatim --
     no book-generation LLM call at all -- and marked consumed so it's

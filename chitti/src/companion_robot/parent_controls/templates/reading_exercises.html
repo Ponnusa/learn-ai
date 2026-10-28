@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block body %}
 <h1>Reading exercises</h1>
-<p class="hint">A specific passage (e.g. school homework) for this child to read aloud in Reading Partner. Served once as the next new thing to read; after that, Reading Partner may offer to read it again by voice, and themes its next generated story on it, before going back to its own stories.</p>
+<p class="hint">A specific passage (e.g. school homework) for this child to read aloud in Reading Partner. Served once as the next new thing to read; after that, Reading Partner may offer to read it again by voice, and themes its next generated story on it, before going back to its own stories. A background worker generates comprehension questions for each one shortly after it's added -- review and approve them below before Chitti uses them with your child.</p>
 {% if error %}<p class="error">{{ error }}</p>{% endif %}
 {% if exercises %}
 <ul class="card-list">
@@ -9,11 +9,42 @@
   <li class="card">
     <div class="card-actions">
       <div class="card-title" style="flex:1">{{ e.title }}</div>
-      <div class="card-meta">{{ "Read" if e.consumed_at else "Pending" }}</div>
+      <div class="card-meta">{{ "Read" if e.consumed_at else "Not yet read" }}</div>
       <form method="post" action="{{ url_for('delete_reading_exercise', profile_id=profile_id, exercise_id=e.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="danger">Delete</button>
       </form>
+    </div>
+    <div class="panel">
+      {% if e.comprehension_status == "pending" %}
+        <p class="hint">Comprehension questions: generating...</p>
+      {% elif e.comprehension_status == "failed" %}
+        <p class="hint">Comprehension questions: generation failed -- nothing safe came back.</p>
+        <form method="post" action="{{ url_for('regenerate_reading_exercise_questions', profile_id=profile_id, exercise_id=e.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit">Try again</button>
+        </form>
+      {% elif e.comprehension_status == "generated" %}
+        <p class="hint">Comprehension questions -- review before Chitti uses these with your child:</p>
+        <form method="post" action="{{ url_for('approve_reading_exercise_questions', profile_id=profile_id, exercise_id=e.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <textarea name="questions" rows="3" cols="60">{{ e.comprehension_questions | join("\n") }}</textarea>
+          <button type="submit">Approve</button>
+        </form>
+        <form method="post" action="{{ url_for('regenerate_reading_exercise_questions', profile_id=profile_id, exercise_id=e.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="danger">Regenerate instead</button>
+        </form>
+      {% elif e.comprehension_status == "approved" %}
+        <p class="hint">Comprehension questions (approved):</p>
+        <ul>
+          {% for q in e.comprehension_questions %}<li>{{ q }}</li>{% endfor %}
+        </ul>
+        <form method="post" action="{{ url_for('regenerate_reading_exercise_questions', profile_id=profile_id, exercise_id=e.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="danger">Regenerate instead</button>
+        </form>
+      {% endif %}
     </div>
   </li>
 {% endfor %}

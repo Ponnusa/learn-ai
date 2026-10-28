@@ -83,3 +83,84 @@ def test_delete_removes_the_exercise():
     assert repo.delete("e1") is True
     assert repo.list_for_child("child-1") == []
     assert repo.delete("e1") is False
+
+
+# -- Decision 0131: comprehension-question generation/approval ------------
+
+
+def test_new_exercise_starts_pending_with_no_questions():
+    repo = _repo()
+    repo.create(_exercise("e1"))
+
+    exercise = repo.list_for_child("child-1")[0]
+    assert exercise.comprehension_status == "pending"
+    assert exercise.comprehension_questions == []
+
+
+def test_list_awaiting_generation_only_returns_pending_ones_across_children():
+    repo = _repo()
+    repo.create(_exercise("e1", child_profile_id="child-a"))
+    repo.create(_exercise("e2", child_profile_id="child-b"))
+    repo.save_generated_questions("e2", ["Q?"])
+
+    awaiting = repo.list_awaiting_generation()
+
+    assert [e.id for e in awaiting] == ["e1"]
+
+
+def test_save_generated_questions_moves_to_generated_not_approved():
+    repo = _repo()
+    repo.create(_exercise("e1"))
+
+    repo.save_generated_questions("e1", ["Where did the cat sit?", "What color was the cat?"])
+
+    exercise = repo.list_for_child("child-1")[0]
+    assert exercise.comprehension_status == "generated"
+    assert exercise.comprehension_questions == [
+        "Where did the cat sit?", "What color was the cat?",
+    ]
+    assert exercise.comprehension_generated_at is not None
+    assert exercise.comprehension_approved_at is None
+
+
+def test_mark_generation_failed_is_not_picked_up_again_by_list_awaiting_generation():
+    """Decision 0131: distinct from "pending" so the worker's next
+    poll doesn't immediately retry the exact same content every
+    cycle."""
+    repo = _repo()
+    repo.create(_exercise("e1"))
+
+    repo.mark_generation_failed("e1")
+
+    assert repo.list_awaiting_generation() == []
+    assert repo.list_for_child("child-1")[0].comprehension_status == "failed"
+
+
+def test_approve_questions_lets_a_parent_edit_before_approving():
+    repo = _repo()
+    repo.create(_exercise("e1"))
+    repo.save_generated_questions("e1", ["Where did the cat sit?"])
+
+    repo.approve_questions("e1", ["Where did the cat sit?", "A parent-added question?"])
+
+    exercise = repo.list_for_child("child-1")[0]
+    assert exercise.comprehension_status == "approved"
+    assert exercise.comprehension_questions == [
+        "Where did the cat sit?", "A parent-added question?",
+    ]
+    assert exercise.comprehension_approved_at is not None
+
+
+def test_request_regeneration_resets_an_approved_exercise_back_to_pending():
+    repo = _repo()
+    repo.create(_exercise("e1"))
+    repo.approve_questions("e1", ["Where did the cat sit?"])
+
+    repo.request_regeneration("e1")
+
+    exercise = repo.list_for_child("child-1")[0]
+    assert exercise.comprehension_status == "pending"
+    assert exercise.comprehension_questions == []
+    assert exercise.comprehension_generated_at is None
+    assert exercise.comprehension_approved_at is None
+    assert [e.id for e in repo.list_awaiting_generation()] == ["e1"]

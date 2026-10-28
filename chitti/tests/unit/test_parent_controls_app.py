@@ -863,7 +863,11 @@ def test_create_and_list_reading_exercise():
 
     assert response.status_code == 200
     assert b"Homework" in response.data
-    assert b"Pending" in response.data
+    assert b"Not yet read" in response.data
+    # Decision 0131: comprehension questions aren't generated yet
+    # immediately after creation -- that's comprehension_worker.py's
+    # job, a separate process this test doesn't run.
+    assert b"Comprehension questions: generating" in response.data
 
 
 def test_reading_exercise_requires_title_and_content():
@@ -907,6 +911,84 @@ def test_delete_reading_exercise():
 
     response = client.get(f"/profiles/{profile_id}/reading-exercises")
     assert b"Homework" not in response.data
+
+
+def test_approve_reading_exercise_questions():
+    """Decision 0131: the parent's own review step -- questions a
+    separate headless worker generated (never this Flask app itself,
+    which has no LLM key) only become usable with the child once
+    approved here, possibly edited first."""
+    from companion_robot.parent_controls.reading_exercises import ReadingExerciseRepository
+
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/reading-exercises",
+        data={"title": "Homework", "content": "The cat sat.", "csrf_token": token},
+    )
+    response = client.get(f"/profiles/{profile_id}/reading-exercises")
+    exercise_id = re.search(
+        rb'/profiles/[a-f0-9]+/reading-exercises/([a-f0-9]+)/delete', response.data
+    ).group(1).decode()
+
+    # Simulate the worker's own write -- this test doesn't run a real
+    # LLM call or the worker process itself.
+    exercises = ReadingExerciseRepository(conn)
+    exercises.save_generated_questions(exercise_id, ["Where did the cat sit?"])
+
+    response = client.get(f"/profiles/{profile_id}/reading-exercises")
+    assert b"review before Chitti uses these" in response.data
+    assert b"Where did the cat sit?" in response.data
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/reading-exercises/{exercise_id}/approve-questions",
+        data={"questions": "Where did the cat sit?\nWhat color was the cat?", "csrf_token": token},
+    )
+
+    approved = exercises.list_for_child(profile_id)[0]
+    assert approved.comprehension_status == "approved"
+    assert approved.comprehension_questions == [
+        "Where did the cat sit?", "What color was the cat?",
+    ]
+    response = client.get(f"/profiles/{profile_id}/reading-exercises")
+    assert b"(approved)" in response.data
+
+
+def test_regenerate_reading_exercise_questions_resets_to_pending():
+    from companion_robot.parent_controls.reading_exercises import ReadingExerciseRepository
+
+    app, conn = _make_app()
+    client = _authenticated_client(app)
+    token = _get_csrf_token(client)
+    profile_id = _create_profile_and_get_id(client, token)
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/reading-exercises",
+        data={"title": "Homework", "content": "The cat sat.", "csrf_token": token},
+    )
+    response = client.get(f"/profiles/{profile_id}/reading-exercises")
+    exercise_id = re.search(
+        rb'/profiles/[a-f0-9]+/reading-exercises/([a-f0-9]+)/delete', response.data
+    ).group(1).decode()
+
+    exercises = ReadingExerciseRepository(conn)
+    exercises.approve_questions(exercise_id, ["Where did the cat sit?"])
+
+    token = _get_csrf_token(client)
+    client.post(
+        f"/profiles/{profile_id}/reading-exercises/{exercise_id}/regenerate-questions",
+        data={"csrf_token": token},
+    )
+
+    reset = exercises.list_for_child(profile_id)[0]
+    assert reset.comprehension_status == "pending"
+    assert reset.comprehension_questions == []
 
 
 def test_reading_exercises_are_scoped_per_child():

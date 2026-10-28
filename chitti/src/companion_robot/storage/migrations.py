@@ -200,6 +200,37 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, add_column
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {add_column_ddl}")
 
 
+def _ensure_reading_exercises_comprehension_columns(conn: sqlite3.Connection) -> None:
+    """Decision 0131: comprehension questions for a parent-uploaded
+    exercise are now generated up front by a separate worker (never
+    by the LAN-reachable Parent Controls Flask app itself, which holds
+    no LLM key at all) and must be parent-approved before Reading
+    Partner ever uses them with the child. 'pending' (not generated
+    yet) -> 'generated' (worker produced questions, awaiting review)
+    -> 'approved' (safe to use with the child) -> 'failed' (worker
+    tried and got nothing usable; a parent can request regeneration).
+    Existing rows all default to 'pending', same as a brand new one --
+    the worker picks them up on its next poll same as any other."""
+    _ensure_column(
+        conn,
+        "reading_exercises",
+        "comprehension_status",
+        "comprehension_status TEXT NOT NULL DEFAULT 'pending'",
+    )
+    _ensure_column(
+        conn,
+        "reading_exercises",
+        "comprehension_questions",
+        "comprehension_questions TEXT NOT NULL DEFAULT ''",
+    )
+    _ensure_column(
+        conn, "reading_exercises", "comprehension_generated_at", "comprehension_generated_at TEXT"
+    )
+    _ensure_column(
+        conn, "reading_exercises", "comprehension_approved_at", "comprehension_approved_at TEXT"
+    )
+
+
 def run_migrations(conn: sqlite3.Connection) -> None:
     conn.execute(_MEMORY_RECORDS_TABLE)
     conn.execute(_MEMORY_RECORDS_CHILD_INDEX)
@@ -268,4 +299,5 @@ def run_migrations(conn: sqlite3.Connection) -> None:
     _ensure_column(
         conn, "child_profiles", "last_greeted_date", "last_greeted_date TEXT NOT NULL DEFAULT ''"
     )
+    _ensure_reading_exercises_comprehension_columns(conn)
     conn.commit()

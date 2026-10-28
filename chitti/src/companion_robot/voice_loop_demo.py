@@ -1943,6 +1943,24 @@ def _classify_read_first_offer_reply(reply: str) -> bool:
     return classify_affirmative(reply) is True
 
 
+def _approved_comprehension_pairs(exercise) -> list[tuple[str, str | None]]:
+    """Decision 0131: comprehension questions for a parent-uploaded
+    exercise are generated ahead of time by a separate headless
+    worker (comprehension_worker.py) and only ever used here once a
+    parent has explicitly approved them through Parent Controls --
+    "generated" (awaiting review) and "failed" are NOT good enough,
+    same as "pending." Returning [] for anything short of "approved"
+    means _run_comprehension_questions() falls straight back to its
+    existing live generate_comprehension_questions() call, same as
+    before this decision -- nothing breaks while a parent hasn't
+    reviewed yet, or the worker hasn't run yet. No evidence sentence
+    is known for these (unlike story_library.py's hand-authored
+    pairs), same as any other LLM-generated question."""
+    if exercise.comprehension_status != "approved" or not exercise.comprehension_questions:
+        return []
+    return [(q, None) for q in exercise.comprehension_questions]
+
+
 async def _run_reading_partner(
     conversation,
     tts,
@@ -2153,6 +2171,7 @@ async def _run_reading_partner(
                     objective=objective,
                     sight_words=set(),
                     generation_source="parent_uploaded",
+                    comprehension=_approved_comprehension_pairs(exercise),
                 )
                 reading_exercises.mark_consumed(exercise.id)
                 consumed_this_call.add(exercise.id)
@@ -2172,6 +2191,7 @@ async def _run_reading_partner(
                     objective=objective,
                     sight_words=set(),
                     generation_source="parent_uploaded",
+                    comprehension=_approved_comprehension_pairs(reread_exercise),
                 )
                 followup_source_text = None
             else:
