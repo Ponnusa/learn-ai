@@ -150,6 +150,53 @@ a.action-link:hover {
   text-decoration: underline;
 }
 
+/* Decision 0132: the child profiles list used to lay every profile
+   out as one full-width row, with its 6 action links (Edit, Memories,
+   Engagement, Transcripts, Reading, Progress) all crammed into a
+   single cramped flex line -- cards per row for a multi-child
+   household and each card's own actions needed room to breathe. */
+.card-list--grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.profile-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+a.action-link--boxed {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  text-align: center;
+  background: var(--bg);
+}
+
+a.action-link--boxed:hover {
+  background: #eaf1f8;
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.profile-delete {
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.profile-delete button.danger {
+  width: 100%;
+}
+
 table.data-table {
   width: 100%;
   border-collapse: collapse;
