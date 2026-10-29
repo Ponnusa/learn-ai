@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "story-stage"
+version = "0.1.0"
+description = "Prototype: turn a child's live story narration into an animated 2D scene (LLM -> strict JSON -> pygame renderer), standalone from companion_robot so the riskiest piece (does the LLM reliably stay inside a fixed sprite vocabulary?) can be tested before any Pi/audio work."
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic",
+    "pygame",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+story-stage = "story_stage.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -64,3 +64,11 @@ chitti/src/*.egg-info/
 # web UI (scripts/run_parent_controls.sh) -- contains the parent's own
 # PIN hash and real profile/story data, never committed.
 chitti/data/
+
+# Story Stage (narration -> LLM scene JSON -> pygame renderer prototype)
+story_stage/.venv/
+story_stage/**/__pycache__/
+story_stage/*.pyc
+story_stage/.env
+story_stage/.pytest_cache/
+story_stage/src/*.egg-info/

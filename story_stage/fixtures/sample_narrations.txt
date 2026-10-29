@@ -1,0 +1,6 @@
+# One line per narration turn -- run with:
+#   uv run story-stage --script fixtures/sample_narrations.txt
+# Lines starting with # are skipped.
+there's a big dragon in the forest and he's really sad because everyone runs away
+and then a princess comes and she's not scared and she walks up to him and says hi
+the cat jumps really high because it's so excited to see the dog
